@@ -746,6 +746,7 @@ export class ItemService implements OnModuleInit {
           i.weight_per_piece AS "weightPerPiece",
           i.pieces_per_kg AS "piecesPerKg",
           i.weight_per_meter AS "weightPerMeter",
+          i.finished_weight_per_meter AS "finishedWeightPerMeter",
           i.length_per_piece AS "lengthPerPiece",
           i.selling_price AS "sellingPrice",
           i.barcode,

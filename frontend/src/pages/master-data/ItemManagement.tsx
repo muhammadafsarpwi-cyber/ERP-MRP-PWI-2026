@@ -454,8 +454,8 @@ const ItemStatusChevronRibbon: React.FC<{
         const clipPath = isFirst
           ? 'polygon(0 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 0 100%)'
           : isLast
-          ? 'polygon(0 0, 100% 0, 100% 100%, 0 100%, 14px 50%)'
-          : 'polygon(0 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 0 100%, 14px 50%)';
+            ? 'polygon(0 0, 100% 0, 100% 100%, 0 100%, 14px 50%)'
+            : 'polygon(0 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 0 100%, 14px 50%)';
 
         return (
           <button
@@ -471,8 +471,8 @@ const ItemStatusChevronRibbon: React.FC<{
               padding: isFirst
                 ? '10px 22px 10px 16px'
                 : isLast
-                ? '10px 18px 10px 24px'
-                : '10px 20px 10px 24px',
+                  ? '10px 18px 10px 24px'
+                  : '10px 20px 10px 24px',
               marginLeft: isFirst ? 0 : -6,
               zIndex: isSelected ? 12 : chevrons.length - idx,
               fontSize: 12.5,
@@ -558,8 +558,8 @@ const ItemModalProcessChevronNav: React.FC<{
         const clipPath = isFirst
           ? 'polygon(0 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 0 100%)'
           : isLast
-          ? 'polygon(0 0, 100% 0, 100% 100%, 0 100%, 14px 50%)'
-          : 'polygon(0 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 0 100%, 14px 50%)';
+            ? 'polygon(0 0, 100% 0, 100% 100%, 0 100%, 14px 50%)'
+            : 'polygon(0 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 0 100%, 14px 50%)';
 
         return (
           <button
@@ -575,8 +575,8 @@ const ItemModalProcessChevronNav: React.FC<{
               padding: isFirst
                 ? '10px 22px 10px 16px'
                 : isLast
-                ? '10px 18px 10px 24px'
-                : '10px 20px 10px 24px',
+                  ? '10px 18px 10px 24px'
+                  : '10px 20px 10px 24px',
               marginLeft: isFirst ? 0 : -6,
               zIndex: isActive ? 10 : ITEM_DETAIL_TABS.length - idx,
               fontSize: 12.5,
@@ -771,12 +771,14 @@ const ItemManagement: React.FC = () => {
     // Pre-delete eligibility preview for the confirmation dialog (§8).
     // Best-effort: the modal still works with the static description on failure.
     apiService
-      .get<{ data: {
-        totalDependents: number;
-        totalProtected: number;
-        reason: string;
-        companyName?: string | null;
-      } }>(`/master-data/items/${record.id}/delete-eligibility`)
+      .get<{
+        data: {
+          totalDependents: number;
+          totalProtected: number;
+          reason: string;
+          companyName?: string | null;
+        }
+      }>(`/master-data/items/${record.id}/delete-eligibility`)
       .then((res) => setDeleteEligibility(res.data ?? null))
       .catch(() => setDeleteEligibility(null));
   };
@@ -817,7 +819,7 @@ const ItemManagement: React.FC = () => {
           materialRoleUsage: parsed.materialRoleUsage !== false,
         };
       }
-    } catch {}
+    } catch { }
     return DEFAULT_ITEM_VISIBLE_COLUMNS;
   });
 
@@ -1135,7 +1137,7 @@ const ItemManagement: React.FC = () => {
             }
             window.history.replaceState({}, document.title);
           }
-        }).catch(() => {});
+        }).catch(() => { });
       }
     }
   }, [location.state, items]);
@@ -1813,18 +1815,18 @@ const ItemManagement: React.FC = () => {
 
     const initialProcs = (record.processes && Array.isArray(record.processes) && record.processes.length > 0)
       ? record.processes.map((p, idx) => ({
-          sequence: Number(p.sequence ?? (idx + 1)),
-          name: typeof p.name === 'string' ? p.name : '',
-          departmentId: typeof (p as any).departmentId === 'string' ? (p as any).departmentId : undefined,
-          departmentName: typeof (p as any).departmentName === 'string' ? (p as any).departmentName : undefined,
-          divisionId: typeof (p as any).divisionId === 'string' ? (p as any).divisionId : undefined,
-          divisionName: typeof (p as any).divisionName === 'string' ? (p as any).divisionName : undefined,
-          sectionId: typeof (p as any).sectionId === 'string' ? (p as any).sectionId : undefined,
-          sectionName: typeof (p as any).sectionName === 'string' ? (p as any).sectionName : undefined,
-          outputItemId: typeof (p as any).outputItemId === 'string' ? (p as any).outputItemId : undefined,
-          outputItemCode: typeof (p as any).outputItemCode === 'string' ? (p as any).outputItemCode : undefined,
-          outputItemName: typeof (p as any).outputItemName === 'string' ? (p as any).outputItemName : undefined,
-        }))
+        sequence: Number(p.sequence ?? (idx + 1)),
+        name: typeof p.name === 'string' ? p.name : '',
+        departmentId: typeof (p as any).departmentId === 'string' ? (p as any).departmentId : undefined,
+        departmentName: typeof (p as any).departmentName === 'string' ? (p as any).departmentName : undefined,
+        divisionId: typeof (p as any).divisionId === 'string' ? (p as any).divisionId : undefined,
+        divisionName: typeof (p as any).divisionName === 'string' ? (p as any).divisionName : undefined,
+        sectionId: typeof (p as any).sectionId === 'string' ? (p as any).sectionId : undefined,
+        sectionName: typeof (p as any).sectionName === 'string' ? (p as any).sectionName : undefined,
+        outputItemId: typeof (p as any).outputItemId === 'string' ? (p as any).outputItemId : undefined,
+        outputItemCode: typeof (p as any).outputItemCode === 'string' ? (p as any).outputItemCode : undefined,
+        outputItemName: typeof (p as any).outputItemName === 'string' ? (p as any).outputItemName : undefined,
+      }))
       : [];
 
     const initialSourceItemId = (record as any).sourceItemId ?? record.productionInItemId ?? undefined;
@@ -1847,7 +1849,7 @@ const ItemManagement: React.FC = () => {
           })));
         }
       }
-    }).catch(() => {});
+    }).catch(() => { });
 
     form.setFieldsValue({
       itemCode: record.itemCode,
@@ -1889,6 +1891,7 @@ const ItemManagement: React.FC = () => {
       weightPerPiece: record.weightPerPiece ?? undefined,
       piecesPerKg: record.piecesPerKg ?? undefined,
       weightPerMeter: record.weightPerMeter ?? undefined,
+      finishedWeightPerMeter: (record as any).finishedWeightPerMeter ?? (record as any).finished_weight_per_meter ?? undefined,
       lengthPerPiece: record.lengthPerPiece ?? undefined,
       trackInventory: record.trackInventory ?? false,
       batchTracked: record.batchTracked ?? false,
@@ -1951,18 +1954,18 @@ const ItemManagement: React.FC = () => {
 
     const initialProcs = (record.processes && Array.isArray(record.processes) && record.processes.length > 0)
       ? record.processes.map((p, idx) => ({
-          sequence: Number(p.sequence ?? (idx + 1)),
-          name: typeof p.name === 'string' ? p.name : '',
-          departmentId: typeof (p as any).departmentId === 'string' ? (p as any).departmentId : undefined,
-          departmentName: typeof (p as any).departmentName === 'string' ? (p as any).departmentName : undefined,
-          divisionId: typeof (p as any).divisionId === 'string' ? (p as any).divisionId : undefined,
-          divisionName: typeof (p as any).divisionName === 'string' ? (p as any).divisionName : undefined,
-          sectionId: typeof (p as any).sectionId === 'string' ? (p as any).sectionId : undefined,
-          sectionName: typeof (p as any).sectionName === 'string' ? (p as any).sectionName : undefined,
-          outputItemId: typeof (p as any).outputItemId === 'string' ? (p as any).outputItemId : undefined,
-          outputItemCode: typeof (p as any).outputItemCode === 'string' ? (p as any).outputItemCode : undefined,
-          outputItemName: typeof (p as any).outputItemName === 'string' ? (p as any).outputItemName : undefined,
-        }))
+        sequence: Number(p.sequence ?? (idx + 1)),
+        name: typeof p.name === 'string' ? p.name : '',
+        departmentId: typeof (p as any).departmentId === 'string' ? (p as any).departmentId : undefined,
+        departmentName: typeof (p as any).departmentName === 'string' ? (p as any).departmentName : undefined,
+        divisionId: typeof (p as any).divisionId === 'string' ? (p as any).divisionId : undefined,
+        divisionName: typeof (p as any).divisionName === 'string' ? (p as any).divisionName : undefined,
+        sectionId: typeof (p as any).sectionId === 'string' ? (p as any).sectionId : undefined,
+        sectionName: typeof (p as any).sectionName === 'string' ? (p as any).sectionName : undefined,
+        outputItemId: typeof (p as any).outputItemId === 'string' ? (p as any).outputItemId : undefined,
+        outputItemCode: typeof (p as any).outputItemCode === 'string' ? (p as any).outputItemCode : undefined,
+        outputItemName: typeof (p as any).outputItemName === 'string' ? (p as any).outputItemName : undefined,
+      }))
       : [];
 
     let suggestedCode = `${record.itemCode}-COPY`;
@@ -1990,7 +1993,7 @@ const ItemManagement: React.FC = () => {
           remarks: l.remarks,
         })));
       }
-    }).catch(() => {});
+    }).catch(() => { });
 
     form.resetFields();
     form.setFieldsValue({
@@ -2033,6 +2036,7 @@ const ItemManagement: React.FC = () => {
       weightPerPiece: record.weightPerPiece ?? undefined,
       piecesPerKg: record.piecesPerKg ?? undefined,
       weightPerMeter: record.weightPerMeter ?? undefined,
+      finishedWeightPerMeter: (record as any).finishedWeightPerMeter ?? (record as any).finished_weight_per_meter ?? undefined,
       lengthPerPiece: record.lengthPerPiece ?? undefined,
       trackInventory: record.trackInventory ?? false,
       batchTracked: record.batchTracked ?? false,
@@ -2072,6 +2076,7 @@ const ItemManagement: React.FC = () => {
       const CLEARABLE_FIELDS = [
         'materialRoleUsage',
         'weightPerMeter',
+        'finishedWeightPerMeter',
         'weightPerPiece',
         'piecesPerKg',
         'lengthPerPiece',
@@ -2116,6 +2121,7 @@ const ItemManagement: React.FC = () => {
 
       const NUMERIC_FIELDS = new Set([
         'weightPerMeter',
+        'finishedWeightPerMeter',
         'weightPerPiece',
         'piecesPerKg',
         'lengthPerPiece',
@@ -2144,6 +2150,9 @@ const ItemManagement: React.FC = () => {
           } else {
             payload[k] = trimmed;
           }
+        } else if (NUMERIC_FIELDS.has(k)) {
+          const num = Number(v);
+          payload[k] = Number.isFinite(num) ? num : null;
         } else {
           payload[k] = v;
         }
@@ -2275,9 +2284,9 @@ const ItemManagement: React.FC = () => {
         );
         const legacyNames = !hadConfiguredRoute
           ? [1, 2, 3, 4, 5, 6].map((i) => {
-              const v = form.getFieldValue(`process${i}`) as unknown;
-              return typeof v === 'string' && v.trim() ? v.trim() : null;
-            })
+            const v = form.getFieldValue(`process${i}`) as unknown;
+            return typeof v === 'string' && v.trim() ? v.trim() : null;
+          })
           : [null, null, null, null, null, null];
         for (let i = 1; i <= 6; i++) {
           payload[`process${i}`] = cleanProcs[i - 1]?.name || legacyNames[i - 1];
@@ -2333,10 +2342,10 @@ const ItemManagement: React.FC = () => {
 
       // Immediately invalidate lookups cache and prefetch so Production Entry & other tabs reflect changes
       invalidateLookupsCache();
-      prefetchAllLookups(true).catch(() => {});
+      prefetchAllLookups(true).catch(() => { });
       try {
         window.dispatchEvent(new CustomEvent('erp-item-updated', { detail: { id: editing?.id, itemCode: savedItemCode } }));
-      } catch {}
+      } catch { }
 
       setResultData({
         title: editing ? 'Item Updated Successfully' : 'Item Saved Successfully',
@@ -2376,7 +2385,7 @@ const ItemManagement: React.FC = () => {
       setFormOpen(false);
       form.resetFields();
       invalidateLookupsCache();
-      prefetchAllLookups(true).catch(() => {});
+      prefetchAllLookups(true).catch(() => { });
       fetchItems({ force: true });
     }
   };
@@ -2390,10 +2399,10 @@ const ItemManagement: React.FC = () => {
       await apiService.patch(`/master-data/items/${record.id}/${action}`);
       message.success(`Item ${record.itemCode} ${action}d`);
       invalidateLookupsCache();
-      prefetchAllLookups(true).catch(() => {});
+      prefetchAllLookups(true).catch(() => { });
       try {
         window.dispatchEvent(new CustomEvent('erp-item-updated', { detail: { id: record.id, itemCode: record.itemCode } }));
-      } catch {}
+      } catch { }
       fetchItems({ force: true });
     } catch (err: any) {
       message.error(err?.response?.data?.message || `Failed to ${action} item`);
@@ -2405,10 +2414,10 @@ const ItemManagement: React.FC = () => {
       await apiService.delete(`/master-data/items/${record.id}${force ? '?force=true' : ''}`);
       message.success(`Item ${record.itemCode} ${force ? 'permanently force-deleted' : 'deleted'}`);
       invalidateLookupsCache();
-      prefetchAllLookups(true).catch(() => {});
+      prefetchAllLookups(true).catch(() => { });
       try {
         window.dispatchEvent(new CustomEvent('erp-item-updated', { detail: { id: record.id } }));
-      } catch {}
+      } catch { }
       fetchItems({ force: true });
     } catch (err: any) {
       const errMsg = err?.response?.data?.message || err?.message || 'Failed to delete item';
@@ -3445,8 +3454,12 @@ const ItemManagement: React.FC = () => {
     const chips: string[] = [];
     if ((r.packagingSize ?? 0) > 0) {
       const pSize = Number(r.packagingSize);
-      const isSpokeOrNipple = (r.itemType || '').toUpperCase().includes('FINISH') && (r.itemCode?.includes('SPK') || r.itemCode?.includes('NP'));
-      if (isSpokeOrNipple || pSize <= 25) {
+      const uCode = ((r as any).baseUomCode || (r as any).baseUom?.code || r.baseUomName || '').toUpperCase().trim();
+      const isMeterUom = uCode === 'M' || uCode === 'MTR' || uCode.includes('METER') || uCode.includes('METRE');
+      const isSpokeOrNipple = !isMeterUom && (r.itemType || '').toUpperCase().includes('FINISH') && (r.itemCode?.includes('SPK') || r.itemCode?.includes('NP'));
+      if (isMeterUom) {
+        chips.push(`1 ${r.packagingUnit || 'Coil'}=${pSize}M`);
+      } else if (isSpokeOrNipple || pSize <= 25) {
         const pcs = Math.round(pSize * 144);
         chips.push(`1 CTN=${pSize}G (${pcs}P)`);
       } else {
@@ -3454,7 +3467,7 @@ const ItemManagement: React.FC = () => {
       }
     }
     if ((r.weightPerPiece ?? 0) > 0 || (r.piecesPerKg ?? 0) > 0) chips.push('KG↔PCS');
-    if ((r.weightPerMeter ?? 0) > 0) chips.push('KG↔M');
+    if ((r.weightPerMeter ?? 0) > 0 || ((r as any).finishedWeightPerMeter ?? 0) > 0) chips.push('KG↔M');
     if ((r.lengthPerPiece ?? 0) > 0) chips.push('PCS↔M');
     return chips;
   };
@@ -3925,17 +3938,17 @@ const ItemManagement: React.FC = () => {
           }] : []),
           ...(record.status === 'ACTIVE'
             ? (can('item.deactivate') ? [{
-                key: 'deactivate',
-                icon: <PauseCircleOutlined />,
-                label: 'Deactivate',
-                onClick: () => handleStatusChange(record, 'deactivate'),
-              }] : [])
+              key: 'deactivate',
+              icon: <PauseCircleOutlined />,
+              label: 'Deactivate',
+              onClick: () => handleStatusChange(record, 'deactivate'),
+            }] : [])
             : (can('item.activate') ? [{
-                key: 'activate',
-                icon: <PlayCircleOutlined />,
-                label: 'Activate',
-                onClick: () => handleStatusChange(record, 'activate'),
-              }] : [])
+              key: 'activate',
+              icon: <PlayCircleOutlined />,
+              label: 'Activate',
+              onClick: () => handleStatusChange(record, 'activate'),
+            }] : [])
           ),
           ...(can('item.delete') ? [
             { type: 'divider' as const },
@@ -4235,863 +4248,863 @@ const ItemManagement: React.FC = () => {
       serialize={() => ({ items, total, stats, typeCounts, uoms, categories, divisions, sections, departments, routeTypes, masterItemTypes, filterState: { fDivision, fSection, fDepartment, fCategory, fItemType, fRoleUsage, fRouteType, fStatus, search, searchInput, page, pageSize, sortField, sortOrder, activeTab, showFilters } })}
     >
       <div style={{ padding: '4px 6px', width: '100%' }}>
-      <PageHeader
-        icon={<AppstoreOutlined />}
-        title={headerTitle}
-        subtitle="Manage your item master data — raw materials, finished goods, and production items"
-        showBreadcrumbs
-        style={{ marginBottom: 8 }}
-        extra={headerExtra}
-      />
-
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: screens.lg ? 'repeat(5, 1fr)' : screens.sm ? 'repeat(3, 1fr)' : 'repeat(2, 1fr)',
-          gap: 8,
-          marginBottom: 10,
-        }}
-      >
-        <KpiCard
-          testId="kpi-total"
-          label="Total Items"
-          value={stats.total ?? total}
-          icon={AppstoreOutlined}
-          tone="var(--theme-accent, var(--theme-primary))"
-          toneSoft="var(--theme-accent-soft)"
-        />
-        <KpiCard
-          testId="kpi-active"
-          label="Active"
-          value={stats.active ?? items.filter((i) => i.status === 'ACTIVE').length}
-          icon={CheckCircleOutlined}
-          tone="var(--theme-success)"
-          toneSoft="var(--theme-success-soft)"
-        />
-        <KpiCard
-          testId="kpi-inactive"
-          label="Inactive"
-          value={stats.inactive ?? items.filter((i) => i.status === 'INACTIVE').length}
-          icon={CloseCircleOutlined}
-          tone="var(--theme-danger)"
-          toneSoft="var(--theme-danger-soft)"
-        />
-        <KpiCard
-          testId="kpi-stock"
-          label="Stock Items"
-          value={stats.stock ?? items.filter((i) => i.isStockItem).length}
-          icon={InboxOutlined}
-          tone="var(--theme-accent, var(--theme-primary))"
-          toneSoft="var(--theme-accent-soft)"
-        />
-        <KpiCard
-          testId="kpi-manufactured"
-          label="Manufactured"
-          value={stats.manufactured ?? items.filter((i) => i.isManufacturable).length}
-          icon={BuildOutlined}
-          tone="var(--theme-warning)"
-          toneSoft="var(--theme-warning-soft)"
-        />
-      </div>
-
-      <Card style={{ marginBottom: 12, borderRadius: 8 }} styles={{ body: { padding: '10px 12px 12px' } }}>
-        {/* 2027 Status & Type Chevron Pipeline Ribbon (Dynamic per Division/Department) */}
-        <ItemStatusChevronRibbon
-          chevrons={dynamicChevrons}
-          activeKey={activeChevronKey}
-          onSelect={handleItemChevronSelect}
+        <PageHeader
+          icon={<AppstoreOutlined />}
+          title={headerTitle}
+          subtitle="Manage your item master data — raw materials, finished goods, and production items"
+          showBreadcrumbs
+          style={{ marginBottom: 8 }}
+          extra={headerExtra}
         />
 
-        {/* ── UNIFIED ERP FILTER BAR (Matching ERP Standard / CardSelectDropdown) ── */}
         <div
-          className="erp-filter-bar"
-          aria-label="Item Register filters"
           style={{
-            marginTop: 12,
-            paddingTop: 12,
-            borderTop: '1px solid var(--theme-border, #f0f0f0)',
+            display: 'grid',
+            gridTemplateColumns: screens.lg ? 'repeat(5, 1fr)' : screens.sm ? 'repeat(3, 1fr)' : 'repeat(2, 1fr)',
+            gap: 8,
+            marginBottom: 10,
           }}
         >
-          {/* Top Header Row: Filter Toggle & Active Chips on Left | Search & Columns on Right */}
+          <KpiCard
+            testId="kpi-total"
+            label="Total Items"
+            value={stats.total ?? total}
+            icon={AppstoreOutlined}
+            tone="var(--theme-accent, var(--theme-primary))"
+            toneSoft="var(--theme-accent-soft)"
+          />
+          <KpiCard
+            testId="kpi-active"
+            label="Active"
+            value={stats.active ?? items.filter((i) => i.status === 'ACTIVE').length}
+            icon={CheckCircleOutlined}
+            tone="var(--theme-success)"
+            toneSoft="var(--theme-success-soft)"
+          />
+          <KpiCard
+            testId="kpi-inactive"
+            label="Inactive"
+            value={stats.inactive ?? items.filter((i) => i.status === 'INACTIVE').length}
+            icon={CloseCircleOutlined}
+            tone="var(--theme-danger)"
+            toneSoft="var(--theme-danger-soft)"
+          />
+          <KpiCard
+            testId="kpi-stock"
+            label="Stock Items"
+            value={stats.stock ?? items.filter((i) => i.isStockItem).length}
+            icon={InboxOutlined}
+            tone="var(--theme-accent, var(--theme-primary))"
+            toneSoft="var(--theme-accent-soft)"
+          />
+          <KpiCard
+            testId="kpi-manufactured"
+            label="Manufactured"
+            value={stats.manufactured ?? items.filter((i) => i.isManufacturable).length}
+            icon={BuildOutlined}
+            tone="var(--theme-warning)"
+            toneSoft="var(--theme-warning-soft)"
+          />
+        </div>
+
+        <Card style={{ marginBottom: 12, borderRadius: 8 }} styles={{ body: { padding: '10px 12px 12px' } }}>
+          {/* 2027 Status & Type Chevron Pipeline Ribbon (Dynamic per Division/Department) */}
+          <ItemStatusChevronRibbon
+            chevrons={dynamicChevrons}
+            activeKey={activeChevronKey}
+            onSelect={handleItemChevronSelect}
+          />
+
+          {/* ── UNIFIED ERP FILTER BAR (Matching ERP Standard / CardSelectDropdown) ── */}
           <div
+            className="erp-filter-bar"
+            aria-label="Item Register filters"
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              flexWrap: 'wrap',
-              gap: 10,
-              paddingBottom: showFilters ? 10 : 0,
-              borderBottom: showFilters ? '1px solid var(--theme-border, #e2e8f0)' : 'none',
-              marginBottom: showFilters ? 12 : 0,
+              marginTop: 12,
+              paddingTop: 12,
+              borderTop: '1px solid var(--theme-border, #f0f0f0)',
             }}
           >
-            {/* Left: Filter Toggle Button + Active Chips */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <Button
-                type={showFilters ? 'primary' : 'default'}
-                icon={<FilterOutlined />}
-                onClick={() => setShowFilters((prev) => !prev)}
-                data-testid="toggle-filters-btn"
-                style={{
-                  fontWeight: 600,
-                  borderRadius: 8,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                }}
-              >
-                <span>{showFilters ? 'Close Filters' : 'Filters'}</span>
-                {activeFilterCount > 0 && (
-                  <Badge
-                    count={activeFilterCount}
-                    style={{
-                      backgroundColor: showFilters ? '#ffffff' : 'var(--theme-primary, #3b82f6)',
-                      color: showFilters ? 'var(--theme-primary, #3b82f6)' : '#ffffff',
-                      fontWeight: 700,
-                    }}
-                  />
-                )}
-              </Button>
-
-              {chips.length > 0 && (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-                  {chips.map((chip) => (
-                    <Tag
-                      key={chip.key}
-                      closable
-                      onClose={(e) => {
-                        e.preventDefault();
-                        onRemoveChip(chip.key);
-                      }}
+            {/* Top Header Row: Filter Toggle & Active Chips on Left | Search & Columns on Right */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: 10,
+                paddingBottom: showFilters ? 10 : 0,
+                borderBottom: showFilters ? '1px solid var(--theme-border, #e2e8f0)' : 'none',
+                marginBottom: showFilters ? 12 : 0,
+              }}
+            >
+              {/* Left: Filter Toggle Button + Active Chips */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <Button
+                  type={showFilters ? 'primary' : 'default'}
+                  icon={<FilterOutlined />}
+                  onClick={() => setShowFilters((prev) => !prev)}
+                  data-testid="toggle-filters-btn"
+                  style={{
+                    fontWeight: 600,
+                    borderRadius: 8,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
+                  <span>{showFilters ? 'Close Filters' : 'Filters'}</span>
+                  {activeFilterCount > 0 && (
+                    <Badge
+                      count={activeFilterCount}
                       style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 4,
-                        padding: '2px 8px',
-                        borderRadius: 6,
-                        fontSize: 12,
-                        fontWeight: 500,
-                        background: 'var(--theme-surface-subtle, #f1f5f9)',
-                        border: '1px solid var(--theme-border, #cbd5e1)',
-                        color: 'var(--theme-text, #1e293b)',
+                        backgroundColor: showFilters ? '#ffffff' : 'var(--theme-primary, #3b82f6)',
+                        color: showFilters ? 'var(--theme-primary, #3b82f6)' : '#ffffff',
+                        fontWeight: 700,
                       }}
-                    >
-                      <span style={{ color: 'var(--theme-text-muted, #64748b)', fontWeight: 600 }}>{chip.label}:</span>
-                      <span>{chip.value}</span>
-                    </Tag>
-                  ))}
-                  <Button
-                    type="link"
-                    size="small"
-                    danger
-                    onClick={resetFilters}
-                    style={{ padding: '0 4px', height: 'auto', fontSize: 12, fontWeight: 600 }}
-                  >
-                    Clear all
-                  </Button>
-                </div>
-              )}
-            </div>
+                    />
+                  )}
+                </Button>
 
-            {/* Right: Quick Search, Columns Dropdown & Sort Info */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <Input
-                allowClear
-                prefix={<SearchOutlined style={{ color: 'var(--theme-text-muted, #94a3b8)' }} />}
-                placeholder="Search Item Register (code, name, SKU, barcode)..."
-                style={{ width: 300, borderRadius: 8 }}
-                value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value)}
-              />
-
-              {/* Columns Toggle Dropdown */}
-              <Dropdown
-                trigger={['click']}
-                placement="bottomRight"
-                popupRender={() => (
-                  <div
-                    style={{
-                      background: 'var(--theme-card-bg, var(--theme-surface, #ffffff))',
-                      padding: '12px 16px',
-                      borderRadius: 8,
-                      boxShadow: '0 10px 30px rgba(0, 0, 0, 0.25)',
-                      minWidth: 200,
-                      border: '1px solid var(--theme-border, #e2e8f0)',
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        marginBottom: 10,
-                        paddingBottom: 8,
-                        borderBottom: '1px solid var(--theme-border, #f1f5f9)',
-                      }}
-                    >
-                      <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #1e293b)' }}>
-                        Table Columns
-                      </span>
-                      <Button
-                        type="link"
-                        size="small"
-                        style={{ padding: 0, height: 'auto', fontSize: 11 }}
-                        onClick={() => {
-                          setVisibleCols(DEFAULT_ITEM_VISIBLE_COLUMNS);
-                          try {
-                            localStorage.removeItem('pwi_item_table_columns_v2');
-                            localStorage.removeItem('pwi_item_table_columns_v1');
-                          } catch {}
+                {chips.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                    {chips.map((chip) => (
+                      <Tag
+                        key={chip.key}
+                        closable
+                        onClose={(e) => {
+                          e.preventDefault();
+                          onRemoveChip(chip.key);
+                        }}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          padding: '2px 8px',
+                          borderRadius: 6,
+                          fontSize: 12,
+                          fontWeight: 500,
+                          background: 'var(--theme-surface-subtle, #f1f5f9)',
+                          border: '1px solid var(--theme-border, #cbd5e1)',
+                          color: 'var(--theme-text, #1e293b)',
                         }}
                       >
-                        Reset All
-                      </Button>
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      {Object.entries(ITEM_COLUMN_LABELS).map(([key, label]) => (
-                        <Checkbox
-                          key={key}
-                          checked={visibleCols[key] !== false}
-                          disabled={key === 'itemCode' || key === 'actions'}
-                          onChange={(e) => {
-                            const next = { ...visibleCols, [key]: e.target.checked };
-                            setVisibleCols(next);
-                            try {
-                              localStorage.setItem('pwi_item_table_columns_v2', JSON.stringify(next));
-                            } catch {}
-                          }}
-                          style={{ fontSize: 13, color: 'var(--theme-text, #334155)' }}
-                        >
-                          {label}
-                        </Checkbox>
-                      ))}
-                    </div>
+                        <span style={{ color: 'var(--theme-text-muted, #64748b)', fontWeight: 600 }}>{chip.label}:</span>
+                        <span>{chip.value}</span>
+                      </Tag>
+                    ))}
+                    <Button
+                      type="link"
+                      size="small"
+                      danger
+                      onClick={resetFilters}
+                      style={{ padding: '0 4px', height: 'auto', fontSize: 12, fontWeight: 600 }}
+                    >
+                      Clear all
+                    </Button>
                   </div>
                 )}
-              >
-                <Button icon={<AppstoreOutlined />} style={{ fontWeight: 600, borderRadius: 8 }}>
-                  Columns
-                </Button>
-              </Dropdown>
-
-              {screens.lg && (
-                <span style={{ fontSize: 12, color: 'var(--theme-text-muted, #64748b)' }}>
-                  {total} items · Sorted by {sortField}
-                </span>
-              )}
-            </div>
-          </div>
-
-          {/* ── Main 6 Filters Row & Actions (Visible when Filters toggle is open) ── */}
-          {showFilters && (
-            <>
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: screens.xl
-                    ? 'repeat(6, 1fr)'
-                    : screens.md
-                      ? 'repeat(3, 1fr)'
-                      : '1fr',
-                  gap: 12,
-                  marginTop: 12,
-                }}
-              >
-                {/* 1. Division Dropdown */}
-                <CardSelectDropdown
-                  label="Division"
-                  title="Switch Division"
-                  subtitle="Filter items by division"
-                  allLabel="All Divisions"
-                  allSubtitle="View items across all divisions"
-                  icon={<ShopOutlined />}
-                  badgeBg="#fef9c3"
-                  badgeColor="#854d0e"
-                  options={divisions.map((d) => ({
-                    id: d.id,
-                    name: d.name,
-                    code: d.divisionCode,
-                    subtext: 'Plant Division',
-                  }))}
-                  activeId={fDivision}
-                  onSelect={(id) => {
-                    setFDivision(id);
-                    setFSection(undefined);
-                    setFDepartment(undefined);
-                    setPage(1);
-                  }}
-                />
-
-                {/* 2. Category Dropdown */}
-                <CardSelectDropdown
-                  label="Category"
-                  title="Switch Category"
-                  subtitle="Filter items by category"
-                  allLabel="All Categories"
-                  allSubtitle="View items across all categories"
-                  icon={<AppstoreOutlined />}
-                  badgeBg="#fae8ff"
-                  badgeColor="#86198f"
-                  options={flatCategories.map((c) => ({
-                    id: c.id,
-                    name: c.name,
-                    subtext: 'Item Category',
-                  }))}
-                  activeId={fCategory}
-                  onSelect={(id) => {
-                    setFCategory(id);
-                    setPage(1);
-                  }}
-                />
-
-                {/* 3. Section Dropdown */}
-                <CardSelectDropdown
-                  label="Section"
-                  title="Switch Section"
-                  subtitle="Filter items by section"
-                  allLabel="All Sections"
-                  allSubtitle="View items across all sections"
-                  icon={<ApartmentOutlined />}
-                  badgeBg="#e0f2fe"
-                  badgeColor="#0369a1"
-                  options={sectionsForDivision(fDivision).map((s) => ({
-                    id: s.id,
-                    name: s.name,
-                    subtext: 'Production Section',
-                  }))}
-                  activeId={fSection}
-                  onSelect={(id) => {
-                    setFSection(id);
-                    setFDepartment(undefined);
-                    setPage(1);
-                  }}
-                />
-
-                {/* 4. Department Dropdown */}
-                <CardSelectDropdown
-                  label="Department"
-                  title="Switch Department"
-                  subtitle="Filter items by department"
-                  allLabel="All Departments"
-                  allSubtitle="View items across all departments"
-                  icon={<SubnodeOutlined />}
-                  badgeBg="#f3e8ff"
-                  badgeColor="#7e22ce"
-                  options={departmentsForSection(fDivision, fSection).map((d) => ({
-                    id: d.id,
-                    name: d.name,
-                    subtext: 'Department unit',
-                  }))}
-                  activeId={fDepartment}
-                  onSelect={(id) => {
-                    setFDepartment(id);
-                    setPage(1);
-                  }}
-                />
-
-                {/* 5. Route Type Dropdown */}
-                <CardSelectDropdown
-                  label="Route Type"
-                  title="Filter by Route Type"
-                  subtitle="Process workflow route"
-                  allLabel="All Route Types"
-                  allSubtitle="View all production routes"
-                  icon={<BranchesOutlined />}
-                  badgeBg="#e0e7ff"
-                  badgeColor="#3730a3"
-                  options={routeTypes.map((rt) => ({
-                    id: rt.id,
-                    name: rt.name?.trim() ? rt.name : rt.routeCode,
-                    code: rt.routeCode,
-                    subtext: 'Workflow routing',
-                  }))}
-                  activeId={fRouteType}
-                  onSelect={(id) => {
-                    setFRouteType(id);
-                    setPage(1);
-                  }}
-                />
-
-                {/* 6. Status Dropdown */}
-                <CardSelectDropdown
-                  label="Status"
-                  title="Filter by Item Status"
-                  subtitle="Item lifecycle status"
-                  allLabel="All Statuses"
-                  allSubtitle="View all status states"
-                  icon={<CheckCircleOutlined />}
-                  badgeBg="#ecfdf5"
-                  badgeColor="#047857"
-                  options={STATUS_OPTIONS.map((status) => ({
-                    id: status,
-                    name: status,
-                    subtext: 'Item status',
-                  }))}
-                  activeId={fStatus}
-                  onSelect={(id) => {
-                    setFStatus(id);
-                    setPage(1);
-                  }}
-                />
               </div>
 
-              {/* Bottom Actions Row: Clear Filters Left, Apply Right */}
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  flexWrap: 'wrap',
-                  gap: 8,
-                  marginTop: 14,
-                  paddingTop: 10,
-                  borderTop: '1px solid var(--theme-border, #e2e8f0)',
-                }}
-              >
-                <Button
-                  icon={<ClearOutlined />}
-                  onClick={resetFilters}
-                  danger={activeFilterCount > 0}
-                  data-testid="clear-filters"
-                  style={{
-                    borderRadius: 8,
-                    fontWeight: 600,
-                  }}
-                >
-                  Clear Filters
-                </Button>
+              {/* Right: Quick Search, Columns Dropdown & Sort Info */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <Input
+                  allowClear
+                  prefix={<SearchOutlined style={{ color: 'var(--theme-text-muted, #94a3b8)' }} />}
+                  placeholder="Search Item Register (code, name, SKU, barcode)..."
+                  style={{ width: 300, borderRadius: 8 }}
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                />
 
-                <Button
-                  type="primary"
-                  icon={<SearchOutlined />}
-                  onClick={applyFilters}
-                  data-testid="apply-filters"
-                  loading={loading}
-                  style={{
-                    fontWeight: 600,
-                    borderRadius: 8,
-                    minWidth: 120,
-                  }}
-                >
-                  Apply Filters
-                </Button>
-              </div>
-            </>
-          )}
-        </div>
-      </Card>
-
-      {error && (
-        <Alert
-          type="error"
-          showIcon
-          message="Could not load items"
-          description={error}
-          action={<Button size="small" danger onClick={() => fetchItems({ force: true })}>Retry</Button>}
-          style={{ marginBottom: 16 }}
-          closable
-        />
-      )}
-
-      {/* 2027 Dynamic Floating Bulk Actions Toolbar */}
-      {selectedRowKeys.length > 0 && (
-        <div className="erp-table-bulk-toolbar">
-          <div className="bulk-count-badge">
-            <Badge count={selectedRowKeys.length} style={{ backgroundColor: '#f59e0b', fontWeight: 800 }} />
-            <span>{selectedRowKeys.length} item{selectedRowKeys.length === 1 ? '' : 's'} selected</span>
-            <Button
-              size="small"
-              type="link"
-              onClick={() => setSelectedRowKeys([])}
-              style={{ color: '#94a3b8', padding: '0 4px', fontSize: 12 }}
-            >
-              Clear
-            </Button>
-          </div>
-          <Space className="bulk-actions-group" wrap>
-            <Button
-              size="small"
-              icon={<PlayCircleOutlined />}
-              onClick={() => handleBulkStatusChange('activate')}
-              loading={bulkActionLoading}
-              style={{ color: '#10b981', borderColor: '#10b981', fontWeight: 600 }}
-            >
-              Activate
-            </Button>
-            <Button
-              size="small"
-              icon={<PauseCircleOutlined />}
-              onClick={() => handleBulkStatusChange('deactivate')}
-              loading={bulkActionLoading}
-              style={{ color: '#f59e0b', borderColor: '#f59e0b', fontWeight: 600 }}
-            >
-              Deactivate
-            </Button>
-            <Button
-              size="small"
-              icon={<DownloadOutlined />}
-              onClick={handleBulkExport}
-              loading={bulkActionLoading}
-              style={{ fontWeight: 600 }}
-            >
-              Export Selected
-            </Button>
-            <Button
-              size="small"
-              danger
-              type="primary"
-              icon={<DeleteOutlined />}
-              onClick={handleBulkDelete}
-              loading={bulkActionLoading}
-              style={{ fontWeight: 600 }}
-            >
-              Delete Selected
-            </Button>
-          </Space>
-        </div>
-      )}
-
-      {loading && items.length === 0 ? (
-        <GlobalLoading
-          title={ITEMS_LOADING_TITLE}
-          subtitle={ITEMS_LOADING_SUBTITLE}
-          badgeText={ITEMS_LOADING_BADGE}
-          minHeight={450}
-        />
-      ) : (
-        <ERPTable
-          rowKey="id"
-          rowSelection={{
-            selectedRowKeys,
-            onChange: (keys) => setSelectedRowKeys(keys),
-            preserveSelectedRowKeys: true,
-          }}
-          columns={filteredColumns}
-          dataSource={items}
-          // Refresh with rows present: reuse the shared loading card as the
-          // table's Spin indicator (ERPTable spreads the object last, so this
-          // replaces its ad-hoc hard-coded white card without touching the
-          // shared component). `false` when idle → identical to plain `loading`.
-          loading={loading ? { spinning: true, indicator: <ItemsTableLoadingIndicator /> } : false}
-          loadingTitle={ITEMS_LOADING_TITLE}
-          loadingSubtitle={ITEMS_LOADING_SUBTITLE}
-          // PRODUCTS-ITEMS-LOADING-FIX-01: scopes the clean loading surface in
-          // itemManagement.css — opaque theme token, backdrop-filter: none,
-          // no antd .ant-spin-blur fade (interaction block stays in place).
-          containerClassName="items-loading-surface"
-          scroll={{ x: 1550 }}
-          sticky
-          size="small"
-          pagination={pagination}
-          onChange={(_p, _f, sorter: any) => {
-            if (sorter?.field && !Array.isArray(sorter.field)) {
-              const order = sorter.order === 'descend' ? 'DESC' : 'ASC';
-              setSortField(sorter.field as string);
-              setSortOrder(order);
-            }
-          }}
-          locale={{
-            emptyText: (
-              <EmptyState
-                title={search || activeFilterCount > 0 ? 'No items match your filters' : 'No items found'}
-                description={search || activeFilterCount > 0 ? 'Try adjusting your search or filter criteria.' : 'Get started by creating your first item.'}
-                actionLabel={can('item.create') ? 'Add Item' : undefined}
-                onAction={openCreate}
-              />
-            ),
-          }}
-        />
-      )}
-
-      <DraggableResizableModal
-        open={detailOpen && !isDetailMinimized}
-        onCancel={() => { setDetailOpen(false); setIsDetailMinimized(false); }}
-        onMinimize={() => setIsDetailMinimized(true)}
-        width={screens.md ? 980 : '96vw'}
-        height={screens.md ? 620 : 'auto'}
-        wrapClassName="erp-mobile-modal erp-detail-mobile-modal"
-        destroyOnHidden
-        title={
-          detailItem ? (
-            <Space wrap size={8} align="center">
-              <DatabaseOutlined style={{ fontSize: 22, color: 'var(--theme-accent, #10b981)' }} />
-              <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.2 }}>
-                <span style={{ fontWeight: 700, fontSize: 16, fontFamily: 'monospace' }}>{detailItem.itemCode}</span>
-                <span style={{ fontSize: 12, color: 'var(--theme-text-muted)' }}>{detailItem.name}</span>
-              </div>
-              <StatusBadge status={detailItem.status} colorMap={statusColorMap} />
-              <Tag style={{ marginInlineEnd: 0 }}>{typeName(detailItem.itemType)}</Tag>
-            </Space>
-          ) : (
-            'Item Details'
-          )
-        }
-        extra={
-          detailItem && (
-            <Space wrap size={8}>
-              {can('item.view') && (
-                <Button icon={<HistoryOutlined />} onClick={() => { setDetailTab('history'); loadHistoryData(detailItem); }}>
-                  History
-                </Button>
-              )}
-              <Button icon={<PrinterOutlined />} onClick={() => { setPrintItem(detailItem); setPrintOpen(true); }}>
-                Print Barcode
-              </Button>
-              <Button icon={<EditOutlined />} onClick={() => { setDetailOpen(false); openEdit(detailItem); }}>
-                Edit
-              </Button>
-              {can('item.create') && (
-                <Button icon={<CopyOutlined />} onClick={() => { setDetailOpen(false); openDuplicate(detailItem); }}>
-                  Duplicate
-                </Button>
-              )}
-            </Space>
-          )
-        }
-        footer={
-          <Space>
-            <Button onClick={() => setDetailOpen(false)}>Close</Button>
-          </Space>
-        }
-      >
-        {detailLoading || !detailItem ? (
-          <GlobalLoading title="Loading Item Details…" subtitle="Retrieving item master, stock and production route…" badgeText="LIVE DATABASE QUERY" minHeight={260} />
-        ) : (
-          <Tabs
-            activeKey={detailTab}
-            onChange={handleDetailTabChange}
-            renderTabBar={() => (
-              <ItemModalProcessChevronNav
-                active={detailTab}
-                onChange={handleDetailTabChange}
-              />
-            )}
-            items={[
-              {
-                key: 'overview',
-                label: <Space><EyeOutlined />Overview</Space>,
-                children: (
-                  <>
-                    <Card size="small" title="Basic Information" style={{ borderRadius: 8 }}>
-                      {detailDesc([
-                        { label: 'Item Code', children: <Text strong>{detailItem.itemCode}</Text> },
-                        { label: 'Item Name', children: txt(detailItem.name) },
-                        { label: 'SKU', children: txt(detailItem.sku) },
-                        { label: 'Short Name', children: txt(detailItem.shortName) },
-                        { label: 'Item Type', children: txt(typeName(detailItem.itemType)) },
-                        {
-                          label: 'Material Role / Usage',
-                          children: (
-                            detailItem.materialRoleUsage || ((detailItem.itemType || '').toUpperCase().includes('RAW')) ? (
-                              <Tag color="cyan" style={{ fontWeight: 600, borderRadius: 4 }}>
-                                {detailItem.materialRoleUsage || 'Process Component Materials'}
-                              </Tag>
-                            ) : <Text type="secondary">—</Text>
-                          ),
-                        },
-                        { label: 'Category', children: txt(categoryName(detailItem)) },
-                        {
-                          label: 'Status',
-                          children: <StatusBadge status={detailItem.status} colorMap={statusColorMap} />,
-                        },
-                        { label: 'Barcode', children: txt(detailItem.barcode || registryBarcodes[0]?.barcodeValue) },
-                        ...(detailItem.description ? [{ label: 'Description', children: <Text style={{ fontSize: 13 }}>{detailItem.description}</Text> }] : []),
-                      ])}
-                    </Card>
-
-                    <Card size="small" title="Identification & Tracking" style={{ borderRadius: 8, marginTop: 12 }}>
-                      {detailDesc([
-                        { label: 'Manufacturer', children: txt(detailItem.manufacturerPartNumber) },
-                        { label: 'Brand', children: txt(detailItem.brand) },
-                        { label: 'Model', children: txt(detailItem.model) },
-                      ])}
-                    </Card>
-
-                    <Card size="small" title="Audit" style={{ borderRadius: 8, marginTop: 12 }}>
-                      {detailDesc([
-                        { label: 'Created At', children: txt(detailItem.createdAt ? new Date(detailItem.createdAt).toLocaleString() : null) },
-                        { label: 'Updated At', children: txt(detailItem.updatedAt ? new Date(detailItem.updatedAt).toLocaleString() : null) },
-                        { label: 'Remarks', children: txt(detailItem.notes) },
-                      ])}
-                    </Card>
-                  </>
-                ),
-              },
-              {
-                key: 'organization',
-                label: <Space><ApartmentOutlined />Organization</Space>,
-                children: (
-                  <Card size="small" title="Organization Hierarchy" style={{ borderRadius: 8 }}>
-                    {detailDesc([
-                      { label: 'Company', children: txt(companyName(detailItem)) },
-                      { label: 'Division', children: txt(divisionName(detailItem)) },
-                      { label: 'Section', children: txt(sectionName(detailItem)) },
-                      { label: 'Department', children: txt(departmentName(detailItem)) },
-                    ])}
-                    <Alert
-                      style={{ marginTop: 10 }}
-                      type="info"
-                      showIcon={false}
-                      message={
-                        <span style={{ fontSize: 12 }}>
-                          Chain:{' '}
-                          <Text code>{[
-                            companyName(detailItem),
-                            divisionName(detailItem),
-                            sectionName(detailItem),
-                            departmentName(detailItem),
-                          ].filter(Boolean).join(' → ') || 'Not configured'}</Text>
+                {/* Columns Toggle Dropdown */}
+                <Dropdown
+                  trigger={['click']}
+                  placement="bottomRight"
+                  popupRender={() => (
+                    <div
+                      style={{
+                        background: 'var(--theme-card-bg, var(--theme-surface, #ffffff))',
+                        padding: '12px 16px',
+                        borderRadius: 8,
+                        boxShadow: '0 10px 30px rgba(0, 0, 0, 0.25)',
+                        minWidth: 200,
+                        border: '1px solid var(--theme-border, #e2e8f0)',
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          marginBottom: 10,
+                          paddingBottom: 8,
+                          borderBottom: '1px solid var(--theme-border, #f1f5f9)',
+                        }}
+                      >
+                        <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #1e293b)' }}>
+                          Table Columns
                         </span>
-                      }
-                    />
-                  </Card>
-                ),
-              },
-              {
-                key: 'specifications',
-                label: <Space><ProjectOutlined />Specifications</Space>,
-                children: (
-                  <>
-                    <Card size="small" title="Production Specifications" style={{ borderRadius: 8 }}>
-                      {detailDesc([
-                        { label: 'Wire Size (mm)', children: detailItem.wireSizeMm != null ? formatDimension(detailItem.wireSizeMm) : null },
-                        { label: 'Diameter (mm)', children: detailItem.diameterMm != null ? formatDimension(detailItem.diameterMm) : null },
-                        { label: 'Thickness (mm)', children: detailItem.thicknessMm != null ? formatDimension(detailItem.thicknessMm) : null },
-                        { label: 'Width (mm)', children: detailItem.widthMm != null ? formatDimension(detailItem.widthMm) : null },
-                        { label: 'Length', children: detailItem.lengthPerPiece != null ? `${formatDimension(detailItem.lengthPerPiece)} ${detailItem.baseUomName || ''}`.trim() : null },
-                      ])}
-                    </Card>
-
-                    <Card size="small" title="Weight & UOM Conversion" style={{ borderRadius: 8, marginTop: 12 }}>
-                      {detailDesc([
-                        { label: 'Base UOM', children: txt(detailItem.baseUomName ?? detailItem.baseUom?.name ?? null) },
-                        {
-                          label: 'Purchase UOM',
-                          children: (detailItem.purchaseUom?.name || detailItem.purchaseUomId)
-                            ? txt(detailItem.purchaseUom?.name ?? uoms.find((u) => u.id === detailItem.purchaseUomId)?.name ?? null)
-                            : null,
-                        },
-                        {
-                          label: 'Sales UOM',
-                          children: (detailItem.salesUom?.name || detailItem.salesUomId)
-                            ? txt(detailItem.salesUom?.name ?? uoms.find((u) => u.id === detailItem.salesUomId)?.name ?? null)
-                            : null,
-                        },
-                        { label: 'Weight / Piece', children: detailItem.weightPerPiece != null ? `${Number(detailItem.weightPerPiece)} kg` : null },
-                        { label: 'Pieces / KG', children: detailItem.piecesPerKg != null ? String(Number(detailItem.piecesPerKg)) : null },
-                        { label: 'Weight / Meter', children: detailItem.weightPerMeter != null ? `${Number(detailItem.weightPerMeter)} kg/m` : null },
-                        { label: 'Length / Piece', children: detailItem.lengthPerPiece != null ? `${Number(detailItem.lengthPerPiece)} m` : null },
-                        { label: 'Min Stock Level', children: detailItem.minimumStockLevel != null ? `${Number(detailItem.minimumStockLevel)} ${detailItem.baseUomName ?? ''}`.trim() : null },
-                        { label: 'Max Stock Level', children: detailItem.maximumStockLevel != null ? `${Number(detailItem.maximumStockLevel)} ${detailItem.baseUomName ?? ''}`.trim() : null },
-                        { label: 'Reorder Level', children: detailItem.reorderLevel != null ? `${Number(detailItem.reorderLevel)} ${detailItem.baseUomName ?? ''}`.trim() : null },
-                        { label: 'Safety Stock Level', children: detailItem.safetyStockLevel != null ? `${Number(detailItem.safetyStockLevel)} ${detailItem.baseUomName ?? ''}`.trim() : null },
-                        { label: 'Lead Time (Days)', children: detailItem.leadTimeDays != null ? String(Number(detailItem.leadTimeDays)) : null },
-                      ])}
-                      {conversions && conversions.supportedConversions.filter((c) => c.available).length > 0 && (
-                        <div style={{ marginTop: 10 }}>
-                          <Text type="secondary" style={{ fontSize: 12 }}>Available conversions:</Text>{' '}
-                          {conversions.supportedConversions
-                            .filter((c) => c.available)
-                            .map((c) => (
-                              <Tag key={`${c.from}-${c.to}`} color="blue" style={{ marginInlineEnd: 4 }}>
-                                {c.from} → {c.to}
-                              </Tag>
-                            ))
-                          }
-                        </div>
-                      )}
-                      {(detailItem.barcodes?.length ?? 0) > 0 && (
-                        <div style={{ marginTop: 10 }}>
-                          <Text type="secondary" style={{ fontSize: 12 }}>Registered barcodes:</Text>{' '}
-                          {detailItem.barcodes!.filter((b) => b.barcode).map((b) => (
-                            <Tag key={b.id}>{b.barcode}</Tag>
-                          ))}
-                        </div>
-                      )}
-                    </Card>
-                  </>
-                ),
-              },
-              {
-                key: 'inventory',
-                label: <Space><DatabaseOutlined />Inventory & Control</Space>,
-                children: (
-                  <>
-                    <Card size="small" title="Inventory & Control Flags" style={{ borderRadius: 8 }}>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                        {[
-                          { label: 'Stock Item', value: detailItem.isStockItem },
-                          { label: 'Purchasable', value: detailItem.isPurchasable },
-                          { label: 'Sellable', value: detailItem.isSellable },
-                          { label: 'Manufacturable', value: detailItem.isManufacturable },
-                          { label: 'Track Inventory', value: detailItem.trackInventory },
-                          { label: 'Batch Tracked', value: detailItem.batchTracked },
-                          { label: 'Serial Tracked', value: detailItem.serialTracked },
-                          { label: 'Expiry Tracked', value: detailItem.expiryTracked },
-                        ].map((f) => (
-                          <Tag
-                            key={f.label}
-                            color={f.value ? 'green' : 'default'}
-                            style={{ fontSize: 12, padding: '2px 10px', borderRadius: 4 }}
+                        <Button
+                          type="link"
+                          size="small"
+                          style={{ padding: 0, height: 'auto', fontSize: 11 }}
+                          onClick={() => {
+                            setVisibleCols(DEFAULT_ITEM_VISIBLE_COLUMNS);
+                            try {
+                              localStorage.removeItem('pwi_item_table_columns_v2');
+                              localStorage.removeItem('pwi_item_table_columns_v1');
+                            } catch { }
+                          }}
+                        >
+                          Reset All
+                        </Button>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {Object.entries(ITEM_COLUMN_LABELS).map(([key, label]) => (
+                          <Checkbox
+                            key={key}
+                            checked={visibleCols[key] !== false}
+                            disabled={key === 'itemCode' || key === 'actions'}
+                            onChange={(e) => {
+                              const next = { ...visibleCols, [key]: e.target.checked };
+                              setVisibleCols(next);
+                              try {
+                                localStorage.setItem('pwi_item_table_columns_v2', JSON.stringify(next));
+                              } catch { }
+                            }}
+                            style={{ fontSize: 13, color: 'var(--theme-text, #334155)' }}
                           >
-                            {f.value ? <CheckOutlined style={{ marginRight: 4 }} /> : <CloseOutlined style={{ marginRight: 4 }} />}
-                            {f.label}
-                          </Tag>
+                            {label}
+                          </Checkbox>
                         ))}
                       </div>
-                    </Card>
+                    </div>
+                  )}
+                >
+                  <Button icon={<AppstoreOutlined />} style={{ fontWeight: 600, borderRadius: 8 }}>
+                    Columns
+                  </Button>
+                </Dropdown>
 
-                    <Card size="small" title="Stock Levels" style={{ borderRadius: 8, marginTop: 12 }}>
+                {screens.lg && (
+                  <span style={{ fontSize: 12, color: 'var(--theme-text-muted, #64748b)' }}>
+                    {total} items · Sorted by {sortField}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* ── Main 6 Filters Row & Actions (Visible when Filters toggle is open) ── */}
+            {showFilters && (
+              <>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: screens.xl
+                      ? 'repeat(6, 1fr)'
+                      : screens.md
+                        ? 'repeat(3, 1fr)'
+                        : '1fr',
+                    gap: 12,
+                    marginTop: 12,
+                  }}
+                >
+                  {/* 1. Division Dropdown */}
+                  <CardSelectDropdown
+                    label="Division"
+                    title="Switch Division"
+                    subtitle="Filter items by division"
+                    allLabel="All Divisions"
+                    allSubtitle="View items across all divisions"
+                    icon={<ShopOutlined />}
+                    badgeBg="#fef9c3"
+                    badgeColor="#854d0e"
+                    options={divisions.map((d) => ({
+                      id: d.id,
+                      name: d.name,
+                      code: d.divisionCode,
+                      subtext: 'Plant Division',
+                    }))}
+                    activeId={fDivision}
+                    onSelect={(id) => {
+                      setFDivision(id);
+                      setFSection(undefined);
+                      setFDepartment(undefined);
+                      setPage(1);
+                    }}
+                  />
+
+                  {/* 2. Category Dropdown */}
+                  <CardSelectDropdown
+                    label="Category"
+                    title="Switch Category"
+                    subtitle="Filter items by category"
+                    allLabel="All Categories"
+                    allSubtitle="View items across all categories"
+                    icon={<AppstoreOutlined />}
+                    badgeBg="#fae8ff"
+                    badgeColor="#86198f"
+                    options={flatCategories.map((c) => ({
+                      id: c.id,
+                      name: c.name,
+                      subtext: 'Item Category',
+                    }))}
+                    activeId={fCategory}
+                    onSelect={(id) => {
+                      setFCategory(id);
+                      setPage(1);
+                    }}
+                  />
+
+                  {/* 3. Section Dropdown */}
+                  <CardSelectDropdown
+                    label="Section"
+                    title="Switch Section"
+                    subtitle="Filter items by section"
+                    allLabel="All Sections"
+                    allSubtitle="View items across all sections"
+                    icon={<ApartmentOutlined />}
+                    badgeBg="#e0f2fe"
+                    badgeColor="#0369a1"
+                    options={sectionsForDivision(fDivision).map((s) => ({
+                      id: s.id,
+                      name: s.name,
+                      subtext: 'Production Section',
+                    }))}
+                    activeId={fSection}
+                    onSelect={(id) => {
+                      setFSection(id);
+                      setFDepartment(undefined);
+                      setPage(1);
+                    }}
+                  />
+
+                  {/* 4. Department Dropdown */}
+                  <CardSelectDropdown
+                    label="Department"
+                    title="Switch Department"
+                    subtitle="Filter items by department"
+                    allLabel="All Departments"
+                    allSubtitle="View items across all departments"
+                    icon={<SubnodeOutlined />}
+                    badgeBg="#f3e8ff"
+                    badgeColor="#7e22ce"
+                    options={departmentsForSection(fDivision, fSection).map((d) => ({
+                      id: d.id,
+                      name: d.name,
+                      subtext: 'Department unit',
+                    }))}
+                    activeId={fDepartment}
+                    onSelect={(id) => {
+                      setFDepartment(id);
+                      setPage(1);
+                    }}
+                  />
+
+                  {/* 5. Route Type Dropdown */}
+                  <CardSelectDropdown
+                    label="Route Type"
+                    title="Filter by Route Type"
+                    subtitle="Process workflow route"
+                    allLabel="All Route Types"
+                    allSubtitle="View all production routes"
+                    icon={<BranchesOutlined />}
+                    badgeBg="#e0e7ff"
+                    badgeColor="#3730a3"
+                    options={routeTypes.map((rt) => ({
+                      id: rt.id,
+                      name: rt.name?.trim() ? rt.name : rt.routeCode,
+                      code: rt.routeCode,
+                      subtext: 'Workflow routing',
+                    }))}
+                    activeId={fRouteType}
+                    onSelect={(id) => {
+                      setFRouteType(id);
+                      setPage(1);
+                    }}
+                  />
+
+                  {/* 6. Status Dropdown */}
+                  <CardSelectDropdown
+                    label="Status"
+                    title="Filter by Item Status"
+                    subtitle="Item lifecycle status"
+                    allLabel="All Statuses"
+                    allSubtitle="View all status states"
+                    icon={<CheckCircleOutlined />}
+                    badgeBg="#ecfdf5"
+                    badgeColor="#047857"
+                    options={STATUS_OPTIONS.map((status) => ({
+                      id: status,
+                      name: status,
+                      subtext: 'Item status',
+                    }))}
+                    activeId={fStatus}
+                    onSelect={(id) => {
+                      setFStatus(id);
+                      setPage(1);
+                    }}
+                  />
+                </div>
+
+                {/* Bottom Actions Row: Clear Filters Left, Apply Right */}
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    flexWrap: 'wrap',
+                    gap: 8,
+                    marginTop: 14,
+                    paddingTop: 10,
+                    borderTop: '1px solid var(--theme-border, #e2e8f0)',
+                  }}
+                >
+                  <Button
+                    icon={<ClearOutlined />}
+                    onClick={resetFilters}
+                    danger={activeFilterCount > 0}
+                    data-testid="clear-filters"
+                    style={{
+                      borderRadius: 8,
+                      fontWeight: 600,
+                    }}
+                  >
+                    Clear Filters
+                  </Button>
+
+                  <Button
+                    type="primary"
+                    icon={<SearchOutlined />}
+                    onClick={applyFilters}
+                    data-testid="apply-filters"
+                    loading={loading}
+                    style={{
+                      fontWeight: 600,
+                      borderRadius: 8,
+                      minWidth: 120,
+                    }}
+                  >
+                    Apply Filters
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
+        </Card>
+
+        {error && (
+          <Alert
+            type="error"
+            showIcon
+            message="Could not load items"
+            description={error}
+            action={<Button size="small" danger onClick={() => fetchItems({ force: true })}>Retry</Button>}
+            style={{ marginBottom: 16 }}
+            closable
+          />
+        )}
+
+        {/* 2027 Dynamic Floating Bulk Actions Toolbar */}
+        {selectedRowKeys.length > 0 && (
+          <div className="erp-table-bulk-toolbar">
+            <div className="bulk-count-badge">
+              <Badge count={selectedRowKeys.length} style={{ backgroundColor: '#f59e0b', fontWeight: 800 }} />
+              <span>{selectedRowKeys.length} item{selectedRowKeys.length === 1 ? '' : 's'} selected</span>
+              <Button
+                size="small"
+                type="link"
+                onClick={() => setSelectedRowKeys([])}
+                style={{ color: '#94a3b8', padding: '0 4px', fontSize: 12 }}
+              >
+                Clear
+              </Button>
+            </div>
+            <Space className="bulk-actions-group" wrap>
+              <Button
+                size="small"
+                icon={<PlayCircleOutlined />}
+                onClick={() => handleBulkStatusChange('activate')}
+                loading={bulkActionLoading}
+                style={{ color: '#10b981', borderColor: '#10b981', fontWeight: 600 }}
+              >
+                Activate
+              </Button>
+              <Button
+                size="small"
+                icon={<PauseCircleOutlined />}
+                onClick={() => handleBulkStatusChange('deactivate')}
+                loading={bulkActionLoading}
+                style={{ color: '#f59e0b', borderColor: '#f59e0b', fontWeight: 600 }}
+              >
+                Deactivate
+              </Button>
+              <Button
+                size="small"
+                icon={<DownloadOutlined />}
+                onClick={handleBulkExport}
+                loading={bulkActionLoading}
+                style={{ fontWeight: 600 }}
+              >
+                Export Selected
+              </Button>
+              <Button
+                size="small"
+                danger
+                type="primary"
+                icon={<DeleteOutlined />}
+                onClick={handleBulkDelete}
+                loading={bulkActionLoading}
+                style={{ fontWeight: 600 }}
+              >
+                Delete Selected
+              </Button>
+            </Space>
+          </div>
+        )}
+
+        {loading && items.length === 0 ? (
+          <GlobalLoading
+            title={ITEMS_LOADING_TITLE}
+            subtitle={ITEMS_LOADING_SUBTITLE}
+            badgeText={ITEMS_LOADING_BADGE}
+            minHeight={450}
+          />
+        ) : (
+          <ERPTable
+            rowKey="id"
+            rowSelection={{
+              selectedRowKeys,
+              onChange: (keys) => setSelectedRowKeys(keys),
+              preserveSelectedRowKeys: true,
+            }}
+            columns={filteredColumns}
+            dataSource={items}
+            // Refresh with rows present: reuse the shared loading card as the
+            // table's Spin indicator (ERPTable spreads the object last, so this
+            // replaces its ad-hoc hard-coded white card without touching the
+            // shared component). `false` when idle → identical to plain `loading`.
+            loading={loading ? { spinning: true, indicator: <ItemsTableLoadingIndicator /> } : false}
+            loadingTitle={ITEMS_LOADING_TITLE}
+            loadingSubtitle={ITEMS_LOADING_SUBTITLE}
+            // PRODUCTS-ITEMS-LOADING-FIX-01: scopes the clean loading surface in
+            // itemManagement.css — opaque theme token, backdrop-filter: none,
+            // no antd .ant-spin-blur fade (interaction block stays in place).
+            containerClassName="items-loading-surface"
+            scroll={{ x: 1550 }}
+            sticky
+            size="small"
+            pagination={pagination}
+            onChange={(_p, _f, sorter: any) => {
+              if (sorter?.field && !Array.isArray(sorter.field)) {
+                const order = sorter.order === 'descend' ? 'DESC' : 'ASC';
+                setSortField(sorter.field as string);
+                setSortOrder(order);
+              }
+            }}
+            locale={{
+              emptyText: (
+                <EmptyState
+                  title={search || activeFilterCount > 0 ? 'No items match your filters' : 'No items found'}
+                  description={search || activeFilterCount > 0 ? 'Try adjusting your search or filter criteria.' : 'Get started by creating your first item.'}
+                  actionLabel={can('item.create') ? 'Add Item' : undefined}
+                  onAction={openCreate}
+                />
+              ),
+            }}
+          />
+        )}
+
+        <DraggableResizableModal
+          open={detailOpen && !isDetailMinimized}
+          onCancel={() => { setDetailOpen(false); setIsDetailMinimized(false); }}
+          onMinimize={() => setIsDetailMinimized(true)}
+          width={screens.md ? 980 : '96vw'}
+          height={screens.md ? 620 : 'auto'}
+          wrapClassName="erp-mobile-modal erp-detail-mobile-modal"
+          destroyOnHidden
+          title={
+            detailItem ? (
+              <Space wrap size={8} align="center">
+                <DatabaseOutlined style={{ fontSize: 22, color: 'var(--theme-accent, #10b981)' }} />
+                <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.2 }}>
+                  <span style={{ fontWeight: 700, fontSize: 16, fontFamily: 'monospace' }}>{detailItem.itemCode}</span>
+                  <span style={{ fontSize: 12, color: 'var(--theme-text-muted)' }}>{detailItem.name}</span>
+                </div>
+                <StatusBadge status={detailItem.status} colorMap={statusColorMap} />
+                <Tag style={{ marginInlineEnd: 0 }}>{typeName(detailItem.itemType)}</Tag>
+              </Space>
+            ) : (
+              'Item Details'
+            )
+          }
+          extra={
+            detailItem && (
+              <Space wrap size={8}>
+                {can('item.view') && (
+                  <Button icon={<HistoryOutlined />} onClick={() => { setDetailTab('history'); loadHistoryData(detailItem); }}>
+                    History
+                  </Button>
+                )}
+                <Button icon={<PrinterOutlined />} onClick={() => { setPrintItem(detailItem); setPrintOpen(true); }}>
+                  Print Barcode
+                </Button>
+                <Button icon={<EditOutlined />} onClick={() => { setDetailOpen(false); openEdit(detailItem); }}>
+                  Edit
+                </Button>
+                {can('item.create') && (
+                  <Button icon={<CopyOutlined />} onClick={() => { setDetailOpen(false); openDuplicate(detailItem); }}>
+                    Duplicate
+                  </Button>
+                )}
+              </Space>
+            )
+          }
+          footer={
+            <Space>
+              <Button onClick={() => setDetailOpen(false)}>Close</Button>
+            </Space>
+          }
+        >
+          {detailLoading || !detailItem ? (
+            <GlobalLoading title="Loading Item Details…" subtitle="Retrieving item master, stock and production route…" badgeText="LIVE DATABASE QUERY" minHeight={260} />
+          ) : (
+            <Tabs
+              activeKey={detailTab}
+              onChange={handleDetailTabChange}
+              renderTabBar={() => (
+                <ItemModalProcessChevronNav
+                  active={detailTab}
+                  onChange={handleDetailTabChange}
+                />
+              )}
+              items={[
+                {
+                  key: 'overview',
+                  label: <Space><EyeOutlined />Overview</Space>,
+                  children: (
+                    <>
+                      <Card size="small" title="Basic Information" style={{ borderRadius: 8 }}>
+                        {detailDesc([
+                          { label: 'Item Code', children: <Text strong>{detailItem.itemCode}</Text> },
+                          { label: 'Item Name', children: txt(detailItem.name) },
+                          { label: 'SKU', children: txt(detailItem.sku) },
+                          { label: 'Short Name', children: txt(detailItem.shortName) },
+                          { label: 'Item Type', children: txt(typeName(detailItem.itemType)) },
+                          {
+                            label: 'Material Role / Usage',
+                            children: (
+                              detailItem.materialRoleUsage || ((detailItem.itemType || '').toUpperCase().includes('RAW')) ? (
+                                <Tag color="cyan" style={{ fontWeight: 600, borderRadius: 4 }}>
+                                  {detailItem.materialRoleUsage || 'Process Component Materials'}
+                                </Tag>
+                              ) : <Text type="secondary">—</Text>
+                            ),
+                          },
+                          { label: 'Category', children: txt(categoryName(detailItem)) },
+                          {
+                            label: 'Status',
+                            children: <StatusBadge status={detailItem.status} colorMap={statusColorMap} />,
+                          },
+                          { label: 'Barcode', children: txt(detailItem.barcode || registryBarcodes[0]?.barcodeValue) },
+                          ...(detailItem.description ? [{ label: 'Description', children: <Text style={{ fontSize: 13 }}>{detailItem.description}</Text> }] : []),
+                        ])}
+                      </Card>
+
+                      <Card size="small" title="Identification & Tracking" style={{ borderRadius: 8, marginTop: 12 }}>
+                        {detailDesc([
+                          { label: 'Manufacturer', children: txt(detailItem.manufacturerPartNumber) },
+                          { label: 'Brand', children: txt(detailItem.brand) },
+                          { label: 'Model', children: txt(detailItem.model) },
+                        ])}
+                      </Card>
+
+                      <Card size="small" title="Audit" style={{ borderRadius: 8, marginTop: 12 }}>
+                        {detailDesc([
+                          { label: 'Created At', children: txt(detailItem.createdAt ? new Date(detailItem.createdAt).toLocaleString() : null) },
+                          { label: 'Updated At', children: txt(detailItem.updatedAt ? new Date(detailItem.updatedAt).toLocaleString() : null) },
+                          { label: 'Remarks', children: txt(detailItem.notes) },
+                        ])}
+                      </Card>
+                    </>
+                  ),
+                },
+                {
+                  key: 'organization',
+                  label: <Space><ApartmentOutlined />Organization</Space>,
+                  children: (
+                    <Card size="small" title="Organization Hierarchy" style={{ borderRadius: 8 }}>
                       {detailDesc([
-                        { label: 'Min Stock Level', children: detailItem.minimumStockLevel != null ? `${Number(detailItem.minimumStockLevel)} ${detailItem.baseUomName ?? ''}`.trim() : null },
-                        { label: 'Max Stock Level', children: detailItem.maximumStockLevel != null ? `${Number(detailItem.maximumStockLevel)} ${detailItem.baseUomName ?? ''}`.trim() : null },
-                        { label: 'Reorder Level', children: detailItem.reorderLevel != null ? `${Number(detailItem.reorderLevel)} ${detailItem.baseUomName ?? ''}`.trim() : null },
-                        { label: 'Safety Stock Level', children: detailItem.safetyStockLevel != null ? `${Number(detailItem.safetyStockLevel)} ${detailItem.baseUomName ?? ''}`.trim() : null },
-                        { label: 'Lead Time (Days)', children: detailItem.leadTimeDays != null ? String(Number(detailItem.leadTimeDays)) : null },
+                        { label: 'Company', children: txt(companyName(detailItem)) },
+                        { label: 'Division', children: txt(divisionName(detailItem)) },
+                        { label: 'Section', children: txt(sectionName(detailItem)) },
+                        { label: 'Department', children: txt(departmentName(detailItem)) },
                       ])}
+                      <Alert
+                        style={{ marginTop: 10 }}
+                        type="info"
+                        showIcon={false}
+                        message={
+                          <span style={{ fontSize: 12 }}>
+                            Chain:{' '}
+                            <Text code>{[
+                              companyName(detailItem),
+                              divisionName(detailItem),
+                              sectionName(detailItem),
+                              departmentName(detailItem),
+                            ].filter(Boolean).join(' → ') || 'Not configured'}</Text>
+                          </span>
+                        }
+                      />
                     </Card>
-                  </>
-                ),
-              },
-              {
-                key: 'pricing',
-                label: <Space><DollarOutlined />Pricing</Space>,
-                children: (
-                  <Card size="small" title="Item Pricing" style={{ borderRadius: 8 }}>
-                    {detailDesc([
-                      { label: 'Cost Price', children: detailItem.costPrice != null ? `${Number(detailItem.costPrice).toFixed(2)}` : null },
-                      { label: 'Selling Price', children: detailItem.sellingPrice != null ? `${Number(detailItem.sellingPrice).toFixed(2)}` : null },
-                    ])}
-                    <Alert
-                      style={{ marginTop: 10 }}
-                      type="info"
-                      showIcon
-                      message="Prices are maintained on the Item Master (standard cost & default selling price). Transaction-level prices live on sales/procurement lines."
-                    />
-                  </Card>
-                ),
-              },
-              {
-                key: 'route',
-                label: <Space><AppstoreOutlined />Production Route</Space>,
-                children: (
-                  <>
-                    <Card size="small" title="Production Route / Process" style={{ borderRadius: 8 }}>
-                      {detailDesc([
-                        {
-                          label: 'Route Type',
-                          children: routeTypeLabel(detailItem) ? (
-                            <Tag color={routeColorMap[detailItem.routeType ?? ''] ?? 'default'} style={{ marginInlineEnd: 0 }}>
-                              {routeTypeLabel(detailItem)}
+                  ),
+                },
+                {
+                  key: 'specifications',
+                  label: <Space><ProjectOutlined />Specifications</Space>,
+                  children: (
+                    <>
+                      <Card size="small" title="Production Specifications" style={{ borderRadius: 8 }}>
+                        {detailDesc([
+                          { label: 'Wire Size (mm)', children: detailItem.wireSizeMm != null ? formatDimension(detailItem.wireSizeMm) : null },
+                          { label: 'Diameter (mm)', children: detailItem.diameterMm != null ? formatDimension(detailItem.diameterMm) : null },
+                          { label: 'Thickness (mm)', children: detailItem.thicknessMm != null ? formatDimension(detailItem.thicknessMm) : null },
+                          { label: 'Width (mm)', children: detailItem.widthMm != null ? formatDimension(detailItem.widthMm) : null },
+                          { label: 'Length', children: detailItem.lengthPerPiece != null ? `${formatDimension(detailItem.lengthPerPiece)} ${detailItem.baseUomName || ''}`.trim() : null },
+                        ])}
+                      </Card>
+
+                      <Card size="small" title="Weight & UOM Conversion" style={{ borderRadius: 8, marginTop: 12 }}>
+                        {detailDesc([
+                          { label: 'Base UOM', children: txt(detailItem.baseUomName ?? detailItem.baseUom?.name ?? null) },
+                          {
+                            label: 'Purchase UOM',
+                            children: (detailItem.purchaseUom?.name || detailItem.purchaseUomId)
+                              ? txt(detailItem.purchaseUom?.name ?? uoms.find((u) => u.id === detailItem.purchaseUomId)?.name ?? null)
+                              : null,
+                          },
+                          {
+                            label: 'Sales UOM',
+                            children: (detailItem.salesUom?.name || detailItem.salesUomId)
+                              ? txt(detailItem.salesUom?.name ?? uoms.find((u) => u.id === detailItem.salesUomId)?.name ?? null)
+                              : null,
+                          },
+                          { label: 'Weight / Piece', children: detailItem.weightPerPiece != null ? `${Number(detailItem.weightPerPiece)} kg` : null },
+                          { label: 'Pieces / KG', children: detailItem.piecesPerKg != null ? String(Number(detailItem.piecesPerKg)) : null },
+                          { label: 'Weight / Meter', children: detailItem.weightPerMeter != null ? `${Number(detailItem.weightPerMeter)} kg/m` : null },
+                          { label: 'Length / Piece', children: detailItem.lengthPerPiece != null ? `${Number(detailItem.lengthPerPiece)} m` : null },
+                          { label: 'Min Stock Level', children: detailItem.minimumStockLevel != null ? `${Number(detailItem.minimumStockLevel)} ${detailItem.baseUomName ?? ''}`.trim() : null },
+                          { label: 'Max Stock Level', children: detailItem.maximumStockLevel != null ? `${Number(detailItem.maximumStockLevel)} ${detailItem.baseUomName ?? ''}`.trim() : null },
+                          { label: 'Reorder Level', children: detailItem.reorderLevel != null ? `${Number(detailItem.reorderLevel)} ${detailItem.baseUomName ?? ''}`.trim() : null },
+                          { label: 'Safety Stock Level', children: detailItem.safetyStockLevel != null ? `${Number(detailItem.safetyStockLevel)} ${detailItem.baseUomName ?? ''}`.trim() : null },
+                          { label: 'Lead Time (Days)', children: detailItem.leadTimeDays != null ? String(Number(detailItem.leadTimeDays)) : null },
+                        ])}
+                        {conversions && conversions.supportedConversions.filter((c) => c.available).length > 0 && (
+                          <div style={{ marginTop: 10 }}>
+                            <Text type="secondary" style={{ fontSize: 12 }}>Available conversions:</Text>{' '}
+                            {conversions.supportedConversions
+                              .filter((c) => c.available)
+                              .map((c) => (
+                                <Tag key={`${c.from}-${c.to}`} color="blue" style={{ marginInlineEnd: 4 }}>
+                                  {c.from} → {c.to}
+                                </Tag>
+                              ))
+                            }
+                          </div>
+                        )}
+                        {(detailItem.barcodes?.length ?? 0) > 0 && (
+                          <div style={{ marginTop: 10 }}>
+                            <Text type="secondary" style={{ fontSize: 12 }}>Registered barcodes:</Text>{' '}
+                            {detailItem.barcodes!.filter((b) => b.barcode).map((b) => (
+                              <Tag key={b.id}>{b.barcode}</Tag>
+                            ))}
+                          </div>
+                        )}
+                      </Card>
+                    </>
+                  ),
+                },
+                {
+                  key: 'inventory',
+                  label: <Space><DatabaseOutlined />Inventory & Control</Space>,
+                  children: (
+                    <>
+                      <Card size="small" title="Inventory & Control Flags" style={{ borderRadius: 8 }}>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                          {[
+                            { label: 'Stock Item', value: detailItem.isStockItem },
+                            { label: 'Purchasable', value: detailItem.isPurchasable },
+                            { label: 'Sellable', value: detailItem.isSellable },
+                            { label: 'Manufacturable', value: detailItem.isManufacturable },
+                            { label: 'Track Inventory', value: detailItem.trackInventory },
+                            { label: 'Batch Tracked', value: detailItem.batchTracked },
+                            { label: 'Serial Tracked', value: detailItem.serialTracked },
+                            { label: 'Expiry Tracked', value: detailItem.expiryTracked },
+                          ].map((f) => (
+                            <Tag
+                              key={f.label}
+                              color={f.value ? 'green' : 'default'}
+                              style={{ fontSize: 12, padding: '2px 10px', borderRadius: 4 }}
+                            >
+                              {f.value ? <CheckOutlined style={{ marginRight: 4 }} /> : <CloseOutlined style={{ marginRight: 4 }} />}
+                              {f.label}
                             </Tag>
-                          ) : null,
-                        },
-                        { label: 'Final Product', children: txt(detailItem.finalProduct) },
-                        { label: 'Packing / Next Step', children: txt(detailItem.packingNextStep) },
-                        {
-                          label: 'Packaging Specification',
-                          children: detailItem.packagingSize
-                            ? (() => {
+                          ))}
+                        </div>
+                      </Card>
+
+                      <Card size="small" title="Stock Levels" style={{ borderRadius: 8, marginTop: 12 }}>
+                        {detailDesc([
+                          { label: 'Min Stock Level', children: detailItem.minimumStockLevel != null ? `${Number(detailItem.minimumStockLevel)} ${detailItem.baseUomName ?? ''}`.trim() : null },
+                          { label: 'Max Stock Level', children: detailItem.maximumStockLevel != null ? `${Number(detailItem.maximumStockLevel)} ${detailItem.baseUomName ?? ''}`.trim() : null },
+                          { label: 'Reorder Level', children: detailItem.reorderLevel != null ? `${Number(detailItem.reorderLevel)} ${detailItem.baseUomName ?? ''}`.trim() : null },
+                          { label: 'Safety Stock Level', children: detailItem.safetyStockLevel != null ? `${Number(detailItem.safetyStockLevel)} ${detailItem.baseUomName ?? ''}`.trim() : null },
+                          { label: 'Lead Time (Days)', children: detailItem.leadTimeDays != null ? String(Number(detailItem.leadTimeDays)) : null },
+                        ])}
+                      </Card>
+                    </>
+                  ),
+                },
+                {
+                  key: 'pricing',
+                  label: <Space><DollarOutlined />Pricing</Space>,
+                  children: (
+                    <Card size="small" title="Item Pricing" style={{ borderRadius: 8 }}>
+                      {detailDesc([
+                        { label: 'Cost Price', children: detailItem.costPrice != null ? `${Number(detailItem.costPrice).toFixed(2)}` : null },
+                        { label: 'Selling Price', children: detailItem.sellingPrice != null ? `${Number(detailItem.sellingPrice).toFixed(2)}` : null },
+                      ])}
+                      <Alert
+                        style={{ marginTop: 10 }}
+                        type="info"
+                        showIcon
+                        message="Prices are maintained on the Item Master (standard cost & default selling price). Transaction-level prices live on sales/procurement lines."
+                      />
+                    </Card>
+                  ),
+                },
+                {
+                  key: 'route',
+                  label: <Space><AppstoreOutlined />Production Route</Space>,
+                  children: (
+                    <>
+                      <Card size="small" title="Production Route / Process" style={{ borderRadius: 8 }}>
+                        {detailDesc([
+                          {
+                            label: 'Route Type',
+                            children: routeTypeLabel(detailItem) ? (
+                              <Tag color={routeColorMap[detailItem.routeType ?? ''] ?? 'default'} style={{ marginInlineEnd: 0 }}>
+                                {routeTypeLabel(detailItem)}
+                              </Tag>
+                            ) : null,
+                          },
+                          { label: 'Final Product', children: txt(detailItem.finalProduct) },
+                          { label: 'Packing / Next Step', children: txt(detailItem.packingNextStep) },
+                          {
+                            label: 'Packaging Specification',
+                            children: detailItem.packagingSize
+                              ? (() => {
                                 const pSize = Number(detailItem.packagingSize);
                                 const isGrossPkg = (detailItem.itemType || '').toUpperCase().includes('FINISH') && pSize <= 25;
                                 const pcsCount = isGrossPkg ? Math.round(pSize * 144) : null;
@@ -5102,58 +5115,58 @@ const ItemManagement: React.FC = () => {
                                   </Tag>
                                 );
                               })()
-                            : (detailItem.packagingType ? txt(detailItem.packagingType) : null),
-                        },
-                        {
-                          label: 'Input Material 1 (Primary)',
-                          children: detailItem.productionInItem
-                            ? (() => {
+                              : (detailItem.packagingType ? txt(detailItem.packagingType) : null),
+                          },
+                          {
+                            label: 'Input Material 1 (Primary)',
+                            children: detailItem.productionInItem
+                              ? (() => {
                                 const pi = detailItem.productionInItem;
                                 const typeLabel = (pi.itemType && typeName(pi.itemType)) || null;
                                 const deptName = departments.find((d) => d.id === pi.departmentId)?.name ?? null;
                                 const wire = pi.wireSizeMm != null ? `${formatDimension(pi.wireSizeMm)} mm` : null;
                                 return `${pi.itemCode} — ${pi.name}${typeLabel ? ` · ${typeLabel}` : ''}${deptName ? ` · ${deptName}` : ''}${wire ? ` · ${wire}` : ''}`.trim();
                               })()
-                            : null,
-                        },
-                        {
-                          label: 'Input Material 2 (Component)',
-                          children: detailItem.productionInItem2
-                            ? (() => {
+                              : null,
+                          },
+                          {
+                            label: 'Input Material 2 (Component)',
+                            children: detailItem.productionInItem2
+                              ? (() => {
                                 const pi = detailItem.productionInItem2;
                                 const typeLabel = (pi.itemType && typeName(pi.itemType)) || null;
                                 const deptName = departments.find((d) => d.id === pi.departmentId)?.name ?? null;
                                 const wire = pi.wireSizeMm != null ? `${formatDimension(pi.wireSizeMm)} mm` : null;
                                 return `${pi.itemCode} — ${pi.name}${typeLabel ? ` · ${typeLabel}` : ''}${deptName ? ` · ${deptName}` : ''}${wire ? ` · ${wire}` : ''}`.trim();
                               })()
-                            : null,
-                        },
-                        {
-                          label: 'Input Material 3 (Component)',
-                          children: detailItem.productionInItem3
-                            ? (() => {
+                              : null,
+                          },
+                          {
+                            label: 'Input Material 3 (Component)',
+                            children: detailItem.productionInItem3
+                              ? (() => {
                                 const pi = detailItem.productionInItem3;
                                 const typeLabel = (pi.itemType && typeName(pi.itemType)) || null;
                                 const deptName = departments.find((d) => d.id === pi.departmentId)?.name ?? null;
                                 const wire = pi.wireSizeMm != null ? `${formatDimension(pi.wireSizeMm)} mm` : null;
                                 return `${pi.itemCode} — ${pi.name}${typeLabel ? ` · ${typeLabel}` : ''}${deptName ? ` · ${deptName}` : ''}${wire ? ` · ${wire}` : ''}`.trim();
                               })()
-                            : null,
-                        },
-                        {
-                          label: 'Output Product',
-                          children: detailItem.productionOutItem
-                            ? `${detailItem.productionOutItem.itemCode} — ${detailItem.productionOutItem.name}`
-                            : detailItem.productionInItem
-                              ? `${detailItem.itemCode} — ${detailItem.name} (self)` : null,
-                        },
-                      ])}
+                              : null,
+                          },
+                          {
+                            label: 'Output Product',
+                            children: detailItem.productionOutItem
+                              ? `${detailItem.productionOutItem.itemCode} — ${detailItem.productionOutItem.name}`
+                              : detailItem.productionInItem
+                                ? `${detailItem.itemCode} — ${detailItem.name} (self)` : null,
+                          },
+                        ])}
 
-                      {/* Repeatable Process Sequence Display */}
-                      {(() => {
-                        const drawerProcs = (detailItem.processes && detailItem.processes.length > 0)
-                          ? detailItem.processes
-                          : [
+                        {/* Repeatable Process Sequence Display */}
+                        {(() => {
+                          const drawerProcs = (detailItem.processes && detailItem.processes.length > 0)
+                            ? detailItem.processes
+                            : [
                               detailItem.process1 ? { sequence: 1, name: detailItem.process1 } : null,
                               detailItem.process2 ? { sequence: 2, name: detailItem.process2 } : null,
                               detailItem.process3 ? { sequence: 3, name: detailItem.process3 } : null,
@@ -5162,3246 +5175,3287 @@ const ItemManagement: React.FC = () => {
                               detailItem.process6 ? { sequence: 6, name: detailItem.process6 } : null,
                             ].filter(Boolean) as { sequence: number; name: string }[];
 
-                        if (drawerProcs.length === 0) return null;
+                          if (drawerProcs.length === 0) return null;
 
-                        return (
-                          <div style={{ marginTop: 10, marginBottom: 12 }}>
-                            <Text strong style={{ fontSize: 11, textTransform: 'uppercase', color: 'var(--theme-text-muted)', display: 'block', marginBottom: 6 }}>
-                              Configured Operations Sequence ({drawerProcs.length})
-                            </Text>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                              {drawerProcs.map((proc, idx) => (
-                                <div
-                                  key={idx}
-                                  style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 8,
-                                    padding: '4px 8px',
-                                    borderRadius: 4,
-                                    background: 'var(--theme-surface-alt, rgba(255,255,255,0.03))',
-                                    border: '1px solid var(--theme-border, rgba(255,255,255,0.08))',
-                                  }}
-                                >
-                                  <span
+                          return (
+                            <div style={{ marginTop: 10, marginBottom: 12 }}>
+                              <Text strong style={{ fontSize: 11, textTransform: 'uppercase', color: 'var(--theme-text-muted)', display: 'block', marginBottom: 6 }}>
+                                Configured Operations Sequence ({drawerProcs.length})
+                              </Text>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                {drawerProcs.map((proc, idx) => (
+                                  <div
+                                    key={idx}
                                     style={{
-                                      fontFamily: 'monospace',
-                                      fontSize: 11,
-                                      fontWeight: 700,
-                                      color: 'var(--theme-accent, #0284c7)',
-                                      background: 'rgba(2, 132, 199, 0.1)',
-                                      padding: '2px 6px',
-                                      borderRadius: 3,
-                                      border: '1px solid rgba(2, 132, 199, 0.25)',
-                                      minWidth: 28,
-                                      textAlign: 'center',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: 8,
+                                      padding: '4px 8px',
+                                      borderRadius: 4,
+                                      background: 'var(--theme-surface-alt, rgba(255,255,255,0.03))',
+                                      border: '1px solid var(--theme-border, rgba(255,255,255,0.08))',
                                     }}
                                   >
-                                    {String(proc.sequence ?? (idx + 1)).padStart(2, '0')}
-                                  </span>
-                                  <span style={{ fontSize: 12, fontWeight: 500 }}>{proc.name}</span>
-                                </div>
+                                    <span
+                                      style={{
+                                        fontFamily: 'monospace',
+                                        fontSize: 11,
+                                        fontWeight: 700,
+                                        color: 'var(--theme-accent, #0284c7)',
+                                        background: 'rgba(2, 132, 199, 0.1)',
+                                        padding: '2px 6px',
+                                        borderRadius: 3,
+                                        border: '1px solid rgba(2, 132, 199, 0.25)',
+                                        minWidth: 28,
+                                        textAlign: 'center',
+                                      }}
+                                    >
+                                      {String(proc.sequence ?? (idx + 1)).padStart(2, '0')}
+                                    </span>
+                                    <span style={{ fontSize: 12, fontWeight: 500 }}>{proc.name}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })()}
+
+                        {/* Visual Production Flow Pipeline */}
+                        <ProductionFlowCard itemId={detailItem.id} style={{ marginTop: 12 }} />
+                      </Card>
+
+                      <Card size="small" title="Barcode Identification" style={{ borderRadius: 8, marginTop: 12 }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
+                          <div>
+                            <Text type="secondary" style={{ fontSize: 11 }}>Item Code</Text>
+                            <div style={{ fontWeight: 600, fontFamily: 'monospace' }}>{detailItem.itemCode}</div>
+                          </div>
+                          <div>
+                            <Text type="secondary" style={{ fontSize: 11 }}>SKU</Text>
+                            <div style={{ fontWeight: 600, fontFamily: 'monospace' }}>{detailItem.sku || '—'}</div>
+                          </div>
+                          <div>
+                            <Text type="secondary" style={{ fontSize: 11 }}>Barcode</Text>
+                            {(detailItem.barcode || registryBarcodes[0]?.barcodeValue) ? (
+                              <div style={{ marginTop: 4, overflow: 'visible' }}>
+                                <svg ref={detailBarcodeCallbackRef} style={{ maxWidth: '100%', overflow: 'visible' }} />
+                              </div>
+                            ) : (
+                              <div style={{ fontWeight: 600, fontFamily: 'monospace', fontSize: 14, letterSpacing: 1 }}>—</div>
+                            )}
+                          </div>
+                        </div>
+                        {registryBarcodes.length > 0 && (
+                          <div style={{ marginTop: 8 }}>
+                            <Text type="secondary" style={{ fontSize: 11 }}>Registry Barcodes ({registryBarcodes.length})</Text>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
+                              {registryBarcodes.map((b: any) => (
+                                <Tag key={b.id} color={b.isPrimary ? 'green' : 'default'} style={{ fontFamily: 'monospace', fontSize: 11 }}>
+                                  {b.barcodeValue}{b.isPrimary ? ' (Primary)' : ''}
+                                </Tag>
                               ))}
                             </div>
                           </div>
-                        );
-                      })()}
-
-                      {/* Visual Production Flow Pipeline */}
-                      <ProductionFlowCard itemId={detailItem.id} style={{ marginTop: 12 }} />
-                    </Card>
-
-                    <Card size="small" title="Barcode Identification" style={{ borderRadius: 8, marginTop: 12 }}>
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
-                        <div>
-                          <Text type="secondary" style={{ fontSize: 11 }}>Item Code</Text>
-                          <div style={{ fontWeight: 600, fontFamily: 'monospace' }}>{detailItem.itemCode}</div>
-                        </div>
-                        <div>
-                          <Text type="secondary" style={{ fontSize: 11 }}>SKU</Text>
-                          <div style={{ fontWeight: 600, fontFamily: 'monospace' }}>{detailItem.sku || '—'}</div>
-                        </div>
-                        <div>
-                          <Text type="secondary" style={{ fontSize: 11 }}>Barcode</Text>
-                          {(detailItem.barcode || registryBarcodes[0]?.barcodeValue) ? (
-                            <div style={{ marginTop: 4, overflow: 'visible' }}>
-                              <svg ref={detailBarcodeCallbackRef} style={{ maxWidth: '100%', overflow: 'visible' }} />
-                            </div>
-                          ) : (
-                            <div style={{ fontWeight: 600, fontFamily: 'monospace', fontSize: 14, letterSpacing: 1 }}>—</div>
-                          )}
-                        </div>
-                      </div>
-                      {registryBarcodes.length > 0 && (
+                        )}
                         <div style={{ marginTop: 8 }}>
-                          <Text type="secondary" style={{ fontSize: 11 }}>Registry Barcodes ({registryBarcodes.length})</Text>
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
-                            {registryBarcodes.map((b: any) => (
-                              <Tag key={b.id} color={b.isPrimary ? 'green' : 'default'} style={{ fontFamily: 'monospace', fontSize: 11 }}>
-                                {b.barcodeValue}{b.isPrimary ? ' (Primary)' : ''}
-                              </Tag>
-                            ))}
-                          </div>
+                          <Button
+                            size="small"
+                            icon={<PrinterOutlined />}
+                            onClick={() => { setPrintItem(detailItem); setPrintOpen(true); }}
+                          >
+                            Print Barcode Label
+                          </Button>
                         </div>
-                      )}
-                      <div style={{ marginTop: 8 }}>
-                        <Button
-                          size="small"
-                          icon={<PrinterOutlined />}
-                          onClick={() => { setPrintItem(detailItem); setPrintOpen(true); }}
-                        >
-                          Print Barcode Label
-                        </Button>
-                      </div>
-                    </Card>
-                  </>
-                ),
-              },
-              {
-                key: 'history',
-                label: <Space><HistoryOutlined />History</Space>,
-                children: historyLoading ? (
-                  <GlobalLoading title="Loading Item History…" subtitle="Retrieving item change history and audit trail…" badgeText="LIVE DATABASE QUERY" minHeight={220} />
-                ) : (
-                  <Tabs
-                    activeKey={historyTab}
-                    onChange={setHistoryTab}
-                    items={[
-                      {
-                        key: 'inventory',
-                        label: <Space><DatabaseOutlined />Inventory by Warehouse</Space>,
-                        children: (
-                          <>
-                            {historyErrors.inventory && <Alert type="warning" message={historyErrors.inventory} showIcon style={{ marginBottom: 8 }} />}
-                            <Table
-                              rowKey="id"
-                              size="small"
-                              dataSource={inventoryBalances}
-                              pagination={false}
-                              columns={[
-                                { title: 'Warehouse', key: 'warehouse', render: (_: any, r: any) => r.warehouse?.name || r.warehouseId },
-                                { title: 'UOM', key: 'uom', render: (_: any, r: any) => r.uom?.code || r.uomId },
-                                { title: 'On Hand', dataIndex: 'onHand', align: 'right' as const, render: (v: number) => Number(v).toLocaleString() },
-                                { title: 'Reserved', dataIndex: 'reserved', align: 'right' as const, render: (v: number) => Number(v).toLocaleString() },
-                                { title: 'Available', dataIndex: 'available', align: 'right' as const, render: (v: number) => <Text strong style={{ color: Number(v) > 0 ? 'var(--theme-success)' : 'var(--theme-danger)' }}>{Number(v).toLocaleString()}</Text> },
-                              ]}
-                              locale={{ emptyText: 'No inventory balances found' }}
-                            />
-                          </>
-                        ),
-                      },
-                      {
-                        key: 'stock-ledger',
-                        label: <Space><ProjectOutlined />Stock Ledger</Space>,
-                        children: (
-                          <>
-                            {historyErrors.stockLedger && <Alert type="warning" message={historyErrors.stockLedger} showIcon style={{ marginBottom: 8 }} />}
-                            <Table
-                              rowKey="id"
-                              size="small"
-                              dataSource={stockLedger}
-                              pagination={{ pageSize: 10, total: stockLedgerTotal, showSizeChanger: false }}
-                              columns={[
-                                { title: 'Date', dataIndex: 'transactionDate', width: 150, render: (v: string) => v ? new Date(v).toLocaleDateString() : '—' },
-                                { title: 'Warehouse', key: 'warehouse', render: (_: any, r: any) => r.warehouse?.name || '—' },
-                                { title: 'Location', key: 'location', render: (_: any, r: any) => r.location?.name || '—' },
-                                { title: 'Type', dataIndex: 'transactionType', width: 140, render: (v: string) => <Tag>{v}</Tag> },
-                                { title: 'Direction', dataIndex: 'direction', width: 80, render: (v: string) => <Tag color={v === 'IN' ? 'green' : 'red'}>{v}</Tag> },
-                                { title: 'Qty', dataIndex: 'quantity', align: 'right' as const, render: (v: number) => Number(v).toLocaleString() },
-                                { title: 'UOM', key: 'uom', render: (_: any, r: any) => r.uom?.code || '—' },
-                                { title: 'Ref Type', dataIndex: 'referenceType', width: 110, render: (v: string) => v ? <Tag style={{ fontSize: 10 }}>{v}</Tag> : '—' },
-                                { title: 'Reference', dataIndex: 'referenceNumber', render: (v: string) => v || '—' },
-                              ]}
-                              locale={{ emptyText: 'No stock ledger entries found' }}
-                            />
-                          </>
-                        ),
-                      },
-                      {
-                        key: 'production',
-                        label: <Space><AppstoreOutlined />Production History</Space>,
-                        children: (
-                          <>
-                            {historyErrors.production && <Alert type="warning" message={historyErrors.production} showIcon style={{ marginBottom: 8 }} />}
-                            <Table
-                              rowKey="id"
-                              size="small"
-                              dataSource={productionHistory}
-                              pagination={{ pageSize: 10, total: productionHistoryTotal, showSizeChanger: false }}
-                              columns={[
-                                {
-                                  title: 'Role',
-                                  dataIndex: 'role',
-                                  width: 90,
-                                  render: (v: string) => (
-                                    <Tag color={v === 'OUTPUT' ? 'blue' : v === 'INPUT' ? 'orange' : 'default'}>{v || '—'}</Tag>
-                                  ),
-                                },
-                                {
-                                  title: 'Description',
-                                  dataIndex: 'roleDescription',
-                                  width: 120,
-                                },
-                                {
-                                  title: 'Date',
-                                  dataIndex: 'entryDate',
-                                  width: 110,
-                                  render: (v: string) => v ? new Date(v).toLocaleDateString() : '—',
-                                },
-                                { title: 'Department', key: 'department', render: (_: any, r: any) => r.department?.name || '—' },
-                                { title: 'Machine', dataIndex: 'machineNo', width: 100, render: (v: string) => v || '—' },
-                                { title: 'Warehouse', key: 'warehouse', width: 120, render: (_: any, r: any) => r.warehouse?.name || '—' },
-                                { title: 'Target', dataIndex: 'targetQuantity', align: 'right' as const, render: (v: number) => v != null ? Number(v).toLocaleString() : '—' },
-                                { title: 'Actual', dataIndex: 'actualQuantity', align: 'right' as const, render: (v: number) => v != null ? Number(v).toLocaleString() : '—' },
-                                { title: 'Scrap', dataIndex: 'scrapQuantity', align: 'right' as const, render: (v: number) => v != null && Number(v) > 0 ? Number(v).toLocaleString() : '—' },
-                                { title: 'UOM', key: 'uom', render: (_: any, r: any) => r.uom?.code || '—' },
-                                { title: 'Source', dataIndex: 'source', width: 100, render: (v: string) => <Tag style={{ fontSize: 10 }}>{v === 'PRODUCTION_ENTRY' ? 'PE' : 'SL'}</Tag> },
-                              ]}
-                              locale={{ emptyText: 'No production history found' }}
-                            />
-                          </>
-                        ),
-                      },
-                    ]}
-                  />
-                ),
-              },
-            ]}
-          />
-        )}
-      </DraggableResizableModal>
-
-      <DraggableResizableModal
-        open={formOpen && !isFormMinimized}
-        onCancel={() => { setFormOpen(false); setIsFormMinimized(false); }}
-        onMinimize={() => setIsFormMinimized(true)}
-        onOk={handleSubmit}
-        confirmLoading={saving}
-        width={screens.md ? (showLivePreview && screens.lg ? 1240 : 880) : '96vw'}
-        height={screens.md ? 720 : 640}
-        wrapClassName="erp-mobile-modal"
-        okText={editing ? 'Save Changes' : (isCloning ? 'Create Duplicate Item' : 'Create Item')}
-        title={
-          <Space>
-            {editing ? <EditOutlined /> : (isCloning ? <CopyOutlined /> : <FileAddOutlined />)}
-            {editing ? `Edit Item — ${editing.itemCode}` : (isCloning ? 'Duplicate / Clone Item' : 'Add New Item')}
-          </Space>
-        }
-        extra={
-          screens.lg && (
-            <Button
-              size="small"
-              icon={<EyeOutlined />}
-              onClick={() => setShowLivePreview((v) => !v)}
-              style={{ fontSize: 12, marginRight: 8 }}
-            >
-              {showLivePreview ? 'Hide Live Preview' : 'Show Live Preview'}
-            </Button>
-          )
-        }
-        styles={{
-          body: {
-            maxHeight: screens.md ? 'calc(100vh - 180px)' : 'calc(100vh - 130px)',
-            overflowY: 'auto',
-            padding: screens.xs ? '8px 10px 80px' : '16px 20px',
-          },
-        }}
-      >
-        <Form form={form} layout="vertical" requiredMark="optional">
-          <div className={`erp-item-split-layout ${showLivePreview && screens.lg ? 'with-preview' : 'form-only'}`}>
-            <div className="erp-item-form-pane">
-              <Tabs
-                activeKey={formWizardTab}
-                onChange={(key) => setFormWizardTab(key as any)}
-                type="card"
-                className="erp-item-wizard-tabs"
-                items={[
-                  {
-                    key: 'profile',
-                    label: (
-                      <Space>
-                        <AppstoreOutlined />
-                        <span>1. Basic Profile & Specs</span>
-                      </Space>
-                    ),
-                    children: (
-                      <div>
-                        {/* SECTION 1 — ORGANIZATION (TOP) */}
-              <Card
-                size="small"
-                title={
-                  <Space>
-                    <ApartmentOutlined style={{ color: '#0284c7' }} />
-                    <span style={{ fontWeight: 600 }}>Section 1 — Organization</span>
-                  </Space>
-                }
-                style={{ marginBottom: 12, borderRadius: 8 }}
-              >
-                <div className="erp-form-responsive-grid">
-                  <Form.Item
-                    name="divisionId"
-                    label={<span style={{ fontWeight: 600 }}>Division</span>}
-                    extra="Selecting a division automatically sets the Item Code prefix (e.g. CCD-, MD-, SPI-, NB-)"
-                  >
-                    <Select
-                      size={screens.xs ? 'large' : 'middle'}
-                      allowClear
-                      showSearch
-                      optionFilterProp="label"
-                      placeholder="Select division (e.g. Control Cable Division)"
-                      options={toUnique(divisions, (d) => d.name)}
-                      onChange={handleDivisionChange}
-                    />
-                  </Form.Item>
-
-                  <Form.Item noStyle shouldUpdate={(p, c) => p.divisionId !== c.divisionId}>
-                    {({ getFieldValue }) => (
-                      <Form.Item
-                        name="sectionId"
-                        label={<span style={{ fontWeight: 600 }}>Section</span>}
-                      >
-                        <Select
-                          size={screens.xs ? 'large' : 'middle'}
-                          allowClear
-                          showSearch
-                          optionFilterProp="label"
-                          placeholder="Select section"
-                          disabled={!getFieldValue('divisionId')}
-                          options={toUnique(sectionsForDivision(getFieldValue('divisionId')), (s) => s.name)}
-                          onChange={handleSectionChange}
-                        />
-                      </Form.Item>
-                    )}
-                  </Form.Item>
-
-                  <Form.Item noStyle shouldUpdate={(p, c) => p.sectionId !== c.sectionId || p.divisionId !== c.divisionId}>
-                    {({ getFieldValue }) => (
-                      <Form.Item
-                        name="departmentId"
-                        label={<span style={{ fontWeight: 600 }}>Department</span>}
-                      >
-                        <Select
-                          size={screens.xs ? 'large' : 'middle'}
-                          allowClear
-                          showSearch
-                          optionFilterProp="label"
-                          placeholder="Select department"
-                          disabled={!getFieldValue('sectionId')}
-                          options={toUnique(departmentsForSection(getFieldValue('divisionId'), getFieldValue('sectionId')), (d) => d.name)}
-                          onChange={handleDepartmentChange}
-                        />
-                      </Form.Item>
-                    )}
-                  </Form.Item>
-                </div>
-              </Card>
-
-              {/* SECTION 2 — BASIC INFORMATION */}
-              <Card
-                size="small"
-                title={
-                  <Space>
-                    <FileTextOutlined style={{ color: '#10b981' }} />
-                    <span style={{ fontWeight: 600 }}>Section 2 — Basic Information</span>
-                  </Space>
-                }
-                style={{ marginBottom: 12, borderRadius: 8 }}
-              >
-                <div className="erp-form-responsive-grid">
-                  <Form.Item noStyle shouldUpdate={(p, c) => p.divisionId !== c.divisionId}>
-                    {({ getFieldValue }) => {
-                      const divId = getFieldValue('divisionId');
-                      const selDiv = divisions.find((d) => d.id === divId);
-                      const prefix = getDivisionPrefix(selDiv?.name || selDiv?.divisionCode);
-                      return (
-                        <Form.Item
-                          name="itemCode"
-                          label={
-                            <Space>
-                              <span style={{ fontWeight: 600 }}>Item Code</span>
-                              {prefix ? (
-                                <Tag color="blue" style={{ fontWeight: 700, borderRadius: 4 }}>
-                                  Prefix: {prefix}-
-                                </Tag>
-                              ) : null}
-                            </Space>
-                          }
-                          rules={[
-                            { required: true, message: 'Item Code is required' },
-                            { pattern: /^[A-Z0-9_-]+$/, message: 'Uppercase letters, numbers, hyphens and underscores only' },
-                          ]}
-                          extra={
-                            editing
-                              ? 'Item Code cannot be changed'
-                              : prefix
-                              ? `Division selected: Code prefix "${prefix}-" will be applied automatically (e.g. typing 114011 becomes ${prefix}-114011)`
-                              : 'e.g. CCD-114011, MD-114011, SPI-114011, NB-175198 (select Division above to auto-prefix)'
-                          }
-                        >
-                          <Input
-                            size={screens.xs ? 'large' : 'middle'}
-                            disabled={!!editing}
-                            placeholder={prefix ? `e.g. ${prefix}-114011` : 'e.g. CCD-114011'}
-                            maxLength={50}
-                            style={{ fontWeight: 600 }}
-                            onBlur={(e) => {
-                              if (editing) return;
-                              if (prefix && e.target.value) {
-                                form.setFieldValue('itemCode', formatItemCodeWithDivisionPrefix(e.target.value, prefix));
-                              }
-                            }}
-                          />
-                        </Form.Item>
-                      );
-                    }}
-                  </Form.Item>
-
-                  <Form.Item
-                    name="name"
-                    label={<span style={{ fontWeight: 600 }}>Item Name</span>}
-                    rules={[{ required: true, message: 'Item Name is required' }]}
-                  >
-                    <Input size={screens.xs ? 'large' : 'middle'} placeholder="e.g. Copper Wire 2.00 mm" maxLength={255} />
-                  </Form.Item>
-
-                  <Form.Item
-                    name="shortName"
-                    label={<span style={{ fontWeight: 600 }}>Short Name</span>}
-                  >
-                    <Input size={screens.xs ? 'large' : 'middle'} maxLength={100} placeholder="e.g. Cu Wire 2mm" />
-                  </Form.Item>
-
-                  <Form.Item
-                    name="description"
-                    label={<span style={{ fontWeight: 600 }}>Description</span>}
-                    style={{ gridColumn: '1 / -1' }}
-                  >
-                    <Input.TextArea
-                      rows={2}
-                      maxLength={1000}
-                      placeholder="e.g. Demo raw material received from another manufacturing unit"
-                    />
-                  </Form.Item>
-                </div>
-              </Card>
-
-              {/* SECTION 3 — CLASSIFICATION */}
-              <Card
-                size="small"
-                title={
-                  <Space>
-                    <AppstoreOutlined style={{ color: '#8b5cf6' }} />
-                    <span style={{ fontWeight: 600 }}>Section 3 — Classification</span>
-                  </Space>
-                }
-                style={{ marginBottom: 12, borderRadius: 8 }}
-              >
-                <div className="erp-form-responsive-grid">
-                  <Form.Item
-                    name="itemType"
-                    label={<span style={{ fontWeight: 600 }}>Item Type</span>}
-                    rules={[{ required: true, message: 'Item Type is required' }]}
-                  >
-                    <Select
-                      size={screens.xs ? 'large' : 'middle'}
-                      showSearch optionFilterProp="label"
-                      loading={masterTypesState === 'loading'}
-                      status={masterTypesState === 'error' ? 'error' : undefined}
-                      notFoundContent={masterTypesState === 'error' ? 'Item types could not be loaded' : 'No item types'}
-                      options={displayTypes.map((o) => ({
-                        ...o,
-                        disabled: o.status === 'INACTIVE' && o.value !== (editing?.itemType ?? null),
-                      }))}
-                      placeholder="Select item type"
-                      onChange={(val) => {
-                        const isRaw = val === 'RAW_MATERIAL' || String(val || '').toUpperCase().includes('RAW');
-                        if (isRaw && autoFillMaterialRole) {
-                          form.setFieldValue('materialRoleUsage', 'Process Component Materials');
-                        }
-                      }}
-                    />
-                  </Form.Item>
-                  <Form.Item noStyle shouldUpdate={(prev, cur) => prev.itemType !== cur.itemType}>
-                    {({ getFieldValue }) => {
-                      const currentType = getFieldValue('itemType');
-                      const isRaw = currentType === 'RAW_MATERIAL' || String(currentType || '').toUpperCase().includes('RAW');
-                      return (
-                        <Form.Item
-                          name="materialRoleUsage"
-                          label={
-                            <Space size={6}>
-                              <span style={{ fontWeight: 600 }}>Material Role / Usage</span>
-                              <span style={{ color: '#94a3b8', fontSize: 12, fontWeight: 400 }}>(optional)</span>
-                            </Space>
-                          }
-                          extra={
-                            <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                              <Checkbox
-                                checked={autoFillMaterialRole}
-                                onChange={(e) => {
-                                  const checked = e.target.checked;
-                                  setAutoFillMaterialRole(checked);
-                                  if (checked) {
-                                    form.setFieldValue('materialRoleUsage', 'Process Component Materials');
-                                  }
-                                }}
-                                style={{ fontSize: 12 }}
-                              >
-                                <span style={{ color: autoFillMaterialRole ? '#2563eb' : '#64748b', fontWeight: autoFillMaterialRole ? 600 : 400 }}>
-                                  Auto-fill for Raw Materials
-                                </span>
-                              </Checkbox>
-                              {!autoFillMaterialRole && (
-                                <Tag color="blue" style={{ fontSize: 10.5, margin: 0, padding: '0 6px', borderRadius: 4 }}>
-                                  Manual Mode
-                                </Tag>
-                              )}
-                            </div>
-                          }
-                        >
-                          <Input
-                            size={screens.xs ? 'large' : 'middle'}
-                            placeholder={autoFillMaterialRole ? 'Auto-filled: Process Component Materials' : 'Enter manual material role / usage'}
-                            maxLength={150}
-                            disabled={autoFillMaterialRole}
-                          />
-                        </Form.Item>
-                      );
-                    }}
-                  </Form.Item>
-                  <Form.Item
-                    name="categoryId"
-                    label={<span style={{ fontWeight: 600 }}>Item Category</span>}
-                  >
-                    <Select
-                      size={screens.xs ? 'large' : 'middle'}
-                      allowClear showSearch optionFilterProp="label"
-                      options={toUnique(flatCategories, (c) => c.name)}
-                      placeholder="Select category"
-                    />
-                  </Form.Item>
-                  <Form.Item
-                    name="routeTypeId"
-                    label={<span style={{ fontWeight: 600 }}>Route Type</span>}
-                  >
-                    <Select
-                      size={screens.xs ? 'large' : 'middle'}
-                      allowClear showSearch optionFilterProp="label"
-                      loading={routeTypesState === 'loading'}
-                      status={routeTypesState === 'error' ? 'error' : undefined}
-                      notFoundContent={routeTypesState === 'error' ? 'Route types could not be loaded' : 'No active route types'}
-                      options={toUnique(routeTypes, (rt) => rt.name?.trim() ? rt.name : rt.routeCode)}
-                      placeholder="Select route type"
-                    />
-                  </Form.Item>
-                </div>
-              </Card>
-
-              {/* SECTION 4 — UOM & INVENTORY */}
-              <Card
-                size="small"
-                title={
-                  <Space>
-                    <DatabaseOutlined style={{ color: '#d97706' }} />
-                    <span style={{ fontWeight: 600 }}>Section 4 — UOM & Inventory</span>
-                  </Space>
-                }
-                style={{ marginBottom: 12, borderRadius: 8 }}
-              >
-                <div className="erp-form-responsive-grid">
-                  <Form.Item
-                    name="baseUomId"
-                    label={<span style={{ fontWeight: 600 }}>Base UOM</span>}
-                    rules={[{ required: true, message: 'Base UOM is required' }]}
-                  >
-                    <Select
-                      size={screens.xs ? 'large' : 'middle'}
-                      showSearch optionFilterProp="label" placeholder="e.g. KG"
-                      options={toUnique(uoms, (u) => `${u.name} (${u.code})`)}
-                    />
-                  </Form.Item>
-                  <Form.Item
-                    name="purchaseUomId"
-                    label={<span style={{ fontWeight: 600 }}>Purchase UOM</span>}
-                  >
-                    <Select
-                      size={screens.xs ? 'large' : 'middle'}
-                      allowClear showSearch optionFilterProp="label" placeholder="Optional"
-                      options={toUnique(uoms, (u) => `${u.name} (${u.code})`)}
-                    />
-                  </Form.Item>
-                  <Form.Item
-                    name="salesUomId"
-                    label={<span style={{ fontWeight: 600 }}>Sales UOM</span>}
-                  >
-                    <Select
-                      size={screens.xs ? 'large' : 'middle'}
-                      allowClear showSearch optionFilterProp="label" placeholder="Optional"
-                      options={toUnique(uoms, (u) => `${u.name} (${u.code})`)}
-                    />
-                  </Form.Item>
-                  <Form.Item
-                    name="weightPerPiece"
-                    label={<span style={{ fontWeight: 600 }}>Weight per Piece (kg)</span>}
-                    extra="Enables KG ↔ PCS"
-                  >
-                    <InputNumber size={screens.xs ? 'large' : 'middle'} min={0} step={0.000001} style={{ width: '100%' }} placeholder="e.g. 0.0555" />
-                  </Form.Item>
-                  <Form.Item
-                    name="piecesPerKg"
-                    label={<span style={{ fontWeight: 600 }}>Pieces per KG</span>}
-                    extra="Manually maintained"
-                  >
-                    <InputNumber size={screens.xs ? 'large' : 'middle'} min={0} step={0.000001} style={{ width: '100%' }} placeholder="e.g. 18.02" />
-                  </Form.Item>
-                  <Form.Item
-                    name="weightPerMeter"
-                    label={<span style={{ fontWeight: 600 }}>Weight per Meter (kg/m)</span>}
-                    extra="Enables KG ↔ METER"
-                  >
-                    <InputNumber size={screens.xs ? 'large' : 'middle'} min={0} step={0.000001} style={{ width: '100%' }} placeholder="Optional" />
-                  </Form.Item>
-                </div>
-                <div style={{ marginTop: 4, fontSize: 11, color: '#64748b', display: 'flex', alignItems: 'center' }}>
-                  <BulbOutlined style={{ color: '#eab308', marginRight: 6 }} /> Length is managed under&nbsp;<strong>Production Specifications</strong>&nbsp;below.
-                </div>
-              </Card>
-
-              {/* SECTION 4B — PACKAGING SPECIFICATION & CARTON / GROSS / PIECE CONVERSION */}
-              <Card
-                size="small"
-                title={
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-                    <Space>
-                      <InboxOutlined style={{ color: '#10b981' }} />
-                      <span style={{ fontWeight: 600 }}>Section 4B — Packaging & Carton / Gross / Piece Conversion</span>
-                    </Space>
-                    <Space size={6} wrap>
-                      <Button
-                        size="small"
-                        onClick={() => {
-                          form.setFieldsValue({
-                            packagingType: 'BOX',
-                            packagingUnit: 'Carton',
-                            packagingSize: 10,
-                          });
-                        }}
-                        style={{ fontSize: 11, fontWeight: 600 }}
-                      >
-                        Standard Carton (10 GRS = 1,440 PCS)
-                      </Button>
-                      <Button
-                        size="small"
-                        type="primary"
-                        ghost
-                        onClick={() => {
-                          form.setFieldsValue({
-                            packagingType: 'BOX',
-                            packagingUnit: 'Carton',
-                            packagingSize: 10.556,
-                          });
-                        }}
-                        style={{ fontSize: 11, fontWeight: 600 }}
-                      >
-                        CS Carton (10.556 GRS = 1,520 PCS)
-                      </Button>
-                    </Space>
-                  </div>
-                }
-                style={{ marginBottom: 12, borderRadius: 8 }}
-              >
-                <div className="erp-form-responsive-grid">
-                  <Form.Item
-                    name="packagingType"
-                    label={<span style={{ fontWeight: 600 }}>Packaging Type</span>}
-                    extra="Physical container (e.g. Box / Carton, Coil, Gross, Drum)"
-                  >
-                    <Select
-                      allowClear
-                      placeholder="Select packaging type..."
-                      options={[
-                        { value: 'BOX', label: 'Box / Carton (Spokes & Nipples)' },
-                        { value: 'COIL', label: 'Coil (500m / 250m Wire or Cable)' },
-                        { value: 'GROSS', label: 'Gross (144 Pieces)' },
-                        { value: 'PACK', label: 'Pack' },
-                        { value: 'DRUM', label: 'Drum / Reel' },
-                        { value: 'NONE', label: 'None / Loose Bulk' },
+                      </Card>
+                    </>
+                  ),
+                },
+                {
+                  key: 'history',
+                  label: <Space><HistoryOutlined />History</Space>,
+                  children: historyLoading ? (
+                    <GlobalLoading title="Loading Item History…" subtitle="Retrieving item change history and audit trail…" badgeText="LIVE DATABASE QUERY" minHeight={220} />
+                  ) : (
+                    <Tabs
+                      activeKey={historyTab}
+                      onChange={setHistoryTab}
+                      items={[
+                        {
+                          key: 'inventory',
+                          label: <Space><DatabaseOutlined />Inventory by Warehouse</Space>,
+                          children: (
+                            <>
+                              {historyErrors.inventory && <Alert type="warning" message={historyErrors.inventory} showIcon style={{ marginBottom: 8 }} />}
+                              <Table
+                                rowKey="id"
+                                size="small"
+                                dataSource={inventoryBalances}
+                                pagination={false}
+                                columns={[
+                                  { title: 'Warehouse', key: 'warehouse', render: (_: any, r: any) => r.warehouse?.name || r.warehouseId },
+                                  { title: 'UOM', key: 'uom', render: (_: any, r: any) => r.uom?.code || r.uomId },
+                                  { title: 'On Hand', dataIndex: 'onHand', align: 'right' as const, render: (v: number) => Number(v).toLocaleString() },
+                                  { title: 'Reserved', dataIndex: 'reserved', align: 'right' as const, render: (v: number) => Number(v).toLocaleString() },
+                                  { title: 'Available', dataIndex: 'available', align: 'right' as const, render: (v: number) => <Text strong style={{ color: Number(v) > 0 ? 'var(--theme-success)' : 'var(--theme-danger)' }}>{Number(v).toLocaleString()}</Text> },
+                                ]}
+                                locale={{ emptyText: 'No inventory balances found' }}
+                              />
+                            </>
+                          ),
+                        },
+                        {
+                          key: 'stock-ledger',
+                          label: <Space><ProjectOutlined />Stock Ledger</Space>,
+                          children: (
+                            <>
+                              {historyErrors.stockLedger && <Alert type="warning" message={historyErrors.stockLedger} showIcon style={{ marginBottom: 8 }} />}
+                              <Table
+                                rowKey="id"
+                                size="small"
+                                dataSource={stockLedger}
+                                pagination={{ pageSize: 10, total: stockLedgerTotal, showSizeChanger: false }}
+                                columns={[
+                                  { title: 'Date', dataIndex: 'transactionDate', width: 150, render: (v: string) => v ? new Date(v).toLocaleDateString() : '—' },
+                                  { title: 'Warehouse', key: 'warehouse', render: (_: any, r: any) => r.warehouse?.name || '—' },
+                                  { title: 'Location', key: 'location', render: (_: any, r: any) => r.location?.name || '—' },
+                                  { title: 'Type', dataIndex: 'transactionType', width: 140, render: (v: string) => <Tag>{v}</Tag> },
+                                  { title: 'Direction', dataIndex: 'direction', width: 80, render: (v: string) => <Tag color={v === 'IN' ? 'green' : 'red'}>{v}</Tag> },
+                                  { title: 'Qty', dataIndex: 'quantity', align: 'right' as const, render: (v: number) => Number(v).toLocaleString() },
+                                  { title: 'UOM', key: 'uom', render: (_: any, r: any) => r.uom?.code || '—' },
+                                  { title: 'Ref Type', dataIndex: 'referenceType', width: 110, render: (v: string) => v ? <Tag style={{ fontSize: 10 }}>{v}</Tag> : '—' },
+                                  { title: 'Reference', dataIndex: 'referenceNumber', render: (v: string) => v || '—' },
+                                ]}
+                                locale={{ emptyText: 'No stock ledger entries found' }}
+                              />
+                            </>
+                          ),
+                        },
+                        {
+                          key: 'production',
+                          label: <Space><AppstoreOutlined />Production History</Space>,
+                          children: (
+                            <>
+                              {historyErrors.production && <Alert type="warning" message={historyErrors.production} showIcon style={{ marginBottom: 8 }} />}
+                              <Table
+                                rowKey="id"
+                                size="small"
+                                dataSource={productionHistory}
+                                pagination={{ pageSize: 10, total: productionHistoryTotal, showSizeChanger: false }}
+                                columns={[
+                                  {
+                                    title: 'Role',
+                                    dataIndex: 'role',
+                                    width: 90,
+                                    render: (v: string) => (
+                                      <Tag color={v === 'OUTPUT' ? 'blue' : v === 'INPUT' ? 'orange' : 'default'}>{v || '—'}</Tag>
+                                    ),
+                                  },
+                                  {
+                                    title: 'Description',
+                                    dataIndex: 'roleDescription',
+                                    width: 120,
+                                  },
+                                  {
+                                    title: 'Date',
+                                    dataIndex: 'entryDate',
+                                    width: 110,
+                                    render: (v: string) => v ? new Date(v).toLocaleDateString() : '—',
+                                  },
+                                  { title: 'Department', key: 'department', render: (_: any, r: any) => r.department?.name || '—' },
+                                  { title: 'Machine', dataIndex: 'machineNo', width: 100, render: (v: string) => v || '—' },
+                                  { title: 'Warehouse', key: 'warehouse', width: 120, render: (_: any, r: any) => r.warehouse?.name || '—' },
+                                  { title: 'Target', dataIndex: 'targetQuantity', align: 'right' as const, render: (v: number) => v != null ? Number(v).toLocaleString() : '—' },
+                                  { title: 'Actual', dataIndex: 'actualQuantity', align: 'right' as const, render: (v: number) => v != null ? Number(v).toLocaleString() : '—' },
+                                  { title: 'Scrap', dataIndex: 'scrapQuantity', align: 'right' as const, render: (v: number) => v != null && Number(v) > 0 ? Number(v).toLocaleString() : '—' },
+                                  { title: 'UOM', key: 'uom', render: (_: any, r: any) => r.uom?.code || '—' },
+                                  { title: 'Source', dataIndex: 'source', width: 100, render: (v: string) => <Tag style={{ fontSize: 10 }}>{v === 'PRODUCTION_ENTRY' ? 'PE' : 'SL'}</Tag> },
+                                ]}
+                                locale={{ emptyText: 'No production history found' }}
+                              />
+                            </>
+                          ),
+                        },
                       ]}
                     />
-                  </Form.Item>
-                  <Form.Item
-                    name="packagingUnit"
-                    label={<span style={{ fontWeight: 600 }}>Packaging Unit Name</span>}
-                    extra="Label shown in Orders, Deliveries & Ledger (e.g. Carton, Coil)"
-                  >
-                    <Input maxLength={50} placeholder="e.g. Carton, Box, Coil" />
-                  </Form.Item>
-                  <Form.Item
-                    name="packagingSize"
-                    label={<span style={{ fontWeight: 600 }}>Gross / Sales Units per Carton</span>}
-                    extra="e.g. 10 GRS (Standard) or 10.556 GRS (CS = 1,520 PCS)"
-                  >
-                    <InputNumber
-                      style={{ width: '100%' }}
-                      min={0.001}
-                      step={0.001}
-                      precision={3}
-                      placeholder="e.g. 10 or 10.556"
-                    />
-                  </Form.Item>
-                  <Form.Item
-                    label={<span style={{ fontWeight: 600 }}>Pieces per Carton (PCS)</span>}
-                    extra="Type 1440 (Standard) or 1520 (CS) to auto-calculate Gross"
-                  >
-                    <InputNumber
-                      style={{ width: '100%' }}
-                      min={1}
-                      step={1}
-                      precision={0}
-                      value={watchedPackagingSize ? Math.round(Number(watchedPackagingSize) * 144) : undefined}
-                      placeholder="e.g. 1440 or 1520"
-                      addonAfter="PCS"
-                      onChange={(pcsVal) => {
-                        const numPcs = Number(pcsVal || 0);
-                        if (numPcs > 0) {
-                          const grs = Math.round((numPcs / 144) * 1000) / 1000;
-                          form.setFieldsValue({
-                            packagingSize: grs,
-                            packagingType: form.getFieldValue('packagingType') || 'BOX',
-                            packagingUnit: form.getFieldValue('packagingUnit') || 'Carton',
-                          });
-                        }
-                      }}
-                    />
-                  </Form.Item>
-                </div>
-                {watchedPackagingSize ? (() => {
-                  const baseUomObj = uoms.find((u) => u.id === watchedBaseUomId);
-                  const salesUomObj = uoms.find((u) => u.id === watchedSalesUomId);
-                  const targetUomObj = salesUomObj || baseUomObj;
-                  const targetUomCode = targetUomObj?.code || (targetUomObj as any)?.symbol || targetUomObj?.name || 'GRS';
-                  const isGrossTarget = targetUomCode.toUpperCase().includes('GR') || targetUomCode.toUpperCase().includes('GROSS');
-                  const isBasePcs = (baseUomObj?.code || '').toUpperCase().includes('PC') || isGrossTarget;
-                  const pcsPerPkg = isGrossTarget && isBasePcs ? Math.round(Number(watchedPackagingSize) * 144) : null;
-
-                  return (
-                    <div style={{ marginTop: 8, padding: '8px 12px', background: 'rgba(16, 185, 129, 0.08)', borderRadius: 6, border: '1px solid rgba(16, 185, 129, 0.25)' }}>
-                      <Space wrap size="small">
-                        <Tag color="green">Conversion Active</Tag>
-                        <Typography.Text strong>
-                          📦 1 {watchedPackagingUnit || watchedPackagingType || 'Carton'} = {Number(watchedPackagingSize).toLocaleString()} {targetUomCode}
-                          {pcsPerPkg ? ` (= ${pcsPerPkg.toLocaleString()} PCS)` : ''}
-                        </Typography.Text>
-                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                          (20 {watchedPackagingUnit || 'Cartons'} = {(Math.round(20 * Number(watchedPackagingSize) * 100) / 100).toLocaleString()} {targetUomCode}{pcsPerPkg ? ` / ${(20 * pcsPerPkg).toLocaleString()} PCS` : ''})
-                        </Typography.Text>
-                      </Space>
-                    </div>
-                  );
-                })() : null}
-              </Card>
-
-          {/* SECTION 5 — PRODUCTION */}
-          <Card
-            size="small"
-            title={
-              <Space>
-                <AppstoreOutlined style={{ color: '#10b981' }} />
-                <span style={{ fontWeight: 600 }}>Production</span>
-              </Space>
-            }
-            style={{ marginBottom: 12, borderRadius: 8 }}
-          >
-            {/* 5A: PRODUCTION SPECIFICATIONS */}
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
-                <Text strong style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--theme-accent, #0284c7)' }}>
-                  Production Specifications
-                </Text>
-                {(() => {
-                  const div = divisions.find((d) => d.id === (watchedDivisionId || editing?.divisionId));
-                  const divName = (div?.name || '').toLowerCase();
-                  if (divName.includes('spoke')) {
-                    return <Tag color="blue">Spoke Division: Primary specs are Diameter (mm) and Length</Tag>;
-                  }
-                  if (divName.includes('wire') || divName.includes('flatten')) {
-                    return <Tag color="green">Wire Division: Primary specs are Wire Size (mm), Thickness, Width</Tag>;
-                  }
-                  if (divName.includes('pvc')) {
-                    return <Tag color="cyan">PVC Division: Primary specs are Diameter (mm) and Length</Tag>;
-                  }
-                  return null;
-                })()}
-              </div>
-
-              <div className="erp-form-responsive-grid">
-                <Form.Item name="wireSizeMm" label="Wire Size (mm)" extra="Raw wire dimension">
-                  <InputNumber min={0} step={0.001} style={{ width: '100%' }} placeholder="Optional (e.g. 1.20)" />
-                </Form.Item>
-                <Form.Item name="diameterMm" label="Diameter (mm)" extra="Authoritative diameter (Spoke/PVC/Wire)">
-                  <InputNumber min={0} step={0.001} style={{ width: '100%' }} placeholder="e.g. 3.14" />
-                </Form.Item>
-                <Form.Item name="thicknessMm" label="Thickness (mm)" extra="Flattened / semi-finished wire">
-                  <InputNumber min={0} step={0.001} style={{ width: '100%' }} placeholder="e.g. 0.90" />
-                </Form.Item>
-                <Form.Item name="widthMm" label="Width (mm)" extra="Flattened / semi-finished wire">
-                  <InputNumber min={0} step={0.001} style={{ width: '100%' }} placeholder="e.g. 3.20" />
-                </Form.Item>
-                <Form.Item name="lengthPerPiece" label="Length" extra="Authoritative piece length">
-                  <InputNumber min={0} step={0.01} style={{ width: '100%' }} placeholder="e.g. 250" />
-                </Form.Item>
-              </div>
-            </div>
-          </Card>
-
-          {/* SECTION 6 — ADDITIONAL */}
-          <Card size="small" title="Additional" style={{ marginBottom: 12, borderRadius: 8 }}>
-            <div className="erp-form-responsive-grid">
-              <Form.Item name="sku" label="SKU" extra={editing ? 'SKU cannot be changed' : 'Auto-generated if left empty'}>
-                <Input disabled={!!editing} placeholder={editing ? 'Auto-generated' : 'Auto-generated on create'} />
-              </Form.Item>
-              <Form.Item name="barcode" label="Barcode" extra={editing ? 'Barcode cannot be changed' : 'Auto-generated if left empty'}>
-                <Input disabled={!!editing} placeholder={editing ? 'Auto-generated' : 'Auto-generated on create'} />
-              </Form.Item>
-              <Form.Item name="manufacturerPartNumber" label="Manufacturer Part No."><Input maxLength={255} placeholder="Optional" /></Form.Item>
-              <Form.Item name="brand" label="Brand"><Input maxLength={255} placeholder="Optional" /></Form.Item>
-              <Form.Item name="model" label="Model"><Input maxLength={255} placeholder="Optional" /></Form.Item>
-              <Form.Item name="costPrice" label="Cost Price" extra="Standard cost (Item Master)">
-                <InputNumber min={0} step={0.01} style={{ width: '100%' }} placeholder="Optional (e.g. 125.00)" />
-              </Form.Item>
-              <Form.Item name="sellingPrice" label="Selling Price" extra="Default selling price (Item Master)">
-                <InputNumber min={0} step={0.01} style={{ width: '100%' }} placeholder="Optional (e.g. 180.00)" />
-              </Form.Item>
-            </div>
-            <Row gutter={[12, 8]} style={{ marginTop: 8 }}>
-              {TRACKING_SWITCHES.map((s) => (
-                <Col key={s.name} xs={12} sm={8} md={6}>
-                  <Form.Item name={s.name} label={s.label} valuePropName="checked" style={{ marginBottom: 4 }}>
-                    <Switch size="small" />
-                  </Form.Item>
-                </Col>
-              ))}
-            </Row>
-            <div className="erp-form-responsive-grid" style={{ marginTop: 8 }}>
-              <Form.Item name="minimumStockLevel" label="Min Stock Level"><InputNumber min={0} style={{ width: '100%' }} placeholder="0" /></Form.Item>
-              <Form.Item name="maximumStockLevel" label="Max Stock Level"><InputNumber min={0} style={{ width: '100%' }} placeholder="0" /></Form.Item>
-              <Form.Item name="reorderLevel" label="Reorder Level"><InputNumber min={0} style={{ width: '100%' }} placeholder="0" /></Form.Item>
-              <Form.Item name="safetyStockLevel" label="Safety Stock Level"><InputNumber min={0} style={{ width: '100%' }} placeholder="0" /></Form.Item>
-              <Form.Item name="leadTimeDays" label="Lead Time (Days)"><InputNumber min={0} precision={0} style={{ width: '100%' }} placeholder="0" /></Form.Item>
-            </div>
-            {editing && (
-              <Form.Item label="Status" style={{ marginBottom: 8, marginTop: 8 }}>
-                <StatusBadge status={editing.status} colorMap={statusColorMap} style={{ marginRight: 8 }} />
-                <Text type="secondary" style={{ fontSize: 12 }}>Manage via Activate / Deactivate row actions</Text>
-              </Form.Item>
-            )}
-            <Form.Item name="notes" label="Remarks" style={{ marginBottom: 8 }}>
-              <Input.TextArea rows={2} maxLength={2000} placeholder="Optional note" />
-            </Form.Item>
-          </Card>
-        </div>
-      ),
-    },
-    {
-      key: 'routing',
-      label: (
-        <Space>
-          <BranchesOutlined />
-          <span>2. Process Flow & Departmental Routing</span>
-          <Tag color="cyan" style={{ fontSize: 10, margin: 0 }}>Tier 2 WIP</Tag>
-        </Space>
-      ),
-      children: (
-        <div>
-          {/* TIER 2: SEMI-FINISHED WIP COMPONENT PROFILE CARD */}
-          <Card
-            size="small"
-            style={{
-              marginBottom: 16,
-              borderRadius: 10,
-              border: '1px solid var(--theme-border, #e2e8f0)',
-              background: 'var(--theme-surface-alt, rgba(248, 250, 252, 0.6))',
-            }}
-            title={
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', flexWrap: 'wrap', gap: 8 }}>
-                <Space>
-                  <BranchesOutlined style={{ color: 'var(--theme-primary, #0284c7)' }} />
-                  <span style={{ fontWeight: 700, color: 'var(--theme-text, #0f172a)' }}>
-                    Tier 2: Semi-Finished WIP Component Profile (e.g. WIP-SPL-001 / 002)
-                  </span>
-                </Space>
-                <Tag color="blue" style={{ fontWeight: 600 }}>Auto-Routing Cascades</Tag>
-              </div>
-            }
-          >
-            <Alert
-              type="info"
-              showIcon
-              style={{ marginBottom: 16, borderRadius: 8 }}
-              message="Upstream Material Linkage & Operational Sequence Matrix"
-              description="Explicitly link the immediate upstream raw material code (e.g. Wire Rod Coil) and configure active production desks. Toggling stations (e.g. Bypassing Swaging) dynamically routes the backward scheduling demand targets across factory floors."
+                  ),
+                },
+              ]}
             />
+          )}
+        </DraggableResizableModal>
 
-            <Row gutter={[16, 16]}>
-              <Col xs={24} lg={12}>
-                <Form.Item
-                  name="sourceItemId"
-                  label={
-                    <Space>
-                      <span style={{ fontWeight: 600 }}>source_item_id (Immediate Upstream Raw Material)</span>
-                      <Tag color="blue" style={{ fontSize: 10 }}>Upstream Material</Tag>
-                    </Space>
-                  }
-                  extra="Explicitly links the immediate upstream raw material code (e.g. Wire Rod Coil 3.14mm). Consumed directly by this WIP component."
-                >
-                  <InputMaterialSelect
-                    excludeItemId={editing?.id ?? null}
-                    departments={departments}
-                    uoms={uoms}
-                    initialItemCode={editing?.sourceItem?.itemCode || editing?.productionInItem?.itemCode}
-                    initialItemName={editing?.sourceItem?.name || editing?.productionInItem?.name}
-                    initialDepartmentId={editing?.sourceItem?.departmentId || editing?.productionInItem?.departmentId}
-                    onSelectDetail={(detail) => {
-                      setSelectedInputDetail(detail);
-                      form.setFieldValue('sourceItemId', detail?.id ?? null);
-                      form.setFieldValue('productionInItemId', detail?.id ?? null);
-                    }}
-                    placeholder="Select Upstream Raw Material (e.g. Wire Rod Coil)..."
-                  />
-                </Form.Item>
-              </Col>
-
-              <Col xs={24} lg={12}>
-                <Form.Item
-                  name="operationalSequenceMask"
-                  label={
-                    <Space>
-                      <span style={{ fontWeight: 600 }}>operational_sequence_mask (Active Station Flags)</span>
-                      <Tag color="purple" style={{ fontSize: 10 }}>Multi-Select Flags</Tag>
-                    </Space>
-                  }
-                  extra="Toggle active workstations. Bypassing a station (e.g. Swaging) immediately reroutes backward backlog demand."
-                >
-                  <Checkbox.Group style={{ width: '100%' }}>
-                    <Row gutter={[8, 8]}>
-                      <Col span={24}>
-                        <Checkbox value="RM_STORES">
-                          <strong>Position 1: RM Stores</strong> <span style={{ color: 'var(--theme-text-secondary, #64748b)', fontSize: 11 }}>(Raw Material Release)</span>
-                        </Checkbox>
-                      </Col>
-                      <Col span={24}>
-                        <Checkbox value="WIRE_STRAIGHTENING">
-                          <strong>Position 2: Wire Straightening</strong> <span style={{ color: 'var(--theme-text-secondary, #64748b)', fontSize: 11 }}>(Straightening Bench)</span>
-                        </Checkbox>
-                      </Col>
-                      <Col span={24}>
-                        <Checkbox value="SWAGING">
-                          <strong>Position 3: Swaging Section</strong> <Tag color="orange" style={{ fontSize: 10, marginLeft: 4 }}>Bypass Trigger</Tag>
-                        </Checkbox>
-                      </Col>
-                      <Col span={24}>
-                        <Checkbox value="SPOKE_HEADING">
-                          <strong>Position 4: Spoke Heading</strong> <span style={{ color: 'var(--theme-text-secondary, #64748b)', fontSize: 11 }}>(Heading & Threading Machine)</span>
-                        </Checkbox>
-                      </Col>
-                      <Col span={24}>
-                        <Checkbox value="PLATING_PLANT">
-                          <strong>Position 5: Plating Plant</strong> <span style={{ color: 'var(--theme-text-secondary, #64748b)', fontSize: 11 }}>(Surface Treatment / Zinc / Nickel)</span>
-                        </Checkbox>
-                      </Col>
-                    </Row>
-                  </Checkbox.Group>
-                </Form.Item>
-              </Col>
-            </Row>
-
-            {/* Active Routing Path Visualizer */}
-            <Form.Item noStyle shouldUpdate={(p, c) => p.operationalSequenceMask !== c.operationalSequenceMask}>
-              {({ getFieldValue }) => {
-                const mask: string[] = getFieldValue('operationalSequenceMask') || [];
-                const stations = [
-                  { key: 'RM_STORES', label: '1. RM Stores', desc: 'Raw Stores' },
-                  { key: 'WIRE_STRAIGHTENING', label: '2. Straightening', desc: 'Wire Draw' },
-                  { key: 'SWAGING', label: '3. Swaging', desc: 'Butting (Bypassable)', isBypassable: true },
-                  { key: 'SPOKE_HEADING', label: '4. Spoke Heading', desc: 'Heading' },
-                  { key: 'PLATING_PLANT', label: '5. Plating Plant', desc: 'Plating' },
-                ];
-                return (
-                  <div style={{ marginTop: 8, padding: '10px 14px', borderRadius: 8, background: 'var(--theme-surface, rgba(255, 255, 255, 0.8))', border: '1px solid var(--theme-border, #cbd5e1)' }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'var(--theme-accent, #0284c7)', marginBottom: 8, letterSpacing: 0.5 }}>
-                      Operational Routing Path (Live Floor Propagation)
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                      {stations.map((st, idx) => {
-                        const isActive = mask.includes(st.key);
-                        return (
-                          <React.Fragment key={st.key}>
-                            <div
-                              style={{
-                                padding: '4px 10px',
-                                borderRadius: 6,
-                                fontSize: 11,
-                                fontWeight: 600,
-                                border: isActive ? '1px solid #0284c7' : '1px dashed #94a3b8',
-                                background: isActive ? 'rgba(2, 132, 199, 0.12)' : 'transparent',
-                                color: isActive ? '#0284c7' : '#94a3b8',
-                                textDecoration: !isActive ? 'line-through' : 'none',
-                              }}
-                            >
-                              {isActive ? '✓ ' : '✕ '} {st.label} {!isActive && st.isBypassable ? '(Bypassed)' : ''}
-                            </div>
-                            {idx < stations.length - 1 && (
-                              <ArrowRightOutlined style={{ color: '#94a3b8', fontSize: 12 }} />
-                            )}
-                          </React.Fragment>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              }}
-            </Form.Item>
-          </Card>
-
-          {/* 5B: PRODUCTION ROUTE / PROCESS */}
-          <Card
-            size="small"
-            title={
-              <Space>
-                <AppstoreOutlined style={{ color: '#10b981' }} />
-                <span style={{ fontWeight: 600 }}>Production Route & Operational Processes</span>
-              </Space>
-            }
-            style={{ marginBottom: 12, borderRadius: 8 }}
-          >
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
-                <Text strong style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--theme-accent, #0284c7)' }}>
-                  Production Route / Process
-                </Text>
-                <Text type="secondary" style={{ fontSize: 11 }}>
-                  Sequential manufacturing operations (supports 6+ repeatable steps)
-                </Text>
-              </div>
-
-              <Form.List name="processes">
-                {(fields, { add, remove, move }) => {
-                  // TASK 15: route-row departments are the FULL org department list
-                  // (no current-item section/division restriction). Item selector is
-                  // scoped to the row's chosen Department via departmentId prop.
-                  const setRowDept = (rowIdx: number, deptId: string | undefined) => {
-                    const deptObj = departments.find((d) => d.id === deptId);
-                    const divName = deptObj?.divisionId
-                      ? divisions.find((d) => d.id === deptObj.divisionId)?.name ?? null
-                      : null;
-                    const secName = deptObj?.sectionId
-                      ? sections.find((s) => s.id === deptObj.sectionId)?.name ?? null
-                      : null;
-                    const cur = form.getFieldValue('processes') || [];
-                    const updated = Array.isArray(cur) ? [...cur] : [];
-                    updated[rowIdx] = {
-                      ...(updated[rowIdx] || {}),
-                      departmentId: deptId ?? null,
-                      departmentName: deptObj?.name ?? null,
-                      divisionId: deptObj?.divisionId ?? null,
-                      divisionName: divName,
-                      sectionId: deptObj?.sectionId ?? null,
-                      sectionName: secName,
-                      name: deptObj?.name ?? null,
-                    };
-                    form.setFieldValue('processes', updated);
-                  };
-                  return (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      {fields.map((field, index) => {
-                        const seqNumber = String(index + 1).padStart(2, '0');
-                        const rowDeptId = form.getFieldValue(['processes', index, 'departmentId']) as string | undefined;
-                        return (
-                          <div
-                            key={field.key}
-                            className="erp-route-process-row"
+        <DraggableResizableModal
+          open={formOpen && !isFormMinimized}
+          onCancel={() => { setFormOpen(false); setIsFormMinimized(false); }}
+          onMinimize={() => setIsFormMinimized(true)}
+          onOk={handleSubmit}
+          confirmLoading={saving}
+          width={screens.md ? (showLivePreview && screens.lg ? 1240 : 880) : '96vw'}
+          height={screens.md ? 720 : 640}
+          wrapClassName="erp-mobile-modal"
+          okText={editing ? 'Save Changes' : (isCloning ? 'Create Duplicate Item' : 'Create Item')}
+          title={
+            <Space>
+              {editing ? <EditOutlined /> : (isCloning ? <CopyOutlined /> : <FileAddOutlined />)}
+              {editing ? `Edit Item — ${editing.itemCode}` : (isCloning ? 'Duplicate / Clone Item' : 'Add New Item')}
+            </Space>
+          }
+          extra={
+            screens.lg && (
+              <Button
+                size="small"
+                icon={<EyeOutlined />}
+                onClick={() => setShowLivePreview((v) => !v)}
+                style={{ fontSize: 12, marginRight: 8 }}
+              >
+                {showLivePreview ? 'Hide Live Preview' : 'Show Live Preview'}
+              </Button>
+            )
+          }
+          styles={{
+            body: {
+              maxHeight: screens.md ? 'calc(100vh - 180px)' : 'calc(100vh - 130px)',
+              overflowY: 'auto',
+              padding: screens.xs ? '8px 10px 80px' : '16px 20px',
+            },
+          }}
+        >
+          <Form form={form} layout="vertical" requiredMark="optional">
+            <div className={`erp-item-split-layout ${showLivePreview && screens.lg ? 'with-preview' : 'form-only'}`}>
+              <div className="erp-item-form-pane">
+                <Tabs
+                  activeKey={formWizardTab}
+                  onChange={(key) => setFormWizardTab(key as any)}
+                  type="card"
+                  className="erp-item-wizard-tabs"
+                  items={[
+                    {
+                      key: 'profile',
+                      label: (
+                        <Space>
+                          <AppstoreOutlined />
+                          <span>1. Basic Profile & Specs</span>
+                        </Space>
+                      ),
+                      children: (
+                        <div>
+                          {/* SECTION 1 — ORGANIZATION (TOP) */}
+                          <Card
+                            size="small"
+                            title={
+                              <Space>
+                                <ApartmentOutlined style={{ color: '#0284c7' }} />
+                                <span style={{ fontWeight: 600 }}>Section 1 — Organization</span>
+                              </Space>
+                            }
+                            style={{ marginBottom: 12, borderRadius: 8 }}
                           >
-                            <span
-                              style={{
-                                fontFamily: 'monospace',
-                                fontSize: 12,
-                                fontWeight: 700,
-                                color: 'var(--theme-accent, #0284c7)',
-                                background: 'rgba(2, 132, 199, 0.12)',
-                                padding: '2px 8px',
-                                borderRadius: 4,
-                                border: '1px solid rgba(2, 132, 199, 0.25)',
-                                minWidth: 32,
-                                textAlign: 'center',
-                                flexShrink: 0,
-                              }}
-                            >
-                              {seqNumber}
-                            </span>
+                            <div className="erp-form-responsive-grid">
+                              <Form.Item
+                                name="divisionId"
+                                label={<span style={{ fontWeight: 600 }}>Division</span>}
+                                extra="Selecting a division automatically sets the Item Code prefix (e.g. CCD-, MD-, SPI-, NB-)"
+                              >
+                                <Select
+                                  size={screens.xs ? 'large' : 'middle'}
+                                  allowClear
+                                  showSearch
+                                  optionFilterProp="label"
+                                  placeholder="Select division (e.g. Control Cable Division)"
+                                  options={toUnique(divisions, (d) => d.name)}
+                                  onChange={handleDivisionChange}
+                                />
+                              </Form.Item>
 
-                            <Form.Item
-                              {...field}
-                              name={[field.name, 'sequence']}
-                              initialValue={index + 1}
-                              style={{ display: 'none' }}
-                            >
-                              <Input type="hidden" />
+                              <Form.Item noStyle shouldUpdate={(p, c) => p.divisionId !== c.divisionId}>
+                                {({ getFieldValue }) => (
+                                  <Form.Item
+                                    name="sectionId"
+                                    label={<span style={{ fontWeight: 600 }}>Section</span>}
+                                  >
+                                    <Select
+                                      size={screens.xs ? 'large' : 'middle'}
+                                      allowClear
+                                      showSearch
+                                      optionFilterProp="label"
+                                      placeholder="Select section"
+                                      disabled={!getFieldValue('divisionId')}
+                                      options={toUnique(sectionsForDivision(getFieldValue('divisionId')), (s) => s.name)}
+                                      onChange={handleSectionChange}
+                                    />
+                                  </Form.Item>
+                                )}
+                              </Form.Item>
+
+                              <Form.Item noStyle shouldUpdate={(p, c) => p.sectionId !== c.sectionId || p.divisionId !== c.divisionId}>
+                                {({ getFieldValue }) => (
+                                  <Form.Item
+                                    name="departmentId"
+                                    label={<span style={{ fontWeight: 600 }}>Department</span>}
+                                  >
+                                    <Select
+                                      size={screens.xs ? 'large' : 'middle'}
+                                      allowClear
+                                      showSearch
+                                      optionFilterProp="label"
+                                      placeholder="Select department"
+                                      disabled={!getFieldValue('sectionId')}
+                                      options={toUnique(departmentsForSection(getFieldValue('divisionId'), getFieldValue('sectionId')), (d) => d.name)}
+                                      onChange={handleDepartmentChange}
+                                    />
+                                  </Form.Item>
+                                )}
+                              </Form.Item>
+                            </div>
+                          </Card>
+
+                          {/* SECTION 2 — BASIC INFORMATION */}
+                          <Card
+                            size="small"
+                            title={
+                              <Space>
+                                <FileTextOutlined style={{ color: '#10b981' }} />
+                                <span style={{ fontWeight: 600 }}>Section 2 — Basic Information</span>
+                              </Space>
+                            }
+                            style={{ marginBottom: 12, borderRadius: 8 }}
+                          >
+                            <div className="erp-form-responsive-grid">
+                              <Form.Item noStyle shouldUpdate={(p, c) => p.divisionId !== c.divisionId}>
+                                {({ getFieldValue }) => {
+                                  const divId = getFieldValue('divisionId');
+                                  const selDiv = divisions.find((d) => d.id === divId);
+                                  const prefix = getDivisionPrefix(selDiv?.name || selDiv?.divisionCode);
+                                  return (
+                                    <Form.Item
+                                      name="itemCode"
+                                      label={
+                                        <Space>
+                                          <span style={{ fontWeight: 600 }}>Item Code</span>
+                                          {prefix ? (
+                                            <Tag color="blue" style={{ fontWeight: 700, borderRadius: 4 }}>
+                                              Prefix: {prefix}-
+                                            </Tag>
+                                          ) : null}
+                                        </Space>
+                                      }
+                                      rules={[
+                                        { required: true, message: 'Item Code is required' },
+                                        { pattern: /^[A-Z0-9_-]+$/, message: 'Uppercase letters, numbers, hyphens and underscores only' },
+                                      ]}
+                                      extra={
+                                        editing
+                                          ? 'Item Code cannot be changed'
+                                          : prefix
+                                            ? `Division selected: Code prefix "${prefix}-" will be applied automatically (e.g. typing 114011 becomes ${prefix}-114011)`
+                                            : 'e.g. CCD-114011, MD-114011, SPI-114011, NB-175198 (select Division above to auto-prefix)'
+                                      }
+                                    >
+                                      <Input
+                                        size={screens.xs ? 'large' : 'middle'}
+                                        disabled={!!editing}
+                                        placeholder={prefix ? `e.g. ${prefix}-114011` : 'e.g. CCD-114011'}
+                                        maxLength={50}
+                                        style={{ fontWeight: 600 }}
+                                        onBlur={(e) => {
+                                          if (editing) return;
+                                          if (prefix && e.target.value) {
+                                            form.setFieldValue('itemCode', formatItemCodeWithDivisionPrefix(e.target.value, prefix));
+                                          }
+                                        }}
+                                      />
+                                    </Form.Item>
+                                  );
+                                }}
+                              </Form.Item>
+
+                              <Form.Item
+                                name="name"
+                                label={<span style={{ fontWeight: 600 }}>Item Name</span>}
+                                rules={[{ required: true, message: 'Item Name is required' }]}
+                              >
+                                <Input size={screens.xs ? 'large' : 'middle'} placeholder="e.g. Copper Wire 2.00 mm" maxLength={255} />
+                              </Form.Item>
+
+                              <Form.Item
+                                name="shortName"
+                                label={<span style={{ fontWeight: 600 }}>Short Name</span>}
+                              >
+                                <Input size={screens.xs ? 'large' : 'middle'} maxLength={100} placeholder="e.g. Cu Wire 2mm" />
+                              </Form.Item>
+
+                              <Form.Item
+                                name="description"
+                                label={<span style={{ fontWeight: 600 }}>Description</span>}
+                                style={{ gridColumn: '1 / -1' }}
+                              >
+                                <Input.TextArea
+                                  rows={2}
+                                  maxLength={1000}
+                                  placeholder="e.g. Demo raw material received from another manufacturing unit"
+                                />
+                              </Form.Item>
+                            </div>
+                          </Card>
+
+                          {/* SECTION 3 — CLASSIFICATION */}
+                          <Card
+                            size="small"
+                            title={
+                              <Space>
+                                <AppstoreOutlined style={{ color: '#8b5cf6' }} />
+                                <span style={{ fontWeight: 600 }}>Section 3 — Classification</span>
+                              </Space>
+                            }
+                            style={{ marginBottom: 12, borderRadius: 8 }}
+                          >
+                            <div className="erp-form-responsive-grid">
+                              <Form.Item
+                                name="itemType"
+                                label={<span style={{ fontWeight: 600 }}>Item Type</span>}
+                                rules={[{ required: true, message: 'Item Type is required' }]}
+                              >
+                                <Select
+                                  size={screens.xs ? 'large' : 'middle'}
+                                  showSearch optionFilterProp="label"
+                                  loading={masterTypesState === 'loading'}
+                                  status={masterTypesState === 'error' ? 'error' : undefined}
+                                  notFoundContent={masterTypesState === 'error' ? 'Item types could not be loaded' : 'No item types'}
+                                  options={displayTypes.map((o) => ({
+                                    ...o,
+                                    disabled: o.status === 'INACTIVE' && o.value !== (editing?.itemType ?? null),
+                                  }))}
+                                  placeholder="Select item type"
+                                  onChange={(val) => {
+                                    const isRaw = val === 'RAW_MATERIAL' || String(val || '').toUpperCase().includes('RAW');
+                                    if (isRaw && autoFillMaterialRole) {
+                                      form.setFieldValue('materialRoleUsage', 'Process Component Materials');
+                                    }
+                                  }}
+                                />
+                              </Form.Item>
+                              <Form.Item noStyle shouldUpdate={(prev, cur) => prev.itemType !== cur.itemType}>
+                                {({ getFieldValue }) => {
+                                  const currentType = getFieldValue('itemType');
+                                  const isRaw = currentType === 'RAW_MATERIAL' || String(currentType || '').toUpperCase().includes('RAW');
+                                  return (
+                                    <Form.Item
+                                      name="materialRoleUsage"
+                                      label={
+                                        <Space size={6}>
+                                          <span style={{ fontWeight: 600 }}>Material Role / Usage</span>
+                                          <span style={{ color: '#94a3b8', fontSize: 12, fontWeight: 400 }}>(optional)</span>
+                                        </Space>
+                                      }
+                                      extra={
+                                        <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                          <Checkbox
+                                            checked={autoFillMaterialRole}
+                                            onChange={(e) => {
+                                              const checked = e.target.checked;
+                                              setAutoFillMaterialRole(checked);
+                                              if (checked) {
+                                                form.setFieldValue('materialRoleUsage', 'Process Component Materials');
+                                              }
+                                            }}
+                                            style={{ fontSize: 12 }}
+                                          >
+                                            <span style={{ color: autoFillMaterialRole ? '#2563eb' : '#64748b', fontWeight: autoFillMaterialRole ? 600 : 400 }}>
+                                              Auto-fill for Raw Materials
+                                            </span>
+                                          </Checkbox>
+                                          {!autoFillMaterialRole && (
+                                            <Tag color="blue" style={{ fontSize: 10.5, margin: 0, padding: '0 6px', borderRadius: 4 }}>
+                                              Manual Mode
+                                            </Tag>
+                                          )}
+                                        </div>
+                                      }
+                                    >
+                                      <Input
+                                        size={screens.xs ? 'large' : 'middle'}
+                                        placeholder={autoFillMaterialRole ? 'Auto-filled: Process Component Materials' : 'Enter manual material role / usage'}
+                                        maxLength={150}
+                                        disabled={autoFillMaterialRole}
+                                      />
+                                    </Form.Item>
+                                  );
+                                }}
+                              </Form.Item>
+                              <Form.Item
+                                name="categoryId"
+                                label={<span style={{ fontWeight: 600 }}>Item Category</span>}
+                              >
+                                <Select
+                                  size={screens.xs ? 'large' : 'middle'}
+                                  allowClear showSearch optionFilterProp="label"
+                                  options={toUnique(flatCategories, (c) => c.name)}
+                                  placeholder="Select category"
+                                />
+                              </Form.Item>
+                              <Form.Item
+                                name="routeTypeId"
+                                label={<span style={{ fontWeight: 600 }}>Route Type</span>}
+                              >
+                                <Select
+                                  size={screens.xs ? 'large' : 'middle'}
+                                  allowClear showSearch optionFilterProp="label"
+                                  loading={routeTypesState === 'loading'}
+                                  status={routeTypesState === 'error' ? 'error' : undefined}
+                                  notFoundContent={routeTypesState === 'error' ? 'Route types could not be loaded' : 'No active route types'}
+                                  options={toUnique(routeTypes, (rt) => rt.name?.trim() ? rt.name : rt.routeCode)}
+                                  placeholder="Select route type"
+                                />
+                              </Form.Item>
+                            </div>
+                          </Card>
+
+                          {/* SECTION 4 — UOM & INVENTORY */}
+                          <Card
+                            size="small"
+                            title={
+                              <Space>
+                                <DatabaseOutlined style={{ color: '#d97706' }} />
+                                <span style={{ fontWeight: 600 }}>Section 4 — UOM & Inventory</span>
+                              </Space>
+                            }
+                            style={{ marginBottom: 12, borderRadius: 8 }}
+                          >
+                            <div className="erp-form-responsive-grid">
+                              <Form.Item
+                                name="baseUomId"
+                                label={<span style={{ fontWeight: 600 }}>Base UOM</span>}
+                                rules={[{ required: true, message: 'Base UOM is required' }]}
+                              >
+                                <Select
+                                  size={screens.xs ? 'large' : 'middle'}
+                                  showSearch optionFilterProp="label" placeholder="e.g. KG"
+                                  options={toUnique(uoms, (u) => `${u.name} (${u.code})`)}
+                                />
+                              </Form.Item>
+                              <Form.Item
+                                name="purchaseUomId"
+                                label={<span style={{ fontWeight: 600 }}>Purchase UOM</span>}
+                              >
+                                <Select
+                                  size={screens.xs ? 'large' : 'middle'}
+                                  allowClear showSearch optionFilterProp="label" placeholder="Optional"
+                                  options={toUnique(uoms, (u) => `${u.name} (${u.code})`)}
+                                />
+                              </Form.Item>
+                              <Form.Item
+                                name="salesUomId"
+                                label={<span style={{ fontWeight: 600 }}>Sales UOM</span>}
+                              >
+                                <Select
+                                  size={screens.xs ? 'large' : 'middle'}
+                                  allowClear showSearch optionFilterProp="label" placeholder="Optional"
+                                  options={toUnique(uoms, (u) => `${u.name} (${u.code})`)}
+                                />
+                              </Form.Item>
+                              <Form.Item
+                                name="weightPerPiece"
+                                label={<span style={{ fontWeight: 600 }}>Weight per Piece (kg)</span>}
+                                extra="Enables KG ↔ PCS"
+                              >
+                                <InputNumber size={screens.xs ? 'large' : 'middle'} min={0} step={0.000001} style={{ width: '100%' }} placeholder="e.g. 0.0555" />
+                              </Form.Item>
+                              <Form.Item
+                                name="piecesPerKg"
+                                label={<span style={{ fontWeight: 600 }}>Pieces per KG</span>}
+                                extra="Manually maintained"
+                              >
+                                <InputNumber size={screens.xs ? 'large' : 'middle'} min={0} step={0.000001} style={{ width: '100%' }} placeholder="e.g. 18.02" />
+                              </Form.Item>
+                              {(() => {
+                                const baseUomObj = uoms.find((u) => u.id === watchedBaseUomId);
+                                const baseUomCodeUpper = (baseUomObj?.code || (baseUomObj as any)?.symbol || baseUomObj?.name || '').toUpperCase().trim();
+                                const isMeterBase = baseUomCodeUpper === 'M' || baseUomCodeUpper === 'MTR' || baseUomCodeUpper.includes('METER') || baseUomCodeUpper.includes('METRE');
+                                return (
+                                  <>
+                                    <Form.Item
+                                      name="weightPerMeter"
+                                      label={<span style={{ fontWeight: 600 }}>{isMeterBase ? 'Spiral / Core Weight per Meter (kg/m)' : 'Weight per Meter (kg/m)'}</span>}
+                                      extra={isMeterBase ? 'Used strictly for upstream RM (strip/wire) deduction' : 'Enables KG ↔ METER'}
+                                    >
+                                      <InputNumber size={screens.xs ? 'large' : 'middle'} min={0} step={0.000001} style={{ width: '100%' }} placeholder={isMeterBase ? 'e.g. 0.045000' : 'Optional'} />
+                                    </Form.Item>
+                                    {isMeterBase && (
+                                      <Form.Item
+                                        name="finishedWeightPerMeter"
+                                        label={<span style={{ fontWeight: 600 }}>Finished Weight per Meter (kg/m)</span>}
+                                        extra="Total weight after PVC coating (Gate Passes, Delivery & FG)"
+                                      >
+                                        <InputNumber size={screens.xs ? 'large' : 'middle'} min={0} step={0.000001} style={{ width: '100%' }} placeholder="e.g. 0.068000" />
+                                      </Form.Item>
+                                    )}
+                                  </>
+                                );
+                              })()}
+                            </div>
+                            <div style={{ marginTop: 4, fontSize: 11, color: '#64748b', display: 'flex', alignItems: 'center' }}>
+                              <BulbOutlined style={{ color: '#eab308', marginRight: 6 }} /> Length is managed under&nbsp;<strong>Production Specifications</strong>&nbsp;below.
+                            </div>
+                          </Card>
+
+                          {/* SECTION 4B — DYNAMIC PACKAGING & CONVERSION BASED ON BASE UOM */}
+                          {(() => {
+                            const baseUomObj = uoms.find((u) => u.id === watchedBaseUomId);
+                            const salesUomObj = uoms.find((u) => u.id === watchedSalesUomId);
+                            const baseUomCodeUpper = (baseUomObj?.code || (baseUomObj as any)?.symbol || baseUomObj?.name || '').toUpperCase().trim();
+                            const isMeterBase = baseUomCodeUpper === 'M' || baseUomCodeUpper === 'MTR' || baseUomCodeUpper.includes('METER') || baseUomCodeUpper.includes('METRE');
+
+                            const targetUomObj = isMeterBase ? baseUomObj : (salesUomObj || baseUomObj);
+                            const targetUomCode = targetUomObj?.code || (targetUomObj as any)?.symbol || targetUomObj?.name || (isMeterBase ? 'M' : 'GRS');
+                            const isGrossTarget = !isMeterBase && (targetUomCode.toUpperCase().includes('GR') || targetUomCode.toUpperCase().includes('GROSS'));
+                            const isBasePcs = !isMeterBase && ((baseUomObj?.code || '').toUpperCase().includes('PC') || isGrossTarget);
+                            const pcsPerPkg = isGrossTarget && isBasePcs ? Math.round(Number(watchedPackagingSize || 0) * 144) : null;
+
+                            return (
+                              <Card
+                                size="small"
+                                title={
+                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+                                    <Space>
+                                      <InboxOutlined style={{ color: '#10b981' }} />
+                                      <span style={{ fontWeight: 600 }}>
+                                        {isMeterBase
+                                          ? 'Section 4B — Coil / Roll Packaging & Meter Conversion'
+                                          : 'Section 4B — Packaging & Carton / Gross / Piece Conversion'}
+                                      </span>
+                                    </Space>
+                                    {!isMeterBase && (
+                                      <Space size={6} wrap>
+                                        <Button
+                                          size="small"
+                                          onClick={() => {
+                                            form.setFieldsValue({
+                                              packagingType: 'BOX',
+                                              packagingUnit: 'Carton',
+                                              packagingSize: 10,
+                                            });
+                                          }}
+                                          style={{ fontSize: 11, fontWeight: 600 }}
+                                        >
+                                          Standard Carton (10 GRS = 1,440 PCS)
+                                        </Button>
+                                        <Button
+                                          size="small"
+                                          type="primary"
+                                          ghost
+                                          onClick={() => {
+                                            form.setFieldsValue({
+                                              packagingType: 'BOX',
+                                              packagingUnit: 'Carton',
+                                              packagingSize: 10.556,
+                                            });
+                                          }}
+                                          style={{ fontSize: 11, fontWeight: 600 }}
+                                        >
+                                          CS Carton (10.556 GRS = 1,520 PCS)
+                                        </Button>
+                                      </Space>
+                                    )}
+                                  </div>
+                                }
+                                style={{ marginBottom: 12, borderRadius: 8 }}
+                              >
+                                <div className="erp-form-responsive-grid">
+                                  <Form.Item
+                                    name="packagingType"
+                                    label={<span style={{ fontWeight: 600 }}>Packaging Type</span>}
+                                    extra={isMeterBase ? 'Physical container (e.g. Coil, Drum, Roll)' : 'Physical container (e.g. Box / Carton, Coil, Gross, Drum)'}
+                                  >
+                                    <Select
+                                      allowClear
+                                      placeholder="Select packaging type..."
+                                      options={
+                                        isMeterBase
+                                          ? [
+                                            { value: 'COIL', label: 'Coil (250m / 500m Wire or Cable)' },
+                                            { value: 'DRUM', label: 'Drum / Reel' },
+                                            { value: 'PACK', label: 'Roll / Pack' },
+                                            { value: 'NONE', label: 'None / Loose Bulk' },
+                                          ]
+                                          : [
+                                            { value: 'BOX', label: 'Box / Carton (Spokes & Nipples)' },
+                                            { value: 'COIL', label: 'Coil (500m / 250m Wire or Cable)' },
+                                            { value: 'GROSS', label: 'Gross (144 Pieces)' },
+                                            { value: 'PACK', label: 'Pack' },
+                                            { value: 'DRUM', label: 'Drum / Reel' },
+                                            { value: 'NONE', label: 'None / Loose Bulk' },
+                                          ]
+                                      }
+                                    />
+                                  </Form.Item>
+                                  <Form.Item
+                                    name="packagingUnit"
+                                    label={<span style={{ fontWeight: 600 }}>Packaging Unit Name</span>}
+                                    extra={isMeterBase ? 'Label shown in Orders, Deliveries & Ledger (e.g. Coil, Roll, Drum)' : 'Label shown in Orders, Deliveries & Ledger (e.g. Carton, Coil)'}
+                                  >
+                                    <Input maxLength={50} placeholder={isMeterBase ? 'e.g. Coil, Roll, Drum' : 'e.g. Carton, Box, Coil'} />
+                                  </Form.Item>
+                                  <Form.Item
+                                    name="packagingSize"
+                                    label={<span style={{ fontWeight: 600 }}>{isMeterBase ? 'Meters per Coil / Unit' : 'Gross / Sales Units per Carton'}</span>}
+                                    extra={isMeterBase ? 'e.g. 250 or 500 Meters per Coil' : 'e.g. 10 GRS (Standard) or 10.556 GRS (CS = 1,520 PCS)'}
+                                  >
+                                    <InputNumber
+                                      style={{ width: '100%' }}
+                                      min={0.001}
+                                      step={isMeterBase ? 1 : 0.001}
+                                      precision={isMeterBase ? 2 : 3}
+                                      placeholder={isMeterBase ? 'e.g. 250 or 500' : 'e.g. 10 or 10.556'}
+                                      addonAfter={isMeterBase ? 'M' : undefined}
+                                    />
+                                  </Form.Item>
+                                  {!isMeterBase && (
+                                    <Form.Item
+                                      label={<span style={{ fontWeight: 600 }}>Pieces per Carton (PCS)</span>}
+                                      extra="Type 1440 (Standard) or 1520 (CS) to auto-calculate Gross"
+                                    >
+                                      <InputNumber
+                                        style={{ width: '100%' }}
+                                        min={1}
+                                        step={1}
+                                        precision={0}
+                                        value={watchedPackagingSize ? Math.round(Number(watchedPackagingSize) * 144) : undefined}
+                                        placeholder="e.g. 1440 or 1520"
+                                        addonAfter="PCS"
+                                        onChange={(pcsVal) => {
+                                          const numPcs = Number(pcsVal || 0);
+                                          if (numPcs > 0) {
+                                            const grs = Math.round((numPcs / 144) * 1000) / 1000;
+                                            form.setFieldsValue({
+                                              packagingSize: grs,
+                                              packagingType: form.getFieldValue('packagingType') || 'BOX',
+                                              packagingUnit: form.getFieldValue('packagingUnit') || 'Carton',
+                                            });
+                                          }
+                                        }}
+                                      />
+                                    </Form.Item>
+                                  )}
+                                </div>
+                                {watchedPackagingSize ? (
+                                  <div style={{ marginTop: 8, padding: '8px 12px', background: 'rgba(16, 185, 129, 0.08)', borderRadius: 6, border: '1px solid rgba(16, 185, 129, 0.25)' }}>
+                                    <Space wrap size="small">
+                                      <Tag color="green">Conversion Active</Tag>
+                                      <Typography.Text strong>
+                                        📦 1 {watchedPackagingUnit || (isMeterBase ? 'Coil' : watchedPackagingType || 'Carton')} = {Number(watchedPackagingSize).toLocaleString()} {isMeterBase ? 'M' : targetUomCode}
+                                        {pcsPerPkg ? ` (= ${pcsPerPkg.toLocaleString()} PCS)` : ''}
+                                      </Typography.Text>
+                                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                                        (20 {watchedPackagingUnit || (isMeterBase ? 'Coils' : 'Cartons')} = {(Math.round(20 * Number(watchedPackagingSize) * 100) / 100).toLocaleString()} {isMeterBase ? 'M' : targetUomCode}{pcsPerPkg ? ` / ${(20 * pcsPerPkg).toLocaleString()} PCS` : ''})
+                                      </Typography.Text>
+                                    </Space>
+                                  </div>
+                                ) : null}
+                              </Card>
+                            );
+                          })()}
+
+                          {/* SECTION 5 — PRODUCTION */}
+                          <Card
+                            size="small"
+                            title={
+                              <Space>
+                                <AppstoreOutlined style={{ color: '#10b981' }} />
+                                <span style={{ fontWeight: 600 }}>Production</span>
+                              </Space>
+                            }
+                            style={{ marginBottom: 12, borderRadius: 8 }}
+                          >
+                            {/* 5A: PRODUCTION SPECIFICATIONS */}
+                            <div style={{ marginBottom: 16 }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
+                                <Text strong style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--theme-accent, #0284c7)' }}>
+                                  Production Specifications
+                                </Text>
+                                {(() => {
+                                  const div = divisions.find((d) => d.id === (watchedDivisionId || editing?.divisionId));
+                                  const divName = (div?.name || '').toLowerCase();
+                                  if (divName.includes('spoke')) {
+                                    return <Tag color="blue">Spoke Division: Primary specs are Diameter (mm) and Length</Tag>;
+                                  }
+                                  if (divName.includes('wire') || divName.includes('flatten')) {
+                                    return <Tag color="green">Wire Division: Primary specs are Wire Size (mm), Thickness, Width</Tag>;
+                                  }
+                                  if (divName.includes('pvc')) {
+                                    return <Tag color="cyan">PVC Division: Primary specs are Diameter (mm) and Length</Tag>;
+                                  }
+                                  return null;
+                                })()}
+                              </div>
+
+                              <div className="erp-form-responsive-grid">
+                                <Form.Item name="wireSizeMm" label="Wire Size (mm)" extra="Raw wire dimension">
+                                  <InputNumber min={0} step={0.001} style={{ width: '100%' }} placeholder="Optional (e.g. 1.20)" />
+                                </Form.Item>
+                                <Form.Item name="diameterMm" label="Diameter (mm)" extra="Authoritative diameter (Spoke/PVC/Wire)">
+                                  <InputNumber min={0} step={0.001} style={{ width: '100%' }} placeholder="e.g. 3.14" />
+                                </Form.Item>
+                                <Form.Item name="thicknessMm" label="Thickness (mm)" extra="Flattened / semi-finished wire">
+                                  <InputNumber min={0} step={0.001} style={{ width: '100%' }} placeholder="e.g. 0.90" />
+                                </Form.Item>
+                                <Form.Item name="widthMm" label="Width (mm)" extra="Flattened / semi-finished wire">
+                                  <InputNumber min={0} step={0.001} style={{ width: '100%' }} placeholder="e.g. 3.20" />
+                                </Form.Item>
+                                <Form.Item name="lengthPerPiece" label="Length" extra="Authoritative piece length">
+                                  <InputNumber min={0} step={0.01} style={{ width: '100%' }} placeholder="e.g. 250" />
+                                </Form.Item>
+                              </div>
+                            </div>
+                          </Card>
+
+                          {/* SECTION 6 — ADDITIONAL */}
+                          <Card size="small" title="Additional" style={{ marginBottom: 12, borderRadius: 8 }}>
+                            <div className="erp-form-responsive-grid">
+                              <Form.Item name="sku" label="SKU" extra={editing ? 'SKU cannot be changed' : 'Auto-generated if left empty'}>
+                                <Input disabled={!!editing} placeholder={editing ? 'Auto-generated' : 'Auto-generated on create'} />
+                              </Form.Item>
+                              <Form.Item name="barcode" label="Barcode" extra={editing ? 'Barcode cannot be changed' : 'Auto-generated if left empty'}>
+                                <Input disabled={!!editing} placeholder={editing ? 'Auto-generated' : 'Auto-generated on create'} />
+                              </Form.Item>
+                              <Form.Item name="manufacturerPartNumber" label="Manufacturer Part No."><Input maxLength={255} placeholder="Optional" /></Form.Item>
+                              <Form.Item name="brand" label="Brand"><Input maxLength={255} placeholder="Optional" /></Form.Item>
+                              <Form.Item name="model" label="Model"><Input maxLength={255} placeholder="Optional" /></Form.Item>
+                              <Form.Item name="costPrice" label="Cost Price" extra="Standard cost (Item Master)">
+                                <InputNumber min={0} step={0.01} style={{ width: '100%' }} placeholder="Optional (e.g. 125.00)" />
+                              </Form.Item>
+                              <Form.Item name="sellingPrice" label="Selling Price" extra="Default selling price (Item Master)">
+                                <InputNumber min={0} step={0.01} style={{ width: '100%' }} placeholder="Optional (e.g. 180.00)" />
+                              </Form.Item>
+                            </div>
+                            <Row gutter={[12, 8]} style={{ marginTop: 8 }}>
+                              {TRACKING_SWITCHES.map((s) => (
+                                <Col key={s.name} xs={12} sm={8} md={6}>
+                                  <Form.Item name={s.name} label={s.label} valuePropName="checked" style={{ marginBottom: 4 }}>
+                                    <Switch size="small" />
+                                  </Form.Item>
+                                </Col>
+                              ))}
+                            </Row>
+                            <div className="erp-form-responsive-grid" style={{ marginTop: 8 }}>
+                              <Form.Item name="minimumStockLevel" label="Min Stock Level"><InputNumber min={0} style={{ width: '100%' }} placeholder="0" /></Form.Item>
+                              <Form.Item name="maximumStockLevel" label="Max Stock Level"><InputNumber min={0} style={{ width: '100%' }} placeholder="0" /></Form.Item>
+                              <Form.Item name="reorderLevel" label="Reorder Level"><InputNumber min={0} style={{ width: '100%' }} placeholder="0" /></Form.Item>
+                              <Form.Item name="safetyStockLevel" label="Safety Stock Level"><InputNumber min={0} style={{ width: '100%' }} placeholder="0" /></Form.Item>
+                              <Form.Item name="leadTimeDays" label="Lead Time (Days)"><InputNumber min={0} precision={0} style={{ width: '100%' }} placeholder="0" /></Form.Item>
+                            </div>
+                            {editing && (
+                              <Form.Item label="Status" style={{ marginBottom: 8, marginTop: 8 }}>
+                                <StatusBadge status={editing.status} colorMap={statusColorMap} style={{ marginRight: 8 }} />
+                                <Text type="secondary" style={{ fontSize: 12 }}>Manage via Activate / Deactivate row actions</Text>
+                              </Form.Item>
+                            )}
+                            <Form.Item name="notes" label="Remarks" style={{ marginBottom: 8 }}>
+                              <Input.TextArea rows={2} maxLength={2000} placeholder="Optional note" />
                             </Form.Item>
+                          </Card>
+                        </div>
+                      ),
+                    },
+                    {
+                      key: 'routing',
+                      label: (
+                        <Space>
+                          <BranchesOutlined />
+                          <span>2. Process Flow & Departmental Routing</span>
+                          <Tag color="cyan" style={{ fontSize: 10, margin: 0 }}>Tier 2 WIP</Tag>
+                        </Space>
+                      ),
+                      children: (
+                        <div>
+                          {/* TIER 2: SEMI-FINISHED WIP COMPONENT PROFILE CARD */}
+                          <Card
+                            size="small"
+                            style={{
+                              marginBottom: 16,
+                              borderRadius: 10,
+                              border: '1px solid var(--theme-border, #e2e8f0)',
+                              background: 'var(--theme-surface-alt, rgba(248, 250, 252, 0.6))',
+                            }}
+                            title={
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', flexWrap: 'wrap', gap: 8 }}>
+                                <Space>
+                                  <BranchesOutlined style={{ color: 'var(--theme-primary, #0284c7)' }} />
+                                  <span style={{ fontWeight: 700, color: 'var(--theme-text, #0f172a)' }}>
+                                    Tier 2: Semi-Finished WIP Component Profile (e.g. WIP-SPL-001 / 002)
+                                  </span>
+                                </Space>
+                                <Tag color="blue" style={{ fontWeight: 600 }}>Auto-Routing Cascades</Tag>
+                              </div>
+                            }
+                          >
+                            <Alert
+                              type="info"
+                              showIcon
+                              style={{ marginBottom: 16, borderRadius: 8 }}
+                              message="Upstream Material Linkage & Operational Sequence Matrix"
+                              description="Explicitly link the immediate upstream raw material code (e.g. Wire Rod Coil) and configure active production desks. Toggling stations (e.g. Bypassing Swaging) dynamically routes the backward scheduling demand targets across factory floors."
+                            />
 
-                            {/* Operation name: hidden — auto-derived from Department,
+                            <Row gutter={[16, 16]}>
+                              <Col xs={24} lg={12}>
+                                <Form.Item
+                                  name="sourceItemId"
+                                  label={
+                                    <Space>
+                                      <span style={{ fontWeight: 600 }}>source_item_id (Immediate Upstream Raw Material)</span>
+                                      <Tag color="blue" style={{ fontSize: 10 }}>Upstream Material</Tag>
+                                    </Space>
+                                  }
+                                  extra="Explicitly links the immediate upstream raw material code (e.g. Wire Rod Coil 3.14mm). Consumed directly by this WIP component."
+                                >
+                                  <InputMaterialSelect
+                                    excludeItemId={editing?.id ?? null}
+                                    departments={departments}
+                                    uoms={uoms}
+                                    initialItemCode={editing?.sourceItem?.itemCode || editing?.productionInItem?.itemCode}
+                                    initialItemName={editing?.sourceItem?.name || editing?.productionInItem?.name}
+                                    initialDepartmentId={editing?.sourceItem?.departmentId || editing?.productionInItem?.departmentId}
+                                    onSelectDetail={(detail) => {
+                                      setSelectedInputDetail(detail);
+                                      form.setFieldValue('sourceItemId', detail?.id ?? null);
+                                      form.setFieldValue('productionInItemId', detail?.id ?? null);
+                                    }}
+                                    placeholder="Select Upstream Raw Material (e.g. Wire Rod Coil)..."
+                                  />
+                                </Form.Item>
+                              </Col>
+
+                              <Col xs={24} lg={12}>
+                                <Form.Item
+                                  name="operationalSequenceMask"
+                                  label={
+                                    <Space>
+                                      <span style={{ fontWeight: 600 }}>operational_sequence_mask (Active Station Flags)</span>
+                                      <Tag color="purple" style={{ fontSize: 10 }}>Multi-Select Flags</Tag>
+                                    </Space>
+                                  }
+                                  extra="Toggle active workstations. Bypassing a station (e.g. Swaging) immediately reroutes backward backlog demand."
+                                >
+                                  <Checkbox.Group style={{ width: '100%' }}>
+                                    <Row gutter={[8, 8]}>
+                                      <Col span={24}>
+                                        <Checkbox value="RM_STORES">
+                                          <strong>Position 1: RM Stores</strong> <span style={{ color: 'var(--theme-text-secondary, #64748b)', fontSize: 11 }}>(Raw Material Release)</span>
+                                        </Checkbox>
+                                      </Col>
+                                      <Col span={24}>
+                                        <Checkbox value="WIRE_STRAIGHTENING">
+                                          <strong>Position 2: Wire Straightening</strong> <span style={{ color: 'var(--theme-text-secondary, #64748b)', fontSize: 11 }}>(Straightening Bench)</span>
+                                        </Checkbox>
+                                      </Col>
+                                      <Col span={24}>
+                                        <Checkbox value="SWAGING">
+                                          <strong>Position 3: Swaging Section</strong> <Tag color="orange" style={{ fontSize: 10, marginLeft: 4 }}>Bypass Trigger</Tag>
+                                        </Checkbox>
+                                      </Col>
+                                      <Col span={24}>
+                                        <Checkbox value="SPOKE_HEADING">
+                                          <strong>Position 4: Spoke Heading</strong> <span style={{ color: 'var(--theme-text-secondary, #64748b)', fontSize: 11 }}>(Heading & Threading Machine)</span>
+                                        </Checkbox>
+                                      </Col>
+                                      <Col span={24}>
+                                        <Checkbox value="PLATING_PLANT">
+                                          <strong>Position 5: Plating Plant</strong> <span style={{ color: 'var(--theme-text-secondary, #64748b)', fontSize: 11 }}>(Surface Treatment / Zinc / Nickel)</span>
+                                        </Checkbox>
+                                      </Col>
+                                    </Row>
+                                  </Checkbox.Group>
+                                </Form.Item>
+                              </Col>
+                            </Row>
+
+                            {/* Active Routing Path Visualizer */}
+                            <Form.Item noStyle shouldUpdate={(p, c) => p.operationalSequenceMask !== c.operationalSequenceMask}>
+                              {({ getFieldValue }) => {
+                                const mask: string[] = getFieldValue('operationalSequenceMask') || [];
+                                const stations = [
+                                  { key: 'RM_STORES', label: '1. RM Stores', desc: 'Raw Stores' },
+                                  { key: 'WIRE_STRAIGHTENING', label: '2. Straightening', desc: 'Wire Draw' },
+                                  { key: 'SWAGING', label: '3. Swaging', desc: 'Butting (Bypassable)', isBypassable: true },
+                                  { key: 'SPOKE_HEADING', label: '4. Spoke Heading', desc: 'Heading' },
+                                  { key: 'PLATING_PLANT', label: '5. Plating Plant', desc: 'Plating' },
+                                ];
+                                return (
+                                  <div style={{ marginTop: 8, padding: '10px 14px', borderRadius: 8, background: 'var(--theme-surface, rgba(255, 255, 255, 0.8))', border: '1px solid var(--theme-border, #cbd5e1)' }}>
+                                    <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'var(--theme-accent, #0284c7)', marginBottom: 8, letterSpacing: 0.5 }}>
+                                      Operational Routing Path (Live Floor Propagation)
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                      {stations.map((st, idx) => {
+                                        const isActive = mask.includes(st.key);
+                                        return (
+                                          <React.Fragment key={st.key}>
+                                            <div
+                                              style={{
+                                                padding: '4px 10px',
+                                                borderRadius: 6,
+                                                fontSize: 11,
+                                                fontWeight: 600,
+                                                border: isActive ? '1px solid #0284c7' : '1px dashed #94a3b8',
+                                                background: isActive ? 'rgba(2, 132, 199, 0.12)' : 'transparent',
+                                                color: isActive ? '#0284c7' : '#94a3b8',
+                                                textDecoration: !isActive ? 'line-through' : 'none',
+                                              }}
+                                            >
+                                              {isActive ? '✓ ' : '✕ '} {st.label} {!isActive && st.isBypassable ? '(Bypassed)' : ''}
+                                            </div>
+                                            {idx < stations.length - 1 && (
+                                              <ArrowRightOutlined style={{ color: '#94a3b8', fontSize: 12 }} />
+                                            )}
+                                          </React.Fragment>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                );
+                              }}
+                            </Form.Item>
+                          </Card>
+
+                          {/* 5B: PRODUCTION ROUTE / PROCESS */}
+                          <Card
+                            size="small"
+                            title={
+                              <Space>
+                                <AppstoreOutlined style={{ color: '#10b981' }} />
+                                <span style={{ fontWeight: 600 }}>Production Route & Operational Processes</span>
+                              </Space>
+                            }
+                            style={{ marginBottom: 12, borderRadius: 8 }}
+                          >
+                            <div style={{ marginBottom: 16 }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
+                                <Text strong style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--theme-accent, #0284c7)' }}>
+                                  Production Route / Process
+                                </Text>
+                                <Text type="secondary" style={{ fontSize: 11 }}>
+                                  Sequential manufacturing operations (supports 6+ repeatable steps)
+                                </Text>
+                              </div>
+
+                              <Form.List name="processes">
+                                {(fields, { add, remove, move }) => {
+                                  // TASK 15: route-row departments are the FULL org department list
+                                  // (no current-item section/division restriction). Item selector is
+                                  // scoped to the row's chosen Department via departmentId prop.
+                                  const setRowDept = (rowIdx: number, deptId: string | undefined) => {
+                                    const deptObj = departments.find((d) => d.id === deptId);
+                                    const divName = deptObj?.divisionId
+                                      ? divisions.find((d) => d.id === deptObj.divisionId)?.name ?? null
+                                      : null;
+                                    const secName = deptObj?.sectionId
+                                      ? sections.find((s) => s.id === deptObj.sectionId)?.name ?? null
+                                      : null;
+                                    const cur = form.getFieldValue('processes') || [];
+                                    const updated = Array.isArray(cur) ? [...cur] : [];
+                                    updated[rowIdx] = {
+                                      ...(updated[rowIdx] || {}),
+                                      departmentId: deptId ?? null,
+                                      departmentName: deptObj?.name ?? null,
+                                      divisionId: deptObj?.divisionId ?? null,
+                                      divisionName: divName,
+                                      sectionId: deptObj?.sectionId ?? null,
+                                      sectionName: secName,
+                                      name: deptObj?.name ?? null,
+                                    };
+                                    form.setFieldValue('processes', updated);
+                                  };
+                                  return (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                      {fields.map((field, index) => {
+                                        const seqNumber = String(index + 1).padStart(2, '0');
+                                        const rowDeptId = form.getFieldValue(['processes', index, 'departmentId']) as string | undefined;
+                                        return (
+                                          <div
+                                            key={field.key}
+                                            className="erp-route-process-row"
+                                          >
+                                            <span
+                                              style={{
+                                                fontFamily: 'monospace',
+                                                fontSize: 12,
+                                                fontWeight: 700,
+                                                color: 'var(--theme-accent, #0284c7)',
+                                                background: 'rgba(2, 132, 199, 0.12)',
+                                                padding: '2px 8px',
+                                                borderRadius: 4,
+                                                border: '1px solid rgba(2, 132, 199, 0.25)',
+                                                minWidth: 32,
+                                                textAlign: 'center',
+                                                flexShrink: 0,
+                                              }}
+                                            >
+                                              {seqNumber}
+                                            </span>
+
+                                            <Form.Item
+                                              {...field}
+                                              name={[field.name, 'sequence']}
+                                              initialValue={index + 1}
+                                              style={{ display: 'none' }}
+                                            >
+                                              <Input type="hidden" />
+                                            </Form.Item>
+
+                                            {/* Operation name: hidden — auto-derived from Department,
                                 backend also writes it on save so the preview resolves
                                 the stage title immediately. */}
-                            <Form.Item
-                              {...field}
-                              name={[field.name, 'name']}
-                              style={{ display: 'none' }}
-                            >
-                              <Input type="hidden" />
-                            </Form.Item>
+                                            <Form.Item
+                                              {...field}
+                                              name={[field.name, 'name']}
+                                              style={{ display: 'none' }}
+                                            >
+                                              <Input type="hidden" />
+                                            </Form.Item>
 
-                            {/* Hidden descriptive fields synced from the Department select */}
-                            <Form.Item {...field} name={[field.name, 'departmentName']} style={{ display: 'none' }}>
-                              <Input type="hidden" />
-                            </Form.Item>
-                            <Form.Item {...field} name={[field.name, 'divisionId']} style={{ display: 'none' }}>
-                              <Input type="hidden" />
-                            </Form.Item>
-                            <Form.Item {...field} name={[field.name, 'divisionName']} style={{ display: 'none' }}>
-                              <Input type="hidden" />
-                            </Form.Item>
-                            <Form.Item {...field} name={[field.name, 'sectionId']} style={{ display: 'none' }}>
-                              <Input type="hidden" />
-                            </Form.Item>
-                            <Form.Item {...field} name={[field.name, 'sectionName']} style={{ display: 'none' }}>
-                              <Input type="hidden" />
-                            </Form.Item>
+                                            {/* Hidden descriptive fields synced from the Department select */}
+                                            <Form.Item {...field} name={[field.name, 'departmentName']} style={{ display: 'none' }}>
+                                              <Input type="hidden" />
+                                            </Form.Item>
+                                            <Form.Item {...field} name={[field.name, 'divisionId']} style={{ display: 'none' }}>
+                                              <Input type="hidden" />
+                                            </Form.Item>
+                                            <Form.Item {...field} name={[field.name, 'divisionName']} style={{ display: 'none' }}>
+                                              <Input type="hidden" />
+                                            </Form.Item>
+                                            <Form.Item {...field} name={[field.name, 'sectionId']} style={{ display: 'none' }}>
+                                              <Input type="hidden" />
+                                            </Form.Item>
+                                            <Form.Item {...field} name={[field.name, 'sectionName']} style={{ display: 'none' }}>
+                                              <Input type="hidden" />
+                                            </Form.Item>
 
-                            <Form.Item
-                              {...field}
-                              name={[field.name, 'departmentId']}
-                              className="erp-route-dept-item"
-                              style={{ marginBottom: 0, minWidth: 170, maxWidth: 190 }}
-                            >
-                              <Select
-                                allowClear
-                                showSearch
-                                optionFilterProp="label"
-                                placeholder="Department / Process"
-                                options={departments.map((d) => ({ value: d.id, label: d.name }))}
-                                onChange={(v?: string) => setRowDept(index, v ?? undefined)}
-                              />
-                            </Form.Item>
+                                            <Form.Item
+                                              {...field}
+                                              name={[field.name, 'departmentId']}
+                                              className="erp-route-dept-item"
+                                              style={{ marginBottom: 0, minWidth: 170, maxWidth: 190 }}
+                                            >
+                                              <Select
+                                                allowClear
+                                                showSearch
+                                                optionFilterProp="label"
+                                                placeholder="Department / Process"
+                                                options={departments.map((d) => ({ value: d.id, label: d.name }))}
+                                                onChange={(v?: string) => setRowDept(index, v ?? undefined)}
+                                              />
+                                            </Form.Item>
 
-                            <Form.Item
-                              {...field}
-                              name={[field.name, 'outputItemId']}
-                              className="erp-route-output-item"
-                              rules={[{ required: true, message: 'Output Item is required' }]}
-                              style={{ flex: 1, marginBottom: 0, minWidth: 180 }}
-                            >
-                              <InputMaterialSelect
-                                compact
-                                uoms={uoms}
-                                departmentId={rowDeptId ?? null}
-                                excludeItemId={null}
-                                initialItemCode={form.getFieldValue(['processes', index, 'outputItemCode'])}
-                                initialItemName={form.getFieldValue(['processes', index, 'outputItemName'])}
-                                placeholder={`Output Item of ${seqNumber}`}
-                                ariaLabel={`Output Item of Step ${seqNumber}`}
-                                testId={`route-output-${index}`}
-                                onSelectDetail={(detail) => {
-                                  const curId = form.getFieldValue(['processes', index, 'outputItemId']) as string | undefined;
-                                  handleRouteItemDetail(curId, detail);
-                                  if (detail) {
-                                    const procs = form.getFieldValue('processes');
-                                    if (Array.isArray(procs) && procs[index]) {
-                                      procs[index].outputItemCode = detail.itemCode;
-                                      procs[index].outputItemName = detail.name;
-                                      form.setFieldsValue({ processes: [...procs] });
-                                    }
-                                  }
+                                            <Form.Item
+                                              {...field}
+                                              name={[field.name, 'outputItemId']}
+                                              className="erp-route-output-item"
+                                              rules={[{ required: true, message: 'Output Item is required' }]}
+                                              style={{ flex: 1, marginBottom: 0, minWidth: 180 }}
+                                            >
+                                              <InputMaterialSelect
+                                                compact
+                                                uoms={uoms}
+                                                departmentId={rowDeptId ?? null}
+                                                excludeItemId={null}
+                                                initialItemCode={form.getFieldValue(['processes', index, 'outputItemCode'])}
+                                                initialItemName={form.getFieldValue(['processes', index, 'outputItemName'])}
+                                                placeholder={`Output Item of ${seqNumber}`}
+                                                ariaLabel={`Output Item of Step ${seqNumber}`}
+                                                testId={`route-output-${index}`}
+                                                onSelectDetail={(detail) => {
+                                                  const curId = form.getFieldValue(['processes', index, 'outputItemId']) as string | undefined;
+                                                  handleRouteItemDetail(curId, detail);
+                                                  if (detail) {
+                                                    const procs = form.getFieldValue('processes');
+                                                    if (Array.isArray(procs) && procs[index]) {
+                                                      procs[index].outputItemCode = detail.itemCode;
+                                                      procs[index].outputItemName = detail.name;
+                                                      form.setFieldsValue({ processes: [...procs] });
+                                                    }
+                                                  }
+                                                }}
+                                              />
+                                            </Form.Item>
+
+                                            <div className="erp-route-actions">
+                                              <Tooltip title="Move Up">
+                                                <Button
+                                                  type="text"
+                                                  size="small"
+                                                  icon={<ArrowUpOutlined />}
+                                                  disabled={index <= 0}
+                                                  onClick={() => move(index, index - 1)}
+                                                />
+                                              </Tooltip>
+
+                                              <Tooltip title="Move Down">
+                                                <Button
+                                                  type="text"
+                                                  size="small"
+                                                  icon={<ArrowDownOutlined />}
+                                                  disabled={index === fields.length - 1}
+                                                  onClick={() => move(index, index + 1)}
+                                                />
+                                              </Tooltip>
+
+                                              <Tooltip title="Remove Stage">
+                                                <Button
+                                                  type="text"
+                                                  danger
+                                                  size="small"
+                                                  icon={<DeleteOutlined />}
+                                                  onClick={() => remove(field.name)}
+                                                />
+                                              </Tooltip>
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+
+                                      <Button
+                                        type="dashed"
+                                        onClick={() => add({ sequence: fields.length + 1, name: '' })}
+                                        icon={<PlusOutlined />}
+                                        style={{ width: '100%', marginTop: 4 }}
+                                      >
+                                        + Add Stage
+                                      </Button>
+                                    </div>
+                                  );
                                 }}
-                              />
-                            </Form.Item>
-
-                            <div className="erp-route-actions">
-                              <Tooltip title="Move Up">
-                                <Button
-                                  type="text"
-                                  size="small"
-                                  icon={<ArrowUpOutlined />}
-                                  disabled={index <= 0}
-                                  onClick={() => move(index, index - 1)}
-                                />
-                              </Tooltip>
-
-                              <Tooltip title="Move Down">
-                                <Button
-                                  type="text"
-                                  size="small"
-                                  icon={<ArrowDownOutlined />}
-                                  disabled={index === fields.length - 1}
-                                  onClick={() => move(index, index + 1)}
-                                />
-                              </Tooltip>
-
-                              <Tooltip title="Remove Stage">
-                                <Button
-                                  type="text"
-                                  danger
-                                  size="small"
-                                  icon={<DeleteOutlined />}
-                                  onClick={() => remove(field.name)}
-                                />
-                              </Tooltip>
+                              </Form.List>
                             </div>
-                          </div>
-                        );
-                      })}
 
-                      <Button
-                        type="dashed"
-                        onClick={() => add({ sequence: fields.length + 1, name: '' })}
-                        icon={<PlusOutlined />}
-                        style={{ width: '100%', marginTop: 4 }}
-                      >
-                        + Add Stage
-                      </Button>
-                    </div>
-                  );
-                }}
-              </Form.List>
-            </div>
+                            <div style={{ height: 1, background: 'var(--theme-border, rgba(255, 255, 255, 0.08))', margin: '12px 0' }} />
 
-            <div style={{ height: 1, background: 'var(--theme-border, rgba(255, 255, 255, 0.08))', margin: '12px 0' }} />
+                            {/* 5C: OUTPUT / NEXT STEP */}
+                            <div>
+                              <Text strong style={{ display: 'block', fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--theme-accent, #0284c7)', marginBottom: 8 }}>
+                                Output / Next Step
+                              </Text>
+                              <div className="erp-form-responsive-grid">
+                                <Form.Item name="finalProduct" label="Final Product" extra="Resulting product/output associated with this flow">
+                                  <Input maxLength={255} placeholder="e.g. 250 × 17 B or Finished Wire" />
+                                </Form.Item>
+                                <Form.Item name="packingNextStep" label="Packing / Next Step" extra="Next operation or destination stage">
+                                  <Input maxLength={255} placeholder="e.g. Straightener / Finished Store" />
+                                </Form.Item>
+                              </div>
+                            </div>
+                          </Card>
 
-            {/* 5C: OUTPUT / NEXT STEP */}
-            <div>
-              <Text strong style={{ display: 'block', fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--theme-accent, #0284c7)', marginBottom: 8 }}>
-                Output / Next Step
-              </Text>
-              <div className="erp-form-responsive-grid">
-                <Form.Item name="finalProduct" label="Final Product" extra="Resulting product/output associated with this flow">
-                  <Input maxLength={255} placeholder="e.g. 250 × 17 B or Finished Wire" />
-                </Form.Item>
-                <Form.Item name="packingNextStep" label="Packing / Next Step" extra="Next operation or destination stage">
-                  <Input maxLength={255} placeholder="e.g. Straightener / Finished Store" />
-                </Form.Item>
-              </div>
-            </div>
-          </Card>
-
-          {/* SECTION 5D — TASK #45: PRODUCTION FLOW
+                          {/* SECTION 5D — TASK #45: PRODUCTION FLOW
               The current Item IS the output of its own production stage. The user
               selects ONLY the INPUT MATERIAL; productionOutItemId is server-owned
               and auto-synced to this Item's ID. */}
-          <Card
-            size="small"
-            title={
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-                <Space>
-                  <ApartmentOutlined style={{ color: '#1890ff' }} />
-                  <span style={{ fontWeight: 600 }}>Production Flow</span>
-                </Space>
-                <Tag color="cyan" style={{ fontSize: 11, fontWeight: 600 }}>
-                  2 Items IN ➔ 1 Item OUT Supported
-                </Tag>
-              </div>
-            }
-            style={{ marginBottom: 12, borderRadius: 8 }}
-          >
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
-              <Form.Item
-                name="productionInItemId"
-                label={
-                  <Space>
-                    <span style={{ fontWeight: 600 }}>INPUT MATERIAL 1 (Primary Input)</span>
-                    <Tag color="blue" style={{ fontSize: 10 }}>IN 1</Tag>
-                  </Space>
-                }
-                extra="The primary item consumed to produce this item (e.g. Spoke Wire, Inner Spoke). Search by code, name, SKU or barcode."
-              >
-                <InputMaterialSelect
-                  excludeItemId={editing?.id ?? null}
-                  departments={departments}
-                  uoms={uoms}
-                  initialItemCode={editing?.productionInItem?.itemCode}
-                  initialItemName={editing?.productionInItem?.name}
-                  initialDepartmentId={editing?.productionInItem?.departmentId}
-                  onSelectDetail={setSelectedInputDetail}
-                  placeholder="Select Input Material 1 (Primary)..."
-                />
-              </Form.Item>
-
-              <Form.Item
-                name="productionInItemId2"
-                label={
-                  <Space>
-                    <span style={{ fontWeight: 600 }}>INPUT MATERIAL 2 (Secondary / Assembly Component)</span>
-                    <Tag color="cyan" style={{ fontSize: 10 }}>IN 2 (Optional)</Tag>
-                  </Space>
-                }
-                extra="Optional second item consumed in this stage (e.g. Nipple, Outer Spoke, Chemical) for multi-item assembly."
-              >
-                <InputMaterialSelect
-                  excludeItemId={editing?.id ?? null}
-                  departments={departments}
-                  uoms={uoms}
-                  initialItemCode={editing?.productionInItem2?.itemCode}
-                  initialItemName={editing?.productionInItem2?.name}
-                  initialDepartmentId={editing?.productionInItem2?.departmentId}
-                  onSelectDetail={setSelectedInputDetail2}
-                  placeholder="Select Input Material 2 (Optional Component)..."
-                />
-              </Form.Item>
-
-              <Form.Item
-                name="productionInItemId3"
-                label={
-                  <Space>
-                    <span style={{ fontWeight: 600 }}>INPUT MATERIAL 3 (Tertiary / Packaging Component)</span>
-                    <Tag color="purple" style={{ fontSize: 10 }}>IN 3 (Optional)</Tag>
-                  </Space>
-                }
-                extra="Optional third item consumed in this stage (e.g. Nipple in 125 Inner + 125 Outer + 125 Nipple carton packing) for 3 Items IN ➔ 1 Item OUT assembly."
-              >
-                <InputMaterialSelect
-                  excludeItemId={editing?.id ?? null}
-                  departments={departments}
-                  uoms={uoms}
-                  initialItemCode={editing?.productionInItem3?.itemCode}
-                  initialItemName={editing?.productionInItem3?.name}
-                  initialDepartmentId={editing?.productionInItem3?.departmentId}
-                  onSelectDetail={setSelectedInputDetail3}
-                  placeholder="Select Input Material 3 (Optional Component, e.g. Nipple)..."
-                />
-              </Form.Item>
-
-              <Form.Item
-                label={
-                  <Space>
-                    <span style={{ fontWeight: 600 }}>OUTPUT PRODUCT (Resulting Item)</span>
-                    <Tag color="green" style={{ fontSize: 10 }}>OUT</Tag>
-                  </Space>
-                }
-                extra="Current Item is automatically the Production Output — this read-only value always equals the item being edited (auto-synchronized)."
-              >
-                <Input readOnly value={outputProductDisplay} style={{ background: '#f8fafc', fontWeight: 600, color: '#0f172a' }} />
-              </Form.Item>
-            </div>
-
-            {/* TASK #45: Live Flow Preview Card matching Authoritative Structure */}
-            {(() => {
-              const modalProcesses = (() => {
-                if (Array.isArray(watchedProcesses) && watchedProcesses.length > 0) {
-                  const names = watchedProcesses
-                    .map((p: any) => (typeof p === 'string' ? p.trim() : (p?.name ? String(p.name).trim() : '')))
-                    .filter(Boolean);
-                  // TASK 15: every configured stage IS a real operation — the
-                  // top preview chips show all of them in sequence.
-                  return names;
-                }
-                const editingProcs = (editing?.processes && editing.processes.length > 0)
-                  ? editing.processes.map((p: any) => p.name).filter(Boolean)
-                  : [];
-                if (editingProcs.length > 0) return editingProcs;
-                return [
-                  watchedProcess1 ?? editing?.process1,
-                  watchedProcess2 ?? editing?.process2,
-                  watchedProcess3 ?? editing?.process3,
-                  watchedProcess4 ?? editing?.process4,
-                  watchedProcess5 ?? editing?.process5,
-                  watchedProcess6 ?? editing?.process6,
-                ].filter(Boolean) as string[];
-              })();
-
-              const hasProductionFlow = Boolean(
-                selectedInputDetail ||
-                selectedInputDetail2 ||
-                selectedInputDetail3 ||
-                editing?.productionInItem ||
-                editing?.productionInItem2 ||
-                editing?.productionInItem3 ||
-                modalProcesses.length > 0 ||
-                watchedFinalProduct || editing?.finalProduct ||
-                watchedDiameterMm != null || editing?.diameterMm != null ||
-                watchedWireSizeMm != null || editing?.wireSizeMm != null
-              );
-
-              if (!hasProductionFlow) {
-                return (
-                  <div
-                    style={{
-                      marginTop: 6,
-                      padding: '8px 12px',
-                      borderRadius: 6,
-                      border: '1px dashed #cbd5e1',
-                      background: 'var(--ant-color-bg-container-disabled, #fcfcfc)',
-                      fontSize: 11,
-                      color: '#64748b',
-                    }}
-                  >
-                    {(watchedItemType || editing?.itemType) === 'RAW_MATERIAL'
-                      ? 'Root raw material — enter Diameter, Wire Size, Processes, or Final Product in Section 5 above to view the live production sequence.'
-                      : 'Select an Input Material above, or enter Production Processes in Section 5 to configure the manufacturing route.'}
-                  </div>
-                );
-              }
-
-              const resolvedRouteName = (() => {
-                const rId = watchedRouteTypeId || editing?.routeTypeId;
-                if (rId) {
-                  const rt = routeTypes.find((r) => r.id === rId);
-                  if (rt) return rt.name?.trim() ? rt.name : rt.routeCode;
-                }
-                const rCode = watchedRouteType || editing?.routeType;
-                if (rCode) {
-                  const rt = routeTypes.find((r) => r.routeCode === rCode);
-                  if (rt) return rt.name?.trim() ? rt.name : rt.routeCode;
-                  return ROUTE_TYPES.find((x) => x.value === rCode)?.label || rCode;
-                }
-                return null;
-              })();
-
-              const operationName = (() => {
-                const dept = departments.find((d) => d.id === (watchedDepartmentId || editing?.departmentId));
-                if (dept?.name && dept.name.trim()) return dept.name.trim();
-                return null;
-              })();
-
-              const wireVal = watchedWireSizeMm ?? editing?.wireSizeMm;
-              const diaVal = watchedDiameterMm ?? editing?.diameterMm;
-              const thkVal = watchedThicknessMm ?? editing?.thicknessMm;
-              const widVal = watchedWidthMm ?? editing?.widthMm;
-              const lenVal = watchedLengthPerPiece ?? editing?.lengthPerPiece;
-              const finalProdName = watchedFinalProduct || editing?.finalProduct;
-              const nextStepName = watchedPackingNextStep || editing?.packingNextStep;
-
-              // PROMPT-35: six-stage preview (01-06) mirroring the View card.
-              // Reconstructed LIVE from the exact form + selected input values —
-              // never invented; unknown stages render as "Not configured".
-              type PreviewItem = {
-                itemCode?: string | null; name?: string | null; itemType?: string | null;
-                departmentId?: string | null; departmentName?: string | null;
-                wireSizeMm?: number | null; diameterMm?: number | null;
-                thicknessMm?: number | null; widthMm?: number | null;
-                lengthPerPiece?: number | null; baseUomName?: string | null;
-              };
-
-              const currentPreviewCode = editing?.itemCode || watchedCode || null;
-              const currentPreviewName = editing?.name || watchedName || null;
-              const curDeptObject = departments.find((d) => d.id === (watchedDepartmentId || editing?.departmentId));
-              const curDeptName = curDeptObject?.name || editing?.departmentName || null;
-              const curOpName = operationName; // derived from department above
-
-              const inputPreview = (selectedInputDetail ?? null) as PreviewItem | null;
-              const inputDeptName =
-                inputPreview?.departmentName ??
-                (inputPreview?.departmentId ? departments.find((d) => d.id === inputPreview.departmentId)?.name ?? null : null) ??
-                null;
-              const inputOpName = (() => {
-                const dn = inputDeptName;
-                if (dn && dn.trim()) return dn.trim();
-                return null;
-              })();
-              const isRawRoot =
-                (watchedItemType || editing?.itemType) === 'RAW_MATERIAL' && !inputPreview && !editing?.productionInItemId;
-              const rawPreview: PreviewItem | null = inputPreview
-                ? { ...inputPreview }
-                : isRawRoot
-                  ? {
-                      itemCode: currentPreviewCode,
-                      name: currentPreviewName,
-                      wireSizeMm: wireVal,
-                      diameterMm: diaVal,
-                      thicknessMm: thkVal,
-                      widthMm: widVal,
-                      lengthPerPiece: lenVal,
-                      departmentName: curDeptName,
-                      baseUomName: editing?.baseUomName ?? null,
-                    }
-                  : null;
-
-              const nextStepValid = !isEmptyValue(nextStepName) ? String(nextStepName).trim() : null;
-              const finalProductValid = !isEmptyValue(finalProdName) ? String(finalProdName).trim() : null;
-
-              // TASK 14: fully dynamic production flow preview — generates stages from the
-              // SAME form data as the horizontal strip above (input item + processes + current
-              // item). No hardcoded FLATTENING / SPIRAL — stage titles are resolved from the
-              // actual operation texts verbatim via stageTitleForOperation().
-              const currentPreviewItem: PreviewItem = {
-                itemCode: currentPreviewCode,
-                name: currentPreviewName,
-                itemType: watchedItemType || editing?.itemType || null,
-                departmentId: watchedDepartmentId || editing?.departmentId || null,
-                departmentName: curDeptName,
-                wireSizeMm: wireVal,
-                diameterMm: diaVal,
-                thicknessMm: thkVal,
-                widthMm: widVal,
-                lengthPerPiece: lenVal,
-                baseUomName: editing?.baseUomName ?? null,
-              };
-
-              // TASK 15: configured Production Route rows (each = PROCESS/DEPARTMENT
-              // + OUTPUT ITEM) are AUTHORITATIVE — ONE stage per row via
-              // buildRouteFlow (mirrors the backend buildConfiguredRouteStages).
-              // Fallback: TASK 14 dynamic chain (RAW_MATERIAL + process/output pairs
-              // + tail steps) when the form has no configured route rows yet.
-              const routeRows = normalizeRouteRows(watchedProcesses);
-              const hasConfiguredRoute = routeRows.length > 0;
-              const cycleIds = findRouteCycles(routeRows);
-
-              const currentItemLookup: RouteStageSource = {
-                id: editing?.id ?? null,
-                itemCode: currentPreviewCode,
-                itemName: currentPreviewName,
-                name: currentPreviewName,
-                itemType: watchedItemType || editing?.itemType || null,
-                wireSizeMm: wireVal,
-                diameterMm: diaVal,
-                thicknessMm: thkVal,
-                widthMm: widVal,
-                lengthPerPiece: lenVal,
-                baseUomName: editing?.baseUomName ?? null,
-                departmentId: watchedDepartmentId || editing?.departmentId || null,
-                departmentName: curDeptName,
-              };
-              const itemLookup = new Map<string, RouteStageSource | null>();
-              for (const [k, v] of Object.entries(routeItemDetails)) {
-                if (k && k !== editing?.id) itemLookup.set(k, v ?? null);
-              }
-              if (editing?.id) itemLookup.set(editing.id, currentItemLookup);
-
-              let previewStages: ProductionFlowStage[] = [];
-
-              if (hasConfiguredRoute) {
-                previewStages = buildRouteFlow(routeRows, editing?.id ?? null, itemLookup).stages;
-              } else {
-                const mkStage = (
-                  sequence: number,
-                  stageKey: string,
-                  title: string,
-                  kind: 'process' | 'output',
-                  it: PreviewItem | null,
-                  op: { operationCode?: string | null; operationName?: string | null } | null,
-                  configuredOverride?: boolean,
-                ): ProductionFlowStage => ({
-                  sequence,
-                  itemNumber: sequence,
-                  kind,
-                  stageKey,
-                  title,
-                  itemId: null,
-                  itemCode: it?.itemCode ?? null,
-                  itemName: it?.name ?? null,
-                  itemType: it?.itemType ?? null,
-                  wireSizeMm: it?.wireSizeMm ?? null,
-                  diameterMm: it?.diameterMm ?? null,
-                  thicknessMm: it?.thicknessMm ?? null,
-                  widthMm: it?.widthMm ?? null,
-                  lengthPerPiece: it?.lengthPerPiece ?? null,
-                  baseUomName: it?.baseUomName ?? null,
-                  departmentId: it?.departmentId ?? null,
-                  departmentName: it?.departmentName ?? null,
-                  divisionId: null,
-                  divisionName: null,
-                  sectionId: null,
-                  sectionName: null,
-                  operationCode: op?.operationCode ?? null,
-                  operationName: op?.operationName ?? null,
-                  isCurrent: false,
-                  configured: configuredOverride !== undefined ? configuredOverride : !!it,
-                });
-
-                // Legacy fallback: one RAW MATERIAL stage + a PROCESS + OUTPUT pair
-                // per typed process; last output references the current item being
-                // edited. No fixed six stages, no hardcoded op names.
-                const legacyStages: ProductionFlowStage[] = [];
-                let stepNo = 0;
-
-                const pushStage = (
-                  kind: 'process' | 'output',
-                  stageKey: string,
-                  title: string,
-                  it: PreviewItem | null,
-                  op?: { operationCode?: string | null; operationName?: string | null } | null,
-                  configured?: boolean,
-                ): void => {
-                  stepNo += 1;
-                  legacyStages.push(mkStage(stepNo, stageKey, title, kind, it, op ?? null, configured));
-                };
-
-                // Stage 1: RAW MATERIAL (input item or raw root)
-                pushStage('process', 'RAW_MATERIAL', 'RAW MATERIAL', rawPreview, {
-                  operationName: !isRawRoot ? inputOpName : null,
-                });
-
-                // Process + Output stages from typed processes
-                if (modalProcesses.length > 0) {
-                  modalProcesses.forEach((pName: string, pIdx: number) => {
-                    const isLast = pIdx === modalProcesses.length - 1;
-                    pushStage(
-                      'process',
-                      `OP_${pIdx + 1}`,
-                      stageTitleForOperation(pName, 'process') ?? 'PRODUCTION STAGE',
-                      null,
-                      { operationName: pName },
-                    );
-                    pushStage(
-                      'output',
-                      `OUTPUT_${pIdx + 1}`,
-                      stageTitleForOperation(pName, 'output') ?? 'OUTPUT',
-                      isLast ? currentPreviewItem : null,
-                    );
-                  });
-                } else {
-                  // No typed processes — single current-operation stage
-                  const opLabel = curOpName || curDeptName || null;
-                  pushStage(
-                    'process',
-                    'OP_1',
-                    stageTitleForOperation(opLabel, 'process') ?? 'PRODUCTION STAGE',
-                    currentPreviewItem,
-                    { operationName: opLabel },
-                  );
-                  pushStage('output', 'OUTPUT_1', stageTitleForOperation(opLabel, 'output') ?? 'OUTPUT', currentPreviewItem);
-                }
-
-                // Explicit Tail: Packing / Next Step + Final Product (real configured data)
-                if (nextStepValid) {
-                  pushStage('process', 'NEXT_STEP', stageTitleForOperation(nextStepValid, 'process') ?? nextStepValid.toUpperCase(), currentPreviewItem, { operationName: nextStepValid });
-                }
-                if (finalProductValid) {
-                  pushStage('output', 'FINAL_PRODUCT', 'FINAL PRODUCT', { name: finalProductValid, itemType: null, baseUomName: null } as PreviewItem, null);
-                }
-                previewStages = legacyStages;
-              }
-
-              return (
-                <div
-                  style={{
-                    marginTop: 6,
-                    border: '1px solid var(--theme-border, rgba(255, 255, 255, 0.12))',
-                    borderRadius: 8,
-                    padding: '10px 14px',
-                    background: 'var(--theme-surface-alt, rgba(255, 255, 255, 0.04))',
-                  }}
-                >
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      marginBottom: 8,
-                      borderBottom: '1px solid var(--theme-border, rgba(255, 255, 255, 0.1))',
-                      paddingBottom: 6,
-                      flexWrap: 'wrap',
-                      gap: 6,
-                    }}
-                  >
-                    <span
-                      style={{
-                        fontSize: 11,
-                        fontWeight: 700,
-                        textTransform: 'uppercase',
-                        color: 'var(--theme-accent, #0284c7)',
-                        letterSpacing: 0.5,
-                      }}
-                    >
-                      Production Flow Preview
-                    </span>
-                    <Space size={6} wrap>
-                      {resolvedRouteName && (
-                        <Tag color="purple" style={{ margin: 0 }}>Route: {resolvedRouteName}</Tag>
-                      )}
-                      {diaVal != null && (
-                        <Tag color="green" style={{ margin: 0 }}>Diameter: {formatDimension(diaVal)} mm</Tag>
-                      )}
-                      {wireVal != null && diaVal == null && (
-                        <Tag color="gold" style={{ margin: 0 }}>Wire: {formatDimension(wireVal)} mm</Tag>
-                      )}
-                      {(thkVal != null || widVal != null) && (
-                        <Tag color="blue" style={{ margin: 0 }}>
-                          Flattened: {formatDimension(thkVal)} × {formatDimension(widVal)} mm
-                        </Tag>
-                      )}
-                      {lenVal != null && (
-                        <Tag color="cyan" style={{ margin: 0 }}>Length: {formatDimension(lenVal)}</Tag>
-                      )}
-                      <Tag color="geekblue" style={{ margin: 0 }}>Operation: {operationName || '—'}</Tag>
-                    </Space>
-                  </div>
-
-                  {cycleIds.length > 0 && (
-                    <Alert
-                      type="warning"
-                      showIcon
-                      style={{ marginBottom: 8 }}
-                      message={
-                        <>
-                          <strong>Circular route detected:</strong> the same Output Item appears
-                          at multiple stages (
-                          {cycleIds.slice(0, 3).map((id) => itemLookup.get(id)?.itemCode ?? 'Unavailable').join(', ')}
-                          {cycleIds.length > 3 ? ' …' : ''}). The backend will reject this on
-                          save.
-                        </>
-                      }
-                    />
-                  )}
-
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      overflowX: 'auto',
-                      padding: '6px 2px',
-                      gap: 8,
-                    }}
-                  >
-                    {/* Left: Input Node */}
-                    <div
-                      style={{
-                        minWidth: 150,
-                        maxWidth: 210,
-                        flex: '0 0 auto',
-                        background: 'var(--theme-surface, rgba(0, 0, 0, 0.25))',
-                        padding: '8px 10px',
-                        borderRadius: 6,
-                        border: '1px solid var(--theme-border, rgba(255, 255, 255, 0.12))',
-                      }}
-                    >
-                      <div
-                        style={{
-                          fontSize: 9,
-                          fontWeight: 700,
-                          color: 'var(--theme-text-muted)',
-                          textTransform: 'uppercase',
-                          letterSpacing: 0.5,
-                        }}
-                      >
-                        {selectedInputDetail ? 'INPUT MATERIAL' : 'STARTING RAW MATERIAL'}
-                      </div>
-                      <div
-                        style={{
-                          fontWeight: 600,
-                          fontSize: 12,
-                          color: 'var(--theme-text)',
-                          marginTop: 2,
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {selectedInputDetail ? selectedInputDetail.name : (editing?.name || watchedName || '(Current Item)')}
-                      </div>
-                      <div style={{ fontSize: 11, color: 'var(--theme-text-muted)', marginTop: 2 }}>
-                        <code
-                          style={{
-                            background: 'var(--theme-hover, rgba(255,255,255,0.08))',
-                            color: 'var(--theme-accent, #38bdf8)',
-                            padding: '1px 4px',
-                            borderRadius: 3,
-                            fontSize: 10,
-                          }}
-                        >
-                          {selectedInputDetail ? selectedInputDetail.itemCode : (editing?.itemCode || watchedCode || 'RAW WIRE')}
-                        </code>
-                        {(selectedInputDetail?.wireSizeMm != null || (!selectedInputDetail && wireVal != null)) && (
-                          <span style={{ marginLeft: 4 }}>
-                            • {formatDimension(selectedInputDetail?.wireSizeMm ?? wireVal)} mm
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Secondary Input Chip (if configured) */}
-                    {(selectedInputDetail2 || editing?.productionInItem2) && (
-                      <>
-                        <div style={{ color: '#0ea5e9', fontSize: 16, fontWeight: 700, flexShrink: 0, display: 'flex', alignItems: 'center' }}>+</div>
-                        <div
-                          style={{
-                            minWidth: 140,
-                            maxWidth: 180,
-                            flex: '0 0 auto',
-                            background: 'var(--theme-surface-alt, rgba(14, 165, 233, 0.08))',
-                            padding: '6px 8px',
-                            borderRadius: 6,
-                            border: '1px solid rgba(14, 165, 233, 0.35)',
-                          }}
-                        >
-                          <div style={{ fontSize: 9, fontWeight: 700, color: '#0ea5e9', textTransform: 'uppercase' }}>
-                            INPUT 2 (COMPONENT)
-                          </div>
-                          <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--theme-text)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {selectedInputDetail2 ? selectedInputDetail2.name : editing?.productionInItem2?.name}
-                          </div>
-                          <div style={{ fontSize: 11, color: 'var(--theme-text-muted)', marginTop: 2 }}>
-                            <code style={{ background: 'var(--theme-hover, rgba(255,255,255,0.08))', color: '#0ea5e9', padding: '1px 4px', borderRadius: 3, fontSize: 10 }}>
-                              {selectedInputDetail2 ? selectedInputDetail2.itemCode : editing?.productionInItem2?.itemCode}
-                            </code>
-                          </div>
-                        </div>
-                      </>
-                    )}
-
-                    {/* Tertiary Input Chip (if configured) */}
-                    {(selectedInputDetail3 || editing?.productionInItem3) && (
-                      <>
-                        <div style={{ color: '#a855f7', fontSize: 16, fontWeight: 700, flexShrink: 0, display: 'flex', alignItems: 'center' }}>+</div>
-                        <div
-                          style={{
-                            minWidth: 140,
-                            maxWidth: 180,
-                            flex: '0 0 auto',
-                            background: 'var(--theme-surface-alt, rgba(168, 85, 247, 0.08))',
-                            padding: '6px 8px',
-                            borderRadius: 6,
-                            border: '1px solid rgba(168, 85, 247, 0.35)',
-                          }}
-                        >
-                          <div style={{ fontSize: 9, fontWeight: 700, color: '#a855f7', textTransform: 'uppercase' }}>
-                            INPUT 3 (COMPONENT)
-                          </div>
-                          <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--theme-text)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {selectedInputDetail3 ? selectedInputDetail3.name : editing?.productionInItem3?.name}
-                          </div>
-                          <div style={{ fontSize: 11, color: 'var(--theme-text-muted)', marginTop: 2 }}>
-                            <code style={{ background: 'var(--theme-hover, rgba(255,255,255,0.08))', color: '#a855f7', padding: '1px 4px', borderRadius: 3, fontSize: 10 }}>
-                              {selectedInputDetail3 ? selectedInputDetail3.itemCode : editing?.productionInItem3?.itemCode}
-                            </code>
-                          </div>
-                        </div>
-                      </>
-                    )}
-
-                    {/* Middle: Processes Sequence */}
-                    {modalProcesses.length > 0 ? (
-                      modalProcesses.map((pName, pIdx) => (
-                        <React.Fragment key={pIdx}>
-                          <div style={{ color: 'var(--theme-accent, #0284c7)', fontSize: 14, flexShrink: 0, display: 'flex', alignItems: 'center' }}><ArrowRightOutlined /></div>
-                          <div
-                            style={{
-                              minWidth: 120,
-                              maxWidth: 160,
-                              flex: '0 0 auto',
-                              background: 'var(--theme-hover, rgba(255, 255, 255, 0.05))',
-                              padding: '6px 8px',
-                              borderRadius: 6,
-                              border: '1px solid rgba(2, 132, 199, 0.3)',
-                              textAlign: 'center',
-                            }}
+                          <Card
+                            size="small"
+                            title={
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                                <Space>
+                                  <ApartmentOutlined style={{ color: '#1890ff' }} />
+                                  <span style={{ fontWeight: 600 }}>Production Flow</span>
+                                </Space>
+                                <Tag color="cyan" style={{ fontSize: 11, fontWeight: 600 }}>
+                                  2 Items IN ➔ 1 Item OUT Supported
+                                </Tag>
+                              </div>
+                            }
+                            style={{ marginBottom: 12, borderRadius: 8 }}
                           >
-                            <span
-                              style={{
-                                fontSize: 9,
-                                fontWeight: 700,
-                                background: '#0284c7',
-                                color: '#fff',
-                                borderRadius: 3,
-                                padding: '1px 5px',
-                                display: 'inline-block',
-                                marginBottom: 2,
-                              }}
-                            >
-                              STEP {pIdx + 1}
-                            </span>
-                            <div
-                              style={{
-                                fontSize: 11,
-                                fontWeight: 600,
-                                color: 'var(--theme-text)',
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap',
-                              }}
-                            >
-                              {pName}
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
+                              <Form.Item
+                                name="productionInItemId"
+                                label={
+                                  <Space>
+                                    <span style={{ fontWeight: 600 }}>INPUT MATERIAL 1 (Primary Input)</span>
+                                    <Tag color="blue" style={{ fontSize: 10 }}>IN 1</Tag>
+                                  </Space>
+                                }
+                                extra="The primary item consumed to produce this item (e.g. Spoke Wire, Inner Spoke). Search by code, name, SKU or barcode."
+                              >
+                                <InputMaterialSelect
+                                  excludeItemId={editing?.id ?? null}
+                                  departments={departments}
+                                  uoms={uoms}
+                                  initialItemCode={editing?.productionInItem?.itemCode}
+                                  initialItemName={editing?.productionInItem?.name}
+                                  initialDepartmentId={editing?.productionInItem?.departmentId}
+                                  onSelectDetail={setSelectedInputDetail}
+                                  placeholder="Select Input Material 1 (Primary)..."
+                                />
+                              </Form.Item>
+
+                              <Form.Item
+                                name="productionInItemId2"
+                                label={
+                                  <Space>
+                                    <span style={{ fontWeight: 600 }}>INPUT MATERIAL 2 (Secondary / Assembly Component)</span>
+                                    <Tag color="cyan" style={{ fontSize: 10 }}>IN 2 (Optional)</Tag>
+                                  </Space>
+                                }
+                                extra="Optional second item consumed in this stage (e.g. Nipple, Outer Spoke, Chemical) for multi-item assembly."
+                              >
+                                <InputMaterialSelect
+                                  excludeItemId={editing?.id ?? null}
+                                  departments={departments}
+                                  uoms={uoms}
+                                  initialItemCode={editing?.productionInItem2?.itemCode}
+                                  initialItemName={editing?.productionInItem2?.name}
+                                  initialDepartmentId={editing?.productionInItem2?.departmentId}
+                                  onSelectDetail={setSelectedInputDetail2}
+                                  placeholder="Select Input Material 2 (Optional Component)..."
+                                />
+                              </Form.Item>
+
+                              <Form.Item
+                                name="productionInItemId3"
+                                label={
+                                  <Space>
+                                    <span style={{ fontWeight: 600 }}>INPUT MATERIAL 3 (Tertiary / Packaging Component)</span>
+                                    <Tag color="purple" style={{ fontSize: 10 }}>IN 3 (Optional)</Tag>
+                                  </Space>
+                                }
+                                extra="Optional third item consumed in this stage (e.g. Nipple in 125 Inner + 125 Outer + 125 Nipple carton packing) for 3 Items IN ➔ 1 Item OUT assembly."
+                              >
+                                <InputMaterialSelect
+                                  excludeItemId={editing?.id ?? null}
+                                  departments={departments}
+                                  uoms={uoms}
+                                  initialItemCode={editing?.productionInItem3?.itemCode}
+                                  initialItemName={editing?.productionInItem3?.name}
+                                  initialDepartmentId={editing?.productionInItem3?.departmentId}
+                                  onSelectDetail={setSelectedInputDetail3}
+                                  placeholder="Select Input Material 3 (Optional Component, e.g. Nipple)..."
+                                />
+                              </Form.Item>
+
+                              <Form.Item
+                                label={
+                                  <Space>
+                                    <span style={{ fontWeight: 600 }}>OUTPUT PRODUCT (Resulting Item)</span>
+                                    <Tag color="green" style={{ fontSize: 10 }}>OUT</Tag>
+                                  </Space>
+                                }
+                                extra="Current Item is automatically the Production Output — this read-only value always equals the item being edited (auto-synchronized)."
+                              >
+                                <Input readOnly value={outputProductDisplay} style={{ background: '#f8fafc', fontWeight: 600, color: '#0f172a' }} />
+                              </Form.Item>
                             </div>
-                          </div>
-                        </React.Fragment>
-                      ))
-                    ) : (
-                      <>
-                        <div style={{ color: 'var(--theme-accent, #0284c7)', fontSize: 14, flexShrink: 0, display: 'flex', alignItems: 'center' }}><ArrowRightOutlined /></div>
-                        <div
-                          style={{
-                            minWidth: 120,
-                            flex: '0 0 auto',
-                            background: 'var(--theme-hover, rgba(255, 255, 255, 0.05))',
-                            padding: '6px 8px',
-                            borderRadius: 6,
-                            border: '1px solid rgba(2, 132, 199, 0.3)',
-                            textAlign: 'center',
-                          }}
-                        >
-                          <span
-                            style={{
-                              fontSize: 9,
-                              fontWeight: 700,
-                              background: '#0284c7',
-                              color: '#fff',
-                              borderRadius: 3,
-                              padding: '1px 5px',
-                              display: 'inline-block',
-                              marginBottom: 2,
-                            }}
-                          >
-                            MANUFACTURING
-                          </span>
-                          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--theme-text)' }}>
-                            {operationName}
-                          </div>
-                        </div>
-                      </>
-                    )}
 
-                    {/* Right: Output Node */}
-                    <div style={{ color: 'var(--theme-accent, #0284c7)', fontSize: 14, flexShrink: 0, display: 'flex', alignItems: 'center' }}><ArrowRightOutlined /></div>
-                    <div
-                      style={{
-                        minWidth: 150,
-                        maxWidth: 220,
-                        flex: '0 0 auto',
-                        background: 'var(--theme-success-soft, rgba(73, 170, 25, 0.12))',
-                        padding: '8px 10px',
-                        borderRadius: 6,
-                        border: '1px solid var(--theme-success, rgba(73, 170, 25, 0.35))',
-                      }}
-                    >
-                      <div
-                        style={{
-                          fontSize: 9,
-                          fontWeight: 700,
-                          color: 'var(--theme-success, #52c41a)',
-                          textTransform: 'uppercase',
-                          letterSpacing: 0.5,
-                        }}
-                      >
-                        OUTPUT / FINAL PRODUCT
-                      </div>
-                      <div
-                        style={{
-                          fontWeight: 600,
-                          fontSize: 12,
-                          color: 'var(--theme-text)',
-                          marginTop: 2,
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {finalProdName || editing?.name || watchedName || '(Current Item)'}
-                      </div>
-                      <div style={{ fontSize: 10, color: 'var(--theme-text-muted)', marginTop: 2 }}>
-                        {(thkVal != null || widVal != null) && (
-                          <div>T: {formatDimension(thkVal)} × W: {formatDimension(widVal)} mm</div>
-                        )}
-                        {nextStepName && (
-                          <div style={{ color: 'var(--theme-accent, #0284c7)' }}>Next: {nextStepName}</div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  {/* TASK 14: dynamic production flow — N stages generated from the SAME
-                      form data as the strip above (no hardcoded six-stage template) */}
-                  <div style={{ marginTop: 10, borderTop: '1px solid var(--theme-border, rgba(255,255,255,0.1))', paddingTop: 10 }}>
-                    <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'var(--theme-accent, #0284c7)', letterSpacing: 0.5 }}>
-                      Production Flow — {previewStages.length} Stage{previewStages.length === 1 ? '' : 's'}
-                    </span>
-                    <div style={{ display: 'flex', alignItems: 'stretch', overflowX: 'auto', padding: '8px 0 4px', gap: 0 }}>
-                      {previewStages.map((st, sidx) => (
-                        <React.Fragment key={`${st.sequence}-${st.stageKey}`}>
-                          <StageBlock stage={st} />
-                          {sidx < previewStages.length - 1 && (
-                            <div style={{ display: 'flex', alignItems: 'center', padding: '0 6px', flexShrink: 0 }}>
-                              <ArrowRightOutlined style={{ color: 'var(--theme-accent, #0284c7)', fontSize: 16 }} />
-                            </div>
-                          )}
-                        </React.Fragment>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              );
-            })()}
-          </Card>
+                            {/* TASK #45: Live Flow Preview Card matching Authoritative Structure */}
+                            {(() => {
+                              const modalProcesses = (() => {
+                                if (Array.isArray(watchedProcesses) && watchedProcesses.length > 0) {
+                                  const names = watchedProcesses
+                                    .map((p: any) => (typeof p === 'string' ? p.trim() : (p?.name ? String(p.name).trim() : '')))
+                                    .filter(Boolean);
+                                  // TASK 15: every configured stage IS a real operation — the
+                                  // top preview chips show all of them in sequence.
+                                  return names;
+                                }
+                                const editingProcs = (editing?.processes && editing.processes.length > 0)
+                                  ? editing.processes.map((p: any) => p.name).filter(Boolean)
+                                  : [];
+                                if (editingProcs.length > 0) return editingProcs;
+                                return [
+                                  watchedProcess1 ?? editing?.process1,
+                                  watchedProcess2 ?? editing?.process2,
+                                  watchedProcess3 ?? editing?.process3,
+                                  watchedProcess4 ?? editing?.process4,
+                                  watchedProcess5 ?? editing?.process5,
+                                  watchedProcess6 ?? editing?.process6,
+                                ].filter(Boolean) as string[];
+                              })();
 
-          </div>
-        ),
-      },
-      {
-        key: 'bom',
-        label: (
-          <Space>
-            <ExperimentOutlined />
-            <span>3. Bill of Materials (BOM) Recipe</span>
-            <Tag color="orange" style={{ fontSize: 10, margin: 0 }}>Tier 1 FG Kit</Tag>
-          </Space>
-        ),
-        children: (
-          <div>
-            {/* TIER 1: FINISHED GOODS KIT PROFILE CARD */}
-            <Card
-              size="small"
-              style={{
-                marginBottom: 16,
-                borderRadius: 10,
-                border: '1px solid var(--theme-border, #e2e8f0)',
-                background: 'var(--theme-surface-alt, rgba(248, 250, 252, 0.6))',
-              }}
-              title={
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', flexWrap: 'wrap', gap: 8 }}>
-                  <Space>
-                    <ExperimentOutlined style={{ color: '#f97316' }} />
-                    <span style={{ fontWeight: 700, color: 'var(--theme-text, #0f172a)' }}>
-                      Tier 1: Finished Goods Kit Profile (e.g. SPI-FG-SPK-001 / 002)
-                    </span>
-                  </Space>
-                  <Tag color="orange" style={{ fontWeight: 600 }}>Multi-Level BOM Recipe</Tag>
-                </div>
-              }
-            >
-              <Alert
-                type="info"
-                showIcon
-                style={{ marginBottom: 16, borderRadius: 8 }}
-                message="Multi-Level Bill of Materials (BOM) & Demand Cascade Engine"
-                description="Link underlying WIP components and purchased parts with exact usage factors per ordered unit. When Sales Orders are placed for this kit, demand propagates upward and downward across all shared WIP components."
-              />
+                              const hasProductionFlow = Boolean(
+                                selectedInputDetail ||
+                                selectedInputDetail2 ||
+                                selectedInputDetail3 ||
+                                editing?.productionInItem ||
+                                editing?.productionInItem2 ||
+                                editing?.productionInItem3 ||
+                                modalProcesses.length > 0 ||
+                                watchedFinalProduct || editing?.finalProduct ||
+                                watchedDiameterMm != null || editing?.diameterMm != null ||
+                                watchedWireSizeMm != null || editing?.wireSizeMm != null
+                              );
 
-              {/* Quick Preset Buttons */}
-              <div style={{ marginBottom: 16, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                <Text strong style={{ fontSize: 12, color: 'var(--theme-text-secondary, #64748b)' }}>Quick Recipe Presets:</Text>
-                <Button
-                  size="small"
-                  type="dashed"
-                  onClick={() => {
-                    const cur = form.getFieldValue('bomLines') || [];
-                    form.setFieldValue('bomLines', [
-                      ...cur,
-                      { quantity: 720, remarks: 'Inner Spoke Component (720 PCS)' },
-                      { quantity: 720, remarks: 'Outer Spoke Component (720 PCS)' },
-                      { quantity: 1440, remarks: 'Nipple Set Component (1,440 PCS)' },
-                    ]);
-                    message.success('Added Spoke Kit (720 Inner + 720 Outer + 1,440 Nipple) recipe lines');
-                  }}
-                >
-                  + Spoke Kit Preset (720 + 720 + 1,440)
-                </Button>
-                <Button
-                  size="small"
-                  type="dashed"
-                  onClick={() => {
-                    const cur = form.getFieldValue('bomLines') || [];
-                    form.setFieldValue('bomLines', [
-                      ...cur,
-                      { quantity: 1, remarks: 'Assembly Component (1:1)' },
-                      { quantity: 1, remarks: 'Assembly Component (1:1)' },
-                    ]);
-                    message.success('Added 1:1 Dual Component recipe lines');
-                  }}
-                >
-                  + 1:1 Dual Component Preset
-                </Button>
-              </div>
-
-              <Form.List name="bomLines">
-                {(fields, { add, remove }) => {
-                  return (
-                    <div>
-                      <div style={{ overflowX: 'auto', marginBottom: 12 }}>
-                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                          <thead>
-                            <tr style={{ background: 'var(--theme-surface, rgba(255,255,255,0.7))', borderBottom: '1px solid var(--theme-border, #cbd5e1)' }}>
-                              <th style={{ padding: '8px 10px', textAlign: 'left', width: 40 }}>#</th>
-                              <th style={{ padding: '8px 10px', textAlign: 'left', minWidth: 260 }}>Component Item</th>
-                              <th style={{ padding: '8px 10px', textAlign: 'right', width: 140 }}>Usage Factor (Qty)</th>
-                              <th style={{ padding: '8px 10px', textAlign: 'left', width: 120 }}>UOM</th>
-                              <th style={{ padding: '8px 10px', textAlign: 'left', minWidth: 160 }}>Remarks / Specs</th>
-                              <th style={{ padding: '8px 10px', textAlign: 'center', width: 60 }}>Action</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {fields.length === 0 ? (
-                              <tr>
-                                <td colSpan={6} style={{ padding: '24px 12px', textAlign: 'center', color: 'var(--theme-text-secondary, #64748b)' }}>
-                                  No BOM recipe lines defined. Click "+ Add Component Line" or select a preset above.
-                                </td>
-                              </tr>
-                            ) : (
-                              fields.map((field, index) => {
+                              if (!hasProductionFlow) {
                                 return (
-                                  <tr key={field.key} style={{ borderBottom: '1px solid var(--theme-border, #f1f5f9)' }}>
-                                    <td style={{ padding: '8px 10px', fontWeight: 600, color: 'var(--theme-text-secondary, #64748b)' }}>
-                                      {index + 1}
-                                    </td>
-                                    <td style={{ padding: '8px 10px' }}>
-                                      <Form.Item
-                                        {...field}
-                                        name={[field.name, 'itemId']}
-                                        rules={[{ required: true, message: 'Select component' }]}
-                                        style={{ margin: 0 }}
-                                      >
-                                        <Select
-                                          showSearch
-                                          allowClear
-                                          optionFilterProp="label"
-                                          placeholder="Select WIP or Purchased Component (e.g. WIP-SPL-001, FG-NP-001)..."
-                                          options={(() => {
-                                            const allLookupItems = getLookupsSnapshot().items || [];
-                                            const combined = [...items, ...allLookupItems];
-                                            const uniqueItems = toUnique(combined, (i) => i.id);
-                                            return uniqueItems.map((it: any) => ({
-                                              value: it.id,
-                                              label: `${it.itemCode} — ${it.name} (${it.baseUomName || it.baseUom?.code || 'PCS'})`,
-                                            }));
-                                          })()}
-                                          onChange={(val) => {
-                                            const found = (getLookupsSnapshot().items || []).find((x: any) => x.id === val) || items.find((x) => x.id === val);
-                                            if (found?.baseUomId) {
-                                              form.setFieldValue(['bomLines', index, 'uomId'], found.baseUomId);
-                                            }
-                                          }}
-                                        />
-                                      </Form.Item>
-                                    </td>
-                                    <td style={{ padding: '8px 10px' }}>
-                                      <Form.Item
-                                        {...field}
-                                        name={[field.name, 'quantity']}
-                                        rules={[{ required: true, message: 'Qty required' }]}
-                                        style={{ margin: 0 }}
-                                      >
-                                        <InputNumber
-                                          min={0.0001}
-                                          step={1}
-                                          style={{ width: '100%' }}
-                                          placeholder="e.g. 720"
-                                        />
-                                      </Form.Item>
-                                    </td>
-                                    <td style={{ padding: '8px 10px' }}>
-                                      <Form.Item
-                                        {...field}
-                                        name={[field.name, 'uomId']}
-                                        style={{ margin: 0 }}
-                                      >
-                                        <Select
-                                          allowClear
-                                          showSearch
-                                          optionFilterProp="label"
-                                          placeholder="UOM"
-                                          options={uoms.map((u) => ({ value: u.id, label: u.code || u.name }))}
-                                        />
-                                      </Form.Item>
-                                    </td>
-                                    <td style={{ padding: '8px 10px' }}>
-                                      <Form.Item
-                                        {...field}
-                                        name={[field.name, 'remarks']}
-                                        style={{ margin: 0 }}
-                                      >
-                                        <Input placeholder="e.g. CD-250*17 Inner Butted Spoke" />
-                                      </Form.Item>
-                                    </td>
-                                    <td style={{ padding: '8px 10px', textAlign: 'center' }}>
-                                      <Button
-                                        type="text"
-                                        danger
-                                        size="small"
-                                        icon={<DeleteOutlined />}
-                                        onClick={() => remove(field.name)}
-                                      />
-                                    </td>
-                                  </tr>
+                                  <div
+                                    style={{
+                                      marginTop: 6,
+                                      padding: '8px 12px',
+                                      borderRadius: 6,
+                                      border: '1px dashed #cbd5e1',
+                                      background: 'var(--ant-color-bg-container-disabled, #fcfcfc)',
+                                      fontSize: 11,
+                                      color: '#64748b',
+                                    }}
+                                  >
+                                    {(watchedItemType || editing?.itemType) === 'RAW_MATERIAL'
+                                      ? 'Root raw material — enter Diameter, Wire Size, Processes, or Final Product in Section 5 above to view the live production sequence.'
+                                      : 'Select an Input Material above, or enter Production Processes in Section 5 to configure the manufacturing route.'}
+                                  </div>
                                 );
-                              })
-                            )}
-                          </tbody>
-                        </table>
-                      </div>
+                              }
 
-                      <Button
-                        type="dashed"
-                        onClick={() => add({ quantity: 720 })}
-                        icon={<PlusOutlined />}
-                        style={{ width: '100%', marginBottom: 16 }}
-                      >
-                        Add Component Line
-                      </Button>
-                    </div>
-                  );
-                }}
-              </Form.List>
+                              const resolvedRouteName = (() => {
+                                const rId = watchedRouteTypeId || editing?.routeTypeId;
+                                if (rId) {
+                                  const rt = routeTypes.find((r) => r.id === rId);
+                                  if (rt) return rt.name?.trim() ? rt.name : rt.routeCode;
+                                }
+                                const rCode = watchedRouteType || editing?.routeType;
+                                if (rCode) {
+                                  const rt = routeTypes.find((r) => r.routeCode === rCode);
+                                  if (rt) return rt.name?.trim() ? rt.name : rt.routeCode;
+                                  return ROUTE_TYPES.find((x) => x.value === rCode)?.label || rCode;
+                                }
+                                return null;
+                              })();
 
-              {/* Dynamic Backlog Aggregation Formula Card */}
-              <div style={{ padding: '12px 16px', borderRadius: 8, background: 'var(--theme-surface, rgba(255,255,255,0.8))', border: '1px solid var(--theme-border, #cbd5e1)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                  <ThunderboltOutlined style={{ color: '#f59e0b' }} />
-                  <span style={{ fontWeight: 700, fontSize: 12, color: 'var(--theme-text, #0f172a)' }}>
-                    Dynamic Backlog Demand Aggregation Logic
-                  </span>
-                </div>
-                <div style={{ fontSize: 11, color: 'var(--theme-text-secondary, #475569)', lineHeight: 1.6 }}>
-                  <div style={{ fontFamily: 'monospace', fontWeight: 700, padding: '4px 0', color: 'var(--theme-primary, #0284c7)' }}>
-                    {'Total Row Demand = ∑ (Outstanding Sales Orders of ALL Parent FG Kits Sharing This WIP Component × BOM Factor)'}
-                  </div>
-                  Changing the nipple type (e.g. <code>FG-NP-001</code> vs <code>FG-NP-002</code>) or switching shared WIP spokes on the final kit automatically recalculates and balances backward scheduling demand across all early-stage production desks (Straightener, Swaging, Heading, Plating).
-                </div>
-              </div>
-            </Card>
-          </div>
-        ),
-      },
-    ]}
-  />
-</div>
+                              const operationName = (() => {
+                                const dept = departments.find((d) => d.id === (watchedDepartmentId || editing?.departmentId));
+                                if (dept?.name && dept.name.trim()) return dept.name.trim();
+                                return null;
+                              })();
 
-        {/* RIGHT SIDE: LIVE ITEM DETAIL SHEET (ONLY ON DESKTOP WHEN ENABLED) */}
-        {showLivePreview && screens.lg && (
-          <div className="erp-item-live-pane" data-testid="item-live-detail-sheet">
-            <div className="erp-item-live-header">
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span className="erp-item-live-code">
-                    {watchedCode || editing?.itemCode || (editing ? 'EDIT ITEM' : 'ADD ITEM')}
-                  </span>
-                  <StatusBadge
-                    status={editing?.status || 'ACTIVE'}
-                    colorMap={statusColorMap}
-                  />
-                </div>
-                <div className="erp-item-live-title">
-                  {watchedName || editing?.name || 'New Item'}
-                </div>
-              </div>
-              <Tag color="cyan" style={{ margin: 0, fontSize: 11 }}>
-                <SyncOutlined spin style={{ marginRight: 4 }} />
-                Live Form Preview
-              </Tag>
-            </div>
+                              const wireVal = watchedWireSizeMm ?? editing?.wireSizeMm;
+                              const diaVal = watchedDiameterMm ?? editing?.diameterMm;
+                              const thkVal = watchedThicknessMm ?? editing?.thicknessMm;
+                              const widVal = watchedWidthMm ?? editing?.widthMm;
+                              const lenVal = watchedLengthPerPiece ?? editing?.lengthPerPiece;
+                              const finalProdName = watchedFinalProduct || editing?.finalProduct;
+                              const nextStepName = watchedPackingNextStep || editing?.packingNextStep;
 
-            {/* Classification & Organization */}
-            <div className="erp-item-live-section">
-              <div className="erp-item-live-section-title">
-                <ApartmentOutlined /> Organization & Classification
-              </div>
-              <Descriptions size="small" column={1} styles={{ label: { width: 110, fontSize: 11 }, content: { fontSize: 12 } }}>
-                <Descriptions.Item label="Item Type">
-                  <Tag color="blue">{typeName(watchedItemType || editing?.itemType || 'FINISHED_GOOD')}</Tag>
-                </Descriptions.Item>
-                <Descriptions.Item label="Category">
-                  {flatCategories.find((c) => c.id === (watchedCategoryId || editing?.categoryId))?.name || (editing ? categoryName(editing) : null) || '—'}
-                </Descriptions.Item>
-                <Descriptions.Item label="Organization">
-                  {[
-                    divisions.find((d) => d.id === (watchedDivisionId || editing?.divisionId))?.name || (editing ? divisionName(editing) : null),
-                    sections.find((s) => s.id === (watchedSectionId || editing?.sectionId))?.name || (editing ? sectionName(editing) : null),
-                    departments.find((d) => d.id === (watchedDepartmentId || editing?.departmentId))?.name || (editing ? departmentName(editing) : null),
-                  ].filter(Boolean).join(' → ') || 'Not configured'}
-                </Descriptions.Item>
-              </Descriptions>
-            </div>
+                              // PROMPT-35: six-stage preview (01-06) mirroring the View card.
+                              // Reconstructed LIVE from the exact form + selected input values —
+                              // never invented; unknown stages render as "Not configured".
+                              type PreviewItem = {
+                                itemCode?: string | null; name?: string | null; itemType?: string | null;
+                                departmentId?: string | null; departmentName?: string | null;
+                                wireSizeMm?: number | null; diameterMm?: number | null;
+                                thicknessMm?: number | null; widthMm?: number | null;
+                                lengthPerPiece?: number | null; baseUomName?: string | null;
+                              };
 
-            {/* Technical Specifications */}
-            <div className="erp-item-live-section">
-              <div className="erp-item-live-section-title">
-                <ToolOutlined /> Technical Specifications
-              </div>
-              <Descriptions size="small" column={2} styles={{ label: { width: 100, fontSize: 11 }, content: { fontSize: 12 } }}>
-                <Descriptions.Item label="Wire Size">
-                  {(watchedWireSizeMm != null || editing?.wireSizeMm != null)
-                    ? `${formatDimension(watchedWireSizeMm ?? editing?.wireSizeMm)} mm`
-                    : '—'}
-                </Descriptions.Item>
-                <Descriptions.Item label="Diameter">
-                  {(watchedDiameterMm != null || editing?.diameterMm != null)
-                    ? `${formatDimension(watchedDiameterMm ?? editing?.diameterMm)} mm`
-                    : '—'}
-                </Descriptions.Item>
-                <Descriptions.Item label="Thickness">
-                  {(watchedThicknessMm != null || editing?.thicknessMm != null)
-                    ? `${formatDimension(watchedThicknessMm ?? editing?.thicknessMm)} mm`
-                    : '—'}
-                </Descriptions.Item>
-                <Descriptions.Item label="Width">
-                  {(watchedWidthMm != null || editing?.widthMm != null)
-                    ? `${formatDimension(watchedWidthMm ?? editing?.widthMm)} mm`
-                    : '—'}
-                </Descriptions.Item>
-                <Descriptions.Item label="Length / Piece" span={2}>
-                  {(watchedLengthPerPiece != null || editing?.lengthPerPiece != null)
-                    ? `${formatDimension(watchedLengthPerPiece ?? editing?.lengthPerPiece)} m`
-                    : '—'}
-                </Descriptions.Item>
-              </Descriptions>
-            </div>
+                              const currentPreviewCode = editing?.itemCode || watchedCode || null;
+                              const currentPreviewName = editing?.name || watchedName || null;
+                              const curDeptObject = departments.find((d) => d.id === (watchedDepartmentId || editing?.departmentId));
+                              const curDeptName = curDeptObject?.name || editing?.departmentName || null;
+                              const curOpName = operationName; // derived from department above
 
-            {/* UOM, Weights & Commercial */}
-            <div className="erp-item-live-section">
-              <div className="erp-item-live-section-title">
-                <DatabaseOutlined /> UOM, Weights & Commercial
-              </div>
-              <Descriptions size="small" column={2} styles={{ label: { width: 100, fontSize: 11 }, content: { fontSize: 12 } }}>
-                <Descriptions.Item label="Base UOM">
-                  <Tag color="geekblue">{uoms.find((u) => u.id === (watchedBaseUomId || editing?.baseUomId))?.name || editing?.baseUomName || '—'}</Tag>
-                </Descriptions.Item>
-                <Descriptions.Item label="Cost Price">
-                  {(watchedCostPrice != null || editing?.costPrice != null)
-                    ? `$${Number(watchedCostPrice ?? editing?.costPrice).toFixed(2)}`
-                    : '—'}
-                </Descriptions.Item>
-                <Descriptions.Item label="Selling Price">
-                  {(watchedSellingPrice != null || editing?.sellingPrice != null)
-                    ? `$${Number(watchedSellingPrice ?? editing?.sellingPrice).toFixed(2)}`
-                    : '—'}
-                </Descriptions.Item>
-                <Descriptions.Item label="Weight/Pc">
-                  {(watchedWeightPerPiece != null || editing?.weightPerPiece != null)
-                    ? `${Number(watchedWeightPerPiece ?? editing?.weightPerPiece)} kg`
-                    : '—'}
-                </Descriptions.Item>
-                <Descriptions.Item label="Weight/Mtr">
-                  {(watchedWeightPerMeter != null || editing?.weightPerMeter != null)
-                    ? `${Number(watchedWeightPerMeter ?? editing?.weightPerMeter)} kg/m`
-                    : '—'}
-                </Descriptions.Item>
-                <Descriptions.Item label="Pieces/KG">
-                  {(watchedPiecesPerKg != null || editing?.piecesPerKg != null)
-                    ? `${Number(watchedPiecesPerKg ?? editing?.piecesPerKg)}`
-                    : '—'}
-                </Descriptions.Item>
-                <Descriptions.Item label="SKU">
-                  <Text code>{watchedSku || editing?.sku || 'Auto'}</Text>
-                </Descriptions.Item>
-                <Descriptions.Item label="Barcode">
-                  <Text code>{watchedBarcode || editing?.barcode || 'Auto'}</Text>
-                </Descriptions.Item>
-              </Descriptions>
-            </div>
+                              const inputPreview = (selectedInputDetail ?? null) as PreviewItem | null;
+                              const inputDeptName =
+                                inputPreview?.departmentName ??
+                                (inputPreview?.departmentId ? departments.find((d) => d.id === inputPreview.departmentId)?.name ?? null : null) ??
+                                null;
+                              const inputOpName = (() => {
+                                const dn = inputDeptName;
+                                if (dn && dn.trim()) return dn.trim();
+                                return null;
+                              })();
+                              const isRawRoot =
+                                (watchedItemType || editing?.itemType) === 'RAW_MATERIAL' && !inputPreview && !editing?.productionInItemId;
+                              const rawPreview: PreviewItem | null = inputPreview
+                                ? { ...inputPreview }
+                                : isRawRoot
+                                  ? {
+                                    itemCode: currentPreviewCode,
+                                    name: currentPreviewName,
+                                    wireSizeMm: wireVal,
+                                    diameterMm: diaVal,
+                                    thicknessMm: thkVal,
+                                    widthMm: widVal,
+                                    lengthPerPiece: lenVal,
+                                    departmentName: curDeptName,
+                                    baseUomName: editing?.baseUomName ?? null,
+                                  }
+                                  : null;
 
-            {/* Stock Levels & Route */}
-            <div className="erp-item-live-section" style={{ marginBottom: 0 }}>
-              <div className="erp-item-live-section-title">
-                <BuildOutlined /> Inventory Levels & Flow
-              </div>
-              <Descriptions size="small" column={2} styles={{ label: { width: 100, fontSize: 11 }, content: { fontSize: 12 } }}>
-                <Descriptions.Item label="Min Stock">
-                  {watchedMinStock ?? editing?.minimumStockLevel ?? '0'}
-                </Descriptions.Item>
-                <Descriptions.Item label="Max Stock">
-                  {watchedMaxStock ?? editing?.maximumStockLevel ?? '0'}
-                </Descriptions.Item>
-                <Descriptions.Item label="Reorder">
-                  {watchedReorder ?? editing?.reorderLevel ?? '0'}
-                </Descriptions.Item>
-                <Descriptions.Item label="Safety">
-                  {watchedSafety ?? editing?.safetyStockLevel ?? '0'}
-                </Descriptions.Item>
-                <Descriptions.Item label="Input Mat." span={2}>
-                  {selectedInputDetail ? `${selectedInputDetail.itemCode} — ${selectedInputDetail.name}` : (editing?.productionInItem ? `${editing.productionInItem.itemCode} — ${editing.productionInItem.name}` : 'None')}
-                  {(selectedInputDetail2 || editing?.productionInItem2) && (
-                    <span style={{ color: '#0284c7', marginLeft: 6 }}>
-                      + [{selectedInputDetail2 ? `${selectedInputDetail2.itemCode} — ${selectedInputDetail2.name}` : `${editing?.productionInItem2?.itemCode} — ${editing?.productionInItem2?.name}`}]
-                    </span>
-                  )}
-                  {(selectedInputDetail3 || editing?.productionInItem3) && (
-                    <span style={{ color: '#a855f7', marginLeft: 6 }}>
-                      + [{selectedInputDetail3 ? `${selectedInputDetail3.itemCode} — ${selectedInputDetail3.name}` : `${editing?.productionInItem3?.itemCode} — ${editing?.productionInItem3?.name}`}]
-                    </span>
-                  )}
-                </Descriptions.Item>
-                <Descriptions.Item label="Output Prod." span={2}>
-                  {outputProductDisplay}
-                </Descriptions.Item>
-              </Descriptions>
-            </div>
-          </div>
-        )}
-      </div>
-    </Form>
-  </DraggableResizableModal>
+                              const nextStepValid = !isEmptyValue(nextStepName) ? String(nextStepName).trim() : null;
+                              const finalProductValid = !isEmptyValue(finalProdName) ? String(finalProdName).trim() : null;
 
-      <DraggableResizableModal
-        open={importOpen && !isImportMinimized}
-        onCancel={closeImport}
-        onMinimize={() => setIsImportMinimized(true)}
-        width={1020}
-        height={660}
-        footer={
-          importSummary ? (
-            <Button type="primary" onClick={closeImport}>Done</Button>
-          ) : importing ? (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', flexWrap: 'wrap', gap: 8 }}>
-              <span style={{ fontSize: 13, color: 'var(--theme-text-muted, #64748b)' }}>
-                Import in progress… please do not close the browser tab.
-              </span>
-              <Button onClick={() => setIsImportMinimized(true)}>
-                Minimize to Dock
-              </Button>
-            </div>
-          ) : importRows.length > 0 ? (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', flexWrap: 'wrap', gap: 8 }}>
-              <Space size={8}>
-                <Button key="back" onClick={() => { setImportRows([]); setRawImportData([]); setImportFileName(null); setImportFilter('ALL'); }}>
-                  Choose another file
-                </Button>
-                {importRows.some((r) => r.status !== 'VALID') && (
-                  <Button icon={<DownloadOutlined />} onClick={downloadErrorReport}>
-                    Download Errors ({importRows.filter((r) => r.status !== 'VALID').length})
-                  </Button>
-                )}
-              </Space>
-              <Space size={8}>
-                <Button onClick={closeImport}>Cancel</Button>
-                <Button
-                  key="import"
-                  type="primary"
-                  disabled={importRows.every((r) => r.status !== 'VALID')}
-                  loading={importing}
-                  onClick={runImport}
-                >
-                  Import {importRows.filter((r) => r.status === 'VALID').length} valid row(s)
-                </Button>
-              </Space>
-            </div>
-          ) : (
-            <Button type="primary" onClick={closeImport}>Close</Button>
-          )
-        }
-        title={
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', paddingRight: 28 }}>
-            <Space size={8}>
-              <ImportOutlined style={{ color: 'var(--theme-accent, #4f46e5)' }} />
-              <span style={{ fontWeight: 700, fontSize: 16 }}>Import Items Master</span>
-              <span className="item-model-badge">2027 UX</span>
-            </Space>
-            <Space size={6}>
-              <Tooltip title="Minimize to dock (keeps file open in background)">
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<MinusOutlined />}
-                  title="Minimize to dock (keeps file open in background)"
-                  aria-label="Minimize to dock"
-                  onClick={() => setIsImportMinimized(true)}
-                  style={{ borderRadius: 6 }}
-                />
-              </Tooltip>
-            </Space>
-          </div>
-        }
-      >
-        {importRows.length === 0 && !importSummary && (
-          <div style={{ padding: '8px 0' }}>
-            <Alert
-              type="info"
-              showIcon
-              message="CSV import with validation and preview"
-              description="Each row is matched on Item Code first: an existing code is patched in place (only the columns you filled in), a new code is inserted when its required columns are complete. Blank cells always keep the stored value."
-              style={{ marginBottom: 16 }}
-            />
-            <Space style={{ marginBottom: 16 }}>
-              <Button
-                icon={<DownloadOutlined />}
-                onClick={() => downloadText('item-import-template.csv', TEMPLATE_CSV)}
-              >
-                Download Template
-              </Button>
-              <Button icon={<FileTextOutlined />} loading={exportingTemplate} onClick={exportCurrentDataAsTemplate}>
-                Export Current Data as Template
-              </Button>
-            </Space>
-            <Upload.Dragger
-              name="file"
-              accept=".csv,.txt"
-              maxCount={1}
-              showUploadList={false}
-              beforeUpload={handleImportFile}
-            >
-              <p className="ant-upload-drag-icon"><InboxOutlined /></p>
-              <p className="ant-upload-text">Click or drag a CSV file here</p>
-              <p className="ant-upload-hint">
-                Columns: {IMPORT_COLUMNS.join(', ')}. Required to insert: itemCode, name, itemType, uomCode — an
-                existing itemCode only needs itemCode. Blank cells retain the stored value.
-              </p>
-            </Upload.Dragger>
-          </div>
-        )}
+                              // TASK 14: fully dynamic production flow preview — generates stages from the
+                              // SAME form data as the horizontal strip above (input item + processes + current
+                              // item). No hardcoded FLATTENING / SPIRAL — stage titles are resolved from the
+                              // actual operation texts verbatim via stageTitleForOperation().
+                              const currentPreviewItem: PreviewItem = {
+                                itemCode: currentPreviewCode,
+                                name: currentPreviewName,
+                                itemType: watchedItemType || editing?.itemType || null,
+                                departmentId: watchedDepartmentId || editing?.departmentId || null,
+                                departmentName: curDeptName,
+                                wireSizeMm: wireVal,
+                                diameterMm: diaVal,
+                                thicknessMm: thkVal,
+                                widthMm: widVal,
+                                lengthPerPiece: lenVal,
+                                baseUomName: editing?.baseUomName ?? null,
+                              };
 
-        {importRows.length > 0 && !importSummary && !importing && (
-          <div>
-            {(() => {
-              const validCount = importRows.filter((r) => r.status === 'VALID').length;
-              const dupCount = importRows.filter((r) => r.status === 'DUPLICATE').length;
-              const invalidCount = importRows.filter((r) => r.status === 'INVALID').length;
-              const updateCount = importRows.filter((r) => r.action === 'UPDATE').length;
-              const insertCount = importRows.filter((r) => r.action === 'INSERT').length;
+                              // TASK 15: configured Production Route rows (each = PROCESS/DEPARTMENT
+                              // + OUTPUT ITEM) are AUTHORITATIVE — ONE stage per row via
+                              // buildRouteFlow (mirrors the backend buildConfiguredRouteStages).
+                              // Fallback: TASK 14 dynamic chain (RAW_MATERIAL + process/output pairs
+                              // + tail steps) when the form has no configured route rows yet.
+                              const routeRows = normalizeRouteRows(watchedProcesses);
+                              const hasConfiguredRoute = routeRows.length > 0;
+                              const cycleIds = findRouteCycles(routeRows);
 
-              return (
-                <>
-                  <Alert
-                    type={invalidCount > 0 ? 'warning' : 'info'}
-                    showIcon
-                    message={
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-                        <span>
-                          Preview: <strong>{importFileName}</strong>
-                        </span>
-                        {invalidCount > 0 && importFilter !== 'INVALID' && (
-                          <Button
-                            size="small"
-                            danger
-                            type="primary"
-                            onClick={() => { setImportFilter('INVALID'); setImportPage(1); }}
-                          >
-                            Focus on {invalidCount} Invalid Row{invalidCount > 1 ? 's' : ''}
-                          </Button>
-                        )}
-                      </div>
-                    }
-                    description={
-                      <span>
-                        Total rows: <b>{importRows.length}</b> ·{' '}
-                        Valid: <b style={{ color: '#1a7f37' }}>{validCount}</b> ·{' '}
-                        Duplicates: <b style={{ color: '#b9770e' }}>{dupCount}</b> ·{' '}
-                        Invalid: <b style={{ color: '#c0392b' }}>{invalidCount}</b>
-                        {'  '}·  Will update: <b style={{ color: '#1d4ed8' }}>{updateCount}</b> ·{' '}
-                        Will insert: <b style={{ color: '#1a7f37' }}>{insertCount}</b>
-                        {invalidCount > 0 && (
-                          <span style={{ marginLeft: 8, color: '#c0392b', fontWeight: 500 }}>
-                            — Errors highlighted below. Select "Failed / Invalid" to isolate them.
-                          </span>
-                        )}
-                      </span>
-                    }
-                    style={{ marginBottom: 12 }}
-                  />
+                              const currentItemLookup: RouteStageSource = {
+                                id: editing?.id ?? null,
+                                itemCode: currentPreviewCode,
+                                itemName: currentPreviewName,
+                                name: currentPreviewName,
+                                itemType: watchedItemType || editing?.itemType || null,
+                                wireSizeMm: wireVal,
+                                diameterMm: diaVal,
+                                thicknessMm: thkVal,
+                                widthMm: widVal,
+                                lengthPerPiece: lenVal,
+                                baseUomName: editing?.baseUomName ?? null,
+                                departmentId: watchedDepartmentId || editing?.departmentId || null,
+                                departmentName: curDeptName,
+                              };
+                              const itemLookup = new Map<string, RouteStageSource | null>();
+                              for (const [k, v] of Object.entries(routeItemDetails)) {
+                                if (k && k !== editing?.id) itemLookup.set(k, v ?? null);
+                              }
+                              if (editing?.id) itemLookup.set(editing.id, currentItemLookup);
 
-                  {/* Filter & Triage Bar */}
-                  <div className="import-filter-bar">
-                    <Space wrap size={10}>
-                      <Segmented
-                        value={importFilter}
-                        onChange={(val) => {
-                          setImportFilter(val as any);
-                          setImportPage(1);
-                        }}
-                        options={[
-                          {
-                            label: (
-                              <Space size={4}>
-                                <AppstoreOutlined />
-                                <span>All ({importRows.length})</span>
-                              </Space>
-                            ),
-                            value: 'ALL',
-                          },
-                          {
-                            label: (
-                              <Space size={4}>
-                                <CloseCircleOutlined style={{ color: '#ef4444' }} />
-                                <span style={{ color: invalidCount > 0 ? '#ef4444' : undefined, fontWeight: invalidCount > 0 ? 700 : undefined }}>
-                                  Failed / Invalid ({invalidCount})
-                                </span>
-                              </Space>
-                            ),
-                            value: 'INVALID',
-                          },
-                          {
-                            label: (
-                              <Space size={4}>
-                                <WarningOutlined style={{ color: '#f59e0b' }} />
-                                <span>Duplicates ({dupCount})</span>
-                              </Space>
-                            ),
-                            value: 'DUPLICATE',
-                          },
-                          {
-                            label: (
-                              <Space size={4}>
-                                <CheckCircleOutlined style={{ color: '#10b981' }} />
-                                <span>Valid ({validCount})</span>
-                              </Space>
-                            ),
-                            value: 'VALID',
-                          },
-                        ]}
-                      />
-                      {importFilter === 'ALL' && (
-                        <Tooltip title="When enabled, faulty rows are pinned to page 1 so you don't have to scroll hundreds of pages">
-                          <Switch
-                            checked={showErrorsFirst}
-                            onChange={setShowErrorsFirst}
-                            checkedChildren="Errors First"
-                            unCheckedChildren="File Order"
-                            size="small"
-                          />
-                        </Tooltip>
-                      )}
-                    </Space>
-                    <Space wrap size={8}>
-                      {invalidCount > 0 && (
-                        <Button
-                          danger
-                          size="small"
-                          icon={<DownloadOutlined />}
-                          onClick={downloadErrorReport}
-                        >
-                          Download Errors ({invalidCount})
-                        </Button>
-                      )}
-                      <Tooltip title="Re-run validation against master data">
-                        <Button
-                          size="small"
-                          icon={<SyncOutlined />}
-                          onClick={revalidateImportRows}
-                        >
-                          Re-validate
-                        </Button>
-                      </Tooltip>
-                      <Tooltip title="Upload an updated or corrected CSV file">
-                        <Button
-                          size="small"
-                          icon={<UploadOutlined />}
-                          onClick={() => reuploadInputRef.current?.click()}
-                        >
-                          Replace File
-                        </Button>
-                      </Tooltip>
-                    </Space>
-                  </div>
+                              let previewStages: ProductionFlowStage[] = [];
 
-                  <Table
-                    rowKey="rowNumber"
-                    size="small"
-                    dataSource={filteredImportRows}
-                    rowClassName={(r) => {
-                      if (r.status === 'INVALID') return 'import-table-row-invalid';
-                      if (r.status === 'DUPLICATE') return 'import-table-row-duplicate';
-                      return '';
-                    }}
-                    pagination={{
-                      current: importPage,
-                      pageSize: importPageSize,
-                      pageSizeOptions: ['10', '20', '50', '100', '250', '500'],
-                      showSizeChanger: true,
-                      showQuickJumper: true,
-                      className: 'import-preview-pagination',
-                      onChange: (p, ps) => {
-                        setImportPage(p);
-                        setImportPageSize(ps);
-                      },
-                      showTotal: (totalCount, range) => (
-                        <span style={{ fontSize: 13, fontWeight: 500 }}>
-                          Showing {range[0]}–{range[1]} of <b>{totalCount}</b> {importFilter !== 'ALL' ? `${importFilter.toLowerCase()} ` : ''}rows
-                        </span>
+                              if (hasConfiguredRoute) {
+                                previewStages = buildRouteFlow(routeRows, editing?.id ?? null, itemLookup).stages;
+                              } else {
+                                const mkStage = (
+                                  sequence: number,
+                                  stageKey: string,
+                                  title: string,
+                                  kind: 'process' | 'output',
+                                  it: PreviewItem | null,
+                                  op: { operationCode?: string | null; operationName?: string | null } | null,
+                                  configuredOverride?: boolean,
+                                ): ProductionFlowStage => ({
+                                  sequence,
+                                  itemNumber: sequence,
+                                  kind,
+                                  stageKey,
+                                  title,
+                                  itemId: null,
+                                  itemCode: it?.itemCode ?? null,
+                                  itemName: it?.name ?? null,
+                                  itemType: it?.itemType ?? null,
+                                  wireSizeMm: it?.wireSizeMm ?? null,
+                                  diameterMm: it?.diameterMm ?? null,
+                                  thicknessMm: it?.thicknessMm ?? null,
+                                  widthMm: it?.widthMm ?? null,
+                                  lengthPerPiece: it?.lengthPerPiece ?? null,
+                                  baseUomName: it?.baseUomName ?? null,
+                                  departmentId: it?.departmentId ?? null,
+                                  departmentName: it?.departmentName ?? null,
+                                  divisionId: null,
+                                  divisionName: null,
+                                  sectionId: null,
+                                  sectionName: null,
+                                  operationCode: op?.operationCode ?? null,
+                                  operationName: op?.operationName ?? null,
+                                  isCurrent: false,
+                                  configured: configuredOverride !== undefined ? configuredOverride : !!it,
+                                });
+
+                                // Legacy fallback: one RAW MATERIAL stage + a PROCESS + OUTPUT pair
+                                // per typed process; last output references the current item being
+                                // edited. No fixed six stages, no hardcoded op names.
+                                const legacyStages: ProductionFlowStage[] = [];
+                                let stepNo = 0;
+
+                                const pushStage = (
+                                  kind: 'process' | 'output',
+                                  stageKey: string,
+                                  title: string,
+                                  it: PreviewItem | null,
+                                  op?: { operationCode?: string | null; operationName?: string | null } | null,
+                                  configured?: boolean,
+                                ): void => {
+                                  stepNo += 1;
+                                  legacyStages.push(mkStage(stepNo, stageKey, title, kind, it, op ?? null, configured));
+                                };
+
+                                // Stage 1: RAW MATERIAL (input item or raw root)
+                                pushStage('process', 'RAW_MATERIAL', 'RAW MATERIAL', rawPreview, {
+                                  operationName: !isRawRoot ? inputOpName : null,
+                                });
+
+                                // Process + Output stages from typed processes
+                                if (modalProcesses.length > 0) {
+                                  modalProcesses.forEach((pName: string, pIdx: number) => {
+                                    const isLast = pIdx === modalProcesses.length - 1;
+                                    pushStage(
+                                      'process',
+                                      `OP_${pIdx + 1}`,
+                                      stageTitleForOperation(pName, 'process') ?? 'PRODUCTION STAGE',
+                                      null,
+                                      { operationName: pName },
+                                    );
+                                    pushStage(
+                                      'output',
+                                      `OUTPUT_${pIdx + 1}`,
+                                      stageTitleForOperation(pName, 'output') ?? 'OUTPUT',
+                                      isLast ? currentPreviewItem : null,
+                                    );
+                                  });
+                                } else {
+                                  // No typed processes — single current-operation stage
+                                  const opLabel = curOpName || curDeptName || null;
+                                  pushStage(
+                                    'process',
+                                    'OP_1',
+                                    stageTitleForOperation(opLabel, 'process') ?? 'PRODUCTION STAGE',
+                                    currentPreviewItem,
+                                    { operationName: opLabel },
+                                  );
+                                  pushStage('output', 'OUTPUT_1', stageTitleForOperation(opLabel, 'output') ?? 'OUTPUT', currentPreviewItem);
+                                }
+
+                                // Explicit Tail: Packing / Next Step + Final Product (real configured data)
+                                if (nextStepValid) {
+                                  pushStage('process', 'NEXT_STEP', stageTitleForOperation(nextStepValid, 'process') ?? nextStepValid.toUpperCase(), currentPreviewItem, { operationName: nextStepValid });
+                                }
+                                if (finalProductValid) {
+                                  pushStage('output', 'FINAL_PRODUCT', 'FINAL PRODUCT', { name: finalProductValid, itemType: null, baseUomName: null } as PreviewItem, null);
+                                }
+                                previewStages = legacyStages;
+                              }
+
+                              return (
+                                <div
+                                  style={{
+                                    marginTop: 6,
+                                    border: '1px solid var(--theme-border, rgba(255, 255, 255, 0.12))',
+                                    borderRadius: 8,
+                                    padding: '10px 14px',
+                                    background: 'var(--theme-surface-alt, rgba(255, 255, 255, 0.04))',
+                                  }}
+                                >
+                                  <div
+                                    style={{
+                                      display: 'flex',
+                                      justifyContent: 'space-between',
+                                      alignItems: 'center',
+                                      marginBottom: 8,
+                                      borderBottom: '1px solid var(--theme-border, rgba(255, 255, 255, 0.1))',
+                                      paddingBottom: 6,
+                                      flexWrap: 'wrap',
+                                      gap: 6,
+                                    }}
+                                  >
+                                    <span
+                                      style={{
+                                        fontSize: 11,
+                                        fontWeight: 700,
+                                        textTransform: 'uppercase',
+                                        color: 'var(--theme-accent, #0284c7)',
+                                        letterSpacing: 0.5,
+                                      }}
+                                    >
+                                      Production Flow Preview
+                                    </span>
+                                    <Space size={6} wrap>
+                                      {resolvedRouteName && (
+                                        <Tag color="purple" style={{ margin: 0 }}>Route: {resolvedRouteName}</Tag>
+                                      )}
+                                      {diaVal != null && (
+                                        <Tag color="green" style={{ margin: 0 }}>Diameter: {formatDimension(diaVal)} mm</Tag>
+                                      )}
+                                      {wireVal != null && diaVal == null && (
+                                        <Tag color="gold" style={{ margin: 0 }}>Wire: {formatDimension(wireVal)} mm</Tag>
+                                      )}
+                                      {(thkVal != null || widVal != null) && (
+                                        <Tag color="blue" style={{ margin: 0 }}>
+                                          Flattened: {formatDimension(thkVal)} × {formatDimension(widVal)} mm
+                                        </Tag>
+                                      )}
+                                      {lenVal != null && (
+                                        <Tag color="cyan" style={{ margin: 0 }}>Length: {formatDimension(lenVal)}</Tag>
+                                      )}
+                                      <Tag color="geekblue" style={{ margin: 0 }}>Operation: {operationName || '—'}</Tag>
+                                    </Space>
+                                  </div>
+
+                                  {cycleIds.length > 0 && (
+                                    <Alert
+                                      type="warning"
+                                      showIcon
+                                      style={{ marginBottom: 8 }}
+                                      message={
+                                        <>
+                                          <strong>Circular route detected:</strong> the same Output Item appears
+                                          at multiple stages (
+                                          {cycleIds.slice(0, 3).map((id) => itemLookup.get(id)?.itemCode ?? 'Unavailable').join(', ')}
+                                          {cycleIds.length > 3 ? ' …' : ''}). The backend will reject this on
+                                          save.
+                                        </>
+                                      }
+                                    />
+                                  )}
+
+                                  <div
+                                    style={{
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      overflowX: 'auto',
+                                      padding: '6px 2px',
+                                      gap: 8,
+                                    }}
+                                  >
+                                    {/* Left: Input Node */}
+                                    <div
+                                      style={{
+                                        minWidth: 150,
+                                        maxWidth: 210,
+                                        flex: '0 0 auto',
+                                        background: 'var(--theme-surface, rgba(0, 0, 0, 0.25))',
+                                        padding: '8px 10px',
+                                        borderRadius: 6,
+                                        border: '1px solid var(--theme-border, rgba(255, 255, 255, 0.12))',
+                                      }}
+                                    >
+                                      <div
+                                        style={{
+                                          fontSize: 9,
+                                          fontWeight: 700,
+                                          color: 'var(--theme-text-muted)',
+                                          textTransform: 'uppercase',
+                                          letterSpacing: 0.5,
+                                        }}
+                                      >
+                                        {selectedInputDetail ? 'INPUT MATERIAL' : 'STARTING RAW MATERIAL'}
+                                      </div>
+                                      <div
+                                        style={{
+                                          fontWeight: 600,
+                                          fontSize: 12,
+                                          color: 'var(--theme-text)',
+                                          marginTop: 2,
+                                          overflow: 'hidden',
+                                          textOverflow: 'ellipsis',
+                                          whiteSpace: 'nowrap',
+                                        }}
+                                      >
+                                        {selectedInputDetail ? selectedInputDetail.name : (editing?.name || watchedName || '(Current Item)')}
+                                      </div>
+                                      <div style={{ fontSize: 11, color: 'var(--theme-text-muted)', marginTop: 2 }}>
+                                        <code
+                                          style={{
+                                            background: 'var(--theme-hover, rgba(255,255,255,0.08))',
+                                            color: 'var(--theme-accent, #38bdf8)',
+                                            padding: '1px 4px',
+                                            borderRadius: 3,
+                                            fontSize: 10,
+                                          }}
+                                        >
+                                          {selectedInputDetail ? selectedInputDetail.itemCode : (editing?.itemCode || watchedCode || 'RAW WIRE')}
+                                        </code>
+                                        {(selectedInputDetail?.wireSizeMm != null || (!selectedInputDetail && wireVal != null)) && (
+                                          <span style={{ marginLeft: 4 }}>
+                                            • {formatDimension(selectedInputDetail?.wireSizeMm ?? wireVal)} mm
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+
+                                    {/* Secondary Input Chip (if configured) */}
+                                    {(selectedInputDetail2 || editing?.productionInItem2) && (
+                                      <>
+                                        <div style={{ color: '#0ea5e9', fontSize: 16, fontWeight: 700, flexShrink: 0, display: 'flex', alignItems: 'center' }}>+</div>
+                                        <div
+                                          style={{
+                                            minWidth: 140,
+                                            maxWidth: 180,
+                                            flex: '0 0 auto',
+                                            background: 'var(--theme-surface-alt, rgba(14, 165, 233, 0.08))',
+                                            padding: '6px 8px',
+                                            borderRadius: 6,
+                                            border: '1px solid rgba(14, 165, 233, 0.35)',
+                                          }}
+                                        >
+                                          <div style={{ fontSize: 9, fontWeight: 700, color: '#0ea5e9', textTransform: 'uppercase' }}>
+                                            INPUT 2 (COMPONENT)
+                                          </div>
+                                          <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--theme-text)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                            {selectedInputDetail2 ? selectedInputDetail2.name : editing?.productionInItem2?.name}
+                                          </div>
+                                          <div style={{ fontSize: 11, color: 'var(--theme-text-muted)', marginTop: 2 }}>
+                                            <code style={{ background: 'var(--theme-hover, rgba(255,255,255,0.08))', color: '#0ea5e9', padding: '1px 4px', borderRadius: 3, fontSize: 10 }}>
+                                              {selectedInputDetail2 ? selectedInputDetail2.itemCode : editing?.productionInItem2?.itemCode}
+                                            </code>
+                                          </div>
+                                        </div>
+                                      </>
+                                    )}
+
+                                    {/* Tertiary Input Chip (if configured) */}
+                                    {(selectedInputDetail3 || editing?.productionInItem3) && (
+                                      <>
+                                        <div style={{ color: '#a855f7', fontSize: 16, fontWeight: 700, flexShrink: 0, display: 'flex', alignItems: 'center' }}>+</div>
+                                        <div
+                                          style={{
+                                            minWidth: 140,
+                                            maxWidth: 180,
+                                            flex: '0 0 auto',
+                                            background: 'var(--theme-surface-alt, rgba(168, 85, 247, 0.08))',
+                                            padding: '6px 8px',
+                                            borderRadius: 6,
+                                            border: '1px solid rgba(168, 85, 247, 0.35)',
+                                          }}
+                                        >
+                                          <div style={{ fontSize: 9, fontWeight: 700, color: '#a855f7', textTransform: 'uppercase' }}>
+                                            INPUT 3 (COMPONENT)
+                                          </div>
+                                          <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--theme-text)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                            {selectedInputDetail3 ? selectedInputDetail3.name : editing?.productionInItem3?.name}
+                                          </div>
+                                          <div style={{ fontSize: 11, color: 'var(--theme-text-muted)', marginTop: 2 }}>
+                                            <code style={{ background: 'var(--theme-hover, rgba(255,255,255,0.08))', color: '#a855f7', padding: '1px 4px', borderRadius: 3, fontSize: 10 }}>
+                                              {selectedInputDetail3 ? selectedInputDetail3.itemCode : editing?.productionInItem3?.itemCode}
+                                            </code>
+                                          </div>
+                                        </div>
+                                      </>
+                                    )}
+
+                                    {/* Middle: Processes Sequence */}
+                                    {modalProcesses.length > 0 ? (
+                                      modalProcesses.map((pName, pIdx) => (
+                                        <React.Fragment key={pIdx}>
+                                          <div style={{ color: 'var(--theme-accent, #0284c7)', fontSize: 14, flexShrink: 0, display: 'flex', alignItems: 'center' }}><ArrowRightOutlined /></div>
+                                          <div
+                                            style={{
+                                              minWidth: 120,
+                                              maxWidth: 160,
+                                              flex: '0 0 auto',
+                                              background: 'var(--theme-hover, rgba(255, 255, 255, 0.05))',
+                                              padding: '6px 8px',
+                                              borderRadius: 6,
+                                              border: '1px solid rgba(2, 132, 199, 0.3)',
+                                              textAlign: 'center',
+                                            }}
+                                          >
+                                            <span
+                                              style={{
+                                                fontSize: 9,
+                                                fontWeight: 700,
+                                                background: '#0284c7',
+                                                color: '#fff',
+                                                borderRadius: 3,
+                                                padding: '1px 5px',
+                                                display: 'inline-block',
+                                                marginBottom: 2,
+                                              }}
+                                            >
+                                              STEP {pIdx + 1}
+                                            </span>
+                                            <div
+                                              style={{
+                                                fontSize: 11,
+                                                fontWeight: 600,
+                                                color: 'var(--theme-text)',
+                                                overflow: 'hidden',
+                                                textOverflow: 'ellipsis',
+                                                whiteSpace: 'nowrap',
+                                              }}
+                                            >
+                                              {pName}
+                                            </div>
+                                          </div>
+                                        </React.Fragment>
+                                      ))
+                                    ) : (
+                                      <>
+                                        <div style={{ color: 'var(--theme-accent, #0284c7)', fontSize: 14, flexShrink: 0, display: 'flex', alignItems: 'center' }}><ArrowRightOutlined /></div>
+                                        <div
+                                          style={{
+                                            minWidth: 120,
+                                            flex: '0 0 auto',
+                                            background: 'var(--theme-hover, rgba(255, 255, 255, 0.05))',
+                                            padding: '6px 8px',
+                                            borderRadius: 6,
+                                            border: '1px solid rgba(2, 132, 199, 0.3)',
+                                            textAlign: 'center',
+                                          }}
+                                        >
+                                          <span
+                                            style={{
+                                              fontSize: 9,
+                                              fontWeight: 700,
+                                              background: '#0284c7',
+                                              color: '#fff',
+                                              borderRadius: 3,
+                                              padding: '1px 5px',
+                                              display: 'inline-block',
+                                              marginBottom: 2,
+                                            }}
+                                          >
+                                            MANUFACTURING
+                                          </span>
+                                          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--theme-text)' }}>
+                                            {operationName}
+                                          </div>
+                                        </div>
+                                      </>
+                                    )}
+
+                                    {/* Right: Output Node */}
+                                    <div style={{ color: 'var(--theme-accent, #0284c7)', fontSize: 14, flexShrink: 0, display: 'flex', alignItems: 'center' }}><ArrowRightOutlined /></div>
+                                    <div
+                                      style={{
+                                        minWidth: 150,
+                                        maxWidth: 220,
+                                        flex: '0 0 auto',
+                                        background: 'var(--theme-success-soft, rgba(73, 170, 25, 0.12))',
+                                        padding: '8px 10px',
+                                        borderRadius: 6,
+                                        border: '1px solid var(--theme-success, rgba(73, 170, 25, 0.35))',
+                                      }}
+                                    >
+                                      <div
+                                        style={{
+                                          fontSize: 9,
+                                          fontWeight: 700,
+                                          color: 'var(--theme-success, #52c41a)',
+                                          textTransform: 'uppercase',
+                                          letterSpacing: 0.5,
+                                        }}
+                                      >
+                                        OUTPUT / FINAL PRODUCT
+                                      </div>
+                                      <div
+                                        style={{
+                                          fontWeight: 600,
+                                          fontSize: 12,
+                                          color: 'var(--theme-text)',
+                                          marginTop: 2,
+                                          overflow: 'hidden',
+                                          textOverflow: 'ellipsis',
+                                          whiteSpace: 'nowrap',
+                                        }}
+                                      >
+                                        {finalProdName || editing?.name || watchedName || '(Current Item)'}
+                                      </div>
+                                      <div style={{ fontSize: 10, color: 'var(--theme-text-muted)', marginTop: 2 }}>
+                                        {(thkVal != null || widVal != null) && (
+                                          <div>T: {formatDimension(thkVal)} × W: {formatDimension(widVal)} mm</div>
+                                        )}
+                                        {nextStepName && (
+                                          <div style={{ color: 'var(--theme-accent, #0284c7)' }}>Next: {nextStepName}</div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                  {/* TASK 14: dynamic production flow — N stages generated from the SAME
+                      form data as the strip above (no hardcoded six-stage template) */}
+                                  <div style={{ marginTop: 10, borderTop: '1px solid var(--theme-border, rgba(255,255,255,0.1))', paddingTop: 10 }}>
+                                    <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'var(--theme-accent, #0284c7)', letterSpacing: 0.5 }}>
+                                      Production Flow — {previewStages.length} Stage{previewStages.length === 1 ? '' : 's'}
+                                    </span>
+                                    <div style={{ display: 'flex', alignItems: 'stretch', overflowX: 'auto', padding: '8px 0 4px', gap: 0 }}>
+                                      {previewStages.map((st, sidx) => (
+                                        <React.Fragment key={`${st.sequence}-${st.stageKey}`}>
+                                          <StageBlock stage={st} />
+                                          {sidx < previewStages.length - 1 && (
+                                            <div style={{ display: 'flex', alignItems: 'center', padding: '0 6px', flexShrink: 0 }}>
+                                              <ArrowRightOutlined style={{ color: 'var(--theme-accent, #0284c7)', fontSize: 16 }} />
+                                            </div>
+                                          )}
+                                        </React.Fragment>
+                                      ))}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })()}
+                          </Card>
+
+                        </div>
                       ),
-                    }}
-                    columns={[
-                      {
-                        title: <Space size={4}><FileTextOutlined /><span>Row</span></Space>,
-                        dataIndex: 'rowNumber',
-                        width: 75,
-                        render: (n: number, r: ImportRow) => (
-                          <span style={{ fontWeight: r.status !== 'VALID' ? 700 : 400, color: r.status === 'INVALID' ? '#dc2626' : undefined }}>
-                            #{n}
-                          </span>
-                        ),
-                      },
-                      {
-                        title: <Space size={4}><TagOutlined /><span>Item Code</span></Space>,
-                        width: 150,
-                        render: (_: unknown, r: ImportRow) => (
-                          <b style={{ color: r.status === 'INVALID' ? '#dc2626' : undefined }}>
-                            {r.data['itemCode'] || <Text type="danger">(empty)</Text>}
-                          </b>
-                        ),
-                      },
-                      {
-                        title: <Space size={4}><SyncOutlined /><span>Action</span></Space>,
-                        width: 95,
-                        render: (_: unknown, r: ImportRow) =>
-                          r.action === 'UPDATE'
-                            ? <Tag color="processing">Update</Tag>
-                            : <Tag color="success">Insert</Tag>,
-                      },
-                      {
-                        title: <Space size={4}><AppstoreOutlined /><span>Name</span></Space>,
-                        width: 180,
-                        ellipsis: true,
-                        render: (_: unknown, r: ImportRow) => r.data['name'] || <Text type="danger">(empty)</Text>,
-                      },
-                      {
-                        title: <Space size={4}><ProjectOutlined /><span>Type</span></Space>,
-                        width: 130,
-                        render: (_: unknown, r: ImportRow) => r.data['itemType'] || '—',
-                      },
-                      {
-                        title: <Space size={4}><DatabaseOutlined /><span>UOM</span></Space>,
-                        width: 80,
-                        render: (_: unknown, r: ImportRow) => r.data['uomCode'] || '—',
-                      },
-                      {
-                        title: <Space size={4}><CheckCircleOutlined /><span>Result</span></Space>,
-                        width: 110,
-                        render: (_: unknown, r: ImportRow) => {
-                          if (r.status === 'VALID') return <Tag color="success">Valid</Tag>;
-                          if (r.status === 'DUPLICATE') return <Tag color="warning">Duplicate</Tag>;
-                          return <Tag color="error">Invalid</Tag>;
-                        },
-                      },
-                      {
-                        title: <Space size={4}><WarningOutlined /><span>Details / Error Description</span></Space>,
-                        render: (_: unknown, r: ImportRow) =>
-                          r.errors.length > 0 ? (
-                            <div style={{ color: '#dc2626', fontSize: 12.5, fontWeight: 500 }}>
-                              {r.errors.map((err, i) => (
-                                <div key={i}>• {err}</div>
-                              ))}
+                    },
+                    {
+                      key: 'bom',
+                      label: (
+                        <Space>
+                          <ExperimentOutlined />
+                          <span>3. Bill of Materials (BOM) Recipe</span>
+                          <Tag color="orange" style={{ fontSize: 10, margin: 0 }}>Tier 1 FG Kit</Tag>
+                        </Space>
+                      ),
+                      children: (
+                        <div>
+                          {/* TIER 1: FINISHED GOODS KIT PROFILE CARD */}
+                          <Card
+                            size="small"
+                            style={{
+                              marginBottom: 16,
+                              borderRadius: 10,
+                              border: '1px solid var(--theme-border, #e2e8f0)',
+                              background: 'var(--theme-surface-alt, rgba(248, 250, 252, 0.6))',
+                            }}
+                            title={
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', flexWrap: 'wrap', gap: 8 }}>
+                                <Space>
+                                  <ExperimentOutlined style={{ color: '#f97316' }} />
+                                  <span style={{ fontWeight: 700, color: 'var(--theme-text, #0f172a)' }}>
+                                    Tier 1: Finished Goods Kit Profile (e.g. SPI-FG-SPK-001 / 002)
+                                  </span>
+                                </Space>
+                                <Tag color="orange" style={{ fontWeight: 600 }}>Multi-Level BOM Recipe</Tag>
+                              </div>
+                            }
+                          >
+                            <Alert
+                              type="info"
+                              showIcon
+                              style={{ marginBottom: 16, borderRadius: 8 }}
+                              message="Multi-Level Bill of Materials (BOM) & Demand Cascade Engine"
+                              description="Link underlying WIP components and purchased parts with exact usage factors per ordered unit. When Sales Orders are placed for this kit, demand propagates upward and downward across all shared WIP components."
+                            />
+
+                            {/* Quick Preset Buttons */}
+                            <div style={{ marginBottom: 16, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                              <Text strong style={{ fontSize: 12, color: 'var(--theme-text-secondary, #64748b)' }}>Quick Recipe Presets:</Text>
+                              <Button
+                                size="small"
+                                type="dashed"
+                                onClick={() => {
+                                  const cur = form.getFieldValue('bomLines') || [];
+                                  form.setFieldValue('bomLines', [
+                                    ...cur,
+                                    { quantity: 720, remarks: 'Inner Spoke Component (720 PCS)' },
+                                    { quantity: 720, remarks: 'Outer Spoke Component (720 PCS)' },
+                                    { quantity: 1440, remarks: 'Nipple Set Component (1,440 PCS)' },
+                                  ]);
+                                  message.success('Added Spoke Kit (720 Inner + 720 Outer + 1,440 Nipple) recipe lines');
+                                }}
+                              >
+                                + Spoke Kit Preset (720 + 720 + 1,440)
+                              </Button>
+                              <Button
+                                size="small"
+                                type="dashed"
+                                onClick={() => {
+                                  const cur = form.getFieldValue('bomLines') || [];
+                                  form.setFieldValue('bomLines', [
+                                    ...cur,
+                                    { quantity: 1, remarks: 'Assembly Component (1:1)' },
+                                    { quantity: 1, remarks: 'Assembly Component (1:1)' },
+                                  ]);
+                                  message.success('Added 1:1 Dual Component recipe lines');
+                                }}
+                              >
+                                + 1:1 Dual Component Preset
+                              </Button>
                             </div>
-                          ) : (
-                            <Text type="secondary" style={{ fontSize: 12 }}>Ready to import</Text>
-                          ),
-                      },
-                    ]}
-                  />
-                </>
-              );
-            })()}
-          </div>
-        )}
 
-        {importing && (
-          <>
-            <div className="import-live-progress-card">
-            <div className="import-progress-header">
-              <div className="import-progress-title-wrap">
-                <div className="import-progress-pulse-dot" />
-                <div>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--theme-text, #1e293b)' }}>
-                    Uploading & Importing Items Master…
-                  </div>
-                  <div style={{ fontSize: 13, color: 'var(--theme-text-muted, #64748b)', marginTop: 2 }}>
-                    Processing row <b>{importProgress?.current ?? 0}</b> of <b>{importProgress?.total ?? importRows.filter((r) => r.status === 'VALID').length}</b>
-                    {importProgress?.currentCode && (
-                      <span style={{ marginLeft: 8, fontFamily: 'monospace', color: '#4f46e5' }}>
-                        [{importProgress.currentCode}]
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
+                            <Form.List name="bomLines">
+                              {(fields, { add, remove }) => {
+                                return (
+                                  <div>
+                                    <div style={{ overflowX: 'auto', marginBottom: 12 }}>
+                                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                                        <thead>
+                                          <tr style={{ background: 'var(--theme-surface, rgba(255,255,255,0.7))', borderBottom: '1px solid var(--theme-border, #cbd5e1)' }}>
+                                            <th style={{ padding: '8px 10px', textAlign: 'left', width: 40 }}>#</th>
+                                            <th style={{ padding: '8px 10px', textAlign: 'left', minWidth: 260 }}>Component Item</th>
+                                            <th style={{ padding: '8px 10px', textAlign: 'right', width: 140 }}>Usage Factor (Qty)</th>
+                                            <th style={{ padding: '8px 10px', textAlign: 'left', width: 120 }}>UOM</th>
+                                            <th style={{ padding: '8px 10px', textAlign: 'left', minWidth: 160 }}>Remarks / Specs</th>
+                                            <th style={{ padding: '8px 10px', textAlign: 'center', width: 60 }}>Action</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {fields.length === 0 ? (
+                                            <tr>
+                                              <td colSpan={6} style={{ padding: '24px 12px', textAlign: 'center', color: 'var(--theme-text-secondary, #64748b)' }}>
+                                                No BOM recipe lines defined. Click "+ Add Component Line" or select a preset above.
+                                              </td>
+                                            </tr>
+                                          ) : (
+                                            fields.map((field, index) => {
+                                              return (
+                                                <tr key={field.key} style={{ borderBottom: '1px solid var(--theme-border, #f1f5f9)' }}>
+                                                  <td style={{ padding: '8px 10px', fontWeight: 600, color: 'var(--theme-text-secondary, #64748b)' }}>
+                                                    {index + 1}
+                                                  </td>
+                                                  <td style={{ padding: '8px 10px' }}>
+                                                    <Form.Item
+                                                      {...field}
+                                                      name={[field.name, 'itemId']}
+                                                      rules={[{ required: true, message: 'Select component' }]}
+                                                      style={{ margin: 0 }}
+                                                    >
+                                                      <Select
+                                                        showSearch
+                                                        allowClear
+                                                        optionFilterProp="label"
+                                                        placeholder="Select WIP or Purchased Component (e.g. WIP-SPL-001, FG-NP-001)..."
+                                                        options={(() => {
+                                                          const allLookupItems = getLookupsSnapshot().items || [];
+                                                          const combined = [...items, ...allLookupItems];
+                                                          const uniqueItems = toUnique(combined, (i) => i.id);
+                                                          return uniqueItems.map((it: any) => ({
+                                                            value: it.id,
+                                                            label: `${it.itemCode} — ${it.name} (${it.baseUomName || it.baseUom?.code || 'PCS'})`,
+                                                          }));
+                                                        })()}
+                                                        onChange={(val) => {
+                                                          const found = (getLookupsSnapshot().items || []).find((x: any) => x.id === val) || items.find((x) => x.id === val);
+                                                          if (found?.baseUomId) {
+                                                            form.setFieldValue(['bomLines', index, 'uomId'], found.baseUomId);
+                                                          }
+                                                        }}
+                                                      />
+                                                    </Form.Item>
+                                                  </td>
+                                                  <td style={{ padding: '8px 10px' }}>
+                                                    <Form.Item
+                                                      {...field}
+                                                      name={[field.name, 'quantity']}
+                                                      rules={[{ required: true, message: 'Qty required' }]}
+                                                      style={{ margin: 0 }}
+                                                    >
+                                                      <InputNumber
+                                                        min={0.0001}
+                                                        step={1}
+                                                        style={{ width: '100%' }}
+                                                        placeholder="e.g. 720"
+                                                      />
+                                                    </Form.Item>
+                                                  </td>
+                                                  <td style={{ padding: '8px 10px' }}>
+                                                    <Form.Item
+                                                      {...field}
+                                                      name={[field.name, 'uomId']}
+                                                      style={{ margin: 0 }}
+                                                    >
+                                                      <Select
+                                                        allowClear
+                                                        showSearch
+                                                        optionFilterProp="label"
+                                                        placeholder="UOM"
+                                                        options={uoms.map((u) => ({ value: u.id, label: u.code || u.name }))}
+                                                      />
+                                                    </Form.Item>
+                                                  </td>
+                                                  <td style={{ padding: '8px 10px' }}>
+                                                    <Form.Item
+                                                      {...field}
+                                                      name={[field.name, 'remarks']}
+                                                      style={{ margin: 0 }}
+                                                    >
+                                                      <Input placeholder="e.g. CD-250*17 Inner Butted Spoke" />
+                                                    </Form.Item>
+                                                  </td>
+                                                  <td style={{ padding: '8px 10px', textAlign: 'center' }}>
+                                                    <Button
+                                                      type="text"
+                                                      danger
+                                                      size="small"
+                                                      icon={<DeleteOutlined />}
+                                                      onClick={() => remove(field.name)}
+                                                    />
+                                                  </td>
+                                                </tr>
+                                              );
+                                            })
+                                          )}
+                                        </tbody>
+                                      </table>
+                                    </div>
 
-              <div className="import-progress-large-percent">
-                {importProgress?.percent ?? 0}<span>%</span>
-              </div>
-            </div>
+                                    <Button
+                                      type="dashed"
+                                      onClick={() => add({ quantity: 720 })}
+                                      icon={<PlusOutlined />}
+                                      style={{ width: '100%', marginBottom: 16 }}
+                                    >
+                                      Add Component Line
+                                    </Button>
+                                  </div>
+                                );
+                              }}
+                            </Form.List>
 
-            {/* Ant Design Live Active Progress Bar with Gradient */}
-            <div style={{ marginTop: 16 }}>
-              <Progress
-                percent={importProgress?.percent ?? 0}
-                status="active"
-                strokeColor={{
-                  '0%': '#4f46e5',
-                  '50%': '#3b82f6',
-                  '100%': '#10b981',
-                }}
-                size={['100%', 14]}
-                showInfo={false}
-              />
-            </div>
-
-            {/* Continuous Ambient Flowing Shimmer Line */}
-            <div className="import-progress-ambient-track" title="Continuous Real-time Flow Indicator">
-              <div
-                className="import-progress-ambient-glow"
-                style={{ width: `${Math.max(importProgress?.percent ?? 3, 3)}%` }}
-              />
-            </div>
-
-            {/* Metrics Row: Time Remaining, Speed, Success, Failed */}
-            <div className="import-progress-metrics-row">
-              <div className="import-metric-chip">
-                <span className="metric-icon"><ClockCircleOutlined style={{ color: '#4f46e5' }} /></span>
-                <div>
-                  <div className="metric-label">Estimated Time</div>
-                  <div className="metric-val" style={{ color: '#4f46e5' }}>
-                    {formatRemainingTime(importProgress?.estimatedSecondsRemaining ?? 0)}
-                  </div>
-                </div>
-              </div>
-
-              <div className="import-metric-chip">
-                <span className="metric-icon"><ThunderboltOutlined style={{ color: '#0284c7' }} /></span>
-                <div>
-                  <div className="metric-label">Import Speed</div>
-                  <div className="metric-val" style={{ color: '#0284c7' }}>
-                    ~{importProgress?.speed ?? 0} items/sec
-                  </div>
-                </div>
-              </div>
-
-              <div className="import-metric-chip">
-                <span className="metric-icon"><CheckCircleOutlined style={{ color: '#16a34a' }} /></span>
-                <div>
-                  <div className="metric-label">Imported</div>
-                  <div className="metric-val" style={{ color: '#16a34a' }}>
-                    {importProgress?.successCount ?? 0}
-                  </div>
-                </div>
-              </div>
-
-              <div className="import-metric-chip">
-                <span className="metric-icon"><CloseCircleOutlined style={{ color: (importProgress?.failCount ?? 0) > 0 ? '#dc2626' : '#94a3b8' }} /></span>
-                <div>
-                  <div className="metric-label">Failed</div>
-                  <div className="metric-val" style={{ color: (importProgress?.failCount ?? 0) > 0 ? '#dc2626' : '#94a3b8' }}>
-                    {importProgress?.failCount ?? 0}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Live Activity Console: Dual Panels (Imported Feed on Left, Faulty Console on Right) */}
-          <div className="import-live-console-container">
-            <Row gutter={[16, 16]}>
-              {/* Left Panel: Successfully Imported Live Feed */}
-              <Col xs={24} md={14}>
-                <Card
-                  size="small"
-                  className="import-console-panel import-console-success"
-                  title={
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <Space size={6}>
-                        <CheckCircleOutlined style={{ color: '#10b981' }} />
-                        <span style={{ fontWeight: 700, fontSize: 13 }}>Live Imported Feed</span>
-                      </Space>
-                      <Tag color="success" style={{ fontWeight: 700, borderRadius: 10, marginInlineEnd: 0 }}>
-                        {importProgress?.successCount ?? 0} imported
-                      </Tag>
-                    </div>
-                  }
-                  styles={{ body: { padding: '8px 12px', height: 260, overflowY: 'auto' } }}
-                >
-                  {liveImportedItems.length === 0 ? (
-                    <div className="import-console-empty">
-                      <GlobalLoading spinnerOnly size="small" style={{ marginBottom: 8 }} />
-                      <Text type="secondary" style={{ fontSize: 12 }}>Streaming items as they are saved to database…</Text>
-                    </div>
-                  ) : (
-                    <div className="import-console-stream">
-                      {liveImportedItems.map((item, idx) => (
-                        <div key={`${item.itemCode}-${idx}`} className="import-stream-row">
-                          <div className="import-stream-left">
-                            <span className="import-row-badge">#{item.rowNumber}</span>
-                            <Tag color="blue" style={{ fontWeight: 700, marginInlineEnd: 4, fontFamily: 'monospace' }}>
-                              {item.itemCode}
-                            </Tag>
-                            <span className="import-stream-name" title={item.name}>
-                              {item.name}
-                            </span>
-                          </div>
-                          <div className="import-stream-right">
-                            {item.division && <Tag style={{ fontSize: 10, marginInlineEnd: 4 }}>{item.division}</Tag>}
-                            <Tag color="success" style={{ fontSize: 10, marginInlineEnd: 0 }}>IMPORTED</Tag>
-                          </div>
+                            {/* Dynamic Backlog Aggregation Formula Card */}
+                            <div style={{ padding: '12px 16px', borderRadius: 8, background: 'var(--theme-surface, rgba(255,255,255,0.8))', border: '1px solid var(--theme-border, #cbd5e1)' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                                <ThunderboltOutlined style={{ color: '#f59e0b' }} />
+                                <span style={{ fontWeight: 700, fontSize: 12, color: 'var(--theme-text, #0f172a)' }}>
+                                  Dynamic Backlog Demand Aggregation Logic
+                                </span>
+                              </div>
+                              <div style={{ fontSize: 11, color: 'var(--theme-text-secondary, #475569)', lineHeight: 1.6 }}>
+                                <div style={{ fontFamily: 'monospace', fontWeight: 700, padding: '4px 0', color: 'var(--theme-primary, #0284c7)' }}>
+                                  {'Total Row Demand = ∑ (Outstanding Sales Orders of ALL Parent FG Kits Sharing This WIP Component × BOM Factor)'}
+                                </div>
+                                Changing the nipple type (e.g. <code>FG-NP-001</code> vs <code>FG-NP-002</code>) or switching shared WIP spokes on the final kit automatically recalculates and balances backward scheduling demand across all early-stage production desks (Straightener, Swaging, Heading, Plating).
+                              </div>
+                            </div>
+                          </Card>
                         </div>
-                      ))}
-                    </div>
-                  )}
-                </Card>
-              </Col>
+                      ),
+                    },
+                  ]}
+                />
+              </div>
 
-              {/* Right Panel: Faulty / Failed Rows Console */}
-              <Col xs={24} md={10}>
-                <Card
-                  size="small"
-                  className="import-console-panel import-console-fault"
-                  title={
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <Space size={6}>
-                        <CloseCircleOutlined style={{ color: (importProgress?.failCount ?? 0) > 0 ? '#ef4444' : '#94a3b8' }} />
-                        <span style={{ fontWeight: 700, fontSize: 13, color: (importProgress?.failCount ?? 0) > 0 ? '#ef4444' : undefined }}>
-                          Faulty / Failed Items
+              {/* RIGHT SIDE: LIVE ITEM DETAIL SHEET (ONLY ON DESKTOP WHEN ENABLED) */}
+              {showLivePreview && screens.lg && (
+                <div className="erp-item-live-pane" data-testid="item-live-detail-sheet">
+                  <div className="erp-item-live-header">
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span className="erp-item-live-code">
+                          {watchedCode || editing?.itemCode || (editing ? 'EDIT ITEM' : 'ADD ITEM')}
                         </span>
-                      </Space>
-                      <Tag color={(importProgress?.failCount ?? 0) > 0 ? 'error' : 'default'} style={{ fontWeight: 700, borderRadius: 10, marginInlineEnd: 0 }}>
-                        {importProgress?.failCount ?? 0} faulty
-                      </Tag>
+                        <StatusBadge
+                          status={editing?.status || 'ACTIVE'}
+                          colorMap={statusColorMap}
+                        />
+                      </div>
+                      <div className="erp-item-live-title">
+                        {watchedName || editing?.name || 'New Item'}
+                      </div>
                     </div>
-                  }
-                  styles={{ body: { padding: '8px 12px', height: 260, overflowY: 'auto' } }}
-                >
-                  {liveFailedItems.length === 0 ? (
-                    <div className="import-console-empty" style={{ color: '#10b981' }}>
-                      <CheckCircleOutlined style={{ fontSize: 26, marginBottom: 8, color: '#10b981' }} />
-                      <div style={{ fontWeight: 600 }}>Zero Faults Detected</div>
-                      <Text type="secondary" style={{ fontSize: 11, marginTop: 2 }}>All processed rows are importing cleanly.</Text>
-                    </div>
-                  ) : (
-                    <div className="import-fault-stream">
-                      {liveFailedItems.map((fail, idx) => (
-                        <div key={`${fail.itemCode}-${idx}`} className="import-fault-row">
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
-                            <Space size={4}>
-                              <span className="import-fault-badge">Row #{fail.rowNumber}</span>
-                              <strong style={{ color: '#dc2626', fontFamily: 'monospace' }}>{fail.itemCode}</strong>
-                            </Space>
-                            <Tag color="error" style={{ fontSize: 10, marginInlineEnd: 0 }}>FAILED</Tag>
-                          </div>
-                          <div className="import-fault-msg">{fail.reason}</div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </Card>
-              </Col>
-            </Row>
-          </div>
-          </>
-        )}
-
-        {importSummary && !importing && (
-          <div>
-            <Alert
-              type={importSummary.failed > 0 ? 'warning' : 'success'}
-              showIcon
-              message="Import finished"
-              style={{ marginBottom: 16 }}
-            />
-            <Descriptions bordered size="small" column={1} styles={{ label: { width: 180 } }}>
-              <Descriptions.Item label="Total rows">{importSummary.total}</Descriptions.Item>
-              <Descriptions.Item label="Valid rows">{importSummary.valid}</Descriptions.Item>
-              <Descriptions.Item label="Invalid rows">{importSummary.invalid}</Descriptions.Item>
-              <Descriptions.Item label="Duplicate rows (skipped)">{importSummary.duplicate}</Descriptions.Item>
-              <Descriptions.Item label="Updated (existing code)"><b style={{ color: '#1d4ed8' }}>{importSummary.updated ?? 0}</b></Descriptions.Item>
-              <Descriptions.Item label="Created (new code)"><b style={{ color: '#1a7f37' }}>{importSummary.created ?? 0}</b></Descriptions.Item>
-              <Descriptions.Item label="Imported rows"><b style={{ color: '#1a7f37' }}>{importSummary.imported}</b></Descriptions.Item>
-              <Descriptions.Item label="Failed rows">{importSummary.failed}</Descriptions.Item>
-              <Descriptions.Item label="Skipped rows">{importSummary.skipped}</Descriptions.Item>
-            </Descriptions>
-            {importSummary.errors.length > 0 && (
-              <Alert
-                type="error"
-                style={{ marginTop: 12 }}
-                message="Row errors"
-                description={
-                  <ul style={{ margin: 0, paddingLeft: 20, maxHeight: 160, overflowY: 'auto' }}>
-                    {importSummary.errors.map((e, i) => <li key={i} style={{ fontSize: 12 }}>{e}</li>)}
-                  </ul>
-                }
-              />
-            )}
-          </div>
-        )}
-      </DraggableResizableModal>
-
-      {/* Hidden file input for file replacement / re-upload */}
-      <input
-        type="file"
-        ref={reuploadInputRef}
-        style={{ display: 'none' }}
-        accept=".csv,.txt"
-        onChange={handleReuploadSelect}
-      />
-
-      {/* Universal Minimized Modals Dock */}
-      {(isImportMinimized || isFormMinimized || isDetailMinimized || isBarcodeMinimized) && (
-        <div className="erp-minimized-dock" data-testid="item-minimized-dock">
-          {/* Minimized Add / Edit Item Tab */}
-          {isFormMinimized && (
-            <div
-              className="erp-minimized-tab"
-              onClick={() => setIsFormMinimized(false)}
-              role="button"
-              tabIndex={0}
-              title="Click to restore Item Form"
-            >
-              <div className="erp-minimized-pulse" />
-              <Space size={8}>
-                {editing ? <EditOutlined style={{ color: '#10b981', fontSize: 15 }} /> : <FileAddOutlined style={{ color: '#10b981', fontSize: 15 }} />}
-                <span><strong>{editing ? `Edit: ${editing.itemCode}` : 'New Item Form'}</strong></span>
-                <Tag color="cyan">{editing ? (watchedCode || editing.itemCode) : (watchedCode || 'Draft')}</Tag>
-              </Space>
-              <span
-                className="erp-minimized-close"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setIsFormMinimized(false);
-                  setFormOpen(false);
-                }}
-                title="Discard and close form"
-              >
-                ×
-              </span>
-            </div>
-          )}
-
-          {/* Minimized Item Detail Tab */}
-          {isDetailMinimized && (
-            <div
-              className="erp-minimized-tab"
-              onClick={() => setIsDetailMinimized(false)}
-              role="button"
-              tabIndex={0}
-              title="Click to restore Item Details"
-            >
-              <div className="erp-minimized-pulse" />
-              <Space size={8}>
-                <DatabaseOutlined style={{ color: '#06b6d4', fontSize: 15 }} />
-                <span>Details: <strong>{detailItem?.itemCode || 'Item'}</strong></span>
-                {detailItem?.status && <StatusBadge status={detailItem.status} colorMap={statusColorMap} />}
-              </Space>
-              <span
-                className="erp-minimized-close"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setIsDetailMinimized(false);
-                  setDetailOpen(false);
-                }}
-                title="Close details"
-              >
-                ×
-              </span>
-            </div>
-          )}
-
-          {/* Minimized Barcode Modal Tab */}
-          {isBarcodeMinimized && (
-            <div
-              className="erp-minimized-tab"
-              onClick={() => setIsBarcodeMinimized(false)}
-              role="button"
-              tabIndex={0}
-              title="Click to restore Barcode modal"
-            >
-              <div className="erp-minimized-pulse" />
-              <Space size={8}>
-                <ScanOutlined style={{ color: '#f59e0b', fontSize: 15 }} />
-                <span>Barcode: <strong>{barcodeModalItem?.itemCode || 'Barcode'}</strong></span>
-              </Space>
-              <span
-                className="erp-minimized-close"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setIsBarcodeMinimized(false);
-                  setBarcodeModalOpen(false);
-                  setBarcodeModalItem(null);
-                  setBarcodeModalBarcodes([]);
-                }}
-                title="Close barcode"
-              >
-                ×
-              </span>
-            </div>
-          )}
-
-          {/* Minimized Import Modal Tab */}
-          {isImportMinimized && (
-            <div
-              className="erp-minimized-tab minimized-import-dock"
-              onClick={() => setIsImportMinimized(false)}
-              role="button"
-              tabIndex={0}
-              title="Click to restore Import Items modal"
-            >
-              <div className="erp-minimized-pulse minimized-import-pulse" />
-              <Space size={8}>
-                <ImportOutlined style={{ color: '#4f46e5', fontSize: 16 }} />
-                <span>Import: <strong>{importFileName || 'Items CSV'}</strong></span>
-                {importing && importProgress ? (
-                  <>
-                    <Tag color="processing" style={{ fontWeight: 700, borderRadius: 6 }}>
-                      {importProgress.percent}% ({importProgress.current}/{importProgress.total})
+                    <Tag color="cyan" style={{ margin: 0, fontSize: 11 }}>
+                      <SyncOutlined spin style={{ marginRight: 4 }} />
+                      Live Form Preview
                     </Tag>
-                    <div style={{ width: 80, display: 'inline-block' }}>
-                      <Progress percent={importProgress.percent} size="small" showInfo={false} status="active" />
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <Tag color="blue">{importRows.length} rows</Tag>
-                    {importRows.some((r) => r.status === 'INVALID') && (
-                      <Tag color="error">{importRows.filter((r) => r.status === 'INVALID').length} failed</Tag>
-                    )}
-                  </>
-                )}
-              </Space>
-              <span
-                className="erp-minimized-close minimized-import-close"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  closeImport();
-                }}
-                title="Discard and close import"
-              >
-                ×
-              </span>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Barcode Scanner Modal */}
-      <BarcodeScanner
-        open={scannerOpen}
-        onClose={() => setScannerOpen(false)}
-        onScan={handleBarcodeScan}
-      />
-
-      {/* Barcode Print Modal */}
-      <BarcodePrint
-        open={printOpen}
-        onClose={() => { setPrintOpen(false); setPrintItem(null); }}
-        itemCode={printItem?.itemCode || ''}
-        itemName={printItem?.name || ''}
-        sku={printItem?.sku}
-        barcode={printItem?.barcode}
-      />
-
-{/* Barcode Detail Modal */}
-      <DraggableResizableModal
-        open={barcodeModalOpen && !isBarcodeMinimized}
-        onCancel={() => { setBarcodeModalOpen(false); setIsBarcodeMinimized(false); setBarcodeModalItem(null); setBarcodeModalBarcodes([]); }}
-        onMinimize={() => setIsBarcodeMinimized(true)}
-        footer={
-          <Space>
-            <Button onClick={() => { setBarcodeModalOpen(false); setBarcodeModalItem(null); setBarcodeModalBarcodes([]); }}>Close</Button>
-            {barcodeModalItem && (
-              <Button
-                type="primary"
-                icon={<PrinterOutlined />}
-                onClick={() => { setPrintItem(barcodeModalItem); setPrintOpen(true); setBarcodeModalOpen(false); }}
-              >
-                Print Barcode
-              </Button>
-            )}
-          </Space>
-        }
-        title={
-          <Space>
-            <DatabaseOutlined />
-            {barcodeModalItem ? `Barcode — ${barcodeModalItem.itemCode}` : 'Barcode'}
-          </Space>
-        }
-        width={520}
-        destroyOnHidden
-      >
-        {barcodeModalItem && (
-          <Space direction="vertical" size={16} style={{ width: '100%' }}>
-            <Descriptions size="small" column={2} styles={{ label: { width: 140 } }}>
-              <Descriptions.Item label="Item Code"><Text strong style={{ fontFamily: 'monospace' }}>{barcodeModalItem.itemCode}</Text></Descriptions.Item>
-              <Descriptions.Item label="Item Name">{barcodeModalItem.name}</Descriptions.Item>
-              {barcodeModalItem.sku && <Descriptions.Item label="SKU"><Text code>{barcodeModalItem.sku}</Text></Descriptions.Item>}
-              <Descriptions.Item label="Item Type"><Tag>{typeName(barcodeModalItem.itemType)}</Tag></Descriptions.Item>
-              <Descriptions.Item label="Status"><StatusBadge status={barcodeModalItem.status} colorMap={statusColorMap} /></Descriptions.Item>
-              {barcodeModalItem.baseUomName && <Descriptions.Item label="UOM">{barcodeModalItem.baseUomName}</Descriptions.Item>}
-            </Descriptions>
-
-            <div style={{
-              padding: '16px 20px',
-              background: '#fff',
-              borderRadius: 8,
-              border: '1px solid var(--theme-border, #e8e8e8)',
-              textAlign: 'center',
-            }}>
-              {(barcodeModalItem.barcode || barcodeModalBarcodes[0]?.barcodeValue) ? (
-                <>
-                   <svg ref={barcodeModalCallbackRef} style={{ maxWidth: '100%', overflow: 'visible' }} />
-                  <div style={{ marginTop: 8 }}>
-                    <Tag color="green">Primary Barcode</Tag>
                   </div>
-                </>
-              ) : (
-                <div style={{ padding: '20px 0' }}>
-                  <Alert
-                    type="info"
-                    showIcon
-                    message="No Barcode Assigned"
-                    description="This item does not have a barcode in the registry. A barcode will be generated automatically when needed."
-                  />
+
+                  {/* Classification & Organization */}
+                  <div className="erp-item-live-section">
+                    <div className="erp-item-live-section-title">
+                      <ApartmentOutlined /> Organization & Classification
+                    </div>
+                    <Descriptions size="small" column={1} styles={{ label: { width: 110, fontSize: 11 }, content: { fontSize: 12 } }}>
+                      <Descriptions.Item label="Item Type">
+                        <Tag color="blue">{typeName(watchedItemType || editing?.itemType || 'FINISHED_GOOD')}</Tag>
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Category">
+                        {flatCategories.find((c) => c.id === (watchedCategoryId || editing?.categoryId))?.name || (editing ? categoryName(editing) : null) || '—'}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Organization">
+                        {[
+                          divisions.find((d) => d.id === (watchedDivisionId || editing?.divisionId))?.name || (editing ? divisionName(editing) : null),
+                          sections.find((s) => s.id === (watchedSectionId || editing?.sectionId))?.name || (editing ? sectionName(editing) : null),
+                          departments.find((d) => d.id === (watchedDepartmentId || editing?.departmentId))?.name || (editing ? departmentName(editing) : null),
+                        ].filter(Boolean).join(' → ') || 'Not configured'}
+                      </Descriptions.Item>
+                    </Descriptions>
+                  </div>
+
+                  {/* Technical Specifications */}
+                  <div className="erp-item-live-section">
+                    <div className="erp-item-live-section-title">
+                      <ToolOutlined /> Technical Specifications
+                    </div>
+                    <Descriptions size="small" column={2} styles={{ label: { width: 100, fontSize: 11 }, content: { fontSize: 12 } }}>
+                      <Descriptions.Item label="Wire Size">
+                        {(watchedWireSizeMm != null || editing?.wireSizeMm != null)
+                          ? `${formatDimension(watchedWireSizeMm ?? editing?.wireSizeMm)} mm`
+                          : '—'}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Diameter">
+                        {(watchedDiameterMm != null || editing?.diameterMm != null)
+                          ? `${formatDimension(watchedDiameterMm ?? editing?.diameterMm)} mm`
+                          : '—'}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Thickness">
+                        {(watchedThicknessMm != null || editing?.thicknessMm != null)
+                          ? `${formatDimension(watchedThicknessMm ?? editing?.thicknessMm)} mm`
+                          : '—'}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Width">
+                        {(watchedWidthMm != null || editing?.widthMm != null)
+                          ? `${formatDimension(watchedWidthMm ?? editing?.widthMm)} mm`
+                          : '—'}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Length / Piece" span={2}>
+                        {(watchedLengthPerPiece != null || editing?.lengthPerPiece != null)
+                          ? `${formatDimension(watchedLengthPerPiece ?? editing?.lengthPerPiece)} m`
+                          : '—'}
+                      </Descriptions.Item>
+                    </Descriptions>
+                  </div>
+
+                  {/* UOM, Weights & Commercial */}
+                  <div className="erp-item-live-section">
+                    <div className="erp-item-live-section-title">
+                      <DatabaseOutlined /> UOM, Weights & Commercial
+                    </div>
+                    <Descriptions size="small" column={2} styles={{ label: { width: 100, fontSize: 11 }, content: { fontSize: 12 } }}>
+                      <Descriptions.Item label="Base UOM">
+                        <Tag color="geekblue">{uoms.find((u) => u.id === (watchedBaseUomId || editing?.baseUomId))?.name || editing?.baseUomName || '—'}</Tag>
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Cost Price">
+                        {(watchedCostPrice != null || editing?.costPrice != null)
+                          ? `$${Number(watchedCostPrice ?? editing?.costPrice).toFixed(2)}`
+                          : '—'}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Selling Price">
+                        {(watchedSellingPrice != null || editing?.sellingPrice != null)
+                          ? `$${Number(watchedSellingPrice ?? editing?.sellingPrice).toFixed(2)}`
+                          : '—'}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Weight/Pc">
+                        {(watchedWeightPerPiece != null || editing?.weightPerPiece != null)
+                          ? `${Number(watchedWeightPerPiece ?? editing?.weightPerPiece)} kg`
+                          : '—'}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Weight/Mtr">
+                        {(watchedWeightPerMeter != null || editing?.weightPerMeter != null)
+                          ? `${Number(watchedWeightPerMeter ?? editing?.weightPerMeter)} kg/m`
+                          : '—'}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Pieces/KG">
+                        {(watchedPiecesPerKg != null || editing?.piecesPerKg != null)
+                          ? `${Number(watchedPiecesPerKg ?? editing?.piecesPerKg)}`
+                          : '—'}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="SKU">
+                        <Text code>{watchedSku || editing?.sku || 'Auto'}</Text>
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Barcode">
+                        <Text code>{watchedBarcode || editing?.barcode || 'Auto'}</Text>
+                      </Descriptions.Item>
+                    </Descriptions>
+                  </div>
+
+                  {/* Stock Levels & Route */}
+                  <div className="erp-item-live-section" style={{ marginBottom: 0 }}>
+                    <div className="erp-item-live-section-title">
+                      <BuildOutlined /> Inventory Levels & Flow
+                    </div>
+                    <Descriptions size="small" column={2} styles={{ label: { width: 100, fontSize: 11 }, content: { fontSize: 12 } }}>
+                      <Descriptions.Item label="Min Stock">
+                        {watchedMinStock ?? editing?.minimumStockLevel ?? '0'}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Max Stock">
+                        {watchedMaxStock ?? editing?.maximumStockLevel ?? '0'}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Reorder">
+                        {watchedReorder ?? editing?.reorderLevel ?? '0'}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Safety">
+                        {watchedSafety ?? editing?.safetyStockLevel ?? '0'}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Input Mat." span={2}>
+                        {selectedInputDetail ? `${selectedInputDetail.itemCode} — ${selectedInputDetail.name}` : (editing?.productionInItem ? `${editing.productionInItem.itemCode} — ${editing.productionInItem.name}` : 'None')}
+                        {(selectedInputDetail2 || editing?.productionInItem2) && (
+                          <span style={{ color: '#0284c7', marginLeft: 6 }}>
+                            + [{selectedInputDetail2 ? `${selectedInputDetail2.itemCode} — ${selectedInputDetail2.name}` : `${editing?.productionInItem2?.itemCode} — ${editing?.productionInItem2?.name}`}]
+                          </span>
+                        )}
+                        {(selectedInputDetail3 || editing?.productionInItem3) && (
+                          <span style={{ color: '#a855f7', marginLeft: 6 }}>
+                            + [{selectedInputDetail3 ? `${selectedInputDetail3.itemCode} — ${selectedInputDetail3.name}` : `${editing?.productionInItem3?.itemCode} — ${editing?.productionInItem3?.name}`}]
+                          </span>
+                        )}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Output Prod." span={2}>
+                        {outputProductDisplay}
+                      </Descriptions.Item>
+                    </Descriptions>
+                  </div>
                 </div>
               )}
             </div>
+          </Form>
+        </DraggableResizableModal>
 
-            {barcodeModalBarcodes.length > 1 && (
-              <div>
-                <Text type="secondary" style={{ fontSize: 12 }}>All Registered Barcodes ({barcodeModalBarcodes.length})</Text>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
-                  {barcodeModalBarcodes.map((b: any) => (
-                    <Tag key={b.id} color={b.isPrimary ? 'green' : 'default'} style={{ fontFamily: 'monospace', fontSize: 11 }}>
-                      {b.barcodeValue}{b.isPrimary ? ' (Primary)' : ''}
-                    </Tag>
-                  ))}
+        <DraggableResizableModal
+          open={importOpen && !isImportMinimized}
+          onCancel={closeImport}
+          onMinimize={() => setIsImportMinimized(true)}
+          width={1020}
+          height={660}
+          footer={
+            importSummary ? (
+              <Button type="primary" onClick={closeImport}>Done</Button>
+            ) : importing ? (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', flexWrap: 'wrap', gap: 8 }}>
+                <span style={{ fontSize: 13, color: 'var(--theme-text-muted, #64748b)' }}>
+                  Import in progress… please do not close the browser tab.
+                </span>
+                <Button onClick={() => setIsImportMinimized(true)}>
+                  Minimize to Dock
+                </Button>
+              </div>
+            ) : importRows.length > 0 ? (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', flexWrap: 'wrap', gap: 8 }}>
+                <Space size={8}>
+                  <Button key="back" onClick={() => { setImportRows([]); setRawImportData([]); setImportFileName(null); setImportFilter('ALL'); }}>
+                    Choose another file
+                  </Button>
+                  {importRows.some((r) => r.status !== 'VALID') && (
+                    <Button icon={<DownloadOutlined />} onClick={downloadErrorReport}>
+                      Download Errors ({importRows.filter((r) => r.status !== 'VALID').length})
+                    </Button>
+                  )}
+                </Space>
+                <Space size={8}>
+                  <Button onClick={closeImport}>Cancel</Button>
+                  <Button
+                    key="import"
+                    type="primary"
+                    disabled={importRows.every((r) => r.status !== 'VALID')}
+                    loading={importing}
+                    onClick={runImport}
+                  >
+                    Import {importRows.filter((r) => r.status === 'VALID').length} valid row(s)
+                  </Button>
+                </Space>
+              </div>
+            ) : (
+              <Button type="primary" onClick={closeImport}>Close</Button>
+            )
+          }
+          title={
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', paddingRight: 28 }}>
+              <Space size={8}>
+                <ImportOutlined style={{ color: 'var(--theme-accent, #4f46e5)' }} />
+                <span style={{ fontWeight: 700, fontSize: 16 }}>Import Items Master</span>
+                <span className="item-model-badge">2027 UX</span>
+              </Space>
+              <Space size={6}>
+                <Tooltip title="Minimize to dock (keeps file open in background)">
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<MinusOutlined />}
+                    title="Minimize to dock (keeps file open in background)"
+                    aria-label="Minimize to dock"
+                    onClick={() => setIsImportMinimized(true)}
+                    style={{ borderRadius: 6 }}
+                  />
+                </Tooltip>
+              </Space>
+            </div>
+          }
+        >
+          {importRows.length === 0 && !importSummary && (
+            <div style={{ padding: '8px 0' }}>
+              <Alert
+                type="info"
+                showIcon
+                message="CSV import with validation and preview"
+                description="Each row is matched on Item Code first: an existing code is patched in place (only the columns you filled in), a new code is inserted when its required columns are complete. Blank cells always keep the stored value."
+                style={{ marginBottom: 16 }}
+              />
+              <Space style={{ marginBottom: 16 }}>
+                <Button
+                  icon={<DownloadOutlined />}
+                  onClick={() => downloadText('item-import-template.csv', TEMPLATE_CSV)}
+                >
+                  Download Template
+                </Button>
+                <Button icon={<FileTextOutlined />} loading={exportingTemplate} onClick={exportCurrentDataAsTemplate}>
+                  Export Current Data as Template
+                </Button>
+              </Space>
+              <Upload.Dragger
+                name="file"
+                accept=".csv,.txt"
+                maxCount={1}
+                showUploadList={false}
+                beforeUpload={handleImportFile}
+              >
+                <p className="ant-upload-drag-icon"><InboxOutlined /></p>
+                <p className="ant-upload-text">Click or drag a CSV file here</p>
+                <p className="ant-upload-hint">
+                  Columns: {IMPORT_COLUMNS.join(', ')}. Required to insert: itemCode, name, itemType, uomCode — an
+                  existing itemCode only needs itemCode. Blank cells retain the stored value.
+                </p>
+              </Upload.Dragger>
+            </div>
+          )}
+
+          {importRows.length > 0 && !importSummary && !importing && (
+            <div>
+              {(() => {
+                const validCount = importRows.filter((r) => r.status === 'VALID').length;
+                const dupCount = importRows.filter((r) => r.status === 'DUPLICATE').length;
+                const invalidCount = importRows.filter((r) => r.status === 'INVALID').length;
+                const updateCount = importRows.filter((r) => r.action === 'UPDATE').length;
+                const insertCount = importRows.filter((r) => r.action === 'INSERT').length;
+
+                return (
+                  <>
+                    <Alert
+                      type={invalidCount > 0 ? 'warning' : 'info'}
+                      showIcon
+                      message={
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+                          <span>
+                            Preview: <strong>{importFileName}</strong>
+                          </span>
+                          {invalidCount > 0 && importFilter !== 'INVALID' && (
+                            <Button
+                              size="small"
+                              danger
+                              type="primary"
+                              onClick={() => { setImportFilter('INVALID'); setImportPage(1); }}
+                            >
+                              Focus on {invalidCount} Invalid Row{invalidCount > 1 ? 's' : ''}
+                            </Button>
+                          )}
+                        </div>
+                      }
+                      description={
+                        <span>
+                          Total rows: <b>{importRows.length}</b> ·{' '}
+                          Valid: <b style={{ color: '#1a7f37' }}>{validCount}</b> ·{' '}
+                          Duplicates: <b style={{ color: '#b9770e' }}>{dupCount}</b> ·{' '}
+                          Invalid: <b style={{ color: '#c0392b' }}>{invalidCount}</b>
+                          {'  '}·  Will update: <b style={{ color: '#1d4ed8' }}>{updateCount}</b> ·{' '}
+                          Will insert: <b style={{ color: '#1a7f37' }}>{insertCount}</b>
+                          {invalidCount > 0 && (
+                            <span style={{ marginLeft: 8, color: '#c0392b', fontWeight: 500 }}>
+                              — Errors highlighted below. Select "Failed / Invalid" to isolate them.
+                            </span>
+                          )}
+                        </span>
+                      }
+                      style={{ marginBottom: 12 }}
+                    />
+
+                    {/* Filter & Triage Bar */}
+                    <div className="import-filter-bar">
+                      <Space wrap size={10}>
+                        <Segmented
+                          value={importFilter}
+                          onChange={(val) => {
+                            setImportFilter(val as any);
+                            setImportPage(1);
+                          }}
+                          options={[
+                            {
+                              label: (
+                                <Space size={4}>
+                                  <AppstoreOutlined />
+                                  <span>All ({importRows.length})</span>
+                                </Space>
+                              ),
+                              value: 'ALL',
+                            },
+                            {
+                              label: (
+                                <Space size={4}>
+                                  <CloseCircleOutlined style={{ color: '#ef4444' }} />
+                                  <span style={{ color: invalidCount > 0 ? '#ef4444' : undefined, fontWeight: invalidCount > 0 ? 700 : undefined }}>
+                                    Failed / Invalid ({invalidCount})
+                                  </span>
+                                </Space>
+                              ),
+                              value: 'INVALID',
+                            },
+                            {
+                              label: (
+                                <Space size={4}>
+                                  <WarningOutlined style={{ color: '#f59e0b' }} />
+                                  <span>Duplicates ({dupCount})</span>
+                                </Space>
+                              ),
+                              value: 'DUPLICATE',
+                            },
+                            {
+                              label: (
+                                <Space size={4}>
+                                  <CheckCircleOutlined style={{ color: '#10b981' }} />
+                                  <span>Valid ({validCount})</span>
+                                </Space>
+                              ),
+                              value: 'VALID',
+                            },
+                          ]}
+                        />
+                        {importFilter === 'ALL' && (
+                          <Tooltip title="When enabled, faulty rows are pinned to page 1 so you don't have to scroll hundreds of pages">
+                            <Switch
+                              checked={showErrorsFirst}
+                              onChange={setShowErrorsFirst}
+                              checkedChildren="Errors First"
+                              unCheckedChildren="File Order"
+                              size="small"
+                            />
+                          </Tooltip>
+                        )}
+                      </Space>
+                      <Space wrap size={8}>
+                        {invalidCount > 0 && (
+                          <Button
+                            danger
+                            size="small"
+                            icon={<DownloadOutlined />}
+                            onClick={downloadErrorReport}
+                          >
+                            Download Errors ({invalidCount})
+                          </Button>
+                        )}
+                        <Tooltip title="Re-run validation against master data">
+                          <Button
+                            size="small"
+                            icon={<SyncOutlined />}
+                            onClick={revalidateImportRows}
+                          >
+                            Re-validate
+                          </Button>
+                        </Tooltip>
+                        <Tooltip title="Upload an updated or corrected CSV file">
+                          <Button
+                            size="small"
+                            icon={<UploadOutlined />}
+                            onClick={() => reuploadInputRef.current?.click()}
+                          >
+                            Replace File
+                          </Button>
+                        </Tooltip>
+                      </Space>
+                    </div>
+
+                    <Table
+                      rowKey="rowNumber"
+                      size="small"
+                      dataSource={filteredImportRows}
+                      rowClassName={(r) => {
+                        if (r.status === 'INVALID') return 'import-table-row-invalid';
+                        if (r.status === 'DUPLICATE') return 'import-table-row-duplicate';
+                        return '';
+                      }}
+                      pagination={{
+                        current: importPage,
+                        pageSize: importPageSize,
+                        pageSizeOptions: ['10', '20', '50', '100', '250', '500'],
+                        showSizeChanger: true,
+                        showQuickJumper: true,
+                        className: 'import-preview-pagination',
+                        onChange: (p, ps) => {
+                          setImportPage(p);
+                          setImportPageSize(ps);
+                        },
+                        showTotal: (totalCount, range) => (
+                          <span style={{ fontSize: 13, fontWeight: 500 }}>
+                            Showing {range[0]}–{range[1]} of <b>{totalCount}</b> {importFilter !== 'ALL' ? `${importFilter.toLowerCase()} ` : ''}rows
+                          </span>
+                        ),
+                      }}
+                      columns={[
+                        {
+                          title: <Space size={4}><FileTextOutlined /><span>Row</span></Space>,
+                          dataIndex: 'rowNumber',
+                          width: 75,
+                          render: (n: number, r: ImportRow) => (
+                            <span style={{ fontWeight: r.status !== 'VALID' ? 700 : 400, color: r.status === 'INVALID' ? '#dc2626' : undefined }}>
+                              #{n}
+                            </span>
+                          ),
+                        },
+                        {
+                          title: <Space size={4}><TagOutlined /><span>Item Code</span></Space>,
+                          width: 150,
+                          render: (_: unknown, r: ImportRow) => (
+                            <b style={{ color: r.status === 'INVALID' ? '#dc2626' : undefined }}>
+                              {r.data['itemCode'] || <Text type="danger">(empty)</Text>}
+                            </b>
+                          ),
+                        },
+                        {
+                          title: <Space size={4}><SyncOutlined /><span>Action</span></Space>,
+                          width: 95,
+                          render: (_: unknown, r: ImportRow) =>
+                            r.action === 'UPDATE'
+                              ? <Tag color="processing">Update</Tag>
+                              : <Tag color="success">Insert</Tag>,
+                        },
+                        {
+                          title: <Space size={4}><AppstoreOutlined /><span>Name</span></Space>,
+                          width: 180,
+                          ellipsis: true,
+                          render: (_: unknown, r: ImportRow) => r.data['name'] || <Text type="danger">(empty)</Text>,
+                        },
+                        {
+                          title: <Space size={4}><ProjectOutlined /><span>Type</span></Space>,
+                          width: 130,
+                          render: (_: unknown, r: ImportRow) => r.data['itemType'] || '—',
+                        },
+                        {
+                          title: <Space size={4}><DatabaseOutlined /><span>UOM</span></Space>,
+                          width: 80,
+                          render: (_: unknown, r: ImportRow) => r.data['uomCode'] || '—',
+                        },
+                        {
+                          title: <Space size={4}><CheckCircleOutlined /><span>Result</span></Space>,
+                          width: 110,
+                          render: (_: unknown, r: ImportRow) => {
+                            if (r.status === 'VALID') return <Tag color="success">Valid</Tag>;
+                            if (r.status === 'DUPLICATE') return <Tag color="warning">Duplicate</Tag>;
+                            return <Tag color="error">Invalid</Tag>;
+                          },
+                        },
+                        {
+                          title: <Space size={4}><WarningOutlined /><span>Details / Error Description</span></Space>,
+                          render: (_: unknown, r: ImportRow) =>
+                            r.errors.length > 0 ? (
+                              <div style={{ color: '#dc2626', fontSize: 12.5, fontWeight: 500 }}>
+                                {r.errors.map((err, i) => (
+                                  <div key={i}>• {err}</div>
+                                ))}
+                              </div>
+                            ) : (
+                              <Text type="secondary" style={{ fontSize: 12 }}>Ready to import</Text>
+                            ),
+                        },
+                      ]}
+                    />
+                  </>
+                );
+              })()}
+            </div>
+          )}
+
+          {importing && (
+            <>
+              <div className="import-live-progress-card">
+                <div className="import-progress-header">
+                  <div className="import-progress-title-wrap">
+                    <div className="import-progress-pulse-dot" />
+                    <div>
+                      <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--theme-text, #1e293b)' }}>
+                        Uploading & Importing Items Master…
+                      </div>
+                      <div style={{ fontSize: 13, color: 'var(--theme-text-muted, #64748b)', marginTop: 2 }}>
+                        Processing row <b>{importProgress?.current ?? 0}</b> of <b>{importProgress?.total ?? importRows.filter((r) => r.status === 'VALID').length}</b>
+                        {importProgress?.currentCode && (
+                          <span style={{ marginLeft: 8, fontFamily: 'monospace', color: '#4f46e5' }}>
+                            [{importProgress.currentCode}]
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="import-progress-large-percent">
+                    {importProgress?.percent ?? 0}<span>%</span>
+                  </div>
+                </div>
+
+                {/* Ant Design Live Active Progress Bar with Gradient */}
+                <div style={{ marginTop: 16 }}>
+                  <Progress
+                    percent={importProgress?.percent ?? 0}
+                    status="active"
+                    strokeColor={{
+                      '0%': '#4f46e5',
+                      '50%': '#3b82f6',
+                      '100%': '#10b981',
+                    }}
+                    size={['100%', 14]}
+                    showInfo={false}
+                  />
+                </div>
+
+                {/* Continuous Ambient Flowing Shimmer Line */}
+                <div className="import-progress-ambient-track" title="Continuous Real-time Flow Indicator">
+                  <div
+                    className="import-progress-ambient-glow"
+                    style={{ width: `${Math.max(importProgress?.percent ?? 3, 3)}%` }}
+                  />
+                </div>
+
+                {/* Metrics Row: Time Remaining, Speed, Success, Failed */}
+                <div className="import-progress-metrics-row">
+                  <div className="import-metric-chip">
+                    <span className="metric-icon"><ClockCircleOutlined style={{ color: '#4f46e5' }} /></span>
+                    <div>
+                      <div className="metric-label">Estimated Time</div>
+                      <div className="metric-val" style={{ color: '#4f46e5' }}>
+                        {formatRemainingTime(importProgress?.estimatedSecondsRemaining ?? 0)}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="import-metric-chip">
+                    <span className="metric-icon"><ThunderboltOutlined style={{ color: '#0284c7' }} /></span>
+                    <div>
+                      <div className="metric-label">Import Speed</div>
+                      <div className="metric-val" style={{ color: '#0284c7' }}>
+                        ~{importProgress?.speed ?? 0} items/sec
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="import-metric-chip">
+                    <span className="metric-icon"><CheckCircleOutlined style={{ color: '#16a34a' }} /></span>
+                    <div>
+                      <div className="metric-label">Imported</div>
+                      <div className="metric-val" style={{ color: '#16a34a' }}>
+                        {importProgress?.successCount ?? 0}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="import-metric-chip">
+                    <span className="metric-icon"><CloseCircleOutlined style={{ color: (importProgress?.failCount ?? 0) > 0 ? '#dc2626' : '#94a3b8' }} /></span>
+                    <div>
+                      <div className="metric-label">Failed</div>
+                      <div className="metric-val" style={{ color: (importProgress?.failCount ?? 0) > 0 ? '#dc2626' : '#94a3b8' }}>
+                        {importProgress?.failCount ?? 0}
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
+
+              {/* Live Activity Console: Dual Panels (Imported Feed on Left, Faulty Console on Right) */}
+              <div className="import-live-console-container">
+                <Row gutter={[16, 16]}>
+                  {/* Left Panel: Successfully Imported Live Feed */}
+                  <Col xs={24} md={14}>
+                    <Card
+                      size="small"
+                      className="import-console-panel import-console-success"
+                      title={
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <Space size={6}>
+                            <CheckCircleOutlined style={{ color: '#10b981' }} />
+                            <span style={{ fontWeight: 700, fontSize: 13 }}>Live Imported Feed</span>
+                          </Space>
+                          <Tag color="success" style={{ fontWeight: 700, borderRadius: 10, marginInlineEnd: 0 }}>
+                            {importProgress?.successCount ?? 0} imported
+                          </Tag>
+                        </div>
+                      }
+                      styles={{ body: { padding: '8px 12px', height: 260, overflowY: 'auto' } }}
+                    >
+                      {liveImportedItems.length === 0 ? (
+                        <div className="import-console-empty">
+                          <GlobalLoading spinnerOnly size="small" style={{ marginBottom: 8 }} />
+                          <Text type="secondary" style={{ fontSize: 12 }}>Streaming items as they are saved to database…</Text>
+                        </div>
+                      ) : (
+                        <div className="import-console-stream">
+                          {liveImportedItems.map((item, idx) => (
+                            <div key={`${item.itemCode}-${idx}`} className="import-stream-row">
+                              <div className="import-stream-left">
+                                <span className="import-row-badge">#{item.rowNumber}</span>
+                                <Tag color="blue" style={{ fontWeight: 700, marginInlineEnd: 4, fontFamily: 'monospace' }}>
+                                  {item.itemCode}
+                                </Tag>
+                                <span className="import-stream-name" title={item.name}>
+                                  {item.name}
+                                </span>
+                              </div>
+                              <div className="import-stream-right">
+                                {item.division && <Tag style={{ fontSize: 10, marginInlineEnd: 4 }}>{item.division}</Tag>}
+                                <Tag color="success" style={{ fontSize: 10, marginInlineEnd: 0 }}>IMPORTED</Tag>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </Card>
+                  </Col>
+
+                  {/* Right Panel: Faulty / Failed Rows Console */}
+                  <Col xs={24} md={10}>
+                    <Card
+                      size="small"
+                      className="import-console-panel import-console-fault"
+                      title={
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <Space size={6}>
+                            <CloseCircleOutlined style={{ color: (importProgress?.failCount ?? 0) > 0 ? '#ef4444' : '#94a3b8' }} />
+                            <span style={{ fontWeight: 700, fontSize: 13, color: (importProgress?.failCount ?? 0) > 0 ? '#ef4444' : undefined }}>
+                              Faulty / Failed Items
+                            </span>
+                          </Space>
+                          <Tag color={(importProgress?.failCount ?? 0) > 0 ? 'error' : 'default'} style={{ fontWeight: 700, borderRadius: 10, marginInlineEnd: 0 }}>
+                            {importProgress?.failCount ?? 0} faulty
+                          </Tag>
+                        </div>
+                      }
+                      styles={{ body: { padding: '8px 12px', height: 260, overflowY: 'auto' } }}
+                    >
+                      {liveFailedItems.length === 0 ? (
+                        <div className="import-console-empty" style={{ color: '#10b981' }}>
+                          <CheckCircleOutlined style={{ fontSize: 26, marginBottom: 8, color: '#10b981' }} />
+                          <div style={{ fontWeight: 600 }}>Zero Faults Detected</div>
+                          <Text type="secondary" style={{ fontSize: 11, marginTop: 2 }}>All processed rows are importing cleanly.</Text>
+                        </div>
+                      ) : (
+                        <div className="import-fault-stream">
+                          {liveFailedItems.map((fail, idx) => (
+                            <div key={`${fail.itemCode}-${idx}`} className="import-fault-row">
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
+                                <Space size={4}>
+                                  <span className="import-fault-badge">Row #{fail.rowNumber}</span>
+                                  <strong style={{ color: '#dc2626', fontFamily: 'monospace' }}>{fail.itemCode}</strong>
+                                </Space>
+                                <Tag color="error" style={{ fontSize: 10, marginInlineEnd: 0 }}>FAILED</Tag>
+                              </div>
+                              <div className="import-fault-msg">{fail.reason}</div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </Card>
+                  </Col>
+                </Row>
+              </div>
+            </>
+          )}
+
+          {importSummary && !importing && (
+            <div>
+              <Alert
+                type={importSummary.failed > 0 ? 'warning' : 'success'}
+                showIcon
+                message="Import finished"
+                style={{ marginBottom: 16 }}
+              />
+              <Descriptions bordered size="small" column={1} styles={{ label: { width: 180 } }}>
+                <Descriptions.Item label="Total rows">{importSummary.total}</Descriptions.Item>
+                <Descriptions.Item label="Valid rows">{importSummary.valid}</Descriptions.Item>
+                <Descriptions.Item label="Invalid rows">{importSummary.invalid}</Descriptions.Item>
+                <Descriptions.Item label="Duplicate rows (skipped)">{importSummary.duplicate}</Descriptions.Item>
+                <Descriptions.Item label="Updated (existing code)"><b style={{ color: '#1d4ed8' }}>{importSummary.updated ?? 0}</b></Descriptions.Item>
+                <Descriptions.Item label="Created (new code)"><b style={{ color: '#1a7f37' }}>{importSummary.created ?? 0}</b></Descriptions.Item>
+                <Descriptions.Item label="Imported rows"><b style={{ color: '#1a7f37' }}>{importSummary.imported}</b></Descriptions.Item>
+                <Descriptions.Item label="Failed rows">{importSummary.failed}</Descriptions.Item>
+                <Descriptions.Item label="Skipped rows">{importSummary.skipped}</Descriptions.Item>
+              </Descriptions>
+              {importSummary.errors.length > 0 && (
+                <Alert
+                  type="error"
+                  style={{ marginTop: 12 }}
+                  message="Row errors"
+                  description={
+                    <ul style={{ margin: 0, paddingLeft: 20, maxHeight: 160, overflowY: 'auto' }}>
+                      {importSummary.errors.map((e, i) => <li key={i} style={{ fontSize: 12 }}>{e}</li>)}
+                    </ul>
+                  }
+                />
+              )}
+            </div>
+          )}
+        </DraggableResizableModal>
+
+        {/* Hidden file input for file replacement / re-upload */}
+        <input
+          type="file"
+          ref={reuploadInputRef}
+          style={{ display: 'none' }}
+          accept=".csv,.txt"
+          onChange={handleReuploadSelect}
+        />
+
+        {/* Universal Minimized Modals Dock */}
+        {(isImportMinimized || isFormMinimized || isDetailMinimized || isBarcodeMinimized) && (
+          <div className="erp-minimized-dock" data-testid="item-minimized-dock">
+            {/* Minimized Add / Edit Item Tab */}
+            {isFormMinimized && (
+              <div
+                className="erp-minimized-tab"
+                onClick={() => setIsFormMinimized(false)}
+                role="button"
+                tabIndex={0}
+                title="Click to restore Item Form"
+              >
+                <div className="erp-minimized-pulse" />
+                <Space size={8}>
+                  {editing ? <EditOutlined style={{ color: '#10b981', fontSize: 15 }} /> : <FileAddOutlined style={{ color: '#10b981', fontSize: 15 }} />}
+                  <span><strong>{editing ? `Edit: ${editing.itemCode}` : 'New Item Form'}</strong></span>
+                  <Tag color="cyan">{editing ? (watchedCode || editing.itemCode) : (watchedCode || 'Draft')}</Tag>
+                </Space>
+                <span
+                  className="erp-minimized-close"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsFormMinimized(false);
+                    setFormOpen(false);
+                  }}
+                  title="Discard and close form"
+                >
+                  ×
+                </span>
+              </div>
             )}
-          </Space>
+
+            {/* Minimized Item Detail Tab */}
+            {isDetailMinimized && (
+              <div
+                className="erp-minimized-tab"
+                onClick={() => setIsDetailMinimized(false)}
+                role="button"
+                tabIndex={0}
+                title="Click to restore Item Details"
+              >
+                <div className="erp-minimized-pulse" />
+                <Space size={8}>
+                  <DatabaseOutlined style={{ color: '#06b6d4', fontSize: 15 }} />
+                  <span>Details: <strong>{detailItem?.itemCode || 'Item'}</strong></span>
+                  {detailItem?.status && <StatusBadge status={detailItem.status} colorMap={statusColorMap} />}
+                </Space>
+                <span
+                  className="erp-minimized-close"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsDetailMinimized(false);
+                    setDetailOpen(false);
+                  }}
+                  title="Close details"
+                >
+                  ×
+                </span>
+              </div>
+            )}
+
+            {/* Minimized Barcode Modal Tab */}
+            {isBarcodeMinimized && (
+              <div
+                className="erp-minimized-tab"
+                onClick={() => setIsBarcodeMinimized(false)}
+                role="button"
+                tabIndex={0}
+                title="Click to restore Barcode modal"
+              >
+                <div className="erp-minimized-pulse" />
+                <Space size={8}>
+                  <ScanOutlined style={{ color: '#f59e0b', fontSize: 15 }} />
+                  <span>Barcode: <strong>{barcodeModalItem?.itemCode || 'Barcode'}</strong></span>
+                </Space>
+                <span
+                  className="erp-minimized-close"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsBarcodeMinimized(false);
+                    setBarcodeModalOpen(false);
+                    setBarcodeModalItem(null);
+                    setBarcodeModalBarcodes([]);
+                  }}
+                  title="Close barcode"
+                >
+                  ×
+                </span>
+              </div>
+            )}
+
+            {/* Minimized Import Modal Tab */}
+            {isImportMinimized && (
+              <div
+                className="erp-minimized-tab minimized-import-dock"
+                onClick={() => setIsImportMinimized(false)}
+                role="button"
+                tabIndex={0}
+                title="Click to restore Import Items modal"
+              >
+                <div className="erp-minimized-pulse minimized-import-pulse" />
+                <Space size={8}>
+                  <ImportOutlined style={{ color: '#4f46e5', fontSize: 16 }} />
+                  <span>Import: <strong>{importFileName || 'Items CSV'}</strong></span>
+                  {importing && importProgress ? (
+                    <>
+                      <Tag color="processing" style={{ fontWeight: 700, borderRadius: 6 }}>
+                        {importProgress.percent}% ({importProgress.current}/{importProgress.total})
+                      </Tag>
+                      <div style={{ width: 80, display: 'inline-block' }}>
+                        <Progress percent={importProgress.percent} size="small" showInfo={false} status="active" />
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <Tag color="blue">{importRows.length} rows</Tag>
+                      {importRows.some((r) => r.status === 'INVALID') && (
+                        <Tag color="error">{importRows.filter((r) => r.status === 'INVALID').length} failed</Tag>
+                      )}
+                    </>
+                  )}
+                </Space>
+                <span
+                  className="erp-minimized-close minimized-import-close"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    closeImport();
+                  }}
+                  title="Discard and close import"
+                >
+                  ×
+                </span>
+              </div>
+            )}
+          </div>
         )}
-      </DraggableResizableModal>
 
-      <SaveResultDialog
-        open={resultOpen}
-        phase={resultPhase}
-        result={resultData}
-        errorMessage={resultError}
-        errorTitle={resultError?.includes('required field(s)') ? 'Required Information Missing' : 'Save Failed'}
-        errorLead={resultError?.includes('required field(s)') ? 'Form submission cannot proceed with empty required fields.' : 'The request was not persisted.'}
-        onRetry={resultError?.includes('required field(s)') ? undefined : handleResultRetry}
-        onClose={handleResultClose}
-        successTitle="Successful Save"
-        okLabel="OK"
-      />
+        {/* Barcode Scanner Modal */}
+        <BarcodeScanner
+          open={scannerOpen}
+          onClose={() => setScannerOpen(false)}
+          onScan={handleBarcodeScan}
+        />
 
-      <DeleteConfirmModal
-        open={deleteModalVisible}
-        itemType="Item"
-        itemCode={deleteTargetItem?.itemCode}
-        itemName={deleteTargetItem?.name}
-        description={buildDeleteDescription()}
-        onConfirm={async () => {
-          if (!deleteTargetItem) return;
-          await apiService.delete(`/master-data/items/${deleteTargetItem.id}`);
-          message.success(`Item '${deleteTargetItem.itemCode}' deleted successfully`);
-          setDeleteModalVisible(false);
-          setDeleteTargetItem(null);
-          setDeleteEligibility(null);
-          fetchItems({ force: true });
-        }}
-        onForceDelete={async () => {
-          if (!deleteTargetItem) return;
-          await apiService.delete(`/master-data/items/${deleteTargetItem.id}?force=true`);
-          message.success(`Item '${deleteTargetItem.itemCode}' and all linked sample records permanently purged`);
-          setDeleteModalVisible(false);
-          setDeleteTargetItem(null);
-          setDeleteEligibility(null);
-          fetchItems({ force: true });
-        }}
-        forceDeleteLabel="Admin Force Delete"
-        onCancel={() => {
-          setDeleteModalVisible(false);
-          setDeleteTargetItem(null);
-          setDeleteEligibility(null);
-        }}
-        onDeactivateInstead={
-          deleteTargetItem && deleteTargetItem.status === 'ACTIVE'
-            ? async () => {
+        {/* Barcode Print Modal */}
+        <BarcodePrint
+          open={printOpen}
+          onClose={() => { setPrintOpen(false); setPrintItem(null); }}
+          itemCode={printItem?.itemCode || ''}
+          itemName={printItem?.name || ''}
+          sku={printItem?.sku}
+          barcode={printItem?.barcode}
+        />
+
+        {/* Barcode Detail Modal */}
+        <DraggableResizableModal
+          open={barcodeModalOpen && !isBarcodeMinimized}
+          onCancel={() => { setBarcodeModalOpen(false); setIsBarcodeMinimized(false); setBarcodeModalItem(null); setBarcodeModalBarcodes([]); }}
+          onMinimize={() => setIsBarcodeMinimized(true)}
+          footer={
+            <Space>
+              <Button onClick={() => { setBarcodeModalOpen(false); setBarcodeModalItem(null); setBarcodeModalBarcodes([]); }}>Close</Button>
+              {barcodeModalItem && (
+                <Button
+                  type="primary"
+                  icon={<PrinterOutlined />}
+                  onClick={() => { setPrintItem(barcodeModalItem); setPrintOpen(true); setBarcodeModalOpen(false); }}
+                >
+                  Print Barcode
+                </Button>
+              )}
+            </Space>
+          }
+          title={
+            <Space>
+              <DatabaseOutlined />
+              {barcodeModalItem ? `Barcode — ${barcodeModalItem.itemCode}` : 'Barcode'}
+            </Space>
+          }
+          width={520}
+          destroyOnHidden
+        >
+          {barcodeModalItem && (
+            <Space direction="vertical" size={16} style={{ width: '100%' }}>
+              <Descriptions size="small" column={2} styles={{ label: { width: 140 } }}>
+                <Descriptions.Item label="Item Code"><Text strong style={{ fontFamily: 'monospace' }}>{barcodeModalItem.itemCode}</Text></Descriptions.Item>
+                <Descriptions.Item label="Item Name">{barcodeModalItem.name}</Descriptions.Item>
+                {barcodeModalItem.sku && <Descriptions.Item label="SKU"><Text code>{barcodeModalItem.sku}</Text></Descriptions.Item>}
+                <Descriptions.Item label="Item Type"><Tag>{typeName(barcodeModalItem.itemType)}</Tag></Descriptions.Item>
+                <Descriptions.Item label="Status"><StatusBadge status={barcodeModalItem.status} colorMap={statusColorMap} /></Descriptions.Item>
+                {barcodeModalItem.baseUomName && <Descriptions.Item label="UOM">{barcodeModalItem.baseUomName}</Descriptions.Item>}
+              </Descriptions>
+
+              <div style={{
+                padding: '16px 20px',
+                background: '#fff',
+                borderRadius: 8,
+                border: '1px solid var(--theme-border, #e8e8e8)',
+                textAlign: 'center',
+              }}>
+                {(barcodeModalItem.barcode || barcodeModalBarcodes[0]?.barcodeValue) ? (
+                  <>
+                    <svg ref={barcodeModalCallbackRef} style={{ maxWidth: '100%', overflow: 'visible' }} />
+                    <div style={{ marginTop: 8 }}>
+                      <Tag color="green">Primary Barcode</Tag>
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ padding: '20px 0' }}>
+                    <Alert
+                      type="info"
+                      showIcon
+                      message="No Barcode Assigned"
+                      description="This item does not have a barcode in the registry. A barcode will be generated automatically when needed."
+                    />
+                  </div>
+                )}
+              </div>
+
+              {barcodeModalBarcodes.length > 1 && (
+                <div>
+                  <Text type="secondary" style={{ fontSize: 12 }}>All Registered Barcodes ({barcodeModalBarcodes.length})</Text>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
+                    {barcodeModalBarcodes.map((b: any) => (
+                      <Tag key={b.id} color={b.isPrimary ? 'green' : 'default'} style={{ fontFamily: 'monospace', fontSize: 11 }}>
+                        {b.barcodeValue}{b.isPrimary ? ' (Primary)' : ''}
+                      </Tag>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </Space>
+          )}
+        </DraggableResizableModal>
+
+        <SaveResultDialog
+          open={resultOpen}
+          phase={resultPhase}
+          result={resultData}
+          errorMessage={resultError}
+          errorTitle={resultError?.includes('required field(s)') ? 'Required Information Missing' : 'Save Failed'}
+          errorLead={resultError?.includes('required field(s)') ? 'Form submission cannot proceed with empty required fields.' : 'The request was not persisted.'}
+          onRetry={resultError?.includes('required field(s)') ? undefined : handleResultRetry}
+          onClose={handleResultClose}
+          successTitle="Successful Save"
+          okLabel="OK"
+        />
+
+        <DeleteConfirmModal
+          open={deleteModalVisible}
+          itemType="Item"
+          itemCode={deleteTargetItem?.itemCode}
+          itemName={deleteTargetItem?.name}
+          description={buildDeleteDescription()}
+          onConfirm={async () => {
+            if (!deleteTargetItem) return;
+            await apiService.delete(`/master-data/items/${deleteTargetItem.id}`);
+            message.success(`Item '${deleteTargetItem.itemCode}' deleted successfully`);
+            setDeleteModalVisible(false);
+            setDeleteTargetItem(null);
+            setDeleteEligibility(null);
+            fetchItems({ force: true });
+          }}
+          onForceDelete={async () => {
+            if (!deleteTargetItem) return;
+            await apiService.delete(`/master-data/items/${deleteTargetItem.id}?force=true`);
+            message.success(`Item '${deleteTargetItem.itemCode}' and all linked sample records permanently purged`);
+            setDeleteModalVisible(false);
+            setDeleteTargetItem(null);
+            setDeleteEligibility(null);
+            fetchItems({ force: true });
+          }}
+          forceDeleteLabel="Admin Force Delete"
+          onCancel={() => {
+            setDeleteModalVisible(false);
+            setDeleteTargetItem(null);
+            setDeleteEligibility(null);
+          }}
+          onDeactivateInstead={
+            deleteTargetItem && deleteTargetItem.status === 'ACTIVE'
+              ? async () => {
                 await apiService.patch(`/master-data/items/${deleteTargetItem.id}/deactivate`);
                 message.success(`Item '${deleteTargetItem.itemCode}' deactivated`);
                 setDeleteModalVisible(false);
                 setDeleteTargetItem(null);
                 fetchItems({ force: true });
               }
-            : undefined
-        }
-        deactivateLabel="Deactivate Instead"
-      />
-    </div>
-  </TabKeepAlive>
+              : undefined
+          }
+          deactivateLabel="Deactivate Instead"
+        />
+      </div>
+    </TabKeepAlive>
   );
 };
 

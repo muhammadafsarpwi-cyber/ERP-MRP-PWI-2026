@@ -15,6 +15,7 @@ import {
   Row,
   Col,
   Tooltip,
+  theme,
 } from 'antd';
 import {
   PlusOutlined,
@@ -22,10 +23,15 @@ import {
   SendOutlined,
   DownloadOutlined,
   UploadOutlined,
-  PrinterOutlined,
   FileTextOutlined,
   DatabaseOutlined,
   ClearOutlined,
+  FileExcelOutlined,
+  FilePdfOutlined,
+  ApartmentOutlined,
+  ShopOutlined,
+  CalendarOutlined,
+  NumberOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -34,6 +40,7 @@ import autoTable from 'jspdf-autotable';
 import apiService from '../../services/api';
 import dashboardService, { FilterOption } from '../../services/dashboardService';
 import { usePermission } from '../../hooks/usePermission';
+import { useHeaderActions } from '../../components/layout/headerActionsStore';
 
 const { Text } = Typography;
 
@@ -89,6 +96,7 @@ const fmt = (num?: number | null, decimals = 2) => {
 
 const OpeningStock: React.FC = () => {
   const { message } = App.useApp();
+  const { token } = theme.useToken();
   const { can } = usePermission();
   const canCreate = can('inventory.opening_stock.create') || can('store.view');
 
@@ -411,8 +419,7 @@ const OpeningStock: React.FC = () => {
 
         setLines((prev) => [...prev, ...newLines]);
         message.success(
-          `Successfully imported ${newLines.length} lines from CSV!${
-            notFoundCount > 0 ? ` (${notFoundCount} items not found)` : ''
+          `Successfully imported ${newLines.length} lines from CSV!${notFoundCount > 0 ? ` (${notFoundCount} items not found)` : ''
           }`
         );
       } catch (err: any) {
@@ -422,6 +429,108 @@ const OpeningStock: React.FC = () => {
       }
     };
     reader.readAsText(file);
+  };
+
+  // 6b. Export to Excel (.xls SpreadsheetML)
+  const handleExportExcel = () => {
+    if (lines.length === 0) {
+      message.warning('Add lines first before exporting to Excel');
+      return;
+    }
+    const values = form.getFieldsValue();
+    const warehouseObj = warehouses.find((w) => w.id === values.warehouseId);
+    const divisionObj = divisions.find((d) => d.id === selectedDivisionId);
+    const refNum = values.referenceNumber || 'N/A';
+    const dateStr = values.transactionDate ? dayjs(values.transactionDate).format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD');
+    const warehouseName = warehouseObj?.name || 'N/A';
+    const divisionName = divisionObj?.name || 'All Divisions';
+
+    const esc = (s: unknown) =>
+      String(s ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+
+    const rowsXml = lines
+      .map((l, idx) => {
+        const itm = items.find((i) => i.id === l.itemId);
+        const uom = uoms.find((u) => u.id === l.uomId);
+        const itemCode = itm?.code || itm?.item_code || l.itemCode || '';
+        const itemName = itm?.name || l.itemName || '';
+        const uomName = uom?.code || uom?.name || '';
+        const qty = Number(l.quantity) || 0;
+        const unitCost = Number(l.unitCost) || 0;
+        const lineCost = qty * unitCost;
+        return `<Row>
+          <Cell ss:StyleID="cellC"><Data ss:Type="Number">${idx + 1}</Data></Cell>
+          <Cell ss:StyleID="cell"><Data ss:Type="String">${esc(itemCode)}</Data></Cell>
+          <Cell ss:StyleID="cell"><Data ss:Type="String">${esc(itemName)}</Data></Cell>
+          <Cell ss:StyleID="cellC"><Data ss:Type="String">${esc(uomName)}</Data></Cell>
+          <Cell ss:StyleID="num"><Data ss:Type="Number">${qty}</Data></Cell>
+          <Cell ss:StyleID="num"><Data ss:Type="Number">${unitCost}</Data></Cell>
+          <Cell ss:StyleID="numB"><Data ss:Type="Number">${lineCost}</Data></Cell>
+          <Cell ss:StyleID="cell"><Data ss:Type="String">${esc(l.batchNumber || '')}</Data></Cell>
+          <Cell ss:StyleID="cell"><Data ss:Type="String">${esc(l.serialNumber || '')}</Data></Cell>
+          <Cell ss:StyleID="cell"><Data ss:Type="String">${esc(l.notes || '')}</Data></Cell>
+        </Row>`;
+      })
+      .join('\n');
+
+    const xml = `<?xml version="1.0"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+ <Styles>
+  <Style ss:ID="title"><Font ss:Bold="1" ss:Size="14" ss:Color="#1E293B"/></Style>
+  <Style ss:ID="meta"><Font ss:Bold="1" ss:Size="10" ss:Color="#475569"/></Style>
+  <Style ss:ID="hdr"><Font ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#1D4ED8" ss:Pattern="Solid"/><Alignment ss:Horizontal="Center" ss:Vertical="Center"/></Style>
+  <Style ss:ID="cell"><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/></Borders></Style>
+  <Style ss:ID="cellC"><Alignment ss:Horizontal="Center"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/></Borders></Style>
+  <Style ss:ID="num"><NumberFormat ss:Format="#,##0.00"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/></Borders></Style>
+  <Style ss:ID="numB"><Font ss:Bold="1"/><NumberFormat ss:Format="#,##0.00"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/></Borders></Style>
+  <Style ss:ID="tot"><Font ss:Bold="1"/><Interior ss:Color="#EFF6FF" ss:Pattern="Solid"/><NumberFormat ss:Format="#,##0.00"/></Style>
+ </Styles>
+ <Worksheet ss:Name="Opening Stock">
+  <Table>
+   <Column ss:Width="35"/><Column ss:Width="110"/><Column ss:Width="240"/><Column ss:Width="60"/><Column ss:Width="85"/><Column ss:Width="105"/><Column ss:Width="110"/><Column ss:Width="90"/><Column ss:Width="90"/><Column ss:Width="140"/>
+   <Row><Cell ss:StyleID="title"><Data ss:Type="String">Pakistan Wire Industries (Pvt.) LTD — Store Opening Stock</Data></Cell></Row>
+   <Row><Cell ss:StyleID="meta"><Data ss:Type="String">Reference #: ${esc(refNum)} | Date: ${esc(dateStr)} | Division: ${esc(divisionName)} | Warehouse: ${esc(warehouseName)}</Data></Cell></Row>
+   <Row/>
+   <Row>
+    <Cell ss:StyleID="hdr"><Data ss:Type="String">#</Data></Cell>
+    <Cell ss:StyleID="hdr"><Data ss:Type="String">Item Code</Data></Cell>
+    <Cell ss:StyleID="hdr"><Data ss:Type="String">Item Description</Data></Cell>
+    <Cell ss:StyleID="hdr"><Data ss:Type="String">UOM</Data></Cell>
+    <Cell ss:StyleID="hdr"><Data ss:Type="String">Quantity</Data></Cell>
+    <Cell ss:StyleID="hdr"><Data ss:Type="String">Unit Cost (PKR)</Data></Cell>
+    <Cell ss:StyleID="hdr"><Data ss:Type="String">Total Cost (PKR)</Data></Cell>
+    <Cell ss:StyleID="hdr"><Data ss:Type="String">Batch #</Data></Cell>
+    <Cell ss:StyleID="hdr"><Data ss:Type="String">Serial #</Data></Cell>
+    <Cell ss:StyleID="hdr"><Data ss:Type="String">Notes</Data></Cell>
+   </Row>
+   ${rowsXml}
+   <Row>
+    <Cell ss:StyleID="tot"/><Cell ss:StyleID="tot"><Data ss:Type="String">TOTAL</Data></Cell>
+    <Cell ss:StyleID="tot"><Data ss:Type="String">${lines.length} Items</Data></Cell>
+    <Cell ss:StyleID="tot"/>
+    <Cell ss:StyleID="tot"><Data ss:Type="Number">${totalQuantity}</Data></Cell>
+    <Cell ss:StyleID="tot"/>
+    <Cell ss:StyleID="tot"><Data ss:Type="Number">${totalValue}</Data></Cell>
+    <Cell ss:StyleID="tot"/><Cell ss:StyleID="tot"/><Cell ss:StyleID="tot"/>
+   </Row>
+  </Table>
+ </Worksheet>
+</Workbook>`;
+
+    const blob = new Blob([xml], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Store_Opening_Stock_${refNum}_${dateStr}.xls`;
+    a.click();
+    URL.revokeObjectURL(url);
+    message.success('Excel workbook exported successfully');
   };
 
   // 7. Print / Export to PDF
@@ -591,6 +700,91 @@ const OpeningStock: React.FC = () => {
     }
   };
 
+  // Mount Import / Export / Print actions on the Main ERP Header
+  const headerActionsRef = useRef({
+    downloadCsvTemplate,
+    triggerImport: () => fileInputRef.current?.click(),
+    exportToCsv,
+    handleExportExcel,
+    handlePrintPdf,
+  });
+  headerActionsRef.current = {
+    downloadCsvTemplate,
+    triggerImport: () => fileInputRef.current?.click(),
+    exportToCsv,
+    handleExportExcel,
+    handlePrintPdf,
+  };
+
+  const { setHeaderActions, clearHeaderActions } = useHeaderActions.getState();
+  useEffect(() => {
+    setHeaderActions([
+      {
+        key: 'os-csv-template',
+        node: (
+          <Tooltip title="Download CSV template format with sample rows">
+            <Button size="small" icon={<DownloadOutlined />} onClick={() => headerActionsRef.current.downloadCsvTemplate()}>
+              CSV Template
+            </Button>
+          </Tooltip>
+        ),
+      },
+      {
+        key: 'os-import-csv',
+        node: (
+          <Tooltip title="Import bulk items from CSV file">
+            <Button size="small" icon={<UploadOutlined />} onClick={() => headerActionsRef.current.triggerImport()}>
+              Import CSV
+            </Button>
+          </Tooltip>
+        ),
+      },
+      {
+        key: 'os-export-csv',
+        node: (
+          <Tooltip title="Export current table lines to CSV">
+            <Button size="small" icon={<DownloadOutlined />} disabled={lines.length === 0} onClick={() => headerActionsRef.current.exportToCsv()}>
+              Export CSV
+            </Button>
+          </Tooltip>
+        ),
+      },
+      {
+        key: 'os-export-excel',
+        node: (
+          <Tooltip title="Export styled Excel workbook (.xls)">
+            <Button
+              size="small"
+              icon={<FileExcelOutlined />}
+              disabled={lines.length === 0}
+              onClick={() => headerActionsRef.current.handleExportExcel()}
+              style={{ color: token.colorSuccess, borderColor: token.colorBorder, fontWeight: 600 }}
+            >
+              Excel
+            </Button>
+          </Tooltip>
+        ),
+      },
+      {
+        key: 'os-print-pdf',
+        node: (
+          <Tooltip title="Download / Print Store Opening Stock PDF">
+            <Button
+              size="small"
+              icon={<FilePdfOutlined />}
+              disabled={lines.length === 0}
+              onClick={() => headerActionsRef.current.handlePrintPdf()}
+              style={{ color: token.colorError, borderColor: token.colorBorder, fontWeight: 600 }}
+            >
+              PDF
+            </Button>
+          </Tooltip>
+        ),
+      },
+    ]);
+    return () => clearHeaderActions();
+  }, [lines.length, token.colorBorder, token.colorError, token.colorSuccess, setHeaderActions, clearHeaderActions]);
+
   const lineColumns: ColumnsType<OpeningStockLine> = [
     {
       title: '#',
@@ -684,24 +878,25 @@ const OpeningStock: React.FC = () => {
       ),
     },
     {
-      title: 'Unit Cost',
+      title: 'Unit Cost (PKR)',
       dataIndex: 'unitCost',
       key: 'unitCost',
-      width: 130,
+      width: 170,
       render: (_: unknown, record) => (
         <InputNumber
           min={0}
           precision={2}
+          size="middle"
           value={record.unitCost}
           onChange={(v) => updateLine(record.key, 'unitCost', v || 0)}
-          style={{ width: '100%' }}
+          style={{ width: '100%', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}
         />
       ),
     },
     {
       title: 'Total Cost',
       key: 'totalCost',
-      width: 130,
+      width: 150,
       align: 'right',
       render: (_: unknown, record) => (
         <Text strong style={{ color: '#1677ff' }}>
@@ -800,21 +995,31 @@ const OpeningStock: React.FC = () => {
         </Space>
       </div>
 
-      {/* Filter / Parameters Bar */}
+      {/* Dashboard-Style Filter / Parameters Panel */}
       <div style={{
-        background: 'var(--theme-surface, #fff)',
-        border: '1px solid var(--theme-border, #e2e8f0)',
+        background: `var(--theme-surface, ${token.colorBgContainer})`,
+        border: `1px solid var(--theme-border, ${token.colorBorderSecondary})`,
         borderRadius: 12,
-        padding: '16px 20px',
+        padding: '14px 16px',
         marginBottom: 16,
-        boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
       }}>
         <Form form={form} layout="vertical" style={{ margin: 0 }}>
-          <Row gutter={[16, 12]} align="bottom">
+          <Row gutter={[12, 12]} align="stretch">
             <Col xs={24} sm={12} md={6}>
-              <Form.Item label={<span style={{ fontWeight: 600, fontSize: 12.5 }}>Division</span>} style={{ marginBottom: 0 }}>
+              <div style={{
+                padding: '8px 12px',
+                borderRadius: 10,
+                border: `1px solid var(--theme-border, ${token.colorBorderSecondary})`,
+                background: token.colorFillAlter,
+                height: '100%',
+              }}>
+                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: token.colorTextTertiary, marginBottom: 4 }}>
+                  <ApartmentOutlined style={{ marginRight: 5, color: '#eab308' }} />
+                  Division
+                </div>
                 <Select
                   placeholder="Select division"
+                  variant="borderless"
                   showSearch
                   optionFilterProp="label"
                   value={selectedDivisionId}
@@ -828,109 +1033,146 @@ const OpeningStock: React.FC = () => {
                     value: d.id,
                     label: d.name,
                   }))}
-                  style={{ width: '100%' }}
+                  style={{ width: '100%', fontWeight: 600 }}
                 />
-              </Form.Item>
+              </div>
             </Col>
 
             <Col xs={24} sm={12} md={6}>
-              <Form.Item
-                name="warehouseId"
-                label={<span style={{ fontWeight: 600, fontSize: 12.5 }}>Warehouse <span style={{ color: '#ef4444' }}>*</span></span>}
-                rules={[{ required: true, message: 'Select a warehouse' }]}
-                style={{ marginBottom: 0 }}
-              >
-                <Select
-                  placeholder={selectedDivisionId ? 'Select warehouse' : 'Select division first'}
-                  disabled={!selectedDivisionId}
-                  notFoundContent="No warehouse configured for this division"
-                  popupMatchSelectWidth={false}
-                  showSearch
-                  optionFilterProp="label"
-                  options={filteredWarehouses.map((w) => ({
-                    value: w.id,
-                    label: `${(w as any).warehouseCode || w.code || w.warehouse_code || ''} — ${w.name}`,
-                  }))}
-                  style={{ width: '100%' }}
-                />
-              </Form.Item>
+              <div style={{
+                padding: '8px 12px',
+                borderRadius: 10,
+                border: `1px solid var(--theme-border, ${token.colorBorderSecondary})`,
+                background: token.colorFillAlter,
+                height: '100%',
+              }}>
+                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: token.colorTextTertiary, marginBottom: 4 }}>
+                  <ShopOutlined style={{ marginRight: 5, color: '#0284c7' }} />
+                  Warehouse <span style={{ color: token.colorError }}>*</span>
+                </div>
+                <Form.Item
+                  name="warehouseId"
+                  rules={[{ required: true, message: 'Select a warehouse' }]}
+                  style={{ marginBottom: 0 }}
+                >
+                  <Select
+                    variant="borderless"
+                    placeholder={selectedDivisionId ? 'Select warehouse' : 'Select division first'}
+                    disabled={!selectedDivisionId}
+                    notFoundContent="No warehouse configured for this division"
+                    popupMatchSelectWidth={false}
+                    showSearch
+                    optionFilterProp="label"
+                    options={filteredWarehouses.map((w) => ({
+                      value: w.id,
+                      label: `${(w as any).warehouseCode || w.code || w.warehouse_code || ''} — ${w.name}`,
+                    }))}
+                    style={{ width: '100%', fontWeight: 600 }}
+                  />
+                </Form.Item>
+              </div>
             </Col>
 
             <Col xs={24} sm={12} md={6}>
-              <Form.Item
-                name="referenceNumber"
-                label={<span style={{ fontWeight: 600, fontSize: 12.5 }}>Reference # <span style={{ color: '#ef4444' }}>*</span></span>}
-                rules={[{ required: true, message: 'Reference required' }]}
-                style={{ marginBottom: 0 }}
-              >
-                <Input placeholder="e.g. OPN-20260920-001" />
-              </Form.Item>
+              <div style={{
+                padding: '8px 12px',
+                borderRadius: 10,
+                border: `1px solid var(--theme-border, ${token.colorBorderSecondary})`,
+                background: token.colorFillAlter,
+                height: '100%',
+              }}>
+                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: token.colorTextTertiary, marginBottom: 4 }}>
+                  <NumberOutlined style={{ marginRight: 5, color: '#a855f7' }} />
+                  Reference # <span style={{ color: token.colorError }}>*</span>
+                </div>
+                <Form.Item
+                  name="referenceNumber"
+                  rules={[{ required: true, message: 'Reference required' }]}
+                  style={{ marginBottom: 0 }}
+                >
+                  <Input variant="borderless" placeholder="e.g. OPN-20260920-001" style={{ fontWeight: 600, paddingLeft: 0 }} />
+                </Form.Item>
+              </div>
             </Col>
 
             <Col xs={24} sm={12} md={6}>
-              <Form.Item
-                name="transactionDate"
-                label={<span style={{ fontWeight: 600, fontSize: 12.5 }}>Posting Date</span>}
-                style={{ marginBottom: 0 }}
-              >
-                <DatePicker style={{ width: '100%' }} />
-              </Form.Item>
+              <div style={{
+                padding: '8px 12px',
+                borderRadius: 10,
+                border: `1px solid var(--theme-border, ${token.colorBorderSecondary})`,
+                background: token.colorFillAlter,
+                height: '100%',
+              }}>
+                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: token.colorTextTertiary, marginBottom: 4 }}>
+                  <CalendarOutlined style={{ marginRight: 5, color: '#10b981' }} />
+                  Posting Date
+                </div>
+                <Form.Item
+                  name="transactionDate"
+                  style={{ marginBottom: 0 }}
+                >
+                  <DatePicker variant="borderless" style={{ width: '100%', fontWeight: 600, paddingLeft: 0 }} />
+                </Form.Item>
+              </div>
             </Col>
           </Row>
         </Form>
       </div>
 
-      {/* Summary KPI Cards */}
+      {/* Theme-Aware Summary KPI Cards */}
       <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
         <Col xs={24} sm={8}>
           <div style={{
-            background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)',
-            border: '1px solid #bae6fd',
+            background: `var(--theme-surface, ${token.colorBgContainer})`,
+            border: `1px solid var(--theme-border, ${token.colorBorderSecondary})`,
+            borderTop: `3px solid ${token.colorPrimary}`,
             borderRadius: 10,
             padding: '14px 18px',
           }}>
-            <div style={{ fontSize: 11.5, color: '#0369a1', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4 }}>
+            <div style={{ fontSize: 11, color: token.colorTextSecondary, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>
               Total Line Items
             </div>
-            <div style={{ fontSize: 26, fontWeight: 700, color: '#0c4a6e', marginTop: 2 }}>
-              <DatabaseOutlined style={{ fontSize: 16, marginRight: 8, opacity: 0.5 }} />
+            <div style={{ fontSize: 26, fontWeight: 700, color: token.colorText, marginTop: 2 }}>
+              <DatabaseOutlined style={{ fontSize: 16, marginRight: 8, color: token.colorPrimary }} />
               {lines.length}
             </div>
           </div>
         </Col>
         <Col xs={24} sm={8}>
           <div style={{
-            background: 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)',
-            border: '1px solid #bbf7d0',
+            background: `var(--theme-surface, ${token.colorBgContainer})`,
+            border: `1px solid var(--theme-border, ${token.colorBorderSecondary})`,
+            borderTop: '3px solid #10b981',
             borderRadius: 10,
             padding: '14px 18px',
           }}>
-            <div style={{ fontSize: 11.5, color: '#15803d', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4 }}>
+            <div style={{ fontSize: 11, color: token.colorTextSecondary, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>
               Total Quantity
             </div>
-            <div style={{ fontSize: 26, fontWeight: 700, color: '#14532d', marginTop: 2 }}>
+            <div style={{ fontSize: 26, fontWeight: 700, color: '#10b981', marginTop: 2 }}>
               {fmt(totalQuantity, 2)}
             </div>
           </div>
         </Col>
         <Col xs={24} sm={8}>
           <div style={{
-            background: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)',
-            border: '1px solid #bfdbfe',
+            background: `var(--theme-surface, ${token.colorBgContainer})`,
+            border: `1px solid var(--theme-border, ${token.colorBorderSecondary})`,
+            borderTop: '3px solid #0284c7',
             borderRadius: 10,
             padding: '14px 18px',
           }}>
-            <div style={{ fontSize: 11.5, color: '#1d4ed8', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4 }}>
+            <div style={{ fontSize: 11, color: token.colorTextSecondary, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>
               Total Value (PKR)
             </div>
-            <div style={{ fontSize: 26, fontWeight: 700, color: '#1e3a5f', marginTop: 2 }}>
+            <div style={{ fontSize: 26, fontWeight: 700, color: '#0284c7', marginTop: 2 }}>
               {fmt(totalValue, 2)}
             </div>
           </div>
         </Col>
       </Row>
 
-      {/* Table Card with Import, Export, Template & Print actions */}
+      {/* Table Card — Clear All & Add Line stay here; Import/Export/PDF are in Main Header */}
       <Card
         style={{
           borderRadius: 12,
@@ -951,40 +1193,7 @@ const OpeningStock: React.FC = () => {
           </Space>
         }
         extra={
-          <Space size={6} wrap>
-            <Tooltip title="Download CSV template format with sample rows">
-              <Button size="small" icon={<DownloadOutlined />} onClick={downloadCsvTemplate}>
-                CSV Template
-              </Button>
-            </Tooltip>
-
-            <Tooltip title="Import bulk items from CSV file">
-              <Button
-                size="small"
-                icon={<UploadOutlined />}
-                onClick={() => fileInputRef.current?.click()}
-              >
-                Import CSV
-              </Button>
-            </Tooltip>
-
-            <Tooltip title="Export current table lines to CSV">
-              <Button size="small" icon={<DownloadOutlined />} onClick={exportToCsv} disabled={lines.length === 0}>
-                Export CSV
-              </Button>
-            </Tooltip>
-
-            <Tooltip title="Print / Download PDF document">
-              <Button
-                size="small"
-                icon={<PrinterOutlined />}
-                onClick={handlePrintPdf}
-                disabled={lines.length === 0}
-              >
-                Print / PDF
-              </Button>
-            </Tooltip>
-
+          <Space size={8} wrap>
             {lines.length > 0 && (
               <Popconfirm
                 title="Clear all lines?"

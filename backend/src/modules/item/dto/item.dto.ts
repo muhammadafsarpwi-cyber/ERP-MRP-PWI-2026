@@ -458,11 +458,19 @@ export class CreateItemDto {
   @IsOptional()
   piecesPerKg?: number;
 
-  @ApiPropertyOptional({ description: 'Weight per meter in kg/m' })
+  @ApiPropertyOptional({ description: 'Spiral / core weight per meter in kg/m (used for RM deduction)' })
+  @Type(() => Number)
   @IsNumber()
   @Min(0)
   @IsOptional()
   weightPerMeter?: number;
+
+  @ApiPropertyOptional({ description: 'Finished weight per meter in kg/m (total weight after coating, used for Gate Passes & FG stock)' })
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  finishedWeightPerMeter?: number;
 
   @ApiPropertyOptional({ description: 'Length per piece in m' })
   @IsNumber()
@@ -978,11 +986,19 @@ export class UpdateItemDto {
   @IsOptional()
   piecesPerKg?: number;
 
-  @ApiPropertyOptional({ description: 'Weight per meter in kg/m' })
+  @ApiPropertyOptional({ description: 'Spiral / core weight per meter in kg/m (used for RM deduction)' })
+  @Type(() => Number)
   @IsNumber()
   @Min(0)
   @IsOptional()
   weightPerMeter?: number;
+
+  @ApiPropertyOptional({ description: 'Finished weight per meter in kg/m (total weight after coating, used for Gate Passes & FG stock)' })
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  finishedWeightPerMeter?: number;
 
   @ApiPropertyOptional({ description: 'Length per piece in m' })
   @IsNumber()

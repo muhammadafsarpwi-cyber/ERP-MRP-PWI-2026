@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { App, Button, Modal, Form, Input, Select, Dropdown, Checkbox, theme, Tag, Space } from 'antd';
-import { PlusOutlined, CheckCircleOutlined, CloseCircleOutlined, ShopOutlined, PrinterOutlined, ReloadOutlined, AppstoreOutlined, EditOutlined, DeleteOutlined, DownloadOutlined, FilePdfOutlined } from '@ant-design/icons';
+import { PlusOutlined, CheckCircleOutlined, CloseCircleOutlined, ShopOutlined, PrinterOutlined, ReloadOutlined, AppstoreOutlined, EditOutlined, DeleteOutlined, DownloadOutlined, FilePdfOutlined, FilterOutlined, SearchOutlined, ApartmentOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import apiService from '../../services/api';
@@ -161,23 +161,46 @@ const WarehouseManagement: React.FC = () => {
   }, [divisions, warehouses]);
 
   // Robustly merge departments: fetched departments + any warehouse departments
-  const mergedDepartments = useMemo(() => {
+  const { mergedDepartments, deptDivisionMap } = useMemo(() => {
     const map = new Map<string, Department>();
-    departments.forEach((d) => map.set(d.id, d));
-    warehouses.forEach((w) => {
+    const divMap = new Map<string, string>();
+    departments.forEach((d: any) => {
+      map.set(d.id, d);
+      const dDiv = d.divisionId || d.division?.id || d.section?.divisionId;
+      if (dDiv) divMap.set(d.id, dDiv);
+    });
+    warehouses.forEach((w: any) => {
+      const wDiv = w.divisionId || w.division?.id;
+      const wDeptId = w.departmentId || w.department?.id;
       if (w.department?.id && !map.has(w.department.id)) {
         map.set(w.department.id, w.department);
       }
+      if (wDeptId && wDiv && !divMap.has(wDeptId)) {
+        divMap.set(wDeptId, wDiv);
+      }
     });
-    return Array.from(map.values());
+    return { mergedDepartments: Array.from(map.values()), deptDivisionMap: divMap };
   }, [departments, warehouses]);
+
+  const [filtersOpen, setFiltersOpen] = useState<boolean>(true);
+
+  const filteredDepartmentsForFilter = useMemo(() => {
+    if (!divisionFilter) return mergedDepartments;
+    return mergedDepartments.filter((dept: any) => {
+      const resolvedDiv = dept.divisionId || dept.division?.id || dept.section?.divisionId || deptDivisionMap.get(dept.id);
+      return resolvedDiv === divisionFilter;
+    });
+  }, [mergedDepartments, divisionFilter, deptDivisionMap]);
 
   // Dynamic watched division for form cascading
   const watchedDivisionId = Form.useWatch('divisionId', form);
   const availableDepartmentsForForm = useMemo(() => {
     if (!watchedDivisionId) return mergedDepartments;
-    return mergedDepartments.filter((d) => !d.divisionId || d.divisionId === watchedDivisionId);
-  }, [mergedDepartments, watchedDivisionId]);
+    return mergedDepartments.filter((d: any) => {
+      const resolvedDiv = d.divisionId || d.division?.id || d.section?.divisionId || deptDivisionMap.get(d.id);
+      return resolvedDiv === watchedDivisionId;
+    });
+  }, [mergedDepartments, watchedDivisionId, deptDivisionMap]);
 
   const fetchWarehouses = async (pageNum: number = 1) => {
     setLoading(true);
@@ -663,92 +686,107 @@ const WarehouseManagement: React.FC = () => {
           showBreadcrumbs
         />
 
-        <div className="erp-table-toolbar-grid" style={{ marginBottom: 12, gap: 8, padding: '8px 16px' }}>
-          <input
-            type="text"
-            placeholder="Search warehouses..."
-            value={searchText}
-            onChange={(e) => setSearchText(e.target.value)}
-            style={{
-              padding: '6px 12px',
-              borderRadius: 6,
-              border: `1px solid ${token.colorBorderSecondary}`,
-              background: token.colorBgContainer,
-              color: token.colorText,
-              width: 240,
-            }}
-          />
+        {/* ── Dashboard-Style Structured Filter Panel ── */}
+        <div
+          style={{
+            marginBottom: 14,
+            padding: '12px 16px',
+            borderRadius: 12,
+            background: `var(--theme-surface, ${token.colorBgContainer})`,
+            border: `1px solid var(--theme-border, ${token.colorBorderSecondary})`,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 12,
+          }}
+        >
+          {/* Top bar: Filter toggle + active filter chips + Search + Columns */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+              <Button
+                type={filtersOpen ? 'primary' : 'default'}
+                icon={<FilterOutlined />}
+                onClick={() => setFiltersOpen((o) => !o)}
+                style={{ fontWeight: 700, borderRadius: 8 }}
+              >
+                {filtersOpen ? 'Close Filters' : 'Filters'}{' '}
+                {[divisionFilter, departmentFilter, typeFilter, statusFilter].filter(Boolean).length > 0 && (
+                  <Tag color="blue" style={{ marginLeft: 6, marginRight: 0, borderRadius: 10, fontWeight: 700 }}>
+                    {[divisionFilter, departmentFilter, typeFilter, statusFilter].filter(Boolean).length}
+                  </Tag>
+                )}
+              </Button>
 
-          <Select
-            placeholder="DIVISION"
-            allowClear
-            style={{ width: 180 }}
-            value={divisionFilter}
-            onChange={(val) => {
-              setDivisionFilter(val);
-              if (val && departmentFilter) {
-                const dep = mergedDepartments.find((d) => d.id === departmentFilter);
-                if (dep?.divisionId && dep.divisionId !== val) {
-                  setDepartmentFilter(undefined);
-                }
-              }
-            }}
-            popupMatchSelectWidth={false}
-            showSearch
-            optionFilterProp="children"
-          >
-            {mergedDivisions.map((div) => (
-              <Select.Option key={div.id} value={div.id}>
-                {div.name}
-              </Select.Option>
-            ))}
-          </Select>
+              {divisionFilter && (
+                <Tag
+                  closable
+                  color="geekblue"
+                  onClose={() => {
+                    setDivisionFilter(undefined);
+                    setDepartmentFilter(undefined);
+                  }}
+                  style={{ borderRadius: 12, padding: '2px 10px', fontWeight: 600, margin: 0 }}
+                >
+                  Division: {mergedDivisions.find((d) => d.id === divisionFilter)?.name || divisionFilter}
+                </Tag>
+              )}
+              {departmentFilter && (
+                <Tag
+                  closable
+                  color="purple"
+                  onClose={() => setDepartmentFilter(undefined)}
+                  style={{ borderRadius: 12, padding: '2px 10px', fontWeight: 600, margin: 0 }}
+                >
+                  Department: {mergedDepartments.find((d) => d.id === departmentFilter)?.name || departmentFilter}
+                </Tag>
+              )}
+              {typeFilter && (
+                <Tag
+                  closable
+                  color="cyan"
+                  onClose={() => setTypeFilter(undefined)}
+                  style={{ borderRadius: 12, padding: '2px 10px', fontWeight: 600, margin: 0 }}
+                >
+                  Type: {warehouseTypes.find((t) => t.value === typeFilter)?.label || typeFilter}
+                </Tag>
+              )}
+              {statusFilter && (
+                <Tag
+                  closable
+                  color={statusFilter === 'ACTIVE' ? 'green' : 'default'}
+                  onClose={() => setStatusFilter(undefined)}
+                  style={{ borderRadius: 12, padding: '2px 10px', fontWeight: 600, margin: 0 }}
+                >
+                  Status: {statusFilter}
+                </Tag>
+              )}
+              {(divisionFilter || departmentFilter || typeFilter || statusFilter || searchText) && (
+                <Button
+                  type="link"
+                  size="small"
+                  danger
+                  onClick={() => {
+                    setSearchText('');
+                    setDivisionFilter(undefined);
+                    setDepartmentFilter(undefined);
+                    setTypeFilter(undefined);
+                    setStatusFilter(undefined);
+                  }}
+                  style={{ fontWeight: 600 }}
+                >
+                  Clear all
+                </Button>
+              )}
+            </div>
 
-          <Select
-            placeholder="DEPARTMENT"
-            allowClear
-            style={{ width: 190 }}
-            value={departmentFilter}
-            onChange={setDepartmentFilter}
-            popupMatchSelectWidth={false}
-            showSearch
-            optionFilterProp="children"
-          >
-            {mergedDepartments
-              .filter((dept) => !divisionFilter || !dept.divisionId || dept.divisionId === divisionFilter)
-              .map((dept) => (
-                <Select.Option key={dept.id} value={dept.id}>
-                  {dept.name}
-                </Select.Option>
-              ))}
-          </Select>
-
-          <Select
-            placeholder="WAREHOUSE TYPE"
-            allowClear
-            style={{ width: 180 }}
-            value={typeFilter}
-            onChange={setTypeFilter}
-            popupMatchSelectWidth={false}
-          >
-            {warehouseTypes.map((type) => (
-              <Select.Option key={type.value} value={type.value}>
-                {type.label}
-              </Select.Option>
-            ))}
-          </Select>
-
-          <Select
-            placeholder="STATUS"
-            allowClear
-            style={{ width: 150 }}
-            value={statusFilter}
-            onChange={setStatusFilter}
-            popupMatchSelectWidth={false}
-          >
-            <Select.Option value="ACTIVE">Active</Select.Option>
-            <Select.Option value="INACTIVE">Inactive</Select.Option>
-          </Select>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Input
+                prefix={<SearchOutlined style={{ color: token.colorTextTertiary }} />}
+                placeholder="Search warehouses..."
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
+                allowClear
+                style={{ width: 240, borderRadius: 8 }}
+              />
 
           <Dropdown
             trigger={['click']}
@@ -804,6 +842,143 @@ const WarehouseManagement: React.FC = () => {
               Columns
             </Button>
           </Dropdown>
+            </div>
+          </div>
+
+          {/* Dashboard-style labeled filter cards */}
+          {filtersOpen && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 10 }}>
+              {/* DIVISION */}
+              <div
+                style={{
+                  padding: '8px 12px',
+                  borderRadius: 10,
+                  border: `1px solid var(--theme-border, ${token.colorBorderSecondary})`,
+                  background: token.colorFillAlter,
+                }}
+              >
+                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: token.colorTextTertiary, marginBottom: 4 }}>
+                  <ApartmentOutlined style={{ marginRight: 5, color: '#eab308' }} />
+                  Division
+                </div>
+                <Select
+                  placeholder="All Divisions"
+                  allowClear
+                  variant="borderless"
+                  style={{ width: '100%', fontWeight: 600 }}
+                  value={divisionFilter}
+                  onChange={(val) => {
+                    setDivisionFilter(val);
+                    if (val && departmentFilter) {
+                      const dep: any = mergedDepartments.find((d) => d.id === departmentFilter);
+                      const depDiv = dep?.divisionId || dep?.division?.id || dep?.section?.divisionId || deptDivisionMap.get(departmentFilter);
+                      if (depDiv !== val) {
+                        setDepartmentFilter(undefined);
+                      }
+                    }
+                  }}
+                  popupMatchSelectWidth={false}
+                  showSearch
+                  optionFilterProp="children"
+                >
+                  {mergedDivisions.map((div) => (
+                    <Select.Option key={div.id} value={div.id}>
+                      {div.name}
+                    </Select.Option>
+                  ))}
+                </Select>
+              </div>
+
+              {/* DEPARTMENT (Filtered strictly by selected Division) */}
+              <div
+                style={{
+                  padding: '8px 12px',
+                  borderRadius: 10,
+                  border: `1px solid var(--theme-border, ${token.colorBorderSecondary})`,
+                  background: token.colorFillAlter,
+                }}
+              >
+                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: token.colorTextTertiary, marginBottom: 4 }}>
+                  <AppstoreOutlined style={{ marginRight: 5, color: '#a855f7' }} />
+                  Department {divisionFilter ? `(${filteredDepartmentsForFilter.length})` : ''}
+                </div>
+                <Select
+                  placeholder={divisionFilter ? 'All Division Departments' : 'All Departments'}
+                  allowClear
+                  variant="borderless"
+                  style={{ width: '100%', fontWeight: 600 }}
+                  value={departmentFilter}
+                  onChange={setDepartmentFilter}
+                  popupMatchSelectWidth={false}
+                  showSearch
+                  optionFilterProp="children"
+                >
+                  {filteredDepartmentsForFilter.map((dept) => (
+                    <Select.Option key={dept.id} value={dept.id}>
+                      {dept.name}
+                    </Select.Option>
+                  ))}
+                </Select>
+              </div>
+
+              {/* WAREHOUSE TYPE */}
+              <div
+                style={{
+                  padding: '8px 12px',
+                  borderRadius: 10,
+                  border: `1px solid var(--theme-border, ${token.colorBorderSecondary})`,
+                  background: token.colorFillAlter,
+                }}
+              >
+                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: token.colorTextTertiary, marginBottom: 4 }}>
+                  <ShopOutlined style={{ marginRight: 5, color: '#0284c7' }} />
+                  Warehouse Type
+                </div>
+                <Select
+                  placeholder="All Types"
+                  allowClear
+                  variant="borderless"
+                  style={{ width: '100%', fontWeight: 600 }}
+                  value={typeFilter}
+                  onChange={setTypeFilter}
+                  popupMatchSelectWidth={false}
+                >
+                  {warehouseTypes.map((type) => (
+                    <Select.Option key={type.value} value={type.value}>
+                      {type.label}
+                    </Select.Option>
+                  ))}
+                </Select>
+              </div>
+
+              {/* STATUS */}
+              <div
+                style={{
+                  padding: '8px 12px',
+                  borderRadius: 10,
+                  border: `1px solid var(--theme-border, ${token.colorBorderSecondary})`,
+                  background: token.colorFillAlter,
+                }}
+              >
+                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: token.colorTextTertiary, marginBottom: 4 }}>
+                  <CheckCircleOutlined style={{ marginRight: 5, color: '#10b981' }} />
+                  Status
+                </div>
+                <Select
+                  placeholder="All Statuses"
+                  allowClear
+                  variant="borderless"
+                  style={{ width: '100%', fontWeight: 600 }}
+                  value={statusFilter}
+                  onChange={setStatusFilter}
+                  popupMatchSelectWidth={false}
+                >
+                  <Select.Option value="ACTIVE">Active</Select.Option>
+                  <Select.Option value="INACTIVE">Inactive</Select.Option>
+                </Select>
+              </div>
+            </div>
+          )}
         </div>
 
         {loading && filteredWarehouses.length === 0 ? (

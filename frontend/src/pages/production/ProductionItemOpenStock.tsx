@@ -192,10 +192,17 @@ export interface ProductionItem {
   baseUomId?: string;
   uomName?: string;
   uomCode?: string;
+  salesUomId?: string | null;
+  salesUomCode?: string | null;
+  salesUom?: { id: string; code?: string; symbol?: string } | null;
   currentBalance: number;
   weightPerPiece?: number | null;
   piecesPerKg?: number | null;
   weightPerMeter?: number | null;
+  finishedWeightPerMeter?: number | null;
+  packagingSize?: number | null;
+  packagingUnit?: string | null;
+  packagingUnitName?: string | null;
   lengthPerPiece?: number | null;
   divisionId?: string | null;
   divisionName?: string | null;
@@ -205,20 +212,43 @@ export interface ProductionItem {
   costPrice?: number;
 }
 
+export const isMeterUomCode = (uom?: string | null): boolean => {
+  const u = String(uom || '').toUpperCase().trim();
+  return u === 'M' || u === 'MTR' || u === 'METER' || u === 'METRE' || u === 'METERS' || u === 'METRES';
+};
+
+export const getMeterPackagingConfig = (it?: ProductionItem | null) => {
+  const rawUnit = String(it?.packagingUnit || it?.packagingUnitName || '').trim();
+  const unitLabel = rawUnit || 'Coil';
+  const unitBadge = unitLabel.toUpperCase();
+  const size =
+    it?.packagingSize !== null && it?.packagingSize !== undefined && Number(it.packagingSize) > 0
+      ? Number(it.packagingSize)
+      : 0;
+  return { unitLabel, unitBadge, metersPerPkg: size, hasSize: size > 0 };
+};
+
 export function getItemWeightMeta(it?: ProductionItem | null) {
   if (!it) return { mode: 'PCS' as const, rate: 0, weightUnit: 'Kg/pc', qtyUnit: 'Pcs' };
-  const hasMeter = it.weightPerMeter !== undefined && it.weightPerMeter !== null && Number(it.weightPerMeter) > 0;
+  const finWpm = it.finishedWeightPerMeter !== undefined && it.finishedWeightPerMeter !== null && Number(it.finishedWeightPerMeter) > 0
+    ? Number(it.finishedWeightPerMeter)
+    : null;
+  const rawWpm = it.weightPerMeter !== undefined && it.weightPerMeter !== null && Number(it.weightPerMeter) > 0
+    ? Number(it.weightPerMeter)
+    : null;
+  const effectiveWpm = finWpm ?? rawWpm;
+  const hasMeter = effectiveWpm !== null && effectiveWpm > 0;
   const hasPiece = it.weightPerPiece !== undefined && it.weightPerPiece !== null && Number(it.weightPerPiece) > 0;
   const uom = (it.uomCode || '').toUpperCase();
   const divName = (it.divisionName || '').toLowerCase();
 
   // If item explicitly has weightPerMeter, or division is Control Cable, or UOM is M/MTR/METER
-  const isMeter = hasMeter || uom === 'M' || uom === 'MTR' || uom === 'METER' || divName.includes('control');
+  const isMeter = hasMeter || isMeterUomCode(uom) || divName.includes('control');
 
   if (isMeter && (hasMeter || !hasPiece)) {
     return {
       mode: 'METER' as const,
-      rate: hasMeter ? Number(it.weightPerMeter) : 0,
+      rate: hasMeter ? Number(effectiveWpm) : 0,
       weightUnit: 'Kg/M',
       qtyUnit: uom === 'KG' ? 'KG' : (uom || 'M'),
     };
@@ -268,6 +298,17 @@ export function computeWeightAndMeters(
   return { totalWeightKg, calculatedMeters, calculatedPieces };
 }
 
+export function getRateUomCode(
+  line: { uomCode?: string; qtyUnitLabel?: string; salesUomCode?: string | null },
+  itemObj?: ProductionItem | null
+): string {
+  const sales = String(
+    line.salesUomCode || itemObj?.salesUomCode || itemObj?.salesUom?.code || itemObj?.salesUom?.symbol || ''
+  ).trim();
+  const base = String(line.uomCode || line.qtyUnitLabel || itemObj?.uomCode || '').trim();
+  return (sales || base || 'PCS').toUpperCase();
+}
+
 export function computeLineTotalValue(
   line: {
     quantity: number;
@@ -278,6 +319,8 @@ export function computeLineTotalValue(
     gross?: number;
     cartons?: number;
     uomCode?: string;
+    qtyUnitLabel?: string;
+    salesUomCode?: string | null;
   },
   isFgWarehouseContext: boolean = false
 ): number {
@@ -289,6 +332,11 @@ export function computeLineTotalValue(
 
   const rate = Number(line.unitCost) || 0;
   if (rate <= 0) return 0;
+
+  const rateUom = getRateUomCode(line);
+  if (isMeterUomCode(rateUom) || isMeterUomCode(line.uomCode)) {
+    return Math.round((Number(line.quantity) || 0) * rate);
+  }
 
   if (isFgLine) {
     const gross = (line.gross !== undefined && Number(line.gross) > 0)
@@ -954,22 +1002,44 @@ export const ProductionItemOpenStock: React.FC = () => {
           }
         } else if (field === 'cartons') {
           const newCartons = Number(value) || 0;
-          const isCS = (line.itemCode || '').toUpperCase().includes('011') || (line.itemCode || '').toUpperCase().includes('012') || (line.itemName || '').toUpperCase().includes('CS');
-          const grossPerCarton = isCS ? 10.555556 : 10;
-          const newGross = Number((newCartons * grossPerCarton).toFixed(2));
-          const newQtyPcs = Math.round(newGross * 144);
-          const meta = getItemWeightMeta(itemsMap.get(line.itemId));
+          const itemObj = itemsMap.get(line.itemId);
+          const meta = getItemWeightMeta(itemObj);
+          const uom = line.qtyUnitLabel || line.uomCode || itemObj?.uomCode || meta.qtyUnit || 'PCS';
           const effectiveWt = line.weightPerPiece > 0 ? line.weightPerPiece : meta.rate;
-          const { totalWeightKg, calculatedMeters, calculatedPieces } = computeWeightAndMeters(newQtyPcs, effectiveWt, line.uomCode, line.weightMode || meta.mode);
-          updated = {
-            ...line,
-            cartons: newCartons,
-            gross: newGross,
-            quantity: newQtyPcs,
-            totalWeightKg,
-            calculatedMeters,
-            calculatedPieces,
-          };
+
+          if (isMeterUomCode(uom)) {
+            const { metersPerPkg } = getMeterPackagingConfig(itemObj);
+            if (metersPerPkg > 0) {
+              const newQtyMeters = Math.round(newCartons * metersPerPkg * 100) / 100;
+              const { totalWeightKg, calculatedMeters, calculatedPieces } = computeWeightAndMeters(newQtyMeters, effectiveWt, line.uomCode, line.weightMode || meta.mode);
+              updated = {
+                ...line,
+                cartons: newCartons,
+                gross: undefined,
+                quantity: newQtyMeters,
+                totalWeightKg,
+                calculatedMeters,
+                calculatedPieces,
+              };
+            } else {
+              updated = { ...line, cartons: newCartons, gross: undefined };
+            }
+          } else {
+            const isCS = (line.itemCode || '').toUpperCase().includes('011') || (line.itemCode || '').toUpperCase().includes('012') || (line.itemName || '').toUpperCase().includes('CS');
+            const grossPerCarton = isCS ? 10.555556 : 10;
+            const newGross = Number((newCartons * grossPerCarton).toFixed(2));
+            const newQtyPcs = Math.round(newGross * 144);
+            const { totalWeightKg, calculatedMeters, calculatedPieces } = computeWeightAndMeters(newQtyPcs, effectiveWt, line.uomCode, line.weightMode || meta.mode);
+            updated = {
+              ...line,
+              cartons: newCartons,
+              gross: newGross,
+              quantity: newQtyPcs,
+              totalWeightKg,
+              calculatedMeters,
+              calculatedPieces,
+            };
+          }
         } else if (field === 'gross') {
           const newGross = Number(value) || 0;
           const isCS = (line.itemCode || '').toUpperCase().includes('011') || (line.itemCode || '').toUpperCase().includes('012') || (line.itemName || '').toUpperCase().includes('CS');
@@ -990,12 +1060,22 @@ export const ProductionItemOpenStock: React.FC = () => {
           };
         } else if (field === 'quantity') {
           const newQty = Number(value) || 0;
-          const meta = getItemWeightMeta(itemsMap.get(line.itemId));
+          const itemObj = itemsMap.get(line.itemId);
+          const meta = getItemWeightMeta(itemObj);
+          const uom = line.qtyUnitLabel || line.uomCode || itemObj?.uomCode || meta.qtyUnit || 'PCS';
           const effectiveWt = line.weightPerPiece > 0 ? line.weightPerPiece : meta.rate;
           const { totalWeightKg, calculatedMeters, calculatedPieces } = computeWeightAndMeters(newQty, effectiveWt, line.uomCode, line.weightMode || meta.mode);
           const isFgLine = isFgWarehouse || line.itemType === 'FINISHED_GOOD' || (line.itemCode || '').startsWith('SPI-FG');
-          let extraSync = {};
-          if (isFgLine) {
+          let extraSync: Record<string, any> = {};
+          if (isMeterUomCode(uom)) {
+            const { metersPerPkg } = getMeterPackagingConfig(itemObj);
+            if (metersPerPkg > 0) {
+              const packedUnits = Number((newQty / metersPerPkg).toFixed(2));
+              extraSync = { gross: undefined, cartons: packedUnits };
+            } else {
+              extraSync = { gross: undefined };
+            }
+          } else if (isFgLine) {
             const isCS = (line.itemCode || '').toUpperCase().includes('011') || (line.itemCode || '').toUpperCase().includes('012') || (line.itemName || '').toUpperCase().includes('CS');
             const grossPerCarton = isCS ? 10.555556 : 10;
             const gross = Number((newQty / 144).toFixed(2));
@@ -1301,16 +1381,26 @@ export const ProductionItemOpenStock: React.FC = () => {
           const grossVal = (l.gross !== undefined && Number(l.gross) > 0)
             ? Number(l.gross)
             : (l.quantity > 0 ? Number((l.quantity / 144).toFixed(2)) : 0);
-          const totVal = computeLineTotalValue({ ...l, totalWeightKg }, isFgWarehouse);
-          const isMeter = mode === 'METER';
+          const totVal = computeLineTotalValue(
+            { ...l, totalWeightKg, salesUomCode: itemObj?.salesUomCode || itemObj?.salesUom?.code },
+            isFgWarehouse
+          );
+          const isMeter = mode === 'METER' || isMeterUomCode(uom);
           const unitLbl = l.weightUnitLabel || masterMeta.weightUnit;
           const lengthRemark = calculatedMeters && calculatedMeters > 0 ? `, ≈ ${fmtNum(calculatedMeters, 1)} M` : '';
-          const priceRemark = isFgLine
+          const priceRemark = isMeter
+            ? (totalWeightKg > 0 ? ` (${fmtNum(l.quantity)} M, Wt: ${fmtNum(totalWeightKg, 2)} Kg)` : '')
+            : isFgLine
             ? ` (${fmtNum(grossVal)} GRS @ ${l.unitCost} Rs/GRS = ${fmtNum(totVal)} Rs, Wt: ${fmtNum(totalWeightKg, 2)} Kg)`
             : (totalWeightKg > 0 ? ` (${fmtNum(totalWeightKg)} Kg @ ${l.unitCost} Rs/Kg [${unitLbl}: ${effectiveWt}${lengthRemark}])` : '');
           const custRemark = l.customerName ? ` [Customer: ${l.customerName}]` : '';
           const socRemark = l.socNumber ? ` [SOC: ${l.socNumber}]` : '';
-          const ctnRemark = l.cartons && Number(l.cartons) > 0 ? ` [${l.cartons} CTN / ${grossVal} GRS]` : '';
+          const meterPkg = isMeter ? getMeterPackagingConfig(itemObj) : null;
+          const ctnRemark = l.cartons && Number(l.cartons) > 0
+            ? (isMeter && meterPkg
+                ? ` [${l.cartons} ${meterPkg.unitBadge} / ${l.quantity} M]`
+                : ` [${l.cartons} CTN / ${grossVal} GRS]`)
+            : '';
           const combinedNotes = [l.notes, `${priceRemark}${custRemark}${socRemark}${ctnRemark}`.trim()].filter(Boolean).join(' ');
           const effectiveUnitCost = l.quantity > 0 ? Number((totVal / l.quantity).toFixed(4)) : l.unitCost;
 
@@ -1615,7 +1705,11 @@ export const ProductionItemOpenStock: React.FC = () => {
       const w = Number(line.totalWeightKg) || 0;
       const m = Number(line.calculatedMeters) || 0;
       const ctn = Number(line.cartons) || 0;
-      const lineVal = computeLineTotalValue(line, isFgWarehouse);
+      const itemObj = itemsMap.get(line.itemId);
+      const lineVal = computeLineTotalValue(
+        { ...line, salesUomCode: itemObj?.salesUomCode || itemObj?.salesUom?.code },
+        isFgWarehouse
+      );
       totalQty += q;
       totalWeight += w;
       totalValue += lineVal;
@@ -1631,7 +1725,7 @@ export const ProductionItemOpenStock: React.FC = () => {
       totalMeters,
       totalCartons,
     };
-  }, [openStockLines, isFgWarehouse]);
+  }, [openStockLines, isFgWarehouse, itemsMap]);
 
   const primaryUom = useMemo(() => {
     const firstValidLine = openStockLines.find((l) => l.itemId && l.quantity > 0);
@@ -1902,18 +1996,49 @@ export const ProductionItemOpenStock: React.FC = () => {
       cols.push({
         title: (
           <span>
-            Packed Cartons
-            <div style={{ fontSize: 10, fontWeight: 'normal', color: '#8c8c8c' }}>Cartons (CTN)</div>
+            Packed Units
+            <div style={{ fontSize: 10, fontWeight: 'normal', color: '#8c8c8c' }}>COIL / CTN</div>
           </span>
         ),
         dataIndex: 'cartons',
         key: 'cartons',
         width: 175,
         render: (val, record) => {
+          const itemObj = itemsMap.get(record.itemId);
+          const meta = getItemWeightMeta(itemObj);
+          const uom = record.qtyUnitLabel || record.uomCode || itemObj?.uomCode || meta.qtyUnit || 'PCS';
+          const isMeter = isMeterUomCode(uom);
           const isFg = isFgWarehouse || record.itemType === 'FINISHED_GOOD' || (record.itemCode || '').startsWith('SPI-FG');
-          if (!isFg) {
+          if (!isFg && !isMeter) {
             return <Text type="secondary" style={{ fontSize: 12 }}>—</Text>;
           }
+
+          if (isMeter) {
+            const { unitLabel, unitBadge, metersPerPkg, hasSize } = getMeterPackagingConfig(itemObj);
+            const packedUnits = val !== undefined && val !== null
+              ? val
+              : (record.quantity > 0 && metersPerPkg > 0 ? Number((record.quantity / metersPerPkg).toFixed(2)) : undefined);
+            return (
+              <Tooltip title={!hasSize ? `${unitLabel} size not set in Item Master` : undefined}>
+                <InputNumber
+                  controls={false}
+                  disabled={!hasSize}
+                  className="prod-qty-input"
+                  min={0}
+                  step={1}
+                  value={packedUnits === 0 ? null : packedUnits}
+                  onFocus={(e) => e.target.select()}
+                  addonAfter={<span style={{ fontSize: 11, fontWeight: 700, color: hasSize ? '#faad14' : '#8c8c8c' }}>{unitBadge}</span>}
+                  onChange={(newCtn) => handleUpdateLine(record.key, 'cartons', newCtn !== null && newCtn !== undefined ? newCtn : 0)}
+                  formatter={(v) => v !== undefined && v !== null ? `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : ''}
+                  parser={(v) => v ? parseFloat(v.replace(/,/g, '')) : 0}
+                  style={{ width: '100%', minWidth: 155, borderColor: hasSize ? '#faad14' : undefined, borderWidth: 1.5, borderRadius: 6, fontWeight: 'bold', fontSize: 14 }}
+                  placeholder={hasSize ? '0' : 'N/A'}
+                />
+              </Tooltip>
+            );
+          }
+
           const isCS = (record.itemCode || '').toUpperCase().includes('011') || (record.itemCode || '').toUpperCase().includes('012') || (record.itemName || '').toUpperCase().includes('CS');
           const grossPerCarton = isCS ? 10.555556 : 10;
           const cartons = val !== undefined && val !== null ? val : (record.quantity > 0 ? Number((record.quantity / (grossPerCarton * 144)).toFixed(2)) : undefined);
@@ -1941,7 +2066,7 @@ export const ProductionItemOpenStock: React.FC = () => {
       title: (
         <span>
           Opening Qty
-          <div style={{ fontSize: 10, fontWeight: 'normal', color: '#8c8c8c' }}>Pieces / Quantity</div>
+          <div style={{ fontSize: 10, fontWeight: 'normal', color: '#8c8c8c' }}>Quantity / UOM</div>
         </span>
       ),
       dataIndex: 'quantity',
@@ -1951,8 +2076,12 @@ export const ProductionItemOpenStock: React.FC = () => {
         const itemObj = itemsMap.get(record.itemId);
         const meta = getItemWeightMeta(itemObj);
         const uom = record.qtyUnitLabel || record.uomCode || itemObj?.uomCode || meta.qtyUnit || 'PCS';
+        const isMeter = isMeterUomCode(uom);
         const isFg = isFgWarehouse || record.itemType === 'FINISHED_GOOD' || (record.itemCode || '').startsWith('SPI-FG');
-        const gross = record.gross !== undefined ? record.gross : (val > 0 ? Number((val / 144).toFixed(2)) : undefined);
+        const gross = !isMeter
+          ? (record.gross !== undefined ? record.gross : (val > 0 ? Number((val / 144).toFixed(2)) : undefined))
+          : undefined;
+        const meterPkg = isMeter ? getMeterPackagingConfig(itemObj) : null;
 
         return (
           <div>
@@ -1970,11 +2099,17 @@ export const ProductionItemOpenStock: React.FC = () => {
               style={{ width: '100%', minWidth: 235, borderColor: '#faad14', borderWidth: 1.5, borderRadius: 6, fontWeight: 'bold', fontSize: 14 }}
               placeholder="0"
             />
-            {isFg && (
+            {isMeter && meterPkg ? (
+              <div style={{ fontSize: 11, color: meterPkg.hasSize ? '#13c2c2' : '#fa8c16', marginTop: 3, fontWeight: 600 }}>
+                {meterPkg.hasSize
+                  ? `1 ${meterPkg.unitLabel} = ${fmtNum(meterPkg.metersPerPkg)} M`
+                  : `${meterPkg.unitLabel} size not set`}
+              </div>
+            ) : isFg ? (
               <div style={{ fontSize: 11, color: '#13c2c2', marginTop: 3, fontWeight: 600 }}>
                 ≈ {fmtNum(gross || 0)} Gross (GRS)
               </div>
-            )}
+            ) : null}
           </div>
         );
       },
@@ -2054,11 +2189,11 @@ export const ProductionItemOpenStock: React.FC = () => {
       },
       {
         title: (
-          <Tooltip title={isFgWarehouse || filterItemType === 'FINISHED_GOOD' ? "Finished Goods Sales Rate in PKR per Gross (1 Gross = 144 Pcs)" : "Cost Rate in PKR per Kg (for Raw/WIP) or per Gross (for FG)"}>
+          <Tooltip title="Rate in PKR per Sales UOM (e.g., per Meter for M items, per Gross for GRS/PCS FG items, or per Kg for RM/WIP)">
             <span>
-              {isFgWarehouse || filterItemType === 'FINISHED_GOOD' ? 'Rate / Gross (PKR)' : 'Rate / Kg or GRS'}
+              Rate / Unit (PKR)
               <div style={{ fontSize: 10, fontWeight: 'normal', color: '#8c8c8c' }}>
-                {isFgWarehouse || filterItemType === 'FINISHED_GOOD' ? 'Rate per Gross (GRS)' : 'Rate per Gross / Kg'}
+                Rate per Sales UOM
               </div>
             </span>
           </Tooltip>
@@ -2067,26 +2202,33 @@ export const ProductionItemOpenStock: React.FC = () => {
         key: 'unitCost',
         width: 155,
         render: (val, record) => {
+          const itemObj = itemsMap.get(record.itemId);
+          const rateUom = getRateUomCode(record, itemObj);
+          const isMeterRate = isMeterUomCode(rateUom);
           const isFgLine = isFgWarehouse || record.itemType === 'FINISHED_GOOD' || (record.itemCode || '').startsWith('SPI-FG');
-          const rateUnit = isFgLine ? 'GRS' : (record.uomCode === 'KG' ? 'Kg' : (record.qtyUnitLabel || record.uomCode || 'Kg'));
+          const rateUnit = isMeterRate
+            ? 'M'
+            : isFgLine
+            ? 'GRS'
+            : (record.uomCode === 'KG' ? 'Kg' : (record.qtyUnitLabel || record.uomCode || 'Kg'));
           return (
             <InputNumber
               controls={false}
               onFocus={(e) => e.target.select()}
               min={0}
-              step={isFgLine ? 10 : 0.5}
+              step={isMeterRate ? 1 : isFgLine ? 10 : 0.5}
               value={val}
               onChange={(newVal) => handleUpdateLine(record.key, 'unitCost', newVal || 0)}
               addonAfter={<span style={{ fontSize: 11, fontWeight: 700, color: '#faad14' }}>{rateUnit}</span>}
               style={{ width: '100%', minWidth: 140, borderColor: '#faad14', borderWidth: 1.5, borderRadius: 6, fontWeight: 'bold', fontSize: 14 }}
-              placeholder={isFgLine ? "950.0" : "310.0"}
+              placeholder={isMeterRate ? '20.0' : isFgLine ? '950.0' : '310.0'}
             />
           );
         },
       },
       {
         title: (
-          <Tooltip title="For Finished Goods: Gross × Rate/Gross. For WIP/RM: Weight (Kg) × Rate/Kg">
+          <Tooltip title="For Meter items: Opening Qty (M) × Rate/M. For Gross FG: Gross × Rate/Gross. For WIP/RM: Weight (Kg) × Rate/Kg">
             <span>
               Total Value (PKR)
               <div style={{ fontSize: 10, fontWeight: 'normal', color: '#8c8c8c' }}>Total Amount</div>
@@ -2103,7 +2245,10 @@ export const ProductionItemOpenStock: React.FC = () => {
           const uom = (record.uomCode || itemObj?.uomCode || '').toUpperCase();
           const mode = record.weightMode || meta.mode;
           const { totalWeightKg } = computeWeightAndMeters(qty, effectiveWt, uom, mode);
-          const total = computeLineTotalValue({ ...record, totalWeightKg }, isFgWarehouse);
+          const total = computeLineTotalValue(
+            { ...record, totalWeightKg, salesUomCode: itemObj?.salesUomCode || itemObj?.salesUom?.code },
+            isFgWarehouse
+          );
           return <Text strong style={{ color: '#096dd9', fontSize: 13 }}>{fmtNum(total)} Rs</Text>;
         },
       },

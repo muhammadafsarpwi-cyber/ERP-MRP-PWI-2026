@@ -273,6 +273,9 @@ export class Item extends BaseEntity {
   @Column({ name: 'weight_per_meter', type: 'decimal', precision: 15, scale: 6, nullable: true })
   weightPerMeter: number | null;
 
+  @Column({ name: 'finished_weight_per_meter', type: 'decimal', precision: 15, scale: 6, nullable: true })
+  finishedWeightPerMeter: number | null;
+
   @Column({ name: 'length_per_piece', type: 'decimal', precision: 15, scale: 6, nullable: true })
   lengthPerPiece: number | null;
 

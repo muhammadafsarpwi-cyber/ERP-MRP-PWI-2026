@@ -593,21 +593,22 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
 
           {/* QUICK SEARCH BAR IN SIDEBAR */}
           {!effectivelyCollapsed && (
-            <div style={{ padding: '8px 12px 6px 12px', flexShrink: 0, borderBottom: isLight ? '1px solid #f1f5f9' : '1px solid rgba(255, 255, 255, 0.05)' }}>
+            <div style={{ padding: '10px 12px 8px 12px', flexShrink: 0, borderBottom: isLight ? '1px solid #f1f5f9' : '1px solid rgba(255, 255, 255, 0.05)' }}>
               <Input
-                prefix={<SearchOutlined style={{ color: isLight ? '#94a3b8' : '#64748b', fontSize: 13 }} />}
+                prefix={<SearchOutlined style={{ color: isLight ? '#64748b' : '#94a3b8', fontSize: 14 }} />}
                 placeholder="Quick Search..."
                 value={sidebarSearch}
                 onChange={(e) => setSidebarSearch(e.target.value)}
                 allowClear
-                size="small"
+                size="middle"
                 style={{
-                  borderRadius: 14,
+                  height: 36,
+                  borderRadius: 10,
                   background: isLight ? '#f1f5f9' : 'rgba(255, 255, 255, 0.06)',
                   border: isLight ? '1px solid #cbd5e1' : '1px solid rgba(255, 255, 255, 0.12)',
                   color: isLight ? '#0f172a' : '#f8fafc',
-                  fontSize: 12,
-                  padding: '3px 10px',
+                  fontSize: 13,
+                  padding: '4px 12px',
                 }}
               />
             </div>

@@ -63,6 +63,7 @@ export class ProductionOpenStockService {
     const qb = this.itemRepo
       .createQueryBuilder('item')
       .leftJoinAndSelect('item.baseUom', 'baseUom')
+      .leftJoinAndSelect('item.salesUom', 'salesUom')
       .leftJoinAndSelect('item.division', 'division')
       .leftJoinAndSelect('item.department', 'department')
       .leftJoinAndSelect('item.category', 'category')
@@ -125,6 +126,17 @@ export class ProductionOpenStockService {
         weightPerMeter = Number(Number(item.weightPerMeter).toFixed(6));
       }
 
+      let finishedWeightPerMeter: number | null = null;
+      if (item.finishedWeightPerMeter && Number(item.finishedWeightPerMeter) > 0) {
+        finishedWeightPerMeter = Number(Number(item.finishedWeightPerMeter).toFixed(6));
+      }
+
+      const packagingSize =
+        item.packagingSize !== null && item.packagingSize !== undefined && Number(item.packagingSize) > 0
+          ? Number(item.packagingSize)
+          : null;
+      const packagingUnit = item.packagingUnit ? String(item.packagingUnit).trim() : null;
+
       return {
         id: item.id,
         itemCode: item.itemCode,
@@ -137,11 +149,19 @@ export class ProductionOpenStockService {
         weightPerPiece,
         piecesPerKg: item.piecesPerKg ? Number(item.piecesPerKg) : null,
         weightPerMeter,
+        finishedWeightPerMeter,
+        packagingType: item.packagingType || null,
+        packagingSize,
+        packagingUnit,
+        packagingUnitName: packagingUnit,
         lengthPerPiece: item.lengthPerPiece ? Number(item.lengthPerPiece) : null,
         baseUomId: item.baseUomId,
         uomId: item.baseUomId,
         uomCode: item.baseUom?.code || item.baseUom?.symbol || 'PCS',
         baseUom: item.baseUom ? { id: item.baseUom.id, code: item.baseUom.code, symbol: item.baseUom.symbol } : null,
+        salesUomId: item.salesUomId || null,
+        salesUomCode: item.salesUom?.code || item.salesUom?.symbol || null,
+        salesUom: item.salesUom ? { id: item.salesUom.id, code: item.salesUom.code, symbol: item.salesUom.symbol } : null,
         divisionId: item.divisionId,
         divisionName: item.division?.name || null,
         departmentId: item.departmentId,
