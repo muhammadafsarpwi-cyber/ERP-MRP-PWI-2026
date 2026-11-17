@@ -212,23 +212,37 @@ export class SalesDeliveryService {
       }
     }
 
+    const isMeterUom = (u?: string | null) =>
+      ['M', 'MTR', 'METER', 'METRE', 'METERS', 'METRES'].includes(String(u || '').toUpperCase().trim());
+
     return rawDeliveries.map((sd: any) => {
       const lines = (sd.lines || []).map((l: any) => {
         const socMatch = l.description?.match(/SOC[:\s]+(SOC-[A-Za-z0-9-]+|[0-9A-Za-z-]+)/i);
         const lineSoc = socMatch ? socMatch[1].trim() : (sd.salesOrder?.orderNumber || null);
+        const uomCode = l.uom?.code || 'GRS';
+        const isMeter = isMeterUom(uomCode);
         const pSize = Number(l.item?.packagingSize || l.packagingSize || 10) || 10;
         const qty = Number(l.quantity) || 0;
         const ctn = Math.round((qty / pSize) * 100) / 100;
+        const rawWpm = l.item?.weightPerMeter != null ? Number(l.item.weightPerMeter) : null;
+        const finWpm = l.item?.finishedWeightPerMeter != null ? Number(l.item.finishedWeightPerMeter) : null;
+        const effectiveWpm = isMeter
+          ? ((finWpm != null && finWpm > 0) ? finWpm : ((rawWpm != null && rawWpm > 0) ? rawWpm : 0))
+          : 0;
+        const totalWeightKg = isMeter && effectiveWpm > 0 ? Number((qty * effectiveWpm).toFixed(3)) : null;
 
         return {
           ...l,
           socNumber: lineSoc,
           packagingSize: pSize,
-          packagingUnit: l.item?.packagingUnit || 'CTN',
+          packagingUnit: l.item?.packagingUnit || (isMeter ? 'Coil' : 'CTN'),
           cartons: ctn,
           itemCode: l.item?.itemCode || l.itemCode,
           itemName: l.item?.name || l.itemName || l.description,
-          uomCode: l.uom?.code || 'GRS',
+          uomCode,
+          weightPerMeter: rawWpm,
+          finishedWeightPerMeter: finWpm,
+          ...(totalWeightKg != null ? { totalWeightKg } : {}),
         };
       });
 

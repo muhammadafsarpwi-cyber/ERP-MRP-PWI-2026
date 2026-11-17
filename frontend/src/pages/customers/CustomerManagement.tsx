@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Button, Form, Input, Select, App,
   InputNumber, Row, Col, Descriptions, DatePicker, Tabs, List, Badge, Tooltip,
-  Modal, Space, Table, Switch, Upload, Tag, Empty, Collapse,
+  Modal, Space, Table, Switch, Upload, Tag, Empty, Collapse, theme,
 } from 'antd';
 import {
   PlusOutlined, EditOutlined, DeleteOutlined, EyeOutlined,
@@ -14,7 +14,7 @@ import {
   DollarCircleOutlined, InfoCircleOutlined, HistoryOutlined,
   GlobalOutlined, SafetyCertificateOutlined,
   SaveOutlined, CloseOutlined, CalendarOutlined, SyncOutlined,
-  PlusCircleOutlined, ApartmentOutlined,
+  PlusCircleOutlined, ApartmentOutlined, SettingOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { useLocation } from 'react-router-dom';
@@ -205,6 +205,7 @@ const GST_MODES = [
 
 const CustomerManagement: React.FC = () => {
   const { message } = App.useApp();
+  const { token } = theme.useToken();
   const location = useLocation();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(false);
@@ -2016,24 +2017,164 @@ const CustomerManagement: React.FC = () => {
         </div>
       </div>
 
-      {/* Create / Edit Customer Master Modal — Draggable, Resizable, Minimizable, Maximizable */}
+      {/* Create / Edit Customer Master Modal — Daily Production Entry Wizard Style with 7px Outer Translucent Frame */}
       <DraggableResizableModal
-        wrapClassName="reference-customer-modal"
+        wrapClassName="pwi-customer-wizard-modal-wrap"
         open={modalVisible}
         onCancel={() => setModalVisible(false)}
-        footer={null}
-        width={960}
-        height={680}
+        width={980}
+        height={720}
         title={
-          <span>
-            <PlusOutlined style={{ marginRight: 6 }} /> {editingCustomer ? `Edit Customer: ${editingCustomer.name}` : '+ Add Customer'}
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingRight: 8 }}>
+            <div
+              style={{
+                width: 42,
+                height: 42,
+                borderRadius: 10,
+                background: 'linear-gradient(135deg, #ea580c 0%, #f97316 100%)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxShadow: '0 4px 14px rgba(234, 88, 12, 0.38)',
+                color: '#ffffff',
+                fontSize: 20,
+                flexShrink: 0,
+              }}
+            >
+              {editingCustomer ? <EditOutlined /> : <UserOutlined />}
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <div
+                style={{
+                  fontSize: 10.5,
+                  fontWeight: 900,
+                  textTransform: 'uppercase',
+                  letterSpacing: '1.1px',
+                  color: '#ea580c',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                }}
+              >
+                <span>CUSTOMER MASTER · ACCOUNT &amp; BILLING PROFILE</span>
+                <span
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 700,
+                    color: token.colorTextSecondary,
+                    backgroundColor: token.colorFillAlter,
+                    padding: '1px 8px',
+                    borderRadius: 6,
+                    border: `1px solid ${token.colorBorderSecondary}`,
+                    letterSpacing: 'normal',
+                    textTransform: 'none',
+                  }}
+                >
+                  Drag to Move
+                </span>
+              </div>
+              <div
+                style={{
+                  fontSize: 19,
+                  fontWeight: 900,
+                  color: token.colorText,
+                  marginTop: 1,
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+              >
+                {editingCustomer ? `Edit Customer — ${editingCustomer.name}` : 'Add New Customer'}
+              </div>
+            </div>
+          </div>
         }
         infoTooltip="Register a customer master profile with division, commercial, and credit parameters"
         destroyOnHidden
+        styles={{
+          content: {
+            padding: 7,
+            borderRadius: 22,
+            background: 'color-mix(in srgb, var(--theme-primary, #ea580c) 8%, rgba(148, 163, 184, 0.22))',
+            backdropFilter: 'blur(12px)',
+            border: '1px solid rgba(255, 255, 255, 0.25)',
+            boxShadow: '0 24px 64px rgba(0, 0, 0, 0.28)',
+            overflow: 'hidden',
+          },
+          header: {
+            backgroundColor: token.colorBgContainer,
+            borderRadius: '16px 16px 0 0',
+            borderBottom: `1px solid ${token.colorBorderSecondary}`,
+            padding: '14px 20px',
+            marginBottom: 0,
+          },
+          body: {
+            backgroundColor: token.colorBgLayout,
+            padding: '16px 20px',
+            maxHeight: 'calc(100vh - 220px)',
+            overflowY: 'auto',
+          },
+          footer: {
+            backgroundColor: token.colorBgContainer,
+            borderRadius: '0 0 16px 16px',
+            borderTop: `1px solid ${token.colorBorderSecondary}`,
+            padding: '12px 20px',
+            marginTop: 0,
+          },
+        }}
+        footer={
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+            <span
+              style={{
+                padding: '4px 12px',
+                borderRadius: 8,
+                backgroundColor: token.colorFillAlter,
+                border: `1px solid ${token.colorBorderSecondary}`,
+                fontSize: 12,
+                fontWeight: 600,
+                color: token.colorTextSecondary,
+              }}
+            >
+              {editingCustomer ? `Editing ${editingCustomer.customerCode || 'Customer'}` : 'New Customer Profile'}
+            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Button
+                size="large"
+                icon={<CloseOutlined />}
+                onClick={() => setModalVisible(false)}
+                style={{ minWidth: 105, borderRadius: 10, fontWeight: 600 }}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="primary"
+                size="large"
+                icon={<SaveOutlined />}
+                onClick={() => form.submit()}
+                style={{
+                  minWidth: 165,
+                  borderRadius: 10,
+                  fontWeight: 700,
+                  border: 'none',
+                  background: 'linear-gradient(135deg, #ea580c 0%, #f97316 100%)',
+                  boxShadow: '0 4px 14px rgba(234, 88, 12, 0.35)',
+                }}
+              >
+                {editingCustomer ? 'Save Changes' : 'Save Customer'}
+              </Button>
+            </div>
+          </div>
+        }
       >
         {/* Modal Form Body */}
-        <div className="reference-modal-body">
+        <div
+          style={{
+            backgroundColor: token.colorBgContainer,
+            border: `1px solid ${token.colorBorderSecondary}`,
+            borderRadius: 14,
+            padding: '16px 18px',
+          }}
+        >
           <Form form={form} layout="vertical" onFinish={handleSubmit}>
             {/* Row 1: Customer Name, Contact Person, Phone */}
             <Row gutter={[16, 12]}>
@@ -2279,8 +2420,26 @@ const CustomerManagement: React.FC = () => {
             </Row>
 
             {/* Optional Collapsible: Additional Enterprise ERP Settings */}
-            <Collapse ghost size="small" style={{ marginTop: 4 }}>
-              <Collapse.Panel header="Additional ERP Master Settings (Type, Category, Payment Terms, Price List, Notes)" key="1">
+            <Collapse
+              size="small"
+              style={{
+                marginTop: 8,
+                backgroundColor: token.colorFillAlter,
+                border: `1px solid ${token.colorBorderSecondary}`,
+                borderRadius: 12,
+              }}
+            >
+              <Collapse.Panel
+                header={
+                  <Space size={8}>
+                    <SettingOutlined style={{ color: '#ea580c' }} />
+                    <span style={{ fontWeight: 700, color: token.colorText }}>
+                      Additional ERP Master Settings (Type, Category, Payment Terms, Price List, Notes)
+                    </span>
+                  </Space>
+                }
+                key="1"
+              >
                 <Row gutter={[16, 10]}>
                   <Col xs={24} sm={12} md={8}>
                     <Form.Item name="shortName" label="Short Name / Alias">
@@ -2344,24 +2503,6 @@ const CustomerManagement: React.FC = () => {
               </Collapse.Panel>
             </Collapse>
 
-            {/* Footer Buttons (Left-Aligned matching reference screenshot) */}
-            <div className="reference-modal-footer">
-              <Button
-                type="primary"
-                htmlType="submit"
-                icon={<SaveOutlined />}
-                className="btn-ref-save"
-              >
-                Save
-              </Button>
-              <Button
-                icon={<CloseOutlined />}
-                className="btn-ref-cancel"
-                onClick={() => setModalVisible(false)}
-              >
-                Cancel
-              </Button>
-            </div>
           </Form>
         </div>
       </DraggableResizableModal>

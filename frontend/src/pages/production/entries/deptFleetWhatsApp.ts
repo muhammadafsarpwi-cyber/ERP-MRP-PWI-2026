@@ -10,6 +10,7 @@ export interface MachineEntryMini {
   targetQuantity: number;
   actualQuantity: number;
   uom?: string | null;
+  remarks?: string | null;
 }
 
 export interface MachineStatusRow {
@@ -21,6 +22,7 @@ export interface MachineStatusRow {
   status: 'ENTERED' | 'ENTRY_REQUIRED';
   entryCount: number;
   primaryEntryId?: string | null;
+  remarks?: string | null;
   divisionId: string | null;
   sectionId: string | null;
   departmentId: string | null;
@@ -47,7 +49,29 @@ export interface DeptFleetWhatsAppParams {
   machines: MachineStatusRow[];
 }
 
-const NUMBER_EMOJIS = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
+/**
+ * Formats machine-level remarks cleanly for mobile WhatsApp readability.
+ */
+function formatMachineRemarks(rawRemarks: Array<string | null | undefined>): string[] {
+  const uniqueBlocks = Array.from(
+    new Set(
+      rawRemarks
+        .map((r) => String(r || '').replace(/\r\n/g, '\n').trim())
+        .filter(Boolean)
+    )
+  );
+  if (uniqueBlocks.length === 0) return [];
+
+  const lines: string[] = [];
+  uniqueBlocks.forEach((block) => {
+    block
+      .split(/\n|;/)
+      .map((part) => part.replace(/\s+/g, ' ').trim())
+      .filter(Boolean)
+      .forEach((clean) => lines.push(clean));
+  });
+  return Array.from(new Set(lines));
+}
 
 /**
  * Natural sort machine codes/names so ST-02 comes before ST-10
@@ -162,7 +186,6 @@ export function buildDepartmentFleetWhatsAppText(params: DeptFleetWhatsAppParams
     totalTarget += target;
     totalActual += actual;
 
-    const numEmoji = idx < NUMBER_EMOJIS.length ? NUMBER_EMOJIS[idx] : `#${idx + 1}`;
     // Status text without tick or hourglass emoji as requested
     const statusText = m.status === 'ENTERED' ? 'Entered' : 'Entry Required';
     // Achievement tone: up triangle for >= 70%, down triangle for < 70% (no colored circle balls)
@@ -172,7 +195,7 @@ export function buildDepartmentFleetWhatsAppText(params: DeptFleetWhatsAppParams
       ? `${m.machineCode} — ${m.name}`
       : m.name || m.systemCode || `Machine ${idx + 1}`;
 
-    machineRows.push(`${numEmoji} *${displayName}* [${statusText}]`);
+    machineRows.push(`*${displayName}* [${statusText}]`);
     machineRows.push(`   *Actual:* ${formatNumber(actual, 0)} ${uom}`);
     machineRows.push(`   *Achievement:* ${achievement.toFixed(2)}% ${achTone}`);
 
@@ -194,6 +217,21 @@ export function buildDepartmentFleetWhatsAppText(params: DeptFleetWhatsAppParams
         }
 
         machineRows.push(`   * ${iName} (${formatNumber(eQty, 0)} ${eUom})`);
+      });
+    }
+
+    // Machine-wise Remarks (only if non-empty)
+    const remarkLines = formatMachineRemarks([
+      m.remarks,
+      ...(m.entries || []).map((e) => e.remarks),
+    ]);
+    if (remarkLines.length === 1) {
+      machineRows.push('   *Remarks:*');
+      machineRows.push(`     ${remarkLines[0]}`);
+    } else if (remarkLines.length > 1) {
+      machineRows.push('   *Remarks:*');
+      remarkLines.forEach((line) => {
+        machineRows.push(`     - ${line}`);
       });
     }
 

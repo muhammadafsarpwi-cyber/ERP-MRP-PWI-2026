@@ -5390,44 +5390,269 @@ const ItemManagement: React.FC = () => {
           onMinimize={() => setIsFormMinimized(true)}
           onOk={handleSubmit}
           confirmLoading={saving}
-          width={screens.md ? (showLivePreview && screens.lg ? 1240 : 880) : '96vw'}
-          height={screens.md ? 720 : 640}
-          wrapClassName="erp-mobile-modal"
-          okText={editing ? 'Save Changes' : (isCloning ? 'Create Duplicate Item' : 'Create Item')}
+          width={screens.md ? (showLivePreview && screens.lg ? 1260 : 940) : '96vw'}
+          height={screens.md ? 760 : 640}
+          wrapClassName="erp-mobile-modal pwi-item-wizard-modal-wrap"
           title={
-            <Space>
-              {editing ? <EditOutlined /> : (isCloning ? <CopyOutlined /> : <FileAddOutlined />)}
-              {editing ? `Edit Item — ${editing.itemCode}` : (isCloning ? 'Duplicate / Clone Item' : 'Add New Item')}
-            </Space>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingRight: 8 }}>
+              <div
+                style={{
+                  width: screens.xs ? 34 : 42,
+                  height: screens.xs ? 34 : 42,
+                  borderRadius: 10,
+                  background: 'linear-gradient(135deg, #ea580c 0%, #f97316 100%)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  boxShadow: '0 4px 14px rgba(234, 88, 12, 0.38)',
+                  color: '#ffffff',
+                  fontSize: screens.xs ? 16 : 20,
+                  flexShrink: 0,
+                }}
+              >
+                {editing ? <EditOutlined /> : (isCloning ? <CopyOutlined /> : <FileAddOutlined />)}
+              </div>
+              <div style={{ minWidth: 0 }}>
+                {!screens.xs && (
+                  <div
+                    style={{
+                      fontSize: 10.5,
+                      fontWeight: 900,
+                      textTransform: 'uppercase',
+                      letterSpacing: '1.1px',
+                      color: '#ea580c',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                    }}
+                  >
+                    <span>ITEM MASTER DATA · PRODUCT &amp; MATERIAL SPECIFICATION</span>
+                    <span
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 700,
+                        color: token.colorTextSecondary,
+                        backgroundColor: token.colorFillAlter,
+                        padding: '1px 8px',
+                        borderRadius: 6,
+                        border: `1px solid ${token.colorBorderSecondary}`,
+                        letterSpacing: 'normal',
+                        textTransform: 'none',
+                      }}
+                    >
+                      Drag to Move
+                    </span>
+                  </div>
+                )}
+                <div
+                  style={{
+                    fontSize: screens.xs ? 15 : 19,
+                    fontWeight: 900,
+                    color: token.colorText,
+                    marginTop: 1,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                >
+                  {editing ? `Edit Item — ${editing.itemCode}` : (isCloning ? 'Duplicate / Clone Item' : 'Add New Item')}
+                </div>
+              </div>
+            </div>
           }
           extra={
             screens.lg && (
               <Button
                 size="small"
+                type={showLivePreview ? 'primary' : 'default'}
                 icon={<EyeOutlined />}
                 onClick={() => setShowLivePreview((v) => !v)}
-                style={{ fontSize: 12, marginRight: 8 }}
+                style={{
+                  fontSize: 12,
+                  marginRight: 8,
+                  borderRadius: 8,
+                  fontWeight: 600,
+                }}
               >
                 {showLivePreview ? 'Hide Live Preview' : 'Show Live Preview'}
               </Button>
             )
           }
+          footer={
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: 12,
+                padding: '4px 2px',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <span
+                  style={{
+                    padding: '4px 12px',
+                    borderRadius: 8,
+                    backgroundColor: token.colorFillAlter,
+                    border: `1px solid ${token.colorBorderSecondary}`,
+                    fontSize: 12,
+                    fontWeight: 700,
+                    color: token.colorTextSecondary,
+                  }}
+                >
+                  Step{' '}
+                  <strong style={{ color: token.colorText }}>
+                    {formWizardTab === 'profile' ? '1' : formWizardTab === 'routing' ? '2' : '3'}
+                  </strong>{' '}
+                  of 3
+                </span>
+                {(watchedCode || editing?.itemCode) && (
+                  <span
+                    style={{
+                      padding: '4px 12px',
+                      borderRadius: 8,
+                      backgroundColor: token.colorFillAlter,
+                      border: `1px solid ${token.colorBorderSecondary}`,
+                      fontSize: 12,
+                      fontWeight: 700,
+                      color: token.colorPrimary,
+                      fontFamily: 'monospace',
+                    }}
+                  >
+                    {watchedCode || editing?.itemCode}
+                  </span>
+                )}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <Button
+                  size="large"
+                  onClick={() => { setFormOpen(false); setIsFormMinimized(false); }}
+                  style={{ minWidth: 100, borderRadius: 10, fontWeight: 600 }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="primary"
+                  size="large"
+                  loading={saving}
+                  onClick={handleSubmit}
+                  style={{
+                    minWidth: 155,
+                    borderRadius: 10,
+                    fontWeight: 700,
+                    border: 'none',
+                    background: 'linear-gradient(135deg, #ea580c 0%, #f97316 100%)',
+                    boxShadow: '0 4px 14px rgba(234, 88, 12, 0.35)',
+                  }}
+                >
+                  {editing ? 'Save Changes' : (isCloning ? 'Create Duplicate Item' : 'Create Item')}
+                </Button>
+              </div>
+            </div>
+          }
           styles={{
+            content: {
+              padding: 7,
+              borderRadius: 22,
+              background: 'color-mix(in srgb, var(--theme-primary, #ea580c) 8%, rgba(148, 163, 184, 0.22))',
+              backdropFilter: 'blur(12px)',
+              border: '1px solid rgba(255, 255, 255, 0.25)',
+              boxShadow: '0 24px 64px rgba(0, 0, 0, 0.28)',
+              overflow: 'hidden',
+            },
+            header: {
+              backgroundColor: token.colorBgContainer,
+              borderRadius: '16px 16px 0 0',
+              borderBottom: `1px solid ${token.colorBorderSecondary}`,
+              padding: '14px 20px',
+              marginBottom: 0,
+            },
             body: {
-              maxHeight: screens.md ? 'calc(100vh - 180px)' : 'calc(100vh - 130px)',
+              maxHeight: screens.md ? 'calc(100vh - 220px)' : 'calc(100vh - 140px)',
               overflowY: 'auto',
-              padding: screens.xs ? '8px 10px 80px' : '16px 20px',
+              padding: screens.xs ? '10px 12px 80px' : '16px 20px',
+              backgroundColor: token.colorBgLayout,
+            },
+            footer: {
+              backgroundColor: token.colorBgContainer,
+              borderRadius: '0 0 16px 16px',
+              borderTop: `1px solid ${token.colorBorderSecondary}`,
+              padding: '12px 20px',
+              marginTop: 0,
             },
           }}
         >
           <Form form={form} layout="vertical" requiredMark="optional">
             <div className={`erp-item-split-layout ${showLivePreview && screens.lg ? 'with-preview' : 'form-only'}`}>
-              <div className="erp-item-form-pane">
+              <div
+                className="erp-item-form-pane"
+                style={{
+                  backgroundColor: token.colorFillAlter,
+                  border: `1.5px solid ${token.colorBorder}`,
+                  borderRadius: 16,
+                  padding: screens.xs ? '10px' : '16px 18px',
+                }}
+              >
                 <Tabs
                   activeKey={formWizardTab}
                   onChange={(key) => setFormWizardTab(key as any)}
-                  type="card"
                   className="erp-item-wizard-tabs"
+                  renderTabBar={(tabBarProps) => {
+                    const steps = [
+                      { key: 'profile', num: '1', label: 'Basic Profile & Specs', icon: <AppstoreOutlined /> },
+                      { key: 'routing', num: '2', label: 'Process Flow & Departmental Routing', icon: <BranchesOutlined /> },
+                      { key: 'bom', num: '3', label: 'Bill of Materials', icon: <ApartmentOutlined /> },
+                    ];
+                    return (
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          flexWrap: 'wrap',
+                          gap: 8,
+                          marginBottom: 16,
+                          padding: '10px 12px',
+                          backgroundColor: token.colorBgContainer,
+                          border: `1px solid ${token.colorBorderSecondary}`,
+                          borderRadius: 12,
+                        }}
+                      >
+                        {steps.map((s, idx) => {
+                          const isActive = tabBarProps.activeKey === s.key;
+                          return (
+                            <React.Fragment key={s.key}>
+                              <div
+                                onClick={(e) => tabBarProps.onTabClick?.(s.key, e as any)}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 7,
+                                  padding: screens.xs ? '6px 10px' : '7px 15px',
+                                  borderRadius: 20,
+                                  backgroundColor: isActive ? '#ea580c' : token.colorFillAlter,
+                                  color: isActive ? '#ffffff' : token.colorTextSecondary,
+                                  border: `1px solid ${isActive ? '#ea580c' : token.colorBorderSecondary}`,
+                                  boxShadow: isActive ? '0 3px 10px rgba(234, 88, 12, 0.35)' : 'none',
+                                  fontWeight: isActive ? 800 : 600,
+                                  fontSize: screens.xs ? 11.5 : 12.5,
+                                  cursor: 'pointer',
+                                  transition: 'all 0.15s ease',
+                                  userSelect: 'none',
+                                }}
+                              >
+                                {s.icon}
+                                <span>{s.num}. {s.label}</span>
+                              </div>
+                              {idx < steps.length - 1 && (
+                                <span style={{ color: token.colorTextTertiary, fontSize: 11, userSelect: 'none' }}>➔</span>
+                              )}
+                            </React.Fragment>
+                          );
+                        })}
+                      </div>
+                    );
+                  }}
                   items={[
                     {
                       key: 'profile',

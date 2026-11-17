@@ -15,6 +15,8 @@ import {
   Row,
   Col,
   Tooltip,
+  Modal,
+  Spin,
   theme,
 } from 'antd';
 import {
@@ -105,6 +107,14 @@ const OpeningStock: React.FC = () => {
     { key: 'line-init-1', itemId: '', uomId: '', quantity: 1, unitCost: 0 },
   ]);
   const [submitting, setSubmitting] = useState(false);
+  const [postConfirmOpen, setPostConfirmOpen] = useState(false);
+  const [postSuccessModal, setPostSuccessModal] = useState<{
+    open: boolean;
+    lineCount: number;
+    refNum: string;
+    totalQty: number;
+    totalVal: number;
+  }>({ open: false, lineCount: 0, refNum: '', totalQty: 0, totalVal: 0 });
 
   const [divisions, setDivisions] = useState<FilterOption[]>([]);
   const [selectedDivisionId, setSelectedDivisionId] = useState<string | undefined>(undefined);
@@ -638,33 +648,50 @@ const OpeningStock: React.FC = () => {
     message.success('PDF document generated successfully');
   };
 
-  // 8. Submit to Backend
-  const handleSubmit = async () => {
+  // 8. Validate & Open Centered Confirmation Modal
+  const validateBeforePost = async () => {
     if (lines.length === 0) {
       message.warning('Add at least one opening stock line');
-      return;
+      return null;
     }
 
-    // Validate that every line has itemId, uomId, and quantity > 0
     for (let i = 0; i < lines.length; i++) {
       const l = lines[i];
       if (!l.itemId) {
         message.error(`Line #${i + 1}: Please select an Item`);
-        return;
+        return null;
       }
       if (!l.uomId) {
         message.error(`Line #${i + 1}: Please select a UOM`);
-        return;
+        return null;
       }
       if (!l.quantity || Number(l.quantity) <= 0) {
         message.error(`Line #${i + 1}: Quantity must be greater than 0`);
-        return;
+        return null;
       }
     }
 
     const values = await form.validateFields().catch(() => null);
+    return values || null;
+  };
+
+  const handleOpenPostConfirm = async () => {
+    const values = await validateBeforePost();
+    if (!values) return;
+    setPostConfirmOpen(true);
+  };
+
+  // Submit to Backend
+  const handleSubmit = async () => {
+    const values = await validateBeforePost();
     if (!values) return;
 
+    const postedCount = lines.length;
+    const postedQty = totalQuantity;
+    const postedVal = totalValue;
+    const postedRef = String(values.referenceNumber || '');
+
+    setPostConfirmOpen(false);
     setSubmitting(true);
     try {
       const payload = {
@@ -683,7 +710,6 @@ const OpeningStock: React.FC = () => {
       };
 
       await apiService.post('/inventory/opening-stock', payload);
-      message.success(`Opening stock posted successfully (${lines.length} lines recorded in ledger & balances)`);
       setLines([]);
 
       const todayStr = dayjs().format('YYYYMMDD');
@@ -691,6 +717,14 @@ const OpeningStock: React.FC = () => {
       form.setFieldsValue({
         referenceNumber: `OPN-${todayStr}-${randomSuffix}`,
         transactionDate: dayjs(),
+      });
+
+      setPostSuccessModal({
+        open: true,
+        lineCount: postedCount,
+        refNum: postedRef,
+        totalQty: postedQty,
+        totalVal: postedVal,
       });
     } catch (err: any) {
       const msg = err?.response?.data?.message || err?.message || 'Failed to post opening stock';
@@ -869,11 +903,15 @@ const OpeningStock: React.FC = () => {
       width: 130,
       render: (_: unknown, record) => (
         <InputNumber
-          min={0.0001}
-          precision={2}
-          value={record.quantity}
-          onChange={(v) => updateLine(record.key, 'quantity', v || 1)}
-          style={{ width: '100%' }}
+          controls={false}
+          min={0}
+          value={record.quantity === 0 ? null : record.quantity}
+          placeholder="0"
+          onFocus={(e) => e.target.select()}
+          onChange={(v) => updateLine(record.key, 'quantity', v !== null && v !== undefined ? Number(v) : 0)}
+          formatter={(v) => (v !== undefined && v !== null ? `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : '')}
+          parser={(v) => (v ? parseFloat(v.replace(/,/g, '')) : 0)}
+          style={{ width: '100%', fontVariantNumeric: 'tabular-nums' }}
         />
       ),
     },
@@ -884,11 +922,15 @@ const OpeningStock: React.FC = () => {
       width: 170,
       render: (_: unknown, record) => (
         <InputNumber
+          controls={false}
           min={0}
-          precision={2}
           size="middle"
-          value={record.unitCost}
-          onChange={(v) => updateLine(record.key, 'unitCost', v || 0)}
+          value={record.unitCost === 0 ? null : record.unitCost}
+          placeholder="0"
+          onFocus={(e) => e.target.select()}
+          onChange={(v) => updateLine(record.key, 'unitCost', v !== null && v !== undefined ? Number(v) : 0)}
+          formatter={(v) => (v !== undefined && v !== null ? `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : '')}
+          parser={(v) => (v ? parseFloat(v.replace(/,/g, '')) : 0)}
           style={{ width: '100%', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}
         />
       ),
@@ -1239,30 +1281,155 @@ const OpeningStock: React.FC = () => {
             <Text type="secondary" style={{ fontSize: 13 }}>
               Items: <strong>{lines.length}</strong> &nbsp;|&nbsp; Total Qty: <strong>{fmt(totalQuantity, 2)}</strong> &nbsp;|&nbsp; Total Value: <strong>PKR {fmt(totalValue, 2)}</strong>
             </Text>
-            <Popconfirm
-              title="Post opening stock?"
-              description="This will record initial stock ledger entries and update inventory balances immediately."
-              onConfirm={handleSubmit}
-              okButtonProps={{ loading: submitting }}
+            <Button
+              type="primary"
+              icon={<SendOutlined />}
+              loading={submitting}
+              onClick={handleOpenPostConfirm}
+              size="large"
+              style={{
+                borderRadius: 8,
+                fontWeight: 600,
+                background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
+                boxShadow: '0 2px 6px rgba(37, 99, 235, 0.3)',
+              }}
             >
-              <Button
-                type="primary"
-                icon={<SendOutlined />}
-                loading={submitting}
-                size="large"
-                style={{
-                  borderRadius: 8,
-                  fontWeight: 600,
-                  background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
-                  boxShadow: '0 2px 6px rgba(37, 99, 235, 0.3)',
-                }}
-              >
-                Post Opening Stock
-              </Button>
-            </Popconfirm>
+              Post Opening Stock
+            </Button>
           </div>
         )}
       </Card>
+
+      {/* Centered Confirmation Modal */}
+      <Modal
+        open={postConfirmOpen}
+        centered
+        width={440}
+        zIndex={2500}
+        onCancel={() => setPostConfirmOpen(false)}
+        title={
+          <span style={{ fontSize: 16, fontWeight: 700, color: token.colorText }}>
+            Confirm & Post Opening Stock
+          </span>
+        }
+        footer={
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, paddingTop: 4 }}>
+            <Button size="large" onClick={() => setPostConfirmOpen(false)} style={{ minWidth: 100, borderRadius: 8 }}>
+              Cancel
+            </Button>
+            <Button
+              type="primary"
+              size="large"
+              icon={<SendOutlined />}
+              onClick={handleSubmit}
+              style={{
+                minWidth: 150,
+                borderRadius: 8,
+                fontWeight: 600,
+                background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
+              }}
+            >
+              Confirm & Post
+            </Button>
+          </div>
+        }
+      >
+        <div style={{ padding: '6px 0 4px' }}>
+          <p style={{ margin: '0 0 12px', color: token.colorTextSecondary, fontSize: 13 }}>
+            This will record initial stock ledger entries and update inventory balances immediately.
+          </p>
+          <div
+            style={{
+              background: token.colorFillAlter,
+              border: `1px solid ${token.colorBorderSecondary}`,
+              borderRadius: 8,
+              padding: '12px 14px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 6,
+              fontSize: 13,
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ color: token.colorTextSecondary }}>Line Items</span>
+              <strong style={{ color: token.colorText }}>{lines.length}</strong>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ color: token.colorTextSecondary }}>Total Quantity</span>
+              <strong style={{ color: token.colorText }}>{fmt(totalQuantity, 2)}</strong>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ color: token.colorTextSecondary }}>Total Value</span>
+              <strong style={{ color: token.colorPrimary }}>PKR {fmt(totalValue, 2)}</strong>
+            </div>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Centered Saving / Posting Spinner Modal */}
+      <Modal
+        open={submitting}
+        centered
+        closable={false}
+        maskClosable={false}
+        footer={null}
+        width={340}
+        zIndex={2600}
+      >
+        <div style={{ textAlign: 'center', padding: '24px 12px' }}>
+          <Spin size="large" />
+          <div style={{ marginTop: 16, fontSize: 15, fontWeight: 600, color: token.colorText }}>
+            Saving / Posting Opening Stock...
+          </div>
+          <div style={{ marginTop: 6, fontSize: 12, color: token.colorTextSecondary }}>
+            Updating store ledger & stock balances
+          </div>
+        </div>
+      </Modal>
+
+      {/* Centered Success Checkmark Dialog */}
+      <Modal
+        open={postSuccessModal.open}
+        centered
+        closable={false}
+        footer={null}
+        width={400}
+        zIndex={2650}
+        onCancel={() => setPostSuccessModal((prev) => ({ ...prev, open: false }))}
+      >
+        <div style={{ textAlign: 'center', padding: '16px 8px 8px' }}>
+          <div style={{ width: 64, height: 64, margin: '0 auto 14px' }}>
+            <svg viewBox="0 0 64 64" fill="none" style={{ width: '100%', height: '100%' }}>
+              <path d="M 14 24 V 14 H 24" stroke="#86efac" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M 40 14 H 50 V 24" stroke="#86efac" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M 14 40 V 50 H 24" stroke="#86efac" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M 40 50 H 50 V 40" stroke="#86efac" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M 22 33 L 29 40 L 43 25" stroke="#22c55e" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </div>
+          <div style={{ fontSize: 17, fontWeight: 700, color: token.colorText, marginBottom: 6 }}>
+            Opening Stock Posted!
+          </div>
+          <div style={{ fontSize: 13, color: token.colorTextSecondary, marginBottom: 18 }}>
+            {postSuccessModal.lineCount} {postSuccessModal.lineCount === 1 ? 'line' : 'lines'} recorded under{' '}
+            <strong style={{ color: token.colorText }}>{postSuccessModal.refNum}</strong> (PKR {fmt(postSuccessModal.totalVal, 2)}).
+          </div>
+          <Button
+            type="primary"
+            size="large"
+            style={{
+              backgroundColor: '#10b981',
+              borderColor: '#10b981',
+              borderRadius: 8,
+              minWidth: 120,
+              fontWeight: 600,
+            }}
+            onClick={() => setPostSuccessModal((prev) => ({ ...prev, open: false }))}
+          >
+            OK
+          </Button>
+        </div>
+      </Modal>
     </div>
   );
 };

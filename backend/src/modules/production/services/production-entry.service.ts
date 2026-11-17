@@ -1475,6 +1475,7 @@ addToDept(org, {
       achievementPercentage?: number | null;
       variance?: number | null;
       primaryEntryId?: string | null;
+      remarks?: string | null;
       entries: Array<{
         id: string;
         entryId?: string;
@@ -1484,6 +1485,7 @@ addToDept(org, {
         targetQuantity: number;
         actualQuantity: number;
         uom?: string | null;
+        remarks?: string | null;
       }>;
     }>;
     meta: {
@@ -1610,6 +1612,7 @@ addToDept(org, {
         targetQuantity: number;
         actualQuantity: number;
         uom?: string | null;
+        remarks?: string | null;
       }> = [];
 
       for (const e of machineEntries) {
@@ -1624,6 +1627,7 @@ addToDept(org, {
               targetQuantity: Number(ni.targetQuantity || 0),
               actualQuantity: Number(ni.actualQuantity || 0),
               uom: ni.uomCode ?? (e.uom as any)?.code ?? (e.uom as any)?.symbol ?? null,
+              remarks: (e.remarks || '').trim() || null,
             });
           }
         } else {
@@ -1636,11 +1640,15 @@ addToDept(org, {
             targetQuantity: Number(e.targetQuantity || 0),
             actualQuantity: Number(e.actualQuantity || 0),
             uom: (e.uom as any)?.code ?? (e.uom as any)?.symbol ?? null,
+            remarks: (e.remarks || '').trim() || null,
           });
         }
       }
 
       const primaryEntryId = machineEntries[0]?.id ?? null;
+      const machineRemarks = Array.from(
+        new Set(machineEntries.map((e) => (e.remarks || '').trim()).filter(Boolean)),
+      ).join('\n') || null;
 
       return {
         id: m.id,
@@ -1651,6 +1659,7 @@ addToDept(org, {
         status: (hasEntries ? 'ENTERED' : 'ENTRY_REQUIRED') as 'ENTERED' | 'ENTRY_REQUIRED',
         entryCount: machineEntries.length,
         primaryEntryId,
+        remarks: machineRemarks,
         divisionId: m.divisionId,
         sectionId: m.sectionId,
         departmentId: m.departmentId,

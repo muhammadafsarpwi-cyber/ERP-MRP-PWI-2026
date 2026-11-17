@@ -20,6 +20,8 @@ export interface ERPLine {
   packagingType?: string;
   packagingSize?: number;
   packagingUnit?: string;
+  weightPerMeter?: number | null;
+  finishedWeightPerMeter?: number | null;
   quantity: number;
   rate: number;
   discountPercent: number;
@@ -94,6 +96,8 @@ interface ItemOption {
   packagingType?: string | null;
   packagingSize?: number | null;
   packagingUnit?: string | null;
+  weightPerMeter?: number | null;
+  finishedWeightPerMeter?: number | null;
   barcode?: string | null;
   sku?: string | null;
 }
@@ -392,6 +396,8 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
       packagingType: item.packagingType || undefined,
       packagingSize: pSize,
       packagingUnit: pUnit,
+      weightPerMeter: item.weightPerMeter ?? null,
+      finishedWeightPerMeter: item.finishedWeightPerMeter ?? null,
       packageQuantity: initialPkgQty,
       quantity: initialQty,
       rate: Number(item.sellingPrice ?? item.costPrice ?? 0),
@@ -480,6 +486,8 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
           packagingType: matched.packagingType || undefined,
           packagingSize: pSize || undefined,
           packagingUnit: pUnit || undefined,
+          weightPerMeter: matched.weightPerMeter ?? null,
+          finishedWeightPerMeter: matched.finishedWeightPerMeter ?? null,
           packageQuantity: initialPkgQty,
           quantity: initialQty,
           rate,

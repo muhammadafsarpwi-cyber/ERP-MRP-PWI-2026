@@ -22,6 +22,10 @@ import {
   Popover,
   Checkbox,
   Dropdown,
+  Segmented,
+  Pagination,
+  Empty,
+  theme,
 } from 'antd';
 import PageHeader from '../../../components/shared/PageHeader';
 import { useHeaderActions } from '../../../components/layout/headerActionsStore';
@@ -885,6 +889,7 @@ const GRID_COLUMN_LABELS: string[] = [
   'Achievement',
   'WEIGHT (KG)',
   'Scrap (KG)',
+  'Process Rejection (KG)',
   'Run / Down',
   'OT (h)',
   'Status',
@@ -894,13 +899,31 @@ const GRID_COLUMN_LABELS: string[] = [
   'Actions',
 ];
 
+const RECORDS_VIEW_MODE_KEY = 'pwi_daily_prod_records_view_mode';
+
 const EntryList: React.FC = () => {
   const { message } = App.useApp();
+  const { token } = theme.useToken();
   const navigate = useNavigate();
   const location = useLocation();
   const lookups = useLookups();
   const screens = Grid.useBreakpoint();
   const PAGE_SIZE_KEY = 'production_entry_pagesize';
+  const [recordsViewMode, setRecordsViewMode] = useState<'table' | 'card'>(() => {
+    try {
+      return localStorage.getItem(RECORDS_VIEW_MODE_KEY) === 'card' ? 'card' : 'table';
+    } catch {
+      return 'table';
+    }
+  });
+  const handleRecordsViewModeChange = (mode: 'table' | 'card') => {
+    setRecordsViewMode(mode);
+    try {
+      localStorage.setItem(RECORDS_VIEW_MODE_KEY, mode);
+    } catch {
+      // ignore
+    }
+  };
   const tabKey = '/production/entries';
 
   // Retrieve cached tab data if this workspace tab is already open
@@ -2676,6 +2699,50 @@ const EntryList: React.FC = () => {
     {
       title: (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          <DeleteOutlined style={{ color: '#f97316' }} />
+          <span>Process Rejection (KG)</span>
+        </span>
+      ),
+      align: 'right',
+      width: 140,
+      ellipsis: true,
+      responsive: ['lg'],
+      sorter: (a, b) => toNum(a.processScrapKg) - toNum(b.processScrapKg),
+      render: (_t, r) => {
+        const procRejKg = toNum(r.processScrapKg);
+        const uom = r.uom?.code || '';
+        const prodKg = calcActualKg(uom, toNum(r.actualQuantity), r.item?.weightPerPiece, r.item?.weightPerMeter);
+        const procRejPct = prodKg != null && Number(prodKg) > 0 ? (procRejKg / Number(prodKg)) * 100 : 0;
+        const hasProcRej = procRejKg > 0;
+        return (
+          <div style={{ textAlign: 'right', lineHeight: 1.25, whiteSpace: 'nowrap' }}>
+            <div
+              style={{
+                fontSize: 12,
+                fontWeight: 600,
+                color: hasProcRej ? '#f97316' : 'var(--theme-text-muted, #94a3b8)',
+                fontVariantNumeric: 'tabular-nums',
+              }}
+            >
+              {`${formatNumber(procRejKg, 2)} KG`}
+            </div>
+            <div
+              style={{
+                fontSize: 11,
+                fontWeight: 700,
+                color: hasProcRej ? '#ea580c' : 'var(--theme-text-muted, #94a3b8)',
+                fontVariantNumeric: 'tabular-nums',
+              }}
+            >
+              {`${procRejPct.toFixed(2)}%`}
+            </div>
+          </div>
+        );
+      },
+    },
+    {
+      title: (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
           <FieldTimeOutlined style={{ color: 'var(--theme-primary, #2563eb)' }} />
           <span>Run / Down</span>
         </span>
@@ -3540,6 +3607,17 @@ const EntryList: React.FC = () => {
               </Button>
             </Popover>
 
+            <Segmented
+              value={recordsViewMode}
+              onChange={(val) => handleRecordsViewModeChange(val as 'table' | 'card')}
+              data-testid="production-records-view-toggle"
+              options={[
+                { label: 'Table View', value: 'table', icon: <TableOutlined /> },
+                { label: 'Card View', value: 'card', icon: <AppstoreOutlined /> },
+              ]}
+              style={{ fontWeight: 600 }}
+            />
+
             <div style={{ flex: 1 }} />
 
             <div className="entry-filter-toolbar__right" style={{ fontSize: 12, color: 'var(--theme-text-muted, #64748b)' }}>
@@ -3800,6 +3878,465 @@ const EntryList: React.FC = () => {
                       </div>
                     )}
                     {/* ── Enterprise Production Entry Table ───────────────────── */}
+                    {recordsViewMode === 'card' ? (
+                      /* ── Executive Production Records Card View ───────────────── */
+                      <div>
+                        {displayedRows.length === 0 ? (
+                          <div
+                            style={{
+                              padding: '48px 16px',
+                              backgroundColor: token.colorBgContainer,
+                              border: `1px solid ${token.colorBorderSecondary}`,
+                              borderRadius: 16,
+                            }}
+                          >
+                            <Empty description="No production records match your current filters" />
+                          </div>
+                        ) : (
+                          <Row gutter={[16, 16]}>
+                            {displayedRows.map((r) => {
+                              const entryStatus = getEntryStatus(r);
+                              const statusUpper = String(entryStatus || 'DRAFT').toUpperCase();
+                              const isCompleted = statusUpper === 'COMPLETED' || statusUpper === 'APPROVED' || statusUpper === 'VERIFIED';
+                              const isInProgress = statusUpper === 'IN_PROGRESS' || statusUpper === 'IN PROGRESS' || statusUpper === 'SUBMITTED';
+                              const accentColor = isCompleted ? '#10b981' : isInProgress ? '#0284c7' : '#f59e0b';
+                              const borderTint = isCompleted
+                                ? 'rgba(16, 185, 129, 0.35)'
+                                : isInProgress
+                                ? 'rgba(2, 132, 199, 0.35)'
+                                : 'rgba(245, 158, 11, 0.35)';
+
+                              const inWh =
+                                r.rawMaterialWarehouse ||
+                                (r.rawMaterialWarehouseId ? warehouses.find((w) => w.id === r.rawMaterialWarehouseId) : null);
+                              const inName = inWh?.name || inWh?.warehouseCode || '—';
+                              const outWh = resolveOutboundWarehouse(r, warehouses);
+                              const outName = outWh?.name || outWh?.warehouseCode || (r.inventoryReferenceId ? 'Receipt Store' : '—');
+
+                              const resolvedShift = resolveRowShift(r, lookups.shifts);
+                              const shiftTimeStr =
+                                resolvedShift?.startTime && resolvedShift?.endTime
+                                  ? `${String(resolvedShift.startTime).slice(0, 5)} – ${String(resolvedShift.endTime).slice(0, 5)}`
+                                  : (resolvedShift as any)?.plannedHours
+                                  ? `${(resolvedShift as any).plannedHours} hrs`
+                                  : '';
+                              const mCode = r.machine?.machineCode || r.machineNo || '—';
+                              const mName = r.machine?.name;
+                              const uom = r.uom?.code || '';
+                              const prorata = proRataTarget(r.targetQuantity, displayRunningHours(r), masterRateOf(r));
+                              const target = prorata.target;
+                              const actual = toNum(r.actualQuantity);
+                              const ach = target > 0 ? Math.round((actual / target) * 10000) / 100 : null;
+                              const diff = actual - target;
+                              const perUnit = perUnitWeightValue(uom, r.item?.weightPerPiece, r.item?.weightPerMeter);
+                              const kg = calcActualKg(uom, actual, r.item?.weightPerPiece, r.item?.weightPerMeter);
+
+                              // Exact same 3-tier Scrap calculation as Table View
+                              const scrap = toNum(r.scrapQuantity);
+                              const weightPerPiece = r.item?.weightPerPiece;
+                              const scrapKg = calcActualKg(uom, scrap, r.item?.weightPerPiece, r.item?.weightPerMeter);
+                              const producedKg = Number(kg || 0) + Number(scrapKg || 0);
+                              const rejPct = producedKg > 0 ? (Number(scrapKg || 0) / producedKg) * 100 : 0;
+                              const hasScrap = scrap > 0;
+                              const scrapKgShown = scrapKg == null ? scrap : scrapKg;
+                              const scrapPcs =
+                                hasScrap && scrapKg != null && weightPerPiece != null && weightPerPiece > 0
+                                  ? scrapKg / weightPerPiece
+                                  : null;
+
+                              // Process Rejection (standalone)
+                              const procRejKg = toNum(r.processScrapKg);
+                              const procRejPct = kg != null && Number(kg) > 0 ? (procRejKg / Number(kg)) * 100 : 0;
+                              const hasProcRej = procRejKg > 0;
+
+                              // Run / Downtime & OT
+                              const runH = displayRunningHours(r);
+                              const downH = toNum(r.downtimeHours);
+                              const downReason = (r.downtimeReasonText ?? '').trim();
+                              const otH = entryOvertimeHours(r);
+
+                              const isMulti = isMultiItemRow(r);
+                              const isExpanded = expandedRowKeys.includes(r.id);
+
+                              return (
+                                <Col key={r.id} xs={24} md={12} xl={8}>
+                                  <div
+                                    style={{
+                                      backgroundColor: token.colorBgContainer,
+                                      border: `2px solid ${borderTint}`,
+                                      borderRadius: 16,
+                                      overflow: 'hidden',
+                                      boxShadow: '0 4px 16px rgba(0, 0, 0, 0.05)',
+                                      display: 'flex',
+                                      flexDirection: 'column',
+                                      height: '100%',
+                                      transition: 'transform 0.15s ease, box-shadow 0.15s ease',
+                                    }}
+                                  >
+                                    {/* Top Status Accent Strip */}
+                                    <div style={{ height: 4, backgroundColor: accentColor }} />
+
+                                    <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 10, flex: 1 }}>
+                                      {/* 1. Card Header: Entry #, Date, Status, Division & Dept */}
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                                        <div style={{ minWidth: 0 }}>
+                                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                            <span
+                                              style={{
+                                                fontFamily: 'monospace',
+                                                fontWeight: 800,
+                                                fontSize: 13.5,
+                                                color: token.colorPrimary,
+                                              }}
+                                            >
+                                              {r.entryNumber}
+                                            </span>
+                                            <Tag
+                                              color={isCompleted ? 'success' : isInProgress ? 'processing' : 'warning'}
+                                              style={{ margin: 0, fontWeight: 700, fontSize: 10.5, borderRadius: 6 }}
+                                            >
+                                              {statusUpper.replace(/_/g, ' ')}
+                                            </Tag>
+                                          </div>
+                                          <div style={{ fontSize: 11.5, color: token.colorTextSecondary, marginTop: 3, display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+                                            <CalendarOutlined />
+                                            <span>{r.entryDate ? dayjs(r.entryDate).format('DD MMM YYYY') : '—'}</span>
+                                            {r.division?.name && (
+                                              <>
+                                                <span>·</span>
+                                                <span style={{ fontWeight: 600 }}>{r.division.name}</span>
+                                              </>
+                                            )}
+                                          </div>
+                                        </div>
+
+                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
+                                          <DepartmentBadge
+                                            department={r.department}
+                                            fallback={r.departmentId ? r.departmentId.slice(0, 8) : '—'}
+                                          />
+                                          {isCompleted && (runH > 0 || downH > 0) && (
+                                            <span style={{ fontSize: 10.5, fontWeight: 700, color: '#16a34a' }}>
+                                              {formatNumber(runH, 1)}h Running{downH > 0 ? ` · ${formatNumber(downH, 1)}h Down` : ''}
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
+
+                                      {/* 2 & 3. Product Highlight + Machine, Operator, Shift & Warehouse Strip */}
+                                      <div
+                                        style={{
+                                          backgroundColor: token.colorFillAlter,
+                                          border: `1px solid ${token.colorBorderSecondary}`,
+                                          borderRadius: 10,
+                                          padding: '10px 12px',
+                                        }}
+                                      >
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                                          <div>
+                                            <div style={{ fontWeight: 700, fontSize: 13, color: token.colorText, lineHeight: 1.35 }}>
+                                              {r.item?.name || 'Production Item'}
+                                            </div>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2, flexWrap: 'wrap' }}>
+                                              {r.item?.itemCode && (
+                                                <span style={{ fontFamily: 'monospace', fontSize: 11.5, color: token.colorTextSecondary, fontWeight: 600 }}>
+                                                  {r.item.itemCode}
+                                                </span>
+                                              )}
+                                              {isMulti && (
+                                                <Tag color="purple" style={{ margin: 0, fontSize: 10, fontWeight: 700 }}>
+                                                  Multi-Item
+                                                </Tag>
+                                              )}
+                                            </div>
+                                          </div>
+                                          {resolvedShift && (
+                                            <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                                              <ShiftBadge shift={resolvedShift} fallback="—" />
+                                              {shiftTimeStr && (
+                                                <div style={{ fontSize: 10, color: token.colorTextTertiary, marginTop: 2 }}>
+                                                  {shiftTimeStr}
+                                                </div>
+                                              )}
+                                            </div>
+                                          )}
+                                        </div>
+
+                                        <div
+                                          style={{
+                                            display: 'grid',
+                                            gridTemplateColumns: '1fr 1fr',
+                                            gap: '6px 10px',
+                                            marginTop: 8,
+                                            paddingTop: 8,
+                                            borderTop: `1px dashed ${token.colorBorderSecondary}`,
+                                            fontSize: 11.5,
+                                          }}
+                                        >
+                                          <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+                                            <ToolOutlined style={{ color: token.colorPrimary, flexShrink: 0 }} />
+                                            <span style={{ color: token.colorTextSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                              {mName ? `${mName} · ${mCode}` : mCode}
+                                            </span>
+                                          </div>
+                                          <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+                                            <UserOutlined style={{ color: token.colorPrimary, flexShrink: 0 }} />
+                                            <span style={{ color: token.colorTextSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                              {r.operatorName || '—'}
+                                            </span>
+                                          </div>
+                                          <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+                                            <Tag color="green" style={{ margin: 0, fontSize: 9.5, lineHeight: '14px', padding: '0 4px', fontWeight: 700 }}>IN</Tag>
+                                            <span style={{ color: token.colorTextSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                              {inName}
+                                            </span>
+                                          </div>
+                                          <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+                                            <Tag color="blue" style={{ margin: 0, fontSize: 9.5, lineHeight: '14px', padding: '0 4px', fontWeight: 700 }}>OUT</Tag>
+                                            <span style={{ color: token.colorTextSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                              {outName}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      </div>
+
+                                      {/* 4. 2x3 Metric Grid (All Numeric Columns from Table) */}
+                                      <div
+                                        style={{
+                                          display: 'grid',
+                                          gridTemplateColumns: 'repeat(3, 1fr)',
+                                          gap: '10px 8px',
+                                          padding: '10px 12px',
+                                          borderRadius: 10,
+                                          backgroundColor: token.colorFillAlter,
+                                          border: `1px solid ${token.colorBorderSecondary}`,
+                                        }}
+                                      >
+                                        {/* Row 1 Col 1: Target */}
+                                        <div>
+                                          <div style={{ fontSize: 10, fontWeight: 700, color: token.colorTextSecondary, textTransform: 'uppercase' }}>
+                                            Target
+                                          </div>
+                                          <div style={{ fontSize: 12.5, fontWeight: 700, color: '#dc2626', marginTop: 2 }}>
+                                            {targetBottomText(prorata, uom)}
+                                          </div>
+                                          <div style={{ fontSize: 10, color: token.colorTextTertiary }}>
+                                            {targetTopText(prorata)}
+                                          </div>
+                                        </div>
+
+                                        {/* Row 1 Col 2: Good Production */}
+                                        <div>
+                                          <div style={{ fontSize: 10, fontWeight: 700, color: token.colorTextSecondary, textTransform: 'uppercase' }}>
+                                            Good Prod.
+                                          </div>
+                                          <div style={{ fontSize: 13, fontWeight: 800, color: token.colorPrimary, marginTop: 2 }}>
+                                            {formatNumber(r.actualQuantity, 2)} {uom}
+                                          </div>
+                                        </div>
+
+                                        {/* Row 1 Col 3: Achievement % */}
+                                        <div style={{ textAlign: 'right' }}>
+                                          <div style={{ fontSize: 10, fontWeight: 700, color: token.colorTextSecondary, textTransform: 'uppercase' }}>
+                                            Achievement
+                                          </div>
+                                          <div style={{ marginTop: 2 }}>
+                                            <KpiPercentage value={ach} fontSize={12.5} fontWeight={800} />
+                                          </div>
+                                          {target > 0 && (
+                                            <div
+                                              style={{
+                                                fontSize: 10,
+                                                fontWeight: 700,
+                                                color: diff >= 0 ? '#16a34a' : '#dc2626',
+                                              }}
+                                            >
+                                              {diff > 0 ? `+${formatNumber(diff, 2)}` : diff < 0 ? `-${formatNumber(Math.abs(diff), 2)}` : '0'} {uom}
+                                            </div>
+                                          )}
+                                        </div>
+
+                                        {/* Row 2 Col 1: Weight (KG) */}
+                                        <div style={{ paddingTop: 6, borderTop: `1px dashed ${token.colorBorderSecondary}` }}>
+                                          <div style={{ fontSize: 10, fontWeight: 700, color: token.colorTextSecondary, textTransform: 'uppercase' }}>
+                                            Weight (Kg)
+                                          </div>
+                                          <div style={{ fontSize: 12.5, fontWeight: 700, color: token.colorText, marginTop: 2 }}>
+                                            {kg == null ? '—' : `${formatNumber(kg, 2)} KG`}
+                                          </div>
+                                          <div style={{ fontSize: 10, color: token.colorTextTertiary }}>
+                                            {perUnit || '—'}
+                                          </div>
+                                        </div>
+
+                                        {/* Row 2 Col 2: Scrap & Rejection */}
+                                        <div style={{ paddingTop: 6, borderTop: `1px dashed ${token.colorBorderSecondary}` }}>
+                                          <div style={{ fontSize: 10, fontWeight: 700, color: token.colorTextSecondary, textTransform: 'uppercase' }}>
+                                            Scrap / Rej.
+                                          </div>
+                                          <div style={{ fontSize: 12, fontWeight: 700, color: hasScrap ? '#e11d48' : token.colorTextSecondary, marginTop: 2 }}>
+                                            {`${formatNumber(scrapKgShown, 2)} KG`}
+                                          </div>
+                                          <div style={{ fontSize: 10, color: token.colorTextTertiary }}>
+                                            {scrapPcs == null ? '—' : `${formatNumber(scrapPcs, 0)} Pcs`} · <span style={{ color: '#ff4d4f', fontWeight: 700 }}>{rejPct.toFixed(2)}%</span>
+                                          </div>
+                                        </div>
+
+                                        {/* Row 2 Col 3: Run / Down & OT */}
+                                        <div style={{ paddingTop: 6, borderTop: `1px dashed ${token.colorBorderSecondary}`, textAlign: 'right' }}>
+                                          <div style={{ fontSize: 10, fontWeight: 700, color: token.colorTextSecondary, textTransform: 'uppercase' }}>
+                                            Run / Down · OT
+                                          </div>
+                                          <Tooltip title={downReason ? `Downtime: ${downReason}` : undefined}>
+                                            <div style={{ fontSize: 12, fontWeight: 700, color: token.colorText, marginTop: 2 }}>
+                                              {formatNumber(runH, 1)}h /{' '}
+                                              <span style={{ color: downH > 0 ? '#d97706' : token.colorTextTertiary }}>
+                                                {formatNumber(downH, 1)}h
+                                              </span>
+                                            </div>
+                                          </Tooltip>
+                                          <div style={{ fontSize: 10.5, fontWeight: 700, color: otH > 0 ? '#8b5cf6' : token.colorTextTertiary }}>
+                                            OT: {otH > 0 ? `${formatNumber(otH, 1)}h` : '—'}
+                                          </div>
+                                        </div>
+
+                                        {/* Row 3 (Full Width Dedicated Strip): Process Rejection */}
+                                        <div
+                                          style={{
+                                            gridColumn: '1 / -1',
+                                            paddingTop: 6,
+                                            borderTop: `1px dashed ${token.colorBorderSecondary}`,
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'space-between',
+                                          }}
+                                        >
+                                          <span style={{ fontSize: 10.5, fontWeight: 700, color: token.colorTextSecondary, textTransform: 'uppercase' }}>
+                                            Process Rejection
+                                          </span>
+                                          <span style={{ fontSize: 12, fontWeight: 700, color: hasProcRej ? '#f97316' : token.colorTextSecondary }}>
+                                            {`${formatNumber(procRejKg, 2)} KG`}{' '}
+                                            <span style={{ fontSize: 11, fontWeight: 700, color: hasProcRej ? '#ea580c' : token.colorTextTertiary }}>
+                                              · {`${procRejPct.toFixed(2)}%`}
+                                            </span>
+                                          </span>
+                                        </div>
+                                      </div>
+
+                                      {/* 5. Full Remarks Box */}
+                                      <div
+                                        style={{
+                                          backgroundColor: token.colorFillAlter,
+                                          border: `1px solid ${token.colorBorderSecondary}`,
+                                          borderRadius: 8,
+                                          padding: '6px 10px',
+                                          fontSize: 11.5,
+                                          color: token.colorTextSecondary,
+                                          lineHeight: 1.4,
+                                        }}
+                                      >
+                                        <span style={{ fontWeight: 700, color: token.colorText, marginRight: 6 }}>Remarks:</span>
+                                        <span>{r.remarks || '—'}</span>
+                                      </div>
+
+                                      {/* Optional Expanded Multi-Item Breakdown */}
+                                      {isMulti && isExpanded && (
+                                        <div
+                                          style={{
+                                            borderTop: `1px solid ${token.colorBorderSecondary}`,
+                                            paddingTop: 8,
+                                          }}
+                                        >
+                                          <NestedItemsPanel row={r} />
+                                        </div>
+                                      )}
+
+                                      {/* Audit Trail & Card Footer Actions */}
+                                      <div
+                                        style={{
+                                          marginTop: 'auto',
+                                          paddingTop: 8,
+                                          borderTop: `1px solid ${token.colorBorderSecondary}`,
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'space-between',
+                                          gap: 8,
+                                          flexWrap: 'wrap',
+                                        }}
+                                      >
+                                        <div style={{ fontSize: 10.5, color: token.colorTextTertiary, lineHeight: 1.35 }}>
+                                          <div>
+                                            Created: <strong style={{ color: token.colorTextSecondary }}>{r.createdByName || (r.createdBy ? 'Admin' : '—')}</strong>{' '}
+                                            {r.createdAt ? dayjs(r.createdAt).format('DD-MMM HH:mm') : ''}
+                                          </div>
+                                          <div>
+                                            Updated: <strong style={{ color: token.colorTextSecondary }}>{r.updatedByName || (r.updatedBy ? 'Admin' : '—')}</strong>{' '}
+                                            {r.updatedAt ? dayjs(r.updatedAt).format('DD-MMM HH:mm') : ''}
+                                          </div>
+                                        </div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                          {isMulti && (
+                                            <Button
+                                              size="small"
+                                              type="text"
+                                              icon={isExpanded ? <UpOutlined /> : <DownOutlined />}
+                                              onClick={() =>
+                                                setExpandedRowKeys((prev) =>
+                                                  prev.includes(r.id) ? prev.filter((k) => k !== r.id) : [...prev, r.id]
+                                                )
+                                              }
+                                            >
+                                              {isExpanded ? 'Hide' : 'Items'}
+                                            </Button>
+                                          )}
+                                          <TableActions
+                                            className="erp-table-actions--bordered"
+                                            onView={() => {
+                                              setDetailTargetId(r.id);
+                                              setDetailModalOpen(true);
+                                            }}
+                                            onEdit={() => {
+                                              setEditTargetId(r.id);
+                                              setEditModalOpen(true);
+                                            }}
+                                            disableConfirm={true}
+                                            onDelete={() => {
+                                              setDeleteTarget(r);
+                                              setDeleteModalOpen(true);
+                                            }}
+                                          />
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </Col>
+                              );
+                            })}
+                          </Row>
+                        )}
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+                          <Pagination
+                            current={page}
+                            pageSize={pageSize}
+                            total={total}
+                            showSizeChanger
+                            pageSizeOptions={['10', '20', '50', '100']}
+                            showTotal={(t) => `${t} production entries`}
+                            onChange={(p, ps) => {
+                              const nextP = ps !== pageSize ? 1 : p;
+                              setPage(nextP);
+                              setPageSize(ps);
+                              void fetchRows(nextP, ps);
+                              try {
+                                localStorage.setItem(PAGE_SIZE_KEY, String(ps));
+                              } catch {
+                                // ignore
+                              }
+                            }}
+                          />
+                        </div>
+                      </div>
+                    ) : (
                     <ERPTable<ProductionEntryRow>
                       rowKey="id"
                       columns={visibleColumns}
@@ -3875,6 +4412,7 @@ const EntryList: React.FC = () => {
                     }
                   }}
                 />
+                    )}
               </>
             )}
           </div>

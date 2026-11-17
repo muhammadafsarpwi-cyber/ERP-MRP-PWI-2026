@@ -809,16 +809,30 @@ export function printDeliveryNoteDocument(delivery: any): void {
   const items = delivery.items || delivery.lines || [];
   const custName = delivery.customer?.companyName || delivery.customer?.name || 'Valued Customer';
 
+  const isMeterUom = (u?: string | null) =>
+    ['M', 'MTR', 'METER', 'METRE', 'METERS', 'METRES'].includes(String(u || '').toUpperCase().trim());
+
   const rowsHtml = items.map((it: any, idx: number) => {
     const pName = it.item?.name || it.description || 'Delivered Product';
-    const qty = it.quantity || it.deliveredQuantity || 0;
+    const qty = Number(it.quantity || it.deliveredQuantity || 0);
     const uom = it.uom?.code || it.uomCode || 'Units';
+    const finWpm = it.finishedWeightPerMeter ?? it.item?.finishedWeightPerMeter;
+    const rawWpm = it.weightPerMeter ?? it.item?.weightPerMeter;
+    const effectiveWpm = isMeterUom(uom)
+      ? ((finWpm != null && Number(finWpm) > 0) ? Number(finWpm) : ((rawWpm != null && Number(rawWpm) > 0) ? Number(rawWpm) : 0))
+      : 0;
+    const meterWeightKg = it.totalWeightKg != null && isMeterUom(uom)
+      ? Number(it.totalWeightKg)
+      : (effectiveWpm > 0 ? Number((qty * effectiveWpm).toFixed(3)) : 0);
 
     return `
       <tr>
         <td style="text-align: center; width: 32px;">${idx + 1}</td>
         <td><strong>${pName}</strong></td>
-        <td style="text-align: right;">${formatQty(qty)} ${uom}</td>
+        <td style="text-align: right;">
+          ${formatQty(qty)} ${uom}
+          ${meterWeightKg > 0 ? `<div style="font-size: 10px; color: #0369a1; font-weight: 700;">Wt: ${formatQty(meterWeightKg)} Kg</div>` : ''}
+        </td>
         <td>${it.batchNumber || it.serialNumber || 'Standard'}</td>
         <td>${it.remarks || 'Standard Dispatch'}</td>
       </tr>
@@ -910,6 +924,8 @@ export function printGatePassDocument(data: {
     packageQuantity?: number;
     packagingUnit?: string;
     packaging?: string;
+    weightKg?: number;
+    weightPerMeter?: number;
     remarks?: string;
   }>;
 }): void {
@@ -923,12 +939,16 @@ export function printGatePassDocument(data: {
   // Group and sum totals by UOM and Packaging
   const uomTotals: Record<string, number> = {};
   let totalPackageCount = 0;
+  let totalMeterWeightKg = 0;
   const pkgSummary: Record<string, number> = {};
 
   items.forEach((it: any) => {
     const qty = Number(it.quantity || it.receivedQuantity || it.deliveredQuantity || 0);
     const uom = it.uom || it.uomCode || 'Units';
     uomTotals[uom] = (uomTotals[uom] || 0) + qty;
+    if (it.weightKg != null && Number(it.weightKg) > 0) {
+      totalMeterWeightKg += Number(it.weightKg);
+    }
 
     const pkgQty = Number(it.packageQuantity || 0);
     const pkgUnit = it.packagingUnit || 'Coils / Pkgs';
@@ -996,6 +1016,7 @@ export function printGatePassDocument(data: {
         </td>
         <td style="text-align: right; font-weight: 700; font-size: 12px; white-space: nowrap; vertical-align: top;">
           ${formatQty(qty)} ${uom}
+          ${it.weightKg != null && Number(it.weightKg) > 0 ? `<div style="font-size: 10px; color: #0369a1; font-weight: 700; margin-top: 2px;">Wt: ${formatQty(Number(it.weightKg))} Kg</div>` : ''}
         </td>
         <td style="text-align: center; font-weight: 600; vertical-align: top; background: #fafafa;">
           ${pkg}
@@ -1070,6 +1091,7 @@ export function printGatePassDocument(data: {
           </td>
           <td style="text-align: right; font-weight: 800; font-size: 13px; color: #0f172a; padding: 8px 10px; background: #ffffff; border: 2px solid #0f172a;">
             ${physicalQtyTotalStr}
+            ${totalMeterWeightKg > 0 ? `<div style="font-size: 10.5px; color: #0369a1; font-weight: 800; margin-top: 2px;">Total Wt: ${formatQty(Math.round(totalMeterWeightKg * 1000) / 1000)} Kg</div>` : ''}
           </td>
           <td style="text-align: center; font-weight: 800; font-size: 13px; color: #0f172a; padding: 8px 10px; background: #ffffff; border: 2px solid #0f172a;">
             ${packagingTotalStr}
@@ -1095,6 +1117,7 @@ export function printGatePassDocument(data: {
         <span><strong>Primary SOC:</strong> ${effectiveSoc}</span> &nbsp;&nbsp;|&nbsp;&nbsp;
         <span><strong>Customer PO:</strong> ${effectivePo}</span> &nbsp;&nbsp;|&nbsp;&nbsp;
         <span><strong>Total Physical Qty:</strong> ${physicalQtyTotalStr}</span> &nbsp;&nbsp;|&nbsp;&nbsp;
+        ${totalMeterWeightKg > 0 ? `<span><strong>Total Weight:</strong> ${formatQty(Math.round(totalMeterWeightKg * 1000) / 1000)} Kg</span> &nbsp;&nbsp;|&nbsp;&nbsp;` : ''}
         <span><strong>Total Packaging:</strong> ${packagingTotalStr}</span>
       </div>
     </div>

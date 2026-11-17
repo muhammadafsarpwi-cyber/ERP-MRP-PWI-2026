@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import {
   Table, Button, Form, Input, Select, App, Modal,
-  Row, Col, Tooltip, Tag, Badge, Popover, Progress, Spin,
+  Row, Col, Tooltip, Tag, Badge, Popover, Progress, Spin, theme,
 } from 'antd';
 import {
   PlusOutlined, EditOutlined, SearchOutlined, EyeOutlined, CheckOutlined,
@@ -147,8 +147,14 @@ const initialConfirmModalState: DeliveryActionConfirmState = {
 
 const STATUS_OPTIONS = ['All statuses', 'DRAFT', 'SHIPPED', 'DELIVERED', 'CONFIRMED', 'CANCELLED'];
 
+const isMeterUomCode = (uom?: string | null): boolean => {
+  const u = String(uom || '').toUpperCase().trim();
+  return u === 'M' || u === 'MTR' || u === 'METER' || u === 'METRE' || u === 'METERS' || u === 'METRES';
+};
+
 const SalesDeliveryManagement: React.FC = () => {
   const { message } = App.useApp();
+  const { token } = theme.useToken();
   const location = useLocation();
   const routeTabId = location.pathname || '/sales/deliveries';
 
@@ -522,9 +528,19 @@ const SalesDeliveryManagement: React.FC = () => {
         const orderQty = it.orderQuantity != null ? Number(it.orderQuantity) : (it.orderedQuantity != null ? Number(it.orderedQuantity) : undefined);
         const currentQty = Number(it.quantity) || 1;
         const bal = it.orderBalance != null ? Number(it.orderBalance) - currentQty : (orderQty != null ? Math.max(0, orderQty - currentQty) : it.balanceQuantity);
-        const pkgUnit = it.packagingUnit || 'CTN';
-        const pkgSize = Number(it.packagingSize) || 10;
+        const uom = it.uomCode || it.uom || 'GRS';
+        const isMeter = isMeterUomCode(uom);
+        const pkgUnit = it.packagingUnit || (isMeter ? 'Coil' : 'CTN');
+        const pkgSize = Number(it.packagingSize) || (isMeter ? 0 : 10);
         const pkgQty = it.packageQuantity != null ? Number(it.packageQuantity) : (pkgSize > 1 ? Number((currentQty / pkgSize).toFixed(2)) : undefined);
+        const finWpm = it.finishedWeightPerMeter ?? it.item?.finishedWeightPerMeter;
+        const rawWpm = it.weightPerMeter ?? it.item?.weightPerMeter;
+        const effectiveWpm = isMeter
+          ? ((finWpm != null && Number(finWpm) > 0) ? Number(finWpm) : ((rawWpm != null && Number(rawWpm) > 0) ? Number(rawWpm) : 0))
+          : 0;
+        const meterWeightKg = isMeter && effectiveWpm > 0
+          ? Number((currentQty * effectiveWpm).toFixed(3))
+          : (isMeter && it.totalWeightKg != null ? Number(it.totalWeightKg) : undefined);
         const descSocMatch = (it.description || '').match(/\[SOC:\s*([^\]]+)\]/);
         const lineSoc = it.socNumber || it.salesOrderNumber || (descSocMatch ? descSocMatch[1] : undefined) || (uniqueSocs.length === 1 ? String(uniqueSocs[0]) : undefined);
         return {
@@ -535,10 +551,12 @@ const SalesDeliveryManagement: React.FC = () => {
           orderQuantity: orderQty,
           quantity: currentQty,
           balanceQuantity: bal != null ? Math.max(0, bal) : undefined,
-          uom: it.uomCode || it.uom || 'GRS',
+          uom,
           packageQuantity: pkgQty,
           packagingUnit: pkgUnit,
-          packaging: pkgQty != null && pkgQty > 0 ? `${pkgQty} ${pkgUnit}` : (it.packaging || `${Number((currentQty / 10).toFixed(1))} CTN`),
+          packaging: pkgQty != null && pkgQty > 0 ? `${pkgQty} ${pkgUnit}` : (it.packaging || (isMeter ? `${currentQty} M` : `${Number((currentQty / 10).toFixed(1))} CTN`)),
+          weightKg: meterWeightKg,
+          weightPerMeter: effectiveWpm > 0 ? effectiveWpm : undefined,
           remarks: it.remarks || it.notes || '-',
         };
       }),
@@ -750,10 +768,14 @@ const SalesDeliveryManagement: React.FC = () => {
             else if (lower.includes('7 mm') || lower.includes('8 mm')) pkgSize = 250;
             else pkgSize = defaultCtnGross;
           }
-          const pkgUnit = itemObj.packagingUnit ?? itemObj.packaging_unit ?? 'CTN';
+          const uomCodeStr = it.uom?.code ?? it.uom?.name ?? 'GRS';
+          const isMeter = isMeterUomCode(uomCodeStr);
+          const pkgUnit = itemObj.packagingUnit ?? itemObj.packaging_unit ?? (isMeter ? 'Coil' : 'CTN');
           const pkgQty = pkgSize > 1 ? Number((balance / pkgSize).toFixed(2)) : balance;
           const unitPrice = Number(it.unitPrice ?? it.unit_price) || 0;
           const taxRate = Number(it.taxRate ?? it.tax_rate ?? 18) || 18;
+          const weightPerMeter = itemObj.weightPerMeter ?? itemObj.weight_per_meter ?? null;
+          const finishedWeightPerMeter = itemObj.finishedWeightPerMeter ?? itemObj.finished_weight_per_meter ?? null;
 
           return {
             id: `so-line-${order.id}-${idx}-${Date.now()}`,
@@ -761,10 +783,12 @@ const SalesDeliveryManagement: React.FC = () => {
             itemCode: itemObj.itemCode ?? itemObj.item_code ?? it.itemCode,
             itemName,
             uomId: it.uomId ?? it.uom_id,
-            uomCode: it.uom?.code ?? it.uom?.name ?? 'GRS',
+            uomCode: uomCodeStr,
             packagingSize: pkgSize,
             packagingUnit: pkgUnit,
             packageQuantity: pkgQty,
+            weightPerMeter,
+            finishedWeightPerMeter,
             quantity: balance,
             rate: unitPrice,
             taxPercent: taxRate,
@@ -842,26 +866,40 @@ const SalesDeliveryManagement: React.FC = () => {
       taxAmount: 0,
       totalAmount: subtotal,
       status: editingItem?.status || 'DRAFT',
-      lines: lineItems.map((l, idx) => ({
-        id: l.id || `line-${idx}`,
-        itemId: l.itemId,
-        itemCode: l.itemCode,
-        description: (l.itemName || (l as any).description || 'Item') + (l.salesOrderNumber ? ` [SOC: ${l.salesOrderNumber}]` : ''),
-        itemName: l.itemName || 'Item',
-        salesOrderNumber: l.salesOrderNumber,
-        socNumber: l.salesOrderNumber,
-        customerPo: l.customerPo,
-        orderQuantity: l.orderQuantity,
-        orderBalance: l.orderBalance,
-        quantity: Number(l.quantity) || 1,
-        packageQuantity: l.packageQuantity,
-        packagingUnit: l.packagingUnit,
-        packagingSize: l.packagingSize,
-        uomCode: l.uomCode || 'M',
-        unitPrice: Number(l.rate) || 0,
-        taxAmount: 0,
-        lineTotal: Number(l.lineTotal) || (Number(l.quantity) * Number(l.rate)),
-      })),
+      lines: lineItems.map((l, idx) => {
+        const uom = l.uomCode || 'M';
+        const qty = Number(l.quantity) || 1;
+        const isMeter = isMeterUomCode(uom);
+        const effWpm = isMeter
+          ? ((l.finishedWeightPerMeter != null && Number(l.finishedWeightPerMeter) > 0)
+              ? Number(l.finishedWeightPerMeter)
+              : ((l.weightPerMeter != null && Number(l.weightPerMeter) > 0) ? Number(l.weightPerMeter) : 0))
+          : 0;
+        const totalWeightKg = isMeter && effWpm > 0 ? Number((qty * effWpm).toFixed(3)) : undefined;
+        return {
+          id: l.id || `line-${idx}`,
+          itemId: l.itemId,
+          itemCode: l.itemCode,
+          description: (l.itemName || (l as any).description || 'Item') + (l.salesOrderNumber ? ` [SOC: ${l.salesOrderNumber}]` : ''),
+          itemName: l.itemName || 'Item',
+          salesOrderNumber: l.salesOrderNumber,
+          socNumber: l.salesOrderNumber,
+          customerPo: l.customerPo,
+          orderQuantity: l.orderQuantity,
+          orderBalance: l.orderBalance,
+          quantity: qty,
+          packageQuantity: l.packageQuantity,
+          packagingUnit: l.packagingUnit,
+          packagingSize: l.packagingSize,
+          uomCode: uom,
+          weightPerMeter: l.weightPerMeter ?? null,
+          finishedWeightPerMeter: l.finishedWeightPerMeter ?? null,
+          ...(totalWeightKg != null ? { totalWeightKg } : {}),
+          unitPrice: Number(l.rate) || 0,
+          taxAmount: 0,
+          lineTotal: Number(l.lineTotal) || (Number(l.quantity) * Number(l.rate)),
+        };
+      }),
     };
   };
 
@@ -2705,36 +2743,160 @@ const SalesDeliveryManagement: React.FC = () => {
         </div>
       </div>
 
-      {/* Create / Edit Delivery Modal */}
+      {/* Create / Edit Delivery Modal — Daily Production Entry Wizard Style with 7px Outer Translucent Frame */}
       <DraggableResizableModal
-        title={editingItem ? 'Edit Delivery Note' : 'Create Sales Delivery'}
+        title={
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingRight: 8 }}>
+            <div
+              style={{
+                width: 42,
+                height: 42,
+                borderRadius: 10,
+                background: 'linear-gradient(135deg, #ea580c 0%, #f97316 100%)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxShadow: '0 4px 14px rgba(234, 88, 12, 0.38)',
+                color: '#ffffff',
+                fontSize: 20,
+                flexShrink: 0,
+              }}
+            >
+              <CarOutlined />
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <div
+                style={{
+                  fontSize: 10.5,
+                  fontWeight: 900,
+                  textTransform: 'uppercase',
+                  letterSpacing: '1.1px',
+                  color: '#ea580c',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                }}
+              >
+                <span>SALES &amp; DISPATCH · DELIVERY CHALLAN &amp; GATE PASS</span>
+                <span
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 700,
+                    color: token.colorTextSecondary,
+                    backgroundColor: token.colorFillAlter,
+                    padding: '1px 8px',
+                    borderRadius: 6,
+                    border: `1px solid ${token.colorBorderSecondary}`,
+                    letterSpacing: 'normal',
+                    textTransform: 'none',
+                  }}
+                >
+                  Drag to Move
+                </span>
+              </div>
+              <div style={{ fontSize: 19, fontWeight: 900, color: token.colorText, marginTop: 1 }}>
+                {editingItem ? `Edit Delivery Note — ${editingItem.deliveryNumber || ''}` : 'Create Sales Delivery'}
+              </div>
+            </div>
+          </div>
+        }
         open={modalVisible}
         onCancel={() => setModalVisible(false)}
-        width={1060}
-        footer={[
-          <Button
-            key="preview-gp"
-            icon={<SafetyCertificateOutlined />}
-            style={{ backgroundColor: '#0284c7', borderColor: '#0284c7', color: '#fff', fontWeight: 600 }}
-            onClick={handleModalPreviewGatePass}
-          >
-            📄 Preview Gate Pass
-          </Button>,
-          <Button
-            key="preview-dc"
-            icon={<PrinterOutlined />}
-            style={{ backgroundColor: '#475569', borderColor: '#475569', color: '#fff', fontWeight: 600 }}
-            onClick={handleModalPrintChallan}
-          >
-            🖨️ Print Delivery Challan
-          </Button>,
-          <Button key="cancel" onClick={() => setModalVisible(false)}>
-            Cancel
-          </Button>,
-          <Button key="submit" type="primary" loading={isSubmitting} disabled={isSubmitting} onClick={handleSubmitForm}>
-            {editingItem ? 'Update Delivery' : 'Save & Create Delivery'}
-          </Button>,
-        ]}
+        width={1100}
+        styles={{
+          content: {
+            padding: 7,
+            borderRadius: 22,
+            background: 'color-mix(in srgb, var(--theme-primary, #ea580c) 8%, rgba(148, 163, 184, 0.22))',
+            backdropFilter: 'blur(12px)',
+            border: '1px solid rgba(255, 255, 255, 0.25)',
+            boxShadow: '0 24px 64px rgba(0, 0, 0, 0.28)',
+          },
+          header: {
+            backgroundColor: token.colorBgContainer,
+            borderRadius: '16px 16px 0 0',
+            borderBottom: `1px solid ${token.colorBorderSecondary}`,
+            padding: '14px 20px',
+            marginBottom: 0,
+          },
+          body: {
+            backgroundColor: token.colorBgLayout,
+            padding: '16px 20px',
+            maxHeight: 'calc(100vh - 220px)',
+            overflowY: 'auto',
+          },
+          footer: {
+            backgroundColor: token.colorBgContainer,
+            borderRadius: '0 0 16px 16px',
+            borderTop: `1px solid ${token.colorBorderSecondary}`,
+            padding: '12px 20px',
+            marginTop: 0,
+          },
+        }}
+        footer={
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <Button
+                key="preview-gp"
+                size="large"
+                icon={<SafetyCertificateOutlined />}
+                style={{
+                  backgroundColor: '#0284c7',
+                  borderColor: '#0284c7',
+                  color: '#ffffff',
+                  fontWeight: 600,
+                  borderRadius: 10,
+                }}
+                onClick={handleModalPreviewGatePass}
+              >
+                Preview Gate Pass
+              </Button>
+              <Button
+                key="preview-dc"
+                size="large"
+                icon={<PrinterOutlined />}
+                style={{
+                  backgroundColor: '#475569',
+                  borderColor: '#475569',
+                  color: '#ffffff',
+                  fontWeight: 600,
+                  borderRadius: 10,
+                }}
+                onClick={handleModalPrintChallan}
+              >
+                Print Delivery Challan
+              </Button>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Button
+                key="cancel"
+                size="large"
+                onClick={() => setModalVisible(false)}
+                style={{ minWidth: 100, borderRadius: 10, fontWeight: 600 }}
+              >
+                Cancel
+              </Button>
+              <Button
+                key="submit"
+                type="primary"
+                size="large"
+                loading={isSubmitting}
+                disabled={isSubmitting}
+                onClick={handleSubmitForm}
+                style={{
+                  minWidth: 180,
+                  borderRadius: 10,
+                  fontWeight: 700,
+                  border: 'none',
+                  background: 'linear-gradient(135deg, #ea580c 0%, #f97316 100%)',
+                  boxShadow: '0 4px 14px rgba(234, 88, 12, 0.35)',
+                }}
+              >
+                {editingItem ? 'Update Delivery' : 'Save & Create Delivery'}
+              </Button>
+            </div>
+          </div>
+        }
       >
         <Form form={form} layout="vertical">
           <Row gutter={16}>

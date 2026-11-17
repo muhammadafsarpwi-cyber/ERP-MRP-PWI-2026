@@ -2217,8 +2217,10 @@ export const ProductionItemOpenStock: React.FC = () => {
               onFocus={(e) => e.target.select()}
               min={0}
               step={isMeterRate ? 1 : isFgLine ? 10 : 0.5}
-              value={val}
-              onChange={(newVal) => handleUpdateLine(record.key, 'unitCost', newVal || 0)}
+              value={val === 0 ? null : val}
+              onChange={(newVal) => handleUpdateLine(record.key, 'unitCost', newVal !== null && newVal !== undefined ? newVal : 0)}
+              formatter={(v) => (v !== undefined && v !== null && v !== '' ? `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : '')}
+              parser={(v) => (v ? parseFloat(v.replace(/,/g, '')) : 0)}
               addonAfter={<span style={{ fontSize: 11, fontWeight: 700, color: '#faad14' }}>{rateUnit}</span>}
               style={{ width: '100%', minWidth: 140, borderColor: '#faad14', borderWidth: 1.5, borderRadius: 6, fontWeight: 'bold', fontSize: 14 }}
               placeholder={isMeterRate ? '20.0' : isFgLine ? '950.0' : '310.0'}

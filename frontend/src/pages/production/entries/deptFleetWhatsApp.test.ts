@@ -182,4 +182,36 @@ Overall Achievement: {overall_achievement}
 
     localStorage.removeItem('erp_whatsapp_settings_v1');
   });
+
+  it('omits number emojis before machine headers and formats machine-wise remarks cleanly', () => {
+    const machinesWithRemarks: MachineStatusRow[] = [
+      {
+        ...sampleMachines[0],
+        remarks: '  Roller adjusted ;  Wire coil changed  \n  Checked alignment  ',
+      },
+      {
+        ...sampleMachines[1],
+        remarks: 'Single short remark',
+      },
+      {
+        ...sampleMachines[2],
+        remarks: null,
+      },
+    ];
+
+    const text = buildDepartmentFleetWhatsAppText({
+      department: { id: 'dept-st', name: 'Straightener', departmentCode: 'ST' },
+      divisionName: 'Spoke Division (DIV-SPD)',
+      shiftName: 'General Shift (D)',
+      dateStr: '2026-11-05',
+      machines: machinesWithRemarks,
+    });
+
+    expect(text).not.toContain('1️⃣');
+    expect(text).not.toContain('2️⃣');
+    expect(text).not.toContain('3️⃣');
+    expect(text).toContain('*ST-01 — Straightener Machine 01* [Entered]');
+    expect(text).toContain('   *Remarks:*\n     - Roller adjusted\n     - Wire coil changed\n     - Checked alignment');
+    expect(text).toContain('   *Remarks:*\n     Single short remark');
+  });
 });
