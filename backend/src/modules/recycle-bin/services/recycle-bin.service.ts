@@ -10,6 +10,7 @@ import { Repository, SelectQueryBuilder, In, ObjectLiteral } from 'typeorm';
 
 import { ProductionEntry } from '../../production/entities/production-entry.entity';
 import { ProductionEntryItem } from '../../production/entities/production-entry-item.entity';
+import { Machine, MachineStatus } from '../../production/entities/machine.entity';
 import { MaintenanceJobCard } from '../../maintenance/entities/maintenance-job-card.entity';
 import { MaintenanceJobCardPart } from '../../maintenance/entities/maintenance-job-card-part.entity';
 import { DispatchPackage } from '../../dispatch/entities/dispatch-package.entity';
@@ -77,6 +78,7 @@ export enum RecycleBinType {
   SALES_ORDERS = 'sales-orders',
   SALES_INVOICES = 'sales-invoices',
   GATE_PASSES = 'gate-passes',
+  MACHINES = 'machines',
 }
 
 const RECYCLE_BIN_TYPES: string[] = Object.values(RecycleBinType);
@@ -251,6 +253,8 @@ export class RecycleBinService {
     private readonly salesDeliveryRepo: Repository<SalesDelivery>,
     @InjectRepository(SalesDeliveryLine)
     private readonly salesDeliveryLineRepo: Repository<SalesDeliveryLine>,
+    @InjectRepository(Machine)
+    private readonly machineRepo: Repository<Machine>,
   ) {}
 
   /**
@@ -515,6 +519,9 @@ export class RecycleBinService {
       case RecycleBinType.CUSTOMERS:
         rows = await this.listCustomers(companyId, take);
         break;
+      case RecycleBinType.MACHINES:
+        rows = await this.listMachines(companyId, take);
+        break;
       default: {
         const doc = this.docs[type];
         if (!doc) throw this.unknownType(type);
@@ -530,13 +537,14 @@ export class RecycleBinService {
   async counts(companyId: string): Promise<Record<RecycleBinType, number>> {
     const docSpecs = Object.values(this.docs);
 
-    const [production, handPacking, jobCards, dispatch, customers, ...docCounts] =
+    const [production, handPacking, jobCards, dispatch, customers, machines, ...docCounts] =
       await Promise.all([
         this.countProductionEntries(companyId, false),
         this.countProductionEntries(companyId, true),
         this.countTrashed(this.jobCardRepo, companyId),
         this.countTrashed(this.packageRepo, companyId),
         this.countTrashed(this.customerRepo, companyId),
+        this.countMachines(companyId),
         ...docSpecs.map((spec) => this.countTrashedDoc(spec, companyId)),
       ]);
 
@@ -549,6 +557,7 @@ export class RecycleBinService {
       [RecycleBinType.HAND_PACKING]: handPacking,
       [RecycleBinType.DISPATCH]: dispatch,
       [RecycleBinType.CUSTOMERS]: customers,
+      [RecycleBinType.MACHINES]: machines,
     };
     docSpecs.forEach((spec, i) => {
       result[spec.type] = docCounts[i];
@@ -779,6 +788,78 @@ export class RecycleBinService {
    * fact survives the user row it points at. When the profile is gone the raw
    * uuid is still shown — an auditor must never be handed a blank cell.
    */
+  private async countMachines(companyId: string): Promise<number> {
+    return this.machineRepo.count({
+      where: { companyId, isActive: false },
+    });
+  }
+
+  private async listMachines(companyId: string, take: number): Promise<RecycleBinRow[]> {
+    const rows = await this.machineRepo.find({
+      where: { companyId, isActive: false },
+      relations: ['division', 'department'],
+      order: { updatedAt: 'DESC' },
+      take,
+    });
+
+    return rows.map((m) => ({
+      id: m.id,
+      module: RecycleBinType.MACHINES,
+      deletedAt: m.updatedAt ? m.updatedAt.toISOString() : null,
+      componentName: m.name || m.machineCode || 'Machine',
+      summary: m.machineNumber ? `${m.machineCode} (${m.machineNumber})` : m.machineCode,
+      detail: [m.division?.name, m.department?.name].filter(Boolean).join(' · ') || m.machineType || null,
+      deletedBy: null,
+      deletedById: m.updatedBy ?? null,
+      context: {
+        'Type': m.machineType || null,
+        'Division': m.division?.name || null,
+        'Department': m.department?.name || null,
+        'Location': m.location || null,
+      },
+    }));
+  }
+
+  private async restoreMachine(id: string, companyId: string, userId?: string): Promise<RecycleBinRow> {
+    const machine = await this.machineRepo.findOne({ where: { id, companyId } });
+    if (!machine) throw new NotFoundException('Machine not found in the Recycle Bin');
+    if (machine.isActive) throw new BadRequestException('Machine is not in the Recycle Bin');
+
+    machine.isActive = true;
+    machine.status = MachineStatus.ACTIVE;
+    machine.updatedBy = userId ?? null;
+    await this.machineRepo.save(machine);
+
+    return {
+      id: machine.id,
+      module: RecycleBinType.MACHINES,
+      deletedAt: null,
+      componentName: machine.name || machine.machineCode,
+      summary: machine.machineCode,
+      detail: 'Restored',
+      deletedBy: null,
+      deletedById: null,
+      context: { 'Name': machine.name, 'Status': machine.status },
+    };
+  }
+
+  private async purgeMachine(id: string, companyId: string): Promise<void> {
+    const machine = await this.machineRepo.findOne({ where: { id, companyId } });
+    if (!machine) throw new NotFoundException('Machine not found in the Recycle Bin');
+    if (machine.isActive) throw new BadRequestException('Only deleted machines in the Recycle Bin can be purged');
+
+    try {
+      await this.machineRepo.delete({ id: machine.id });
+    } catch (err: any) {
+      if (err?.code === '23503') {
+        throw new ConflictException(
+          `Cannot permanently delete machine '${machine.machineCode}' because it is referenced by historical production or maintenance records.`,
+        );
+      }
+      throw err;
+    }
+  }
+
   private async decorateDeletedBy(rows: RecycleBinRow[]): Promise<RecycleBinRow[]> {
     const ids = [...new Set(rows.map((r) => r.deletedById).filter((v): v is string => !!v))];
     if (ids.length === 0) return rows;
@@ -820,6 +901,8 @@ export class RecycleBinService {
         return this.restoreDispatch(id, companyId, userId);
       case RecycleBinType.CUSTOMERS:
         return this.restoreCustomer(id, companyId, userId);
+      case RecycleBinType.MACHINES:
+        return this.restoreMachine(id, companyId, userId);
       default: {
         const doc = this.docs[type];
         if (!doc) throw this.unknownType(type);
@@ -1016,6 +1099,8 @@ export class RecycleBinService {
         return this.purgeDispatch(id, companyId);
       case RecycleBinType.CUSTOMERS:
         return this.purgeCustomer(id, companyId);
+      case RecycleBinType.MACHINES:
+        return this.purgeMachine(id, companyId);
       default: {
         const doc = this.docs[type];
         if (!doc) throw this.unknownType(type);

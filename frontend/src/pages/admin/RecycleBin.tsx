@@ -53,7 +53,8 @@ export type RecycleBinType =
   | 'pm-schedules'
   | 'sales-orders'
   | 'sales-invoices'
-  | 'gate-passes';
+  | 'gate-passes'
+  | 'machines';
 
 export interface RecycleBinRow {
   id: string;
@@ -218,6 +219,14 @@ export const TABS: TabSpec[] = [
     shortLabel: 'Dispatch',
     dept: 'Logistics',
     blurb: 'Dispatch packages and their packed production units',
+  },
+  {
+    key: 'machines',
+    emoji: '⚙️',
+    label: 'Machines',
+    shortLabel: 'Machines',
+    dept: 'Master Data',
+    blurb: 'Soft-deleted production machines from Machine Master',
   },
 ];
 

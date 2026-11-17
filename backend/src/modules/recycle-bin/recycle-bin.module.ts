@@ -7,6 +7,7 @@ import { UserModule } from '../user/user.module';
 
 import { ProductionEntry } from '../production/entities/production-entry.entity';
 import { ProductionEntryItem } from '../production/entities/production-entry-item.entity';
+import { Machine } from '../production/entities/machine.entity';
 import { MaintenanceJobCard } from '../maintenance/entities/maintenance-job-card.entity';
 import { MaintenanceJobCardPart } from '../maintenance/entities/maintenance-job-card-part.entity';
 import { DispatchPackage } from '../dispatch/entities/dispatch-package.entity';
@@ -72,6 +73,7 @@ import { RecycleBinService } from './services/recycle-bin.service';
     TypeOrmModule.forFeature([
       ProductionEntry,
       ProductionEntryItem,
+      Machine,
       MaintenanceJobCard,
       MaintenanceJobCardPart,
       DispatchPackage,
