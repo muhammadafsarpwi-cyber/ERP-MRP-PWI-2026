@@ -887,17 +887,19 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
             ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
         {step === 1 && (
           <div>
-            <div style={{ marginBottom: 20 }}>
-              <h3 style={{ margin: 0, fontSize: 19, fontWeight: 800, color: token.colorText }}>
+            <div style={{ marginBottom: isMobile ? 10 : 20 }}>
+              <h3 style={{ margin: 0, fontSize: isMobile ? 15 : 19, fontWeight: 800, color: token.colorText }}>
                 Step 1: Shift & Production Area Identification
               </h3>
-              <div style={{ color: token.colorTextSecondary, fontSize: 13, marginTop: 4 }}>
-                Select your target manufacturing division, operating date, and scheduled shift via rapid touch selectors (Zero Typing Required).
-              </div>
+              {!isMobile && (
+                <div style={{ color: token.colorTextSecondary, fontSize: 13, marginTop: 4 }}>
+                  Select your target manufacturing division, operating date, and scheduled shift via rapid touch selectors (Zero Typing Required).
+                </div>
+              )}
             </div>
 
             {/* 3 LARGE HIGH-CONTRAST SELECTION CARDS (ZERO BORDER & MOBILE RESPONSIVE) */}
-            <Row gutter={isMobile ? [12, 12] : [18, 18]}>
+            <Row gutter={isMobile ? [8, 8] : [18, 18]}>
               {/* 1. ACTIVE MANUFACTURING AREA (DIVISION & SECTION ONLY) */}
               <Col xs={24} md={8}>
                 <div
@@ -1189,7 +1191,7 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
             </Row>
 
             {/* Big Proceed Action Button */}
-            <div style={{ marginTop: isMobile ? 16 : 26, textAlign: 'center' }}>
+            <div style={{ marginTop: isMobile ? 10 : 26, textAlign: 'center' }}>
               <Button
                 type="primary"
                 onClick={() => {
@@ -1206,19 +1208,20 @@ const EntryMachineSelect: React.FC<EntryMachineSelectProps> = ({
                   setRefreshTick((t) => t + 1);
                 }}
                 style={{
-                  height: isMobile ? 48 : 58,
+                  height: isMobile ? 42 : 58,
                   width: '100%',
-                  maxWidth: 500,
+                  maxWidth: isMobile ? '100%' : 500,
+                  padding: isMobile ? '0 12px' : undefined,
                   background: 'linear-gradient(135deg, #ea580c 0%, #f97316 100%)',
                   borderColor: '#ea580c',
-                  borderRadius: 12,
-                  fontSize: isMobile ? 15 : 18,
+                  borderRadius: isMobile ? 10 : 12,
+                  fontSize: isMobile ? 12.5 : 18,
                   fontWeight: 900,
-                  letterSpacing: '0.5px',
+                  letterSpacing: isMobile ? '0.2px' : '0.5px',
                   boxShadow: '0 6px 20px rgba(234, 88, 12, 0.35)',
                 }}
               >
-                PROCEED TO DEPARTMENT & MACHINES ➔
+                {isMobile ? 'NEXT: DEPARTMENT & MACHINES ➔' : 'PROCEED TO DEPARTMENT & MACHINES ➔'}
               </Button>
             </div>
           </div>

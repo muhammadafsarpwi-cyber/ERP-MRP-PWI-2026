@@ -1,7 +1,6 @@
 import React from 'react';
-import { Modal, Button, Typography, Row, Col, Tag, Space, Divider } from 'antd';
+import { Modal, Button, Typography, Row, Col, Tag, Grid, theme } from 'antd';
 import {
-  CheckCircleOutlined,
   ExclamationCircleOutlined,
   SaveOutlined,
   ShopOutlined,
@@ -12,18 +11,24 @@ import {
 } from '@ant-design/icons';
 import { formatNumber } from '../../../utils/numberFormat';
 
-const { Text, Title } = Typography;
-
 export interface EditedFieldDiff {
   label: string;
   oldValue: string | number;
   newValue: string | number;
 }
 
+export interface EntryPreSaveItemLine {
+  itemName: string;
+  actualQuantity: number;
+  uomCode?: string;
+  scrapQuantityKg?: number;
+}
+
 export interface EntryPreSaveSummary {
   mode: 'create' | 'edit';
   itemCode?: string;
   itemName?: string;
+  items?: EntryPreSaveItemLine[];
   wireSizeMm?: number | null;
   rawMaterialWarehouseName?: string;
   rawMaterialWarehouseCode?: string;
@@ -36,6 +41,7 @@ export interface EntryPreSaveSummary {
   processScrapKg?: number;
   shiftName?: string;
   machineName?: string;
+  operatorName?: string;
   entryDate?: string;
   changes?: EditedFieldDiff[];
 }
@@ -50,7 +56,7 @@ export interface EntryPreSaveConfirmModalProps {
 
 /**
  * Enterprise 2-Step Pre-Save Audit & Verification Dialog for Daily Production Entries.
- * Summarizes Item, Inbound/Outbound Warehouses, Produced/Scrap quantities, and Machine/Shift
+ * Summarizes Items, Inbound/Outbound Warehouses, Produced/Scrap quantities, Operator, and Machine/Shift
  * before persisting to the inventory ledger.
  */
 export const EntryPreSaveConfirmModal: React.FC<EntryPreSaveConfirmModalProps> = ({
@@ -60,44 +66,64 @@ export const EntryPreSaveConfirmModal: React.FC<EntryPreSaveConfirmModalProps> =
   onConfirm,
   onCancel,
 }) => {
+  const screens = Grid.useBreakpoint();
+  const isMobile = !screens.md;
+  const { token } = theme.useToken();
+
   if (!summary) return null;
 
   const isEdit = summary.mode === 'edit';
-  const title = isEdit ? 'Confirm Update Daily Production Entry?' : 'Confirm Save Daily Production Entry?';
+  const title = isEdit
+    ? (isMobile ? 'Confirm Update Entry?' : 'Confirm Update Daily Production Entry?')
+    : (isMobile ? 'Confirm Save Entry?' : 'Confirm Save Daily Production Entry?');
+  const itemList = summary.items && summary.items.length > 0 ? summary.items : [];
+  const hasMultipleItems = itemList.length > 1;
 
   return (
     <Modal
       open={open}
       zIndex={100000}
       centered
-      width={640}
+      width={isMobile ? 'calc(100vw - 16px)' : 640}
+      style={isMobile ? { maxWidth: 'calc(100vw - 16px)', margin: '8px auto' } : undefined}
+      styles={{
+        body: {
+          maxHeight: isMobile ? '65vh' : '74vh',
+          overflowY: 'auto',
+          padding: isMobile ? '6px 2px 2px' : undefined,
+        },
+        header: {
+          marginBottom: isMobile ? 6 : 10,
+        },
+      }}
       destroyOnHidden
       closable={!loading}
       maskClosable={false}
       onCancel={onCancel}
       title={
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 10, paddingRight: 20 }}>
           <div
             style={{
-              width: 34,
-              height: 34,
+              width: isMobile ? 28 : 34,
+              height: isMobile ? 28 : 34,
               borderRadius: 8,
               background: 'rgba(59, 130, 246, 0.15)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               color: '#38bdf8',
-              fontSize: 18,
+              fontSize: isMobile ? 15 : 18,
+              flexShrink: 0,
             }}
           >
             <ExclamationCircleOutlined />
           </div>
-          <div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: '#0f172a', lineHeight: 1.2 }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: isMobile ? 14 : 16, fontWeight: 700, color: token.colorText, lineHeight: 1.25 }}>
               {title}
             </div>
-            <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
-              Please verify the material flow, warehouses, and production counts before saving.
+            <div style={{ fontSize: isMobile ? 11 : 12, color: token.colorTextSecondary, marginTop: 2 }}>
+              Verify material flow, items, operator &amp; counts before saving.
             </div>
           </div>
         </div>
@@ -107,33 +133,48 @@ export const EntryPreSaveConfirmModal: React.FC<EntryPreSaveConfirmModalProps> =
           style={{
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'flex-end',
-            gap: 10,
-            paddingTop: 12,
-            borderTop: '1px solid #e2e8f0',
+            justifyContent: isMobile ? 'space-between' : 'flex-end',
+            flexWrap: 'wrap',
+            gap: isMobile ? 8 : 10,
+            paddingTop: isMobile ? 8 : 12,
+            borderTop: `1px solid ${token.colorBorderSecondary}`,
           }}
         >
-          <Button onClick={onCancel} disabled={loading} size="middle">
-            Review / Edit More
+          <Button
+            onClick={onCancel}
+            disabled={loading}
+            size={isMobile ? 'middle' : 'middle'}
+            style={{
+              flex: isMobile ? 1 : undefined,
+              fontSize: isMobile ? 12 : 13,
+              padding: isMobile ? '0 8px' : undefined,
+              borderRadius: 8,
+            }}
+          >
+            {isMobile ? 'Review / Edit' : 'Review / Edit More'}
           </Button>
           <Button
             type="primary"
             icon={<SaveOutlined />}
             loading={loading}
             onClick={onConfirm}
-            size="middle"
+            size={isMobile ? 'middle' : 'middle'}
             style={{
+              flex: isMobile ? 1 : undefined,
               background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
               borderColor: '#059669',
               fontWeight: 700,
+              fontSize: isMobile ? 12 : 13,
+              padding: isMobile ? '0 10px' : undefined,
+              borderRadius: 8,
             }}
           >
-            {isEdit ? 'Confirm & Update Entry' : 'Confirm & Save Entry'}
+            {isEdit ? (isMobile ? 'Confirm Update' : 'Confirm & Update Entry') : (isMobile ? 'Confirm & Save' : 'Confirm & Save Entry')}
           </Button>
         </div>
       }
     >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '12px 0 4px' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? 8 : 12, padding: isMobile ? '4px 0' : '12px 0 4px' }}>
         {/* If Edit Mode: Modified Fields Diff Section */}
         {isEdit && (
           <div
@@ -193,33 +234,54 @@ export const EntryPreSaveConfirmModal: React.FC<EntryPreSaveConfirmModalProps> =
           </div>
         )}
 
-        {/* Card 1: Product / Item */}
+        {/* Card 1: Product / Item(s) */}
         <div
           style={{
-            background: '#f8fafc',
-            border: '1px solid #e2e8f0',
+            background: token.colorFillAlter,
+            border: `1px solid ${token.colorBorderSecondary}`,
             borderRadius: 8,
-            padding: '10px 14px',
+            padding: isMobile ? '8px 10px' : '10px 14px',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-            <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#0284c7', letterSpacing: '0.5px' }}>
-              <AppstoreOutlined style={{ marginRight: 5 }} /> Manufactured Product
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4, gap: 6 }}>
+            <span style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', color: '#0284c7', letterSpacing: '0.5px' }}>
+              <AppstoreOutlined style={{ marginRight: 5 }} /> {hasMultipleItems ? `Manufactured Products (${itemList.length})` : 'Manufactured Product'}
             </span>
             {summary.wireSizeMm ? (
-              <Tag color="cyan" style={{ fontSize: 11, fontWeight: 700, margin: 0 }}>
+              <Tag color="cyan" style={{ fontSize: 10.5, fontWeight: 700, margin: 0 }}>
                 Wire Size: {summary.wireSizeMm} mm
               </Tag>
             ) : null}
           </div>
-          <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>
-            {summary.itemName || 'Production Item'}
-            {summary.itemCode ? (
-              <span style={{ fontWeight: 500, color: '#64748b', marginLeft: 6 }}>
-                ({summary.itemCode})
-              </span>
-            ) : null}
-          </div>
+          {hasMultipleItems ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {itemList.map((it, idx) => (
+                <div
+                  key={`${it.itemName}-${idx}`}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 8,
+                    fontSize: isMobile ? 12 : 13,
+                    fontWeight: 600,
+                    color: token.colorText,
+                  }}
+                >
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {idx + 1}. {it.itemName}
+                  </span>
+                  <span style={{ fontWeight: 700, color: '#0284c7', flexShrink: 0 }}>
+                    {formatNumber(it.actualQuantity, 0)} {it.uomCode || summary.uomCode || 'PCS'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ fontSize: isMobile ? 13 : 14, fontWeight: 700, color: token.colorText }}>
+              {summary.itemName || itemList[0]?.itemName || 'Production Item'}
+            </div>
+          )}
         </div>
 
         {/* Card 2: Material Flow (Warehouses IN & OUT) */}
@@ -273,28 +335,30 @@ export const EntryPreSaveConfirmModal: React.FC<EntryPreSaveConfirmModalProps> =
           <Col xs={24} sm={12}>
             <div
               style={{
-                background: '#f8fafc',
-                border: '1px solid #e2e8f0',
+                background: token.colorFillAlter,
+                border: `1px solid ${token.colorBorderSecondary}`,
                 borderRadius: 8,
-                padding: '10px 14px',
+                padding: isMobile ? '8px 10px' : '10px 14px',
                 height: '100%',
               }}
             >
-              <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#64748b', marginBottom: 6 }}>
+              <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', color: token.colorTextSecondary, marginBottom: 6 }}>
                 Production Output Figures
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
-                <span style={{ fontSize: 12, color: '#64748b' }}>Good Production:</span>
-                <span style={{ fontSize: 16, fontWeight: 800, color: '#0284c7' }}>
-                  {formatNumber(summary.actualQuantity, 0)} <span style={{ fontSize: 12, fontWeight: 600 }}>{summary.uomCode || 'PCS'}</span>
+                <span style={{ fontSize: 12, color: token.colorTextSecondary }}>
+                  {hasMultipleItems ? 'Total Good Production:' : 'Good Production:'}
+                </span>
+                <span style={{ fontSize: isMobile ? 14 : 16, fontWeight: 800, color: '#0284c7' }}>
+                  {formatNumber(summary.actualQuantity, 0)} <span style={{ fontSize: 11.5, fontWeight: 600 }}>{summary.uomCode || 'PCS'}</span>
                 </span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: (summary.processScrapKg ?? 0) > 0 ? 4 : 0 }}>
-                <span style={{ fontSize: 12, color: '#64748b' }}>Product Rejection:</span>
-                <span style={{ fontSize: 14, fontWeight: 700, color: summary.scrapQuantityKg > 0 ? '#ef4444' : '#64748b' }}>
+                <span style={{ fontSize: 12, color: token.colorTextSecondary }}>Product Rejection:</span>
+                <span style={{ fontSize: isMobile ? 13 : 14, fontWeight: 700, color: summary.scrapQuantityKg > 0 ? '#ef4444' : token.colorTextSecondary }}>
                   {formatNumber(summary.scrapQuantityKg, 2)} <span style={{ fontSize: 11, fontWeight: 600 }}>KG</span>
                   {summary.scrapQuantityPcs ? (
-                    <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b', marginLeft: 6 }}>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: token.colorTextSecondary, marginLeft: 5 }}>
                       ({formatNumber(summary.scrapQuantityPcs, 0)} PCS)
                     </span>
                   ) : null}
@@ -302,8 +366,8 @@ export const EntryPreSaveConfirmModal: React.FC<EntryPreSaveConfirmModalProps> =
               </div>
               {(summary.processScrapKg ?? 0) > 0 && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                  <span style={{ fontSize: 12, color: '#64748b' }}>Process Cutting Scrap:</span>
-                  <span style={{ fontSize: 14, fontWeight: 700, color: '#d97706' }}>
+                  <span style={{ fontSize: 12, color: token.colorTextSecondary }}>Process Cutting Scrap:</span>
+                  <span style={{ fontSize: isMobile ? 13 : 14, fontWeight: 700, color: '#d97706' }}>
                     {formatNumber(summary.processScrapKg, 2)} <span style={{ fontSize: 11, fontWeight: 600 }}>KG</span>
                   </span>
                 </div>
@@ -314,32 +378,38 @@ export const EntryPreSaveConfirmModal: React.FC<EntryPreSaveConfirmModalProps> =
           <Col xs={24} sm={12}>
             <div
               style={{
-                background: '#f8fafc',
-                border: '1px solid #e2e8f0',
+                background: token.colorFillAlter,
+                border: `1px solid ${token.colorBorderSecondary}`,
                 borderRadius: 8,
-                padding: '10px 14px',
+                padding: isMobile ? '8px 10px' : '10px 14px',
                 height: '100%',
               }}
             >
-              <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#64748b', marginBottom: 6 }}>
-                <CalendarOutlined style={{ marginRight: 5 }} /> Context & Shift
+              <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', color: token.colorTextSecondary, marginBottom: 6 }}>
+                <CalendarOutlined style={{ marginRight: 5 }} /> Context &amp; Shift
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                <span style={{ fontSize: 12, color: '#64748b' }}>Date:</span>
-                <span style={{ fontSize: 12.5, fontWeight: 600, color: '#0f172a' }}>
+                <span style={{ fontSize: 12, color: token.colorTextSecondary }}>Date:</span>
+                <span style={{ fontSize: 12, fontWeight: 600, color: token.colorText }}>
                   {summary.entryDate || 'Today'}
                 </span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                <span style={{ fontSize: 12, color: '#64748b' }}>Shift:</span>
-                <span style={{ fontSize: 12.5, fontWeight: 600, color: '#0f172a' }}>
+                <span style={{ fontSize: 12, color: token.colorTextSecondary }}>Shift:</span>
+                <span style={{ fontSize: 12, fontWeight: 600, color: token.colorText }}>
                   {summary.shiftName || 'General Shift'}
                 </span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: 12, color: '#64748b' }}>Machine:</span>
-                <span style={{ fontSize: 12.5, fontWeight: 600, color: '#0f172a' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                <span style={{ fontSize: 12, color: token.colorTextSecondary }}>Machine:</span>
+                <span style={{ fontSize: 12, fontWeight: 600, color: token.colorText }}>
                   {summary.machineName || 'Unassigned'}
+                </span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: 12, color: token.colorTextSecondary }}>Operator:</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: token.colorText }}>
+                  {summary.operatorName || '—'}
                 </span>
               </div>
             </div>

@@ -2625,21 +2625,47 @@ const EntryForm: React.FC<EntryFormProps> = ({
         }
       }
 
+      const summaryItems = itemLines
+        .filter((l) => !!l.itemId)
+        .map((l) => {
+          const lineItm =
+            lookups.items.find((i) => i.id === l.itemId) ||
+            departmentItems.find((i) => i.id === l.itemId) ||
+            machineTargetItems.find((i) => i.id === l.itemId) ||
+            extraItemDetails[l.itemId];
+          const lineUom =
+            (l.uomId ? lookups.uoms.find((u) => u.id === l.uomId)?.code : undefined) ||
+            lineItm?.baseUom?.code ||
+            uomCode;
+          return {
+            itemName: lineItm?.name || 'Production Item',
+            actualQuantity: toNum(l.actualQuantity),
+            uomCode: lineUom,
+            scrapQuantityKg: toNum((l as any).scrapQuantity ?? 0),
+          };
+        });
+      const totalGoodQty =
+        summaryItems.length > 0
+          ? summaryItems.reduce((sum, s) => sum + s.actualQuantity, 0)
+          : toNum(goodQty);
+
       setPreSaveSummary({
         mode: mode === 'edit' ? 'edit' : 'create',
         itemCode: itm?.itemCode,
         itemName: itm?.name,
+        items: summaryItems,
         wireSizeMm: itm?.wireSizeMm,
         rawMaterialWarehouseName: rawWh?.name,
         rawMaterialWarehouseCode: rawWh?.warehouseCode,
         receiptWarehouseName: recWh?.name,
         receiptWarehouseCode: recWh?.warehouseCode,
-        actualQuantity: toNum(goodQty),
+        actualQuantity: totalGoodQty,
         uomCode,
         scrapQuantityKg: totalRejectionKg > 0 ? totalRejectionKg : (isPieceBased ? Math.round((toNum(payload.scrapQuantity) * fgMetricFactor) * 1000) / 1000 : formScrapKg),
         scrapQuantityPcs: isPieceBased ? Math.round(toNum(payload.scrapQuantity) || totalRejectionPcs) : (totalRejectionPcs > 0 ? Math.round(totalRejectionPcs) : null),
         processScrapKg: formProcessScrapKg,
         machineName: String(payload.machineNo ?? ''),
+        operatorName: String(payload.operatorName ?? (values as { operatorName?: string }).operatorName ?? '').trim() || undefined,
         shiftName: shift?.name,
         entryDate: String(payload.entryDate ?? ''),
         changes,

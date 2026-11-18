@@ -648,8 +648,72 @@ const RowExpandIcon: React.FC<{
  * the WEIGHT (KG) report column (`productionWeight.calcActualKg`), so this
  * expansion can never disagree with the printed report or the KPI tiles.
  */
-const NestedItemsPanel: React.FC<{ row: ProductionEntryRow }> = ({ row }) => {
+const NestedItemsPanel: React.FC<{ row: ProductionEntryRow; compact?: boolean }> = ({ row, compact = false }) => {
   const items = nestedItemsOf(row);
+  const bp = Grid.useBreakpoint();
+  const useCompact = compact || !bp.md;
+
+  if (useCompact) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '4px 0' }}>
+        {items.map((n, i) => {
+          const good = toNum(n.actualQuantity);
+          const wpp = toNum(n.weightPerPiece) || null;
+          const wpm = toNum(n.weightPerMeter) || null;
+          const kg = calcActualKg(n.uomCode || '', good, wpp, wpm);
+          return (
+            <div
+              key={`${n.itemId ?? 'line'}-${n.lineNumber ?? i}`}
+              style={{
+                background: 'var(--theme-surface-alt, rgba(0, 0, 0, 0.02))',
+                border: '1px solid var(--theme-border, #e2e8f0)',
+                borderRadius: 8,
+                padding: '7px 10px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 4,
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--theme-text, #0f172a)', lineHeight: 1.3 }}>
+                  <span style={{ color: 'var(--theme-text-muted, #94a3b8)', marginRight: 5 }}>#{n.lineNumber ?? i + 1}</span>
+                  {n.itemName || n.itemCode || '—'}
+                </div>
+                <span style={{ fontFamily: 'monospace', fontSize: 10.5, color: 'var(--theme-text-muted, #64748b)', fontWeight: 600, flexShrink: 0 }}>
+                  {n.itemCode || '—'}
+                </span>
+              </div>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 8,
+                  paddingTop: 4,
+                  borderTop: '1px dashed var(--theme-border, #e2e8f0)',
+                  fontSize: 11.5,
+                }}
+              >
+                <span>
+                  <span style={{ color: 'var(--theme-text-muted, #64748b)', marginRight: 4 }}>Qty:</span>
+                  <strong style={{ color: 'var(--theme-primary, #2563eb)' }}>
+                    {formatNumber(good, 0)} {n.uomCode || ''}
+                  </strong>
+                </span>
+                <span>
+                  <span style={{ color: 'var(--theme-text-muted, #64748b)', marginRight: 4 }}>Wt:</span>
+                  <strong style={{ color: 'var(--theme-text, #0f172a)' }}>
+                    {kg == null ? '—' : `${formatNumber(kg, 2)} KG`}
+                  </strong>
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
   const cell: React.CSSProperties = { padding: '5px 10px', whiteSpace: 'nowrap' };
   const head: React.CSSProperties = {
     ...cell,
@@ -4247,7 +4311,7 @@ const EntryList: React.FC = () => {
                                             paddingTop: 8,
                                           }}
                                         >
-                                          <NestedItemsPanel row={r} />
+                                          <NestedItemsPanel row={r} compact />
                                         </div>
                                       )}
 
