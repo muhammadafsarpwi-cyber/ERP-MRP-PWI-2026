@@ -822,7 +822,11 @@ export class ItemService implements OnModuleInit {
         .leftJoinAndSelect('item.baseUom', 'baseUom')
         .leftJoinAndSelect('item.salesUom', 'salesUom')
         .leftJoinAndSelect('item.purchaseUom', 'purchaseUom')
-        .leftJoinAndSelect('item.department', 'department');
+        .leftJoinAndSelect('item.division', 'division')
+        .leftJoinAndSelect('item.section', 'section')
+        .leftJoinAndSelect('item.department', 'department')
+        .leftJoinAndSelect('department.division', 'deptDivision')
+        .leftJoinAndSelect('department.section', 'deptSection');
     } else {
       qb.leftJoinAndSelect('item.category', 'category')
         .leftJoinAndSelect('item.baseUom', 'baseUom')
@@ -832,6 +836,8 @@ export class ItemService implements OnModuleInit {
         .leftJoinAndSelect('item.division', 'division')
         .leftJoinAndSelect('item.section', 'section')
         .leftJoinAndSelect('item.department', 'department')
+        .leftJoinAndSelect('department.division', 'deptDivision')
+        .leftJoinAndSelect('department.section', 'deptSection')
         .leftJoinAndSelect('item.routeTypeRef', 'routeTypeRef')
         .leftJoinAndSelect('item.itemTypeRef', 'itemTypeRef')
         .leftJoinAndSelect('item.productionInItem', 'productionInItem')
@@ -849,7 +855,7 @@ export class ItemService implements OnModuleInit {
           search: `%${sTrim}%`,
         });
       } else {
-        qb.where('(item.itemCode ILIKE :search OR item.sku ILIKE :search OR item.name ILIKE :search OR item.barcode ILIKE :search OR item.itemType ILIKE :search OR item.materialRoleUsage ILIKE :search OR CAST(item.wireSizeMm AS TEXT) ILIKE :search OR CAST(item.diameterMm AS TEXT) ILIKE :search)', { search: `%${sTrim}%` });
+        qb.where('(item.itemCode ILIKE :search OR item.sku ILIKE :search OR item.name ILIKE :search OR item.description ILIKE :search OR category.name ILIKE :search OR item.barcode ILIKE :search OR item.itemType ILIKE :search OR item.materialRoleUsage ILIKE :search OR CAST(item.wireSizeMm AS TEXT) ILIKE :search OR CAST(item.diameterMm AS TEXT) ILIKE :search)', { search: `%${sTrim}%` });
       }
     }
     if (status) qb.andWhere('item.status = :status', { status });

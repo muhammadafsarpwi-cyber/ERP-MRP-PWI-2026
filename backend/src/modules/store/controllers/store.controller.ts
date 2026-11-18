@@ -108,6 +108,16 @@ export class StoreController {
     return this.storeService.updateStoreItem(id, dto, this.getUserId(req), this.getCompanyId(req), this.divisionScope(req));
   }
 
+  @Put('items/:itemId/inline-sync')
+  @RequirePermission('store.item.update')
+  async syncStoreItemInline(
+    @Param('itemId') itemId: string,
+    @Body() body: { storeId?: string; locationDetail?: string | null; minStock?: number; reorderLevel?: number; maxStock?: number },
+    @Req() req: any,
+  ) {
+    return this.storeService.syncStoreItemInline(itemId, body, this.getUserId(req), this.getCompanyId(req));
+  }
+
   // ==================== MATERIAL REQUESTS ====================
 
   @Get('material-requests')

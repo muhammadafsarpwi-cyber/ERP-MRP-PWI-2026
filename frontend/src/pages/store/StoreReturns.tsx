@@ -7,6 +7,7 @@ import apiService from '../../services/api';
 import { isValidUUID } from '../../utils/uuid';
 import { usePermission } from '../../hooks/usePermission';
 import PageHeader from '../../components/shared/PageHeader';
+import { ConfirmAndSuccessModal, type ConfirmAndSuccessPhase } from '../../components/shared';
 import StoreLineItemsEditor, { StoreLineItem } from './components/StoreLineItemsEditor';
 
 interface MaterialReturn {
@@ -98,6 +99,15 @@ const StoreReturns: React.FC = () => {
     }
   };
 
+  const [returnConfirmPhase, setReturnConfirmPhase] = useState<ConfirmAndSuccessPhase>('idle');
+  const [pendingReturnPayload, setPendingReturnPayload] = useState<any>(null);
+  const [returnFeedbackMeta, setReturnFeedbackMeta] = useState<{
+    refNum: string;
+    lineCount: number;
+    storeName: string;
+    errorMessage?: string;
+  }>({ refNum: '', lineCount: 0, storeName: '' });
+
   const handleSave = async () => {
     try {
       const values = await form.validateFields();
@@ -139,23 +149,61 @@ const StoreReturns: React.FC = () => {
           remarks: l.remarks,
         })),
       };
-      await apiService.post('/store/material-returns', payload);
-      message.success('Material return created');
-      setModalOpen(false);
-      fetchData();
-    } catch (err: any) {
-      const msg: any = err?.response?.data?.message;
-      message.error(Array.isArray(msg) ? msg[0] : 'Failed to create material return');
+      const storeObj = stores.find((s) => s.id === values.storeId);
+      setPendingReturnPayload(payload);
+      setReturnFeedbackMeta({
+        refNum: String(values.returnNumber || ''),
+        lineCount: lineItems.length,
+        storeName: storeObj?.storeName || 'Selected Store',
+      });
+      setReturnConfirmPhase('confirm');
+    } catch {
+      // form.validateFields handles field errors
     }
   };
 
-  const handlePost = async (id: string) => {
+  const executeReturnSave = async () => {
+    if (!pendingReturnPayload) return;
+    setReturnConfirmPhase('saving');
     try {
-      await apiService.post(`/store/material-returns/${id}/post`);
-      message.success('Return posted successfully');
+      const res = await apiService.post<any>('/store/material-returns', pendingReturnPayload);
+      const savedRef = res?.returnNumber || res?.data?.returnNumber || returnFeedbackMeta.refNum;
+      setReturnFeedbackMeta((prev) => ({ ...prev, refNum: savedRef }));
+      setReturnConfirmPhase('success');
+      setModalOpen(false);
+      setPendingReturnPayload(null);
       fetchData();
-    } catch {
-      message.error('Failed to post return');
+    } catch (err: any) {
+      const msg: any = err?.response?.data?.message || err?.message || 'Failed to create material return';
+      setReturnFeedbackMeta((prev) => ({
+        ...prev,
+        errorMessage: Array.isArray(msg) ? msg[0] : String(msg),
+      }));
+      setReturnConfirmPhase('error');
+    }
+  };
+
+  const [postReturnState, setPostReturnState] = useState<{
+    phase: ConfirmAndSuccessPhase;
+    record: MaterialReturn | null;
+    errorMessage?: string;
+  }>({ phase: 'idle', record: null });
+
+  const executePostReturn = async () => {
+    const rec = postReturnState.record;
+    if (!rec) return;
+    setPostReturnState((prev) => ({ ...prev, phase: 'saving', errorMessage: undefined }));
+    try {
+      await apiService.post(`/store/material-returns/${rec.id}/post`);
+      setPostReturnState((prev) => ({ ...prev, phase: 'success' }));
+      fetchData();
+    } catch (err: any) {
+      const msg: any = err?.response?.data?.message || err?.message || 'Failed to post material return';
+      setPostReturnState((prev) => ({
+        ...prev,
+        phase: 'error',
+        errorMessage: Array.isArray(msg) ? msg.join(', ') : String(msg),
+      }));
     }
   };
 
@@ -182,9 +230,14 @@ const StoreReturns: React.FC = () => {
       width: 150,
       render: (_: any, record: MaterialReturn) => (
         record.status === 'DRAFT' && canPost ? (
-          <Popconfirm title="Post this return? This will add stock back." onConfirm={() => handlePost(record.id)}>
-            <Button type="primary" size="small" icon={<CheckOutlined />}>Post</Button>
-          </Popconfirm>
+          <Button
+            type="primary"
+            size="small"
+            icon={<CheckOutlined />}
+            onClick={() => setPostReturnState({ phase: 'confirm', record })}
+          >
+            Post
+          </Button>
         ) : null
       ),
     },
@@ -282,6 +335,52 @@ const StoreReturns: React.FC = () => {
           <StoreLineItemsEditor mode="return" value={lineItems} onChange={setLineItems} label="Returned Items" />
         </Form>
       </Modal>
+
+      <ConfirmAndSuccessModal
+        open={returnConfirmPhase !== 'idle'}
+        phase={returnConfirmPhase}
+        confirmTitle="Confirm Material Return"
+        confirmDescription="Please verify the return store and line items before saving."
+        confirmText="Confirm & Save"
+        savingText="Saving..."
+        savingSubtext="Recording material return"
+        referenceNumber={returnFeedbackMeta.refNum}
+        successMessage={`Material return created (${returnFeedbackMeta.lineCount} ${returnFeedbackMeta.lineCount === 1 ? 'item' : 'items'}).`}
+        errorMessage={returnFeedbackMeta.errorMessage}
+        summaryRows={[
+          { label: 'Return #', value: returnFeedbackMeta.refNum || 'Auto' },
+          { label: 'Store', value: returnFeedbackMeta.storeName },
+          { label: 'Line Items', value: returnFeedbackMeta.lineCount, highlight: true },
+        ]}
+        onConfirm={executeReturnSave}
+        onCancel={() => setReturnConfirmPhase('idle')}
+        onOk={() => setReturnConfirmPhase('idle')}
+      />
+
+      <ConfirmAndSuccessModal
+        open={postReturnState.phase !== 'idle'}
+        phase={postReturnState.phase}
+        confirmTitle="Confirm Post Material Return"
+        confirmDescription="Posting will add the returned quantities back into store inventory stock."
+        confirmText="Confirm & Post"
+        savingText="Posting..."
+        savingSubtext="Updating store stock & ledger"
+        referenceNumber={postReturnState.record?.returnNumber}
+        successMessage="Material return posted and stock updated successfully."
+        errorMessage={postReturnState.errorMessage}
+        summaryRows={
+          postReturnState.record
+            ? [
+                { label: 'Return #', value: postReturnState.record.returnNumber },
+                { label: 'Store', value: storeMap[postReturnState.record.storeId] || postReturnState.record.storeName || '—' },
+                { label: 'Condition', value: postReturnState.record.conditionCode || '—', highlight: true },
+              ]
+            : []
+        }
+        onConfirm={executePostReturn}
+        onCancel={() => setPostReturnState((prev) => ({ ...prev, phase: 'idle' }))}
+        onOk={() => setPostReturnState((prev) => ({ ...prev, phase: 'idle' }))}
+      />
     </div>
   );
 };

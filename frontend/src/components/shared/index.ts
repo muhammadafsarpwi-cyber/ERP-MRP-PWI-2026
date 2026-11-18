@@ -46,6 +46,12 @@ export {
   type SaveResultData,
   type SaveResultPhase,
 } from './SaveResultDialog';
+export {
+  default as ConfirmAndSuccessModal,
+  type ConfirmAndSuccessModalProps,
+  type ConfirmAndSuccessPhase,
+  type ConfirmSummaryRow,
+} from './ConfirmAndSuccessModal';
 export { default as LargeLoadingBuffer, type LargeLoadingBufferProps } from './LargeLoadingBuffer';
 export {
   default as GlobalLoading,

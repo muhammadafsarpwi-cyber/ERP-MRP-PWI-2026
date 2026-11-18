@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Button,
   Form,
@@ -10,13 +11,14 @@ import {
   App,
   Typography,
   Space,
-  Popconfirm,
   DatePicker,
   Row,
   Col,
   Tooltip,
   Modal,
   Spin,
+  Tag,
+  Alert,
   theme,
 } from 'antd';
 import {
@@ -43,6 +45,7 @@ import apiService from '../../services/api';
 import dashboardService, { FilterOption } from '../../services/dashboardService';
 import { usePermission } from '../../hooks/usePermission';
 import { useHeaderActions } from '../../components/layout/headerActionsStore';
+import { ConfirmAndSuccessModal, type ConfirmAndSuccessPhase } from '../../components/shared';
 
 const { Text } = Typography;
 
@@ -99,22 +102,25 @@ const fmt = (num?: number | null, decimals = 2) => {
 const OpeningStock: React.FC = () => {
   const { message } = App.useApp();
   const { token } = theme.useToken();
+  const navigate = useNavigate();
   const { can } = usePermission();
   const canCreate = can('inventory.opening_stock.create') || can('store.view');
 
   const [form] = Form.useForm();
+  const selectedWarehouseId = Form.useWatch('warehouseId', form);
   const [lines, setLines] = useState<OpeningStockLine[]>([
     { key: 'line-init-1', itemId: '', uomId: '', quantity: 1, unitCost: 0 },
   ]);
   const [submitting, setSubmitting] = useState(false);
-  const [postConfirmOpen, setPostConfirmOpen] = useState(false);
-  const [postSuccessModal, setPostSuccessModal] = useState<{
-    open: boolean;
+  const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
+  const [feedbackPhase, setFeedbackPhase] = useState<ConfirmAndSuccessPhase>('idle');
+  const [postedSummary, setPostedSummary] = useState<{
     lineCount: number;
     refNum: string;
     totalQty: number;
     totalVal: number;
-  }>({ open: false, lineCount: 0, refNum: '', totalQty: 0, totalVal: 0 });
+    errorMessage?: string;
+  }>({ lineCount: 0, refNum: '', totalQty: 0, totalVal: 0 });
 
   const [divisions, setDivisions] = useState<FilterOption[]>([]);
   const [selectedDivisionId, setSelectedDivisionId] = useState<string | undefined>(undefined);
@@ -122,6 +128,7 @@ const OpeningStock: React.FC = () => {
   const [items, setItems] = useState<ItemOption[]>([]);
   const [uoms, setUoms] = useState<UomOption[]>([]);
   const [loadingDropdowns, setLoadingDropdowns] = useState(false);
+  const [warehouseBalances, setWarehouseBalances] = useState<Map<string, number>>(new Map());
 
   const [loadingItems, setLoadingItems] = useState(false);
 
@@ -207,6 +214,38 @@ const OpeningStock: React.FC = () => {
       form.setFieldValue('warehouseId', filteredWarehouses[0].id);
     }
   }, [filteredWarehouses, selectedDivisionId, form]);
+
+  // Fetch live stock balances for the selected warehouse so users can see Current Stock (In Hand)
+  useEffect(() => {
+    if (!selectedWarehouseId) {
+      setWarehouseBalances(new Map());
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await apiService.get<any>(`/inventory/balances?warehouseId=${selectedWarehouseId}&limit=5000`);
+        const raw: any[] = Array.isArray(res) ? res : res?.data || [];
+        const map = new Map<string, number>();
+        raw.forEach((b: any) => {
+          const itemId = b.itemId || b.item_id;
+          if (!itemId) return;
+          const prev = map.get(itemId) || 0;
+          map.set(itemId, prev + Number(b.onHand ?? b.on_hand ?? 0));
+        });
+        if (!cancelled) setWarehouseBalances(map);
+      } catch {
+        if (!cancelled) setWarehouseBalances(new Map());
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedWarehouseId]);
+
+  const duplicateStockLines = useMemo(() => {
+    return lines.filter((l) => l.itemId && (warehouseBalances.get(l.itemId) || 0) > 0);
+  }, [lines, warehouseBalances]);
 
   // Auto-generate reference number and date on mount
   useEffect(() => {
@@ -678,7 +717,13 @@ const OpeningStock: React.FC = () => {
   const handleOpenPostConfirm = async () => {
     const values = await validateBeforePost();
     if (!values) return;
-    setPostConfirmOpen(true);
+    setPostedSummary({
+      lineCount: lines.length,
+      refNum: String(values.referenceNumber || ''),
+      totalQty: totalQuantity,
+      totalVal: totalValue,
+    });
+    setFeedbackPhase('confirm');
   };
 
   // Submit to Backend
@@ -691,7 +736,7 @@ const OpeningStock: React.FC = () => {
     const postedVal = totalValue;
     const postedRef = String(values.referenceNumber || '');
 
-    setPostConfirmOpen(false);
+    setFeedbackPhase('saving');
     setSubmitting(true);
     try {
       const payload = {
@@ -719,16 +764,20 @@ const OpeningStock: React.FC = () => {
         transactionDate: dayjs(),
       });
 
-      setPostSuccessModal({
-        open: true,
+      setPostedSummary({
         lineCount: postedCount,
         refNum: postedRef,
         totalQty: postedQty,
         totalVal: postedVal,
       });
+      setFeedbackPhase('success');
     } catch (err: any) {
       const msg = err?.response?.data?.message || err?.message || 'Failed to post opening stock';
-      message.error(Array.isArray(msg) ? msg[0] : String(msg));
+      setPostedSummary((prev) => ({
+        ...prev,
+        errorMessage: Array.isArray(msg) ? msg[0] : String(msg),
+      }));
+      setFeedbackPhase('error');
     } finally {
       setSubmitting(false);
     }
@@ -819,6 +868,19 @@ const OpeningStock: React.FC = () => {
     return () => clearHeaderActions();
   }, [lines.length, token.colorBorder, token.colorError, token.colorSuccess, setHeaderActions, clearHeaderActions]);
 
+  const visibleItems = useMemo(() => {
+    const wh = warehouses.find((w) => w.id === selectedWarehouseId);
+    const whType = String((wh as any)?.warehouseType || (wh as any)?.warehouse_type || '').toUpperCase();
+    const isManufacturingSpecificWh = whType === 'RAW_MATERIAL' || whType === 'FINISHED_GOODS' || whType === 'WIP';
+    if (isManufacturingSpecificWh) return items;
+    const excluded = new Set(['RAW_MATERIAL', 'FINISHED_GOOD', 'WORK_IN_PROGRESS', 'SEMI_FINISHED']);
+    return items.filter(
+      (i) =>
+        Boolean((i as any).isStoreItem ?? (i as any).is_store_item) &&
+        !excluded.has(String(i.itemType || '').toUpperCase()),
+    );
+  }, [items, warehouses, selectedWarehouseId]);
+
   const lineColumns: ColumnsType<OpeningStockLine> = [
     {
       title: '#',
@@ -848,7 +910,7 @@ const OpeningStock: React.FC = () => {
             onChange={(v) => updateLine(record.key, 'itemId', v)}
             style={{ width: '100%' }}
             optionLabelProp="shortLabel"
-            options={items.map((i) => ({
+            options={visibleItems.map((i) => ({
               value: i.id,
               shortLabel: `${i.code || i.item_code || ''} — ${i.name}`.trim(),
               searchValue: `${i.code || ''} ${i.item_code || ''} ${i.name || ''}`,
@@ -895,6 +957,30 @@ const OpeningStock: React.FC = () => {
           options={uoms.map((u) => ({ value: u.id, label: u.code || u.name }))}
         />
       ),
+    },
+    {
+      title: 'Current Stock (In Hand)',
+      key: 'currentStock',
+      width: 170,
+      align: 'right',
+      render: (_: unknown, record) => {
+        if (!record.itemId) {
+          return <Text type="secondary" style={{ fontSize: 12 }}>—</Text>;
+        }
+        const currentStock = warehouseBalances.get(record.itemId) || 0;
+        return (
+          <Space direction="vertical" size={2} style={{ alignItems: 'flex-end', width: '100%' }}>
+            <Text strong style={{ fontVariantNumeric: 'tabular-nums', color: currentStock > 0 ? '#d97706' : token.colorTextSecondary }}>
+              {fmt(currentStock, 2)}
+            </Text>
+            {currentStock > 0 && (
+              <Tag color="warning" style={{ margin: 0, fontSize: 10, lineHeight: '16px' }}>
+                Already Has Stock
+              </Tag>
+            )}
+          </Space>
+        );
+      },
     },
     {
       title: 'Quantity',
@@ -1237,18 +1323,9 @@ const OpeningStock: React.FC = () => {
         extra={
           <Space size={8} wrap>
             {lines.length > 0 && (
-              <Popconfirm
-                title="Clear all lines?"
-                description="This will remove all lines from this form. Already posted records are not affected."
-                onConfirm={clearAllLines}
-                okText="Clear"
-                cancelText="Cancel"
-                okButtonProps={{ danger: true }}
-              >
-                <Button size="small" danger icon={<ClearOutlined />}>
-                  Clear All
-                </Button>
-              </Popconfirm>
+              <Button size="small" danger icon={<ClearOutlined />} onClick={() => setClearConfirmOpen(true)}>
+                Clear All
+              </Button>
             )}
 
             <Button type="primary" size="small" icon={<PlusOutlined />} onClick={addLine}>
@@ -1300,136 +1377,62 @@ const OpeningStock: React.FC = () => {
         )}
       </Card>
 
-      {/* Centered Confirmation Modal */}
       <Modal
-        open={postConfirmOpen}
+        open={clearConfirmOpen}
         centered
-        width={440}
-        zIndex={2500}
-        onCancel={() => setPostConfirmOpen(false)}
-        title={
-          <span style={{ fontSize: 16, fontWeight: 700, color: token.colorText }}>
-            Confirm & Post Opening Stock
-          </span>
-        }
-        footer={
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, paddingTop: 4 }}>
-            <Button size="large" onClick={() => setPostConfirmOpen(false)} style={{ minWidth: 100, borderRadius: 8 }}>
-              Cancel
-            </Button>
-            <Button
-              type="primary"
-              size="large"
-              icon={<SendOutlined />}
-              onClick={handleSubmit}
-              style={{
-                minWidth: 150,
-                borderRadius: 8,
-                fontWeight: 600,
-                background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
-              }}
-            >
-              Confirm & Post
-            </Button>
-          </div>
-        }
+        title="Clear All Lines?"
+        onCancel={() => setClearConfirmOpen(false)}
+        onOk={() => {
+          clearAllLines();
+          setClearConfirmOpen(false);
+        }}
+        okText="Clear All"
+        cancelText="Go Back"
+        okButtonProps={{ danger: true }}
       >
-        <div style={{ padding: '6px 0 4px' }}>
-          <p style={{ margin: '0 0 12px', color: token.colorTextSecondary, fontSize: 13 }}>
-            This will record initial stock ledger entries and update inventory balances immediately.
-          </p>
-          <div
-            style={{
-              background: token.colorFillAlter,
-              border: `1px solid ${token.colorBorderSecondary}`,
-              borderRadius: 8,
-              padding: '12px 14px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 6,
-              fontSize: 13,
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ color: token.colorTextSecondary }}>Line Items</span>
-              <strong style={{ color: token.colorText }}>{lines.length}</strong>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ color: token.colorTextSecondary }}>Total Quantity</span>
-              <strong style={{ color: token.colorText }}>{fmt(totalQuantity, 2)}</strong>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ color: token.colorTextSecondary }}>Total Value</span>
-              <strong style={{ color: token.colorPrimary }}>PKR {fmt(totalValue, 2)}</strong>
-            </div>
-          </div>
-        </div>
+        <Text type="secondary">
+          This will remove all {lines.length} {lines.length === 1 ? 'line' : 'lines'} from this form. Already posted records are not affected.
+        </Text>
       </Modal>
 
-      {/* Centered Saving / Posting Spinner Modal */}
-      <Modal
-        open={submitting}
-        centered
-        closable={false}
-        maskClosable={false}
-        footer={null}
-        width={340}
-        zIndex={2600}
-      >
-        <div style={{ textAlign: 'center', padding: '24px 12px' }}>
-          <Spin size="large" />
-          <div style={{ marginTop: 16, fontSize: 15, fontWeight: 600, color: token.colorText }}>
-            Saving / Posting Opening Stock...
-          </div>
-          <div style={{ marginTop: 6, fontSize: 12, color: token.colorTextSecondary }}>
-            Updating store ledger & stock balances
-          </div>
-        </div>
-      </Modal>
-
-      {/* Centered Success Checkmark Dialog */}
-      <Modal
-        open={postSuccessModal.open}
-        centered
-        closable={false}
-        footer={null}
-        width={400}
-        zIndex={2650}
-        onCancel={() => setPostSuccessModal((prev) => ({ ...prev, open: false }))}
-      >
-        <div style={{ textAlign: 'center', padding: '16px 8px 8px' }}>
-          <div style={{ width: 64, height: 64, margin: '0 auto 14px' }}>
-            <svg viewBox="0 0 64 64" fill="none" style={{ width: '100%', height: '100%' }}>
-              <path d="M 14 24 V 14 H 24" stroke="#86efac" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M 40 14 H 50 V 24" stroke="#86efac" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M 14 40 V 50 H 24" stroke="#86efac" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M 40 50 H 50 V 40" stroke="#86efac" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M 22 33 L 29 40 L 43 25" stroke="#22c55e" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </div>
-          <div style={{ fontSize: 17, fontWeight: 700, color: token.colorText, marginBottom: 6 }}>
-            Opening Stock Posted!
-          </div>
-          <div style={{ fontSize: 13, color: token.colorTextSecondary, marginBottom: 18 }}>
-            {postSuccessModal.lineCount} {postSuccessModal.lineCount === 1 ? 'line' : 'lines'} recorded under{' '}
-            <strong style={{ color: token.colorText }}>{postSuccessModal.refNum}</strong> (PKR {fmt(postSuccessModal.totalVal, 2)}).
-          </div>
-          <Button
-            type="primary"
-            size="large"
-            style={{
-              backgroundColor: '#10b981',
-              borderColor: '#10b981',
-              borderRadius: 8,
-              minWidth: 120,
-              fontWeight: 600,
-            }}
-            onClick={() => setPostSuccessModal((prev) => ({ ...prev, open: false }))}
-          >
-            OK
-          </Button>
-        </div>
-      </Modal>
+      <ConfirmAndSuccessModal
+        open={feedbackPhase !== 'idle'}
+        phase={feedbackPhase}
+        confirmTitle="Confirm & Post Opening Stock"
+        confirmDescription="This will record initial stock ledger entries and update inventory balances immediately."
+        confirmText="Confirm & Post"
+        savingText="Saving..."
+        savingSubtext="Updating store ledger & stock balances"
+        referenceNumber={postedSummary.refNum}
+        successMessage={`${postedSummary.lineCount} ${postedSummary.lineCount === 1 ? 'line' : 'lines'} posted (PKR ${fmt(postedSummary.totalVal, 2)}).`}
+        extraSuccessAction={{
+          label: 'View in Store Stock Balance',
+          onClick: () => {
+            setFeedbackPhase('idle');
+            navigate('/store/stock-balance');
+          },
+        }}
+        errorMessage={postedSummary.errorMessage}
+        summaryRows={[
+          { label: 'Reference #', value: postedSummary.refNum || '—' },
+          { label: 'Line Items', value: postedSummary.lineCount },
+          { label: 'Total Quantity', value: fmt(postedSummary.totalQty, 2) },
+          { label: 'Total Value', value: `PKR ${fmt(postedSummary.totalVal, 2)}`, highlight: true },
+        ]}
+        confirmAlert={
+          duplicateStockLines.length > 0 ? (
+            <Alert
+              type="warning"
+              showIcon
+              message={`${duplicateStockLines.length} ${duplicateStockLines.length === 1 ? 'item already has' : 'items already have'} stock in this warehouse`}
+              description="Posting Opening Stock will add to the existing stock balance. Please verify quantities to avoid double-counting."
+            />
+          ) : undefined
+        }
+        onConfirm={handleSubmit}
+        onCancel={() => setFeedbackPhase('idle')}
+        onOk={() => setFeedbackPhase('idle')}
+      />
     </div>
   );
 };

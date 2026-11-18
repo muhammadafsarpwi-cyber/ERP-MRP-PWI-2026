@@ -598,12 +598,16 @@ SUP.name AS supplier_name, w.name AS warehouse_name,
       };
     });
 
-    const opening = normalize(rows[0]?.balance || 0) - (normalize(rows[0]?.quantity || 0) * (rows[0]?.direction === 'IN' ? 1 : -1));
-
     const sumType = (type: string, dir?: string) =>
       rows
         .filter((r: any) => r.transaction_type?.toUpperCase() === type && (!dir || String(r.direction).toUpperCase() === dir))
         .reduce((acc: number, r: any) => acc + r.quantity, 0);
+
+    const explicitOpening = sumType('OPENING', 'IN') - sumType('OPENING', 'OUT');
+    const hasExplicitOpening = rows.some((r: any) => r.isOpening);
+    const opening = hasExplicitOpening
+      ? explicitOpening
+      : normalize(rows[0]?.balance || 0) - (normalize(rows[0]?.quantity || 0) * (rows[0]?.direction === 'IN' ? 1 : -1));
 
     return {
       opening,

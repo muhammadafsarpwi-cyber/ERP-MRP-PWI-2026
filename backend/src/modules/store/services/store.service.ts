@@ -201,9 +201,60 @@ export class StoreService {
     }
 
     const rawItems = await qb.getMany();
-    if (rawItems.length === 0) return [];
+    const explicitItemIds = new Set(rawItems.map((i) => i.itemId).filter(Boolean));
 
-    const itemIds = Array.from(new Set(rawItems.map(i => i.itemId).filter(Boolean)));
+    const isGeneralStore = String(store.storeType || '').toUpperCase() === 'GENERAL';
+    const excludedManufacturingTypes = [
+      'RAW_MATERIAL',
+      'FINISHED_GOOD',
+      'WORK_IN_PROGRESS',
+      'SEMI_FINISHED',
+    ];
+
+    // Auto-discover General Store items from Item Master (strictly is_store_item = true) + any items with live balances in store.warehouseId
+    const autoItemIds: string[] = [];
+    if (isGeneralStore) {
+      try {
+        const gsRows = await this.storeRepo.manager.query(
+          `SELECT id FROM items
+           WHERE is_active = true
+             AND is_store_item = true
+             AND UPPER(COALESCE(item_type, 'OTHER')) <> ALL($1)
+             AND ($2::uuid IS NULL OR division_id IS NULL OR division_id = $2::uuid)`,
+          [excludedManufacturingTypes, store.divisionId || null],
+        );
+        gsRows.forEach((r: any) => {
+          if (r.id && !explicitItemIds.has(r.id)) autoItemIds.push(r.id);
+        });
+      } catch {
+        // fallback gracefully
+      }
+    }
+
+    if (store.warehouseId) {
+      try {
+        const balItemRows = await this.storeRepo.manager.query(
+          `SELECT DISTINCT ib.item_id
+           FROM inventory_balances ib
+           INNER JOIN items i ON i.id = ib.item_id
+           WHERE ib.warehouse_id = $1
+             AND ib.on_hand <> 0
+             AND ($2::boolean = false OR (i.is_store_item = true AND UPPER(COALESCE(i.item_type, 'OTHER')) <> ALL($3)))`,
+          [store.warehouseId, isGeneralStore, excludedManufacturingTypes],
+        );
+        balItemRows.forEach((r: any) => {
+          if (r.item_id && !explicitItemIds.has(r.item_id) && !autoItemIds.includes(r.item_id)) {
+            autoItemIds.push(r.item_id);
+          }
+        });
+      } catch {
+        // fallback gracefully
+      }
+    }
+
+    const itemIds = Array.from(new Set([...explicitItemIds, ...autoItemIds]));
+    if (itemIds.length === 0) return [];
+
     let detailMap = new Map<string, any>();
     let balanceMap = new Map<string, { onHand: number; available: number }>();
 
@@ -211,9 +262,12 @@ export class StoreService {
       try {
         const placeholders = itemIds.map((_, idx) => `$${idx + 1}`).join(', ');
         const itemDetails = await this.storeRepo.manager.query(
-          `SELECT i.id, i.item_code, i.name, i.item_type, u.code as uom_code, u.name as uom_name
+          `SELECT i.id, i.item_code, i.name, i.item_type, i.is_store_item, i.storage_location,
+                  i.minimum_stock_level, i.reorder_level, i.maximum_stock_level,
+                  u.code as uom_code, u.name as uom_name, ic.name as category_name
            FROM items i
            LEFT JOIN uoms u ON u.id = i.base_uom_id
+           LEFT JOIN item_categories ic ON ic.id = i.category_id
            WHERE i.id IN (${placeholders})`,
           itemIds,
         );
@@ -244,18 +298,75 @@ export class StoreService {
       }
     }
 
-    let results = rawItems.map(rec => {
+    const mappedExplicit = rawItems.map(rec => {
       const d = detailMap.get(rec.itemId);
       const b = balanceMap.get(rec.itemId);
       return {
         ...rec,
-        item: d ? { id: d.id, itemCode: d.item_code, name: d.name, itemType: d.item_type, uomCode: d.uom_code, uomName: d.uom_name } : null,
+        locationDetail: rec.locationDetail || d?.storage_location || null,
+        item: d
+          ? {
+              id: d.id,
+              itemCode: d.item_code,
+              name: d.name,
+              itemType: d.item_type,
+              isStoreItem: Boolean(d.is_store_item),
+              storageLocation: d.storage_location || null,
+              categoryName: d.category_name,
+              uomCode: d.uom_code,
+              uomName: d.uom_name,
+            }
+          : null,
         onHandStock: b ? b.onHand : 0,
         availableStock: b ? b.available : 0,
       };
     });
 
-    if (!query?.includeFinishedGoods) {
+    const mappedAuto = autoItemIds
+      .filter((id) => detailMap.has(id))
+      .map((id) => {
+        const d = detailMap.get(id);
+        const b = balanceMap.get(id);
+        return {
+          id: `auto-${storeId}-${id}`,
+          storeId,
+          itemId: id,
+          store,
+          bin: null,
+          rack: null,
+          shelf: null,
+          locationDetail: d.storage_location || null,
+          minimumStock: Number(d.minimum_stock_level || 0),
+          minStock: Number(d.minimum_stock_level || 0),
+          reorderLevel: Number(d.reorder_level || 0),
+          maximumStock: Number(d.maximum_stock_level || 0),
+          maxStock: Number(d.maximum_stock_level || 0),
+          status: 'ACTIVE',
+          item: {
+            id: d.id,
+            itemCode: d.item_code,
+            name: d.name,
+            itemType: d.item_type,
+            isStoreItem: Boolean(d.is_store_item),
+            storageLocation: d.storage_location || null,
+            categoryName: d.category_name,
+            uomCode: d.uom_code,
+            uomName: d.uom_name,
+          },
+          onHandStock: b ? b.onHand : 0,
+          availableStock: b ? b.available : 0,
+        };
+      });
+
+    let results: any[] = [...mappedExplicit, ...mappedAuto];
+
+    if (isGeneralStore) {
+      results = results.filter(
+        r =>
+          Boolean(r.item?.isStoreItem) &&
+          !excludedManufacturingTypes.includes(String(r.item?.itemType || '').toUpperCase()),
+      );
+    } else if (!query?.includeFinishedGoods) {
       results = results.filter(r => r.item?.itemType !== 'FINISHED_GOOD');
     }
 
@@ -325,7 +436,106 @@ export class StoreService {
       normalizedReorder !== undefined ? { reorderLevel: normalizedReorder } : {},
       { updatedBy: userId },
     );
-    return this.storeItemRepo.save(item);
+    const saved = await this.storeItemRepo.save(item);
+    // Two-way sync back to Item Master
+    await this.storeRepo.manager.query(
+      `UPDATE items
+       SET storage_location = COALESCE($2, storage_location),
+           minimum_stock_level = COALESCE($3, minimum_stock_level),
+           reorder_level = COALESCE($4, reorder_level),
+           maximum_stock_level = COALESCE($5, maximum_stock_level),
+           updated_by = $6,
+           updated_at = NOW()
+       WHERE id = $1`,
+      [
+        item.itemId,
+        restDto.locationDetail !== undefined ? restDto.locationDetail : null,
+        restDto.minStock !== undefined ? Number(restDto.minStock) : null,
+        normalizedReorder !== undefined ? Number(normalizedReorder) : null,
+        restDto.maxStock !== undefined ? Number(restDto.maxStock) : null,
+        userId || null,
+      ],
+    );
+    return saved;
+  }
+
+  async syncStoreItemInline(
+    itemId: string,
+    body: {
+      storeId?: string;
+      locationDetail?: string | null;
+      minStock?: number;
+      reorderLevel?: number;
+      maxStock?: number;
+    },
+    userId: string,
+    companyId?: string,
+  ) {
+    // 1. Update Item Master directly
+    const itemSets: string[] = ['updated_at = NOW()'];
+    const itemParams: any[] = [itemId];
+    let pIdx = 2;
+
+    if (body.locationDetail !== undefined) {
+      itemSets.push(`storage_location = $${pIdx++}`);
+      itemParams.push(body.locationDetail === '' ? null : body.locationDetail);
+    }
+    if (body.minStock !== undefined) {
+      itemSets.push(`minimum_stock_level = $${pIdx++}`);
+      itemParams.push(Number(body.minStock || 0));
+    }
+    if (body.reorderLevel !== undefined) {
+      itemSets.push(`reorder_level = $${pIdx++}`);
+      itemParams.push(Number(body.reorderLevel || 0));
+    }
+    if (body.maxStock !== undefined) {
+      itemSets.push(`maximum_stock_level = $${pIdx++}`);
+      itemParams.push(Number(body.maxStock || 0));
+    }
+    if (userId) {
+      itemSets.push(`updated_by = $${pIdx++}`);
+      itemParams.push(userId);
+    }
+
+    await this.storeRepo.manager.query(
+      `UPDATE items SET ${itemSets.join(', ')} WHERE id = $1`,
+      itemParams,
+    );
+
+    // 2. Upsert StoreItem record(s) so Store Items & Item Master stay 100% in sync
+    if (body.storeId) {
+      let storeItem = await this.storeItemRepo.findOne({
+        where: { storeId: body.storeId, itemId },
+      });
+      if (!storeItem) {
+        storeItem = this.storeItemRepo.create({
+          companyId: companyId || undefined,
+          storeId: body.storeId,
+          itemId,
+          status: 'ACTIVE',
+          createdBy: userId,
+        } as Partial<StoreItem>);
+      }
+      if (body.locationDetail !== undefined) storeItem.locationDetail = body.locationDetail || null;
+      if (body.minStock !== undefined) storeItem.minimumStock = Number(body.minStock || 0);
+      if (body.reorderLevel !== undefined) storeItem.reorderLevel = Number(body.reorderLevel || 0);
+      if (body.maxStock !== undefined) storeItem.maximumStock = Number(body.maxStock || 0);
+      storeItem.updatedBy = userId;
+      await this.storeItemRepo.save(storeItem);
+    } else {
+      // Update any existing store_items rows for this itemId
+      const existingRows = await this.storeItemRepo.find({ where: { itemId } });
+      for (const si of existingRows) {
+        if (body.locationDetail !== undefined) si.locationDetail = body.locationDetail || null;
+        if (body.minStock !== undefined) si.minimumStock = Number(body.minStock || 0);
+        if (body.reorderLevel !== undefined) si.reorderLevel = Number(body.reorderLevel || 0);
+        if (body.maxStock !== undefined) si.maximumStock = Number(body.maxStock || 0);
+        si.updatedBy = userId;
+        await this.storeItemRepo.save(si);
+      }
+    }
+
+    return { success: true, itemId };
   }
 
   // ==================== MATERIAL REQUESTS ====================

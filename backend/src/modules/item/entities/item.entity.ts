@@ -160,6 +160,12 @@ export class Item extends BaseEntity {
   @Column({ name: 'is_stock_item', type: 'boolean', default: false })
   isStockItem: boolean;
 
+  @Column({ name: 'is_store_item', type: 'boolean', default: false })
+  isStoreItem: boolean;
+
+  @Column({ name: 'storage_location', type: 'varchar', length: 150, nullable: true })
+  storageLocation: string | null;
+
   @Column({ name: 'minimum_stock_level', type: 'decimal', precision: 15, scale: 4, nullable: true })
   minimumStockLevel: number | null;
 

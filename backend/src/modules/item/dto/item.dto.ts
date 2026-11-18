@@ -175,6 +175,17 @@ export class CreateItemDto {
   @IsOptional()
   isStockItem?: boolean;
 
+  @ApiPropertyOptional({ description: 'Include item in General Store' })
+  @IsBoolean()
+  @IsOptional()
+  isStoreItem?: boolean;
+
+  @ApiPropertyOptional({ description: 'Default storage location (Rack / Bin / Shelf)' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(150)
+  storageLocation?: string;
+
   @ApiPropertyOptional({ description: 'Minimum stock level' })
   @IsNumber()
   @IsOptional()
@@ -702,6 +713,17 @@ export class UpdateItemDto {
   @IsBoolean()
   @IsOptional()
   isStockItem?: boolean;
+
+  @ApiPropertyOptional({ description: 'Include item in General Store' })
+  @IsBoolean()
+  @IsOptional()
+  isStoreItem?: boolean;
+
+  @ApiPropertyOptional({ description: 'Default storage location (Rack / Bin / Shelf)' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(150)
+  storageLocation?: string;
 
   @ApiPropertyOptional({ description: 'Minimum stock level' })
   @IsNumber()

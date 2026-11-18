@@ -45,6 +45,7 @@ import apiService from '../../services/api';
 import { isValidUUID } from '../../utils/uuid';
 import { usePermission } from '../../hooks/usePermission';
 import PageHeader from '../../components/shared/PageHeader';
+import { ConfirmAndSuccessModal, type ConfirmAndSuccessPhase } from '../../components/shared';
 import StoreLineItemsEditor, { StoreLineItem } from './components/StoreLineItemsEditor';
 import StoreVoucherPrintModal, { StoreVoucherData } from './components/StoreVoucherPrintModal';
 
@@ -351,7 +352,17 @@ const StoreIssues: React.FC = () => {
     }
   };
 
-  // Submit / Save Material Issue
+  // 3-Step Confirmation & Animated Success Modal state
+  const [issueConfirmPhase, setIssueConfirmPhase] = useState<ConfirmAndSuccessPhase>('idle');
+  const [pendingIssuePayload, setPendingIssuePayload] = useState<any>(null);
+  const [issueFeedbackMeta, setIssueFeedbackMeta] = useState<{
+    refNum: string;
+    lineCount: number;
+    storeName: string;
+    errorMessage?: string;
+  }>({ refNum: '', lineCount: 0, storeName: '' });
+
+  // Submit / Validate Material Issue -> Open Step 1 Confirmation
   const handleSave = async () => {
     try {
       const values = await form.validateFields();
@@ -394,7 +405,8 @@ const StoreIssues: React.FC = () => {
       if (values.machineSelection && values.machineSelection !== 'OTHER_GENERAL') {
         const found = machines.find((m) => m.id === values.machineSelection);
         if (found) {
-          machineRef = `Machine: ${found.machineCode} — ${found.machineName}`;
+          const mName = (found as any).machineName || (found as any).name || '';
+          machineRef = mName ? `Machine: ${found.machineCode} — ${mName}` : `Machine: ${found.machineCode}`;
         }
       }
 
@@ -418,40 +430,75 @@ const StoreIssues: React.FC = () => {
         })),
       };
 
-      setSubmitting(true);
-      await apiService.post('/store/material-issues', payload);
-      message.success('Material issue created successfully');
+      const storeObj = stores.find((s) => s.id === values.storeId);
+      setPendingIssuePayload(payload);
+      setIssueFeedbackMeta({
+        refNum: String(values.issueNumber || ''),
+        lineCount: lineItems.length,
+        storeName: storeObj?.storeName || 'Selected Store',
+      });
+      setIssueConfirmPhase('confirm');
+    } catch {
+      // form.validateFields handles field errors
+    }
+  };
+
+  const executeIssueSave = async () => {
+    if (!pendingIssuePayload) return;
+    setIssueConfirmPhase('saving');
+    setSubmitting(true);
+    try {
+      const res = await apiService.post<any>('/store/material-issues', pendingIssuePayload);
+      const savedRef = res?.issueNumber || res?.data?.issueNumber || issueFeedbackMeta.refNum;
+      setIssueFeedbackMeta((prev) => ({ ...prev, refNum: savedRef }));
+      setIssueConfirmPhase('success');
       setModalOpen(false);
+      setPendingIssuePayload(null);
       fetchData();
     } catch (err: any) {
-      const msg: any = err?.response?.data?.message;
-      message.error(Array.isArray(msg) ? msg[0] : 'Failed to create material issue');
+      const msg: any = err?.response?.data?.message || err?.message || 'Failed to create material issue';
+      setIssueFeedbackMeta((prev) => ({
+        ...prev,
+        errorMessage: Array.isArray(msg) ? msg[0] : String(msg),
+      }));
+      setIssueConfirmPhase('error');
     } finally {
       setSubmitting(false);
     }
   };
 
-  // Post Issue (deducts stock)
-  const handlePost = async (id: string) => {
-    try {
-      await apiService.post(`/store/material-issues/${id}/post`);
-      message.success('Issue posted successfully and stock deducted');
-      fetchData();
-    } catch (err: any) {
-      const msg: any = err?.response?.data?.message;
-      message.error(Array.isArray(msg) ? msg[0] : 'Failed to post issue');
-    }
+  const [rowActionState, setRowActionState] = useState<{
+    phase: ConfirmAndSuccessPhase;
+    action: 'post' | 'cancel' | 'delete';
+    record: MaterialIssue | null;
+    errorMessage?: string;
+  }>({ phase: 'idle', action: 'post', record: null });
+
+  const openRowActionConfirm = (action: 'post' | 'cancel' | 'delete', record: MaterialIssue) => {
+    setRowActionState({ phase: 'confirm', action, record });
   };
 
-  // Cancel Issue
-  const handleCancel = async (id: string) => {
+  const executeRowAction = async () => {
+    const { action, record } = rowActionState;
+    if (!record) return;
+    setRowActionState((prev) => ({ ...prev, phase: 'saving', errorMessage: undefined }));
     try {
-      await apiService.post(`/store/material-issues/${id}/cancel`);
-      message.success('Issue cancelled');
+      if (action === 'post') {
+        await apiService.post(`/store/material-issues/${record.id}/post`);
+      } else if (action === 'cancel') {
+        await apiService.post(`/store/material-issues/${record.id}/cancel`);
+      } else if (action === 'delete') {
+        await apiService.delete(`/store/material-issues/${record.id}`);
+      }
+      setRowActionState((prev) => ({ ...prev, phase: 'success' }));
       fetchData();
     } catch (err: any) {
-      const msg: any = err?.response?.data?.message;
-      message.error(Array.isArray(msg) ? msg[0] : 'Failed to cancel issue');
+      const msg: any = err?.response?.data?.message || err?.message || `Failed to ${action} material issue`;
+      setRowActionState((prev) => ({
+        ...prev,
+        phase: 'error',
+        errorMessage: Array.isArray(msg) ? msg.join(', ') : String(msg),
+      }));
     }
   };
 
@@ -538,7 +585,8 @@ const StoreIssues: React.FC = () => {
           <Typography.Text type="secondary" style={{ fontSize: '11px' }}>
             {r.issueDate ? dayjs(r.issueDate).format('YYYY-MM-DD') : '—'}
           </Typography.Text>
-        </div>
+    
+    </div>
       ),
     },
     {
@@ -624,42 +672,19 @@ const StoreIssues: React.FC = () => {
             Print Slip
           </Button>
           {record.status === 'DRAFT' && canPost && (
-            <Popconfirm
-              title="Post this material issue?"
-              description="Posting will finalize the issue and deduct inventory stock."
-              onConfirm={() => handlePost(record.id)}
-              okText="Post"
-            >
-              <Button type="primary" size="small" icon={<CheckOutlined />}>
-                Post
-              </Button>
-            </Popconfirm>
+            <Button type="primary" size="small" icon={<CheckOutlined />} onClick={() => openRowActionConfirm('post', record)}>
+              Post
+            </Button>
           )}
           {record.status === 'DRAFT' && (
-            <Popconfirm
-              title="Cancel this issue?"
-              description="Are you sure you want to cancel this draft issue?"
-              onConfirm={() => handleCancel(record.id)}
-              okText="Cancel Issue"
-            >
-              <Button size="small" icon={<RollbackOutlined />}>
-                Cancel
-              </Button>
-            </Popconfirm>
+            <Button size="small" icon={<RollbackOutlined />} onClick={() => openRowActionConfirm('cancel', record)}>
+              Cancel
+            </Button>
           )}
           {(record.status === 'DRAFT' || record.status === 'CANCELLED') && (
-            <Popconfirm
-              title="Delete this material issue?"
-              description="Are you sure you want to permanently delete this issue record?"
-              onConfirm={() => handleDelete(record.id)}
-              okText="Delete"
-              cancelText="Keep"
-              okButtonProps={{ danger: true }}
-            >
-              <Button danger size="small" icon={<DeleteOutlined />}>
-                Delete
-              </Button>
-            </Popconfirm>
+            <Button danger size="small" icon={<DeleteOutlined />} onClick={() => openRowActionConfirm('delete', record)}>
+              Delete
+            </Button>
           )}
         </Space>
       ),
@@ -740,7 +765,8 @@ const StoreIssues: React.FC = () => {
                 </Button>
               )}
             </Space>
-          </div>
+      
+    </div>
 
           <Table
             columns={columns}
@@ -752,7 +778,8 @@ const StoreIssues: React.FC = () => {
             size="middle"
           />
         </Card>
-      </div>
+  
+    </div>
 
       {/* CREATE MATERIAL ISSUE MODAL */}
       <Modal
@@ -771,7 +798,8 @@ const StoreIssues: React.FC = () => {
                 style={{ color: token.colorTextSecondary }}
               />
             </Tooltip>
-          </div>
+      
+    </div>
         }
         open={modalOpen}
         zIndex={1050}
@@ -871,7 +899,8 @@ const StoreIssues: React.FC = () => {
                 </Form.Item>
               </Col>
             </Row>
-          </div>
+      
+    </div>
 
           {/* SECTION 2: DESTINATION HIERARCHY & MACHINE */}
           <div
@@ -951,16 +980,22 @@ const StoreIssues: React.FC = () => {
                         value: 'OTHER_GENERAL',
                         label: '⚙️ General / Plant Allocation (No Specific Machine)',
                       },
-                      ...machines.map((m) => ({
-                        value: m.id,
-                        label: `⚙️ ${m.machineCode} — ${m.machineName} (${m.machineType || 'Machine'})`,
-                      })),
+                      ...machines.map((m) => {
+                        const mName = (m as any).machineName || (m as any).name || '';
+                        return {
+                          value: m.id,
+                          label: mName
+                            ? `⚙️ ${m.machineCode} — ${mName} (${m.machineType || 'Machine'})`
+                            : `⚙️ ${m.machineCode} (${m.machineType || 'Machine'})`,
+                        };
+                      }),
                     ]}
                   />
                 </Form.Item>
               </Col>
             </Row>
-          </div>
+      
+    </div>
 
           {/* SECTION 3: PURPOSE & REMARKS */}
           <Row gutter={[16, 12]}>
@@ -996,6 +1031,75 @@ const StoreIssues: React.FC = () => {
         open={!!printVoucher}
         onClose={() => setPrintVoucher(null)}
         voucher={printVoucher}
+      />
+
+      <ConfirmAndSuccessModal
+        open={issueConfirmPhase !== 'idle'}
+        phase={issueConfirmPhase}
+        confirmTitle="Confirm Material Issue"
+        confirmDescription="Please verify the store and line items before issuing material."
+        confirmText="Confirm & Issue"
+        savingText="Saving..."
+        savingSubtext="Creating material issue voucher"
+        referenceNumber={issueFeedbackMeta.refNum}
+        successMessage={`Material issue recorded (${issueFeedbackMeta.lineCount} ${issueFeedbackMeta.lineCount === 1 ? 'item' : 'items'}).`}
+        errorMessage={issueFeedbackMeta.errorMessage}
+        summaryRows={[
+          { label: 'Voucher #', value: issueFeedbackMeta.refNum || 'Auto' },
+          { label: 'Source Store', value: issueFeedbackMeta.storeName },
+          { label: 'Line Items', value: issueFeedbackMeta.lineCount, highlight: true },
+        ]}
+        onConfirm={executeIssueSave}
+        onCancel={() => setIssueConfirmPhase('idle')}
+        onOk={() => setIssueConfirmPhase('idle')}
+      />
+      <ConfirmAndSuccessModal
+        open={rowActionState.phase !== 'idle'}
+        phase={rowActionState.phase}
+        confirmTitle={
+          rowActionState.action === 'post'
+            ? 'Confirm Post Material Issue'
+            : rowActionState.action === 'cancel'
+            ? 'Confirm Cancel Material Issue'
+            : 'Confirm Delete Material Issue'
+        }
+        confirmDescription={
+          rowActionState.action === 'post'
+            ? 'Posting will finalize this issue and deduct inventory stock immediately.'
+            : rowActionState.action === 'cancel'
+            ? 'Are you sure you want to cancel this draft material issue?'
+            : 'This will permanently delete the selected material issue record.'
+        }
+        confirmText={
+          rowActionState.action === 'post'
+            ? 'Confirm & Post'
+            : rowActionState.action === 'cancel'
+            ? 'Confirm Cancel'
+            : 'Confirm Delete'
+        }
+        savingText={rowActionState.action === 'post' ? 'Posting...' : 'Processing...'}
+        savingSubtext={rowActionState.action === 'post' ? 'Deducting store stock & recording ledger' : 'Updating material issue'}
+        referenceNumber={rowActionState.record?.issueNumber}
+        successMessage={
+          rowActionState.action === 'post'
+            ? 'Material issue posted and stock deducted successfully.'
+            : rowActionState.action === 'cancel'
+            ? 'Material issue cancelled successfully.'
+            : 'Material issue deleted successfully.'
+        }
+        errorMessage={rowActionState.errorMessage}
+        summaryRows={
+          rowActionState.record
+            ? [
+                { label: 'Issue #', value: rowActionState.record.issueNumber },
+                { label: 'Store', value: rowActionState.record.storeName || storeMap[rowActionState.record.storeId] || '—' },
+                { label: 'Status', value: rowActionState.record.status, highlight: true },
+              ]
+            : []
+        }
+        onConfirm={executeRowAction}
+        onCancel={() => setRowActionState((prev) => ({ ...prev, phase: 'idle' }))}
+        onOk={() => setRowActionState((prev) => ({ ...prev, phase: 'idle' }))}
       />
     </div>
   );

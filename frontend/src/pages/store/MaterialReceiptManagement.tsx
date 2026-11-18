@@ -8,6 +8,7 @@ import dayjs from 'dayjs';
 import apiService from '../../services/api';
 import { usePermission } from '../../hooks/usePermission';
 import PageHeader from '../../components/shared/PageHeader';
+import { ConfirmAndSuccessModal, type ConfirmAndSuccessPhase } from '../../components/shared';
 import StoreLineItemsEditor, { StoreLineItem } from './components/StoreLineItemsEditor';
 import StoreVoucherPrintModal, { StoreVoucherData } from './components/StoreVoucherPrintModal';
 
@@ -172,6 +173,15 @@ const MaterialReceiptManagement: React.FC = () => {
     }
   };
 
+  const [receiptConfirmPhase, setReceiptConfirmPhase] = useState<ConfirmAndSuccessPhase>('idle');
+  const [pendingReceiptPayload, setPendingReceiptPayload] = useState<any>(null);
+  const [receiptFeedbackMeta, setReceiptFeedbackMeta] = useState<{
+    refNum: string;
+    lineCount: number;
+    grnNumber?: string;
+    errorMessage?: string;
+  }>({ refNum: '', lineCount: 0 });
+
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
@@ -194,49 +204,70 @@ const MaterialReceiptManagement: React.FC = () => {
           conditionNotes: l.itemCode || l.itemName || undefined,
         })),
       };
-      await apiService.post('/store/receipts', payload);
-      message.success('Material receipt created');
-      setModalVisible(false);
-      fetchData(page);
-    } catch (err: any) {
-      const msg: any = err?.response?.data?.message;
-      message.error(Array.isArray(msg) ? msg[0] : 'Failed to create material receipt');
+      setPendingReceiptPayload(payload);
+      setReceiptFeedbackMeta({
+        refNum: String(values.grnNumber || 'Auto-Generated'),
+        lineCount: lineItems.length,
+        grnNumber: values.grnNumber,
+      });
+      setReceiptConfirmPhase('confirm');
+    } catch {
+      // form.validateFields handles field errors
     }
   };
 
-  const handleAction = (id: string, action: string) => {
-    const confirmMap: Record<string, string> = {
-      accept: 'Accepting this receipt approves the received quantities for stock posting.',
-      post: 'Posting this receipt will add the accepted quantities into store/inventory stock. Continue?',
-      reject: 'Rejecting this receipt cancels the received quantities.',
-    };
-    modal.confirm({
-      title: `Confirm ${action[0].toUpperCase()}${action.slice(1)}`,
-      content: confirmMap[action] || 'Continue with this action?',
-      okText: action[0].toUpperCase() + action.slice(1),
-      okButtonProps: { danger: action === 'reject' },
-      onOk: async () => {
-        try {
-          await apiService.patch(`/store/receipts/${id}/${action}`);
-          message.success(`Material receipt ${action}ed successfully`);
-          fetchData(page);
-          setDetailOpen(false);
-        } catch (err: any) {
-          message.error(err?.response?.data?.message || `Failed to ${action} receipt`);
-        }
-      },
-    });
+  const executeReceiptSave = async () => {
+    if (!pendingReceiptPayload) return;
+    setReceiptConfirmPhase('saving');
+    try {
+      const res = await apiService.post<any>('/store/receipts', pendingReceiptPayload);
+      const savedRef = res?.receiptCode || res?.data?.receiptCode || receiptFeedbackMeta.grnNumber || receiptFeedbackMeta.refNum;
+      setReceiptFeedbackMeta((prev) => ({ ...prev, refNum: savedRef }));
+      setReceiptConfirmPhase('success');
+      setModalVisible(false);
+      setPendingReceiptPayload(null);
+      fetchData(page);
+    } catch (err: any) {
+      const msg: any = err?.response?.data?.message || err?.message || 'Failed to create material receipt';
+      setReceiptFeedbackMeta((prev) => ({
+        ...prev,
+        errorMessage: Array.isArray(msg) ? msg[0] : String(msg),
+      }));
+      setReceiptConfirmPhase('error');
+    }
   };
 
-  const handleDelete = async (id: string) => {
+  const [rowActionState, setRowActionState] = useState<{
+    phase: ConfirmAndSuccessPhase;
+    action: 'accept' | 'post' | 'reject' | 'inspect' | 'delete';
+    record: GoodsReceipt | null;
+    errorMessage?: string;
+  }>({ phase: 'idle', action: 'post', record: null });
+
+  const openRowAction = (action: 'accept' | 'post' | 'reject' | 'inspect' | 'delete', record: GoodsReceipt) => {
+    setRowActionState({ phase: 'confirm', action, record });
+  };
+
+  const executeRowAction = async () => {
+    const { action, record } = rowActionState;
+    if (!record) return;
+    setRowActionState((prev) => ({ ...prev, phase: 'saving', errorMessage: undefined }));
     try {
-      await apiService.delete(`/store/receipts/${id}`);
-      message.success('Material receipt deleted successfully');
-      fetchData(page);
+      if (action === 'delete') {
+        await apiService.delete(`/store/receipts/${record.id}`);
+      } else {
+        await apiService.patch(`/store/receipts/${record.id}/${action}`);
+      }
+      setRowActionState((prev) => ({ ...prev, phase: 'success' }));
       setDetailOpen(false);
+      fetchData(page);
     } catch (err: any) {
-      const msg = err?.response?.data?.message || 'Failed to delete receipt';
-      message.error(Array.isArray(msg) ? msg[0] : msg);
+      const msg: any = err?.response?.data?.message || err?.message || `Failed to ${action} receipt`;
+      setRowActionState((prev) => ({
+        ...prev,
+        phase: 'error',
+        errorMessage: Array.isArray(msg) ? msg.join(', ') : String(msg),
+      }));
     }
   };
 
@@ -266,20 +297,12 @@ const MaterialReceiptManagement: React.FC = () => {
         <Space wrap size={6}>
           <Button size="small" className="erp-action-btn act-view" icon={<EyeOutlined />} aria-label="View" onClick={() => openDetail(record)} />
           <Button size="small" icon={<PrinterOutlined />} onClick={() => openPrintModal(record)}>Print Slip</Button>
-          {record.status === 'RECEIVED' && canInspect && <Button size="small" type="primary" onClick={() => handleAction(record.id, 'inspect')}>Inspect</Button>}
-          {record.status === 'INSPECTION' && canInspect && <Button size="small" type="primary" icon={<CheckOutlined />} onClick={() => handleAction(record.id, 'accept')}>Accept</Button>}
-          {record.status === 'INSPECTION' && canInspect && <Button size="small" danger onClick={() => handleAction(record.id, 'reject')}>Reject</Button>}
-          {record.status === 'ACCEPTED' && canPost && <Button size="small" type="primary" onClick={() => handleAction(record.id, 'post')}>Post to Stock</Button>}
+          {record.status === 'RECEIVED' && canInspect && <Button size="small" type="primary" onClick={() => openRowAction('inspect', record)}>Inspect</Button>}
+          {record.status === 'INSPECTION' && canInspect && <Button size="small" type="primary" icon={<CheckOutlined />} onClick={() => openRowAction('accept', record)}>Accept</Button>}
+          {record.status === 'INSPECTION' && canInspect && <Button size="small" danger onClick={() => openRowAction('reject', record)}>Reject</Button>}
+          {record.status === 'ACCEPTED' && canPost && <Button size="small" type="primary" onClick={() => openRowAction('post', record)}>Post to Stock</Button>}
           {record.status !== 'POSTED' && canDelete && (
-            <Popconfirm
-              title="Delete this material receipt?"
-              description="Are you sure you want to delete this receipt record?"
-              onConfirm={() => handleDelete(record.id)}
-              okText="Delete"
-              okButtonProps={{ danger: true }}
-            >
-              <Button size="small" danger icon={<DeleteOutlined />}>Delete</Button>
-            </Popconfirm>
+            <Button size="small" danger icon={<DeleteOutlined />} onClick={() => openRowAction('delete', record)}>Delete</Button>
           )}
         </Space>
       ),
@@ -389,6 +412,81 @@ const MaterialReceiptManagement: React.FC = () => {
         open={!!printVoucher}
         onClose={() => setPrintVoucher(null)}
         voucher={printVoucher}
+      />
+
+      <ConfirmAndSuccessModal
+        open={receiptConfirmPhase !== 'idle'}
+        phase={receiptConfirmPhase}
+        confirmTitle="Confirm Material Receipt"
+        confirmDescription="Please review the receipt items before saving."
+        confirmText="Confirm & Save"
+        savingText="Saving..."
+        savingSubtext="Recording material receipt"
+        referenceNumber={receiptFeedbackMeta.refNum}
+        successMessage={`Material receipt created (${receiptFeedbackMeta.lineCount} ${receiptFeedbackMeta.lineCount === 1 ? 'item' : 'items'}).`}
+        errorMessage={receiptFeedbackMeta.errorMessage}
+        summaryRows={[
+          { label: 'GRN / Ref #', value: receiptFeedbackMeta.grnNumber || 'Auto' },
+          { label: 'Line Items', value: receiptFeedbackMeta.lineCount, highlight: true },
+        ]}
+        onConfirm={executeReceiptSave}
+        onCancel={() => setReceiptConfirmPhase('idle')}
+        onOk={() => setReceiptConfirmPhase('idle')}
+      />
+
+      <ConfirmAndSuccessModal
+        open={rowActionState.phase !== 'idle'}
+        phase={rowActionState.phase}
+        confirmTitle={
+          rowActionState.action === 'post'
+            ? 'Confirm Post Material Receipt'
+            : rowActionState.action === 'accept'
+            ? 'Confirm Accept Material Receipt'
+            : rowActionState.action === 'reject'
+            ? 'Confirm Reject Material Receipt'
+            : rowActionState.action === 'inspect'
+            ? 'Confirm Start Inspection'
+            : 'Confirm Delete Material Receipt'
+        }
+        confirmDescription={
+          rowActionState.action === 'post'
+            ? 'Posting will add accepted quantities into store inventory stock.'
+            : rowActionState.action === 'accept'
+            ? 'Accepting approves the received quantities for stock posting.'
+            : rowActionState.action === 'reject'
+            ? 'Rejecting cancels the received quantities.'
+            : rowActionState.action === 'inspect'
+            ? 'Mark this receipt as inspected?'
+            : 'This will permanently delete the selected material receipt record.'
+        }
+        confirmText={
+          rowActionState.action === 'post'
+            ? 'Confirm & Post'
+            : rowActionState.action === 'delete'
+            ? 'Confirm Delete'
+            : `Confirm ${rowActionState.action[0].toUpperCase()}${rowActionState.action.slice(1)}`
+        }
+        savingText="Processing..."
+        savingSubtext="Updating material receipt & stock"
+        referenceNumber={rowActionState.record?.receiptCode}
+        successMessage={
+          rowActionState.action === 'delete'
+            ? 'Material receipt deleted successfully.'
+            : `Material receipt ${rowActionState.action}ed successfully.`
+        }
+        errorMessage={rowActionState.errorMessage}
+        summaryRows={
+          rowActionState.record
+            ? [
+                { label: 'Receipt Code', value: rowActionState.record.receiptCode },
+                { label: 'Supplier', value: rowActionState.record.supplierName || '—' },
+                { label: 'Current Status', value: rowActionState.record.status, highlight: true },
+              ]
+            : []
+        }
+        onConfirm={executeRowAction}
+        onCancel={() => setRowActionState((prev) => ({ ...prev, phase: 'idle' }))}
+        onOk={() => setRowActionState((prev) => ({ ...prev, phase: 'idle' }))}
       />
     </div>
   );

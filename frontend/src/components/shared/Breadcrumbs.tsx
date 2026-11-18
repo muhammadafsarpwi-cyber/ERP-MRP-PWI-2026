@@ -88,6 +88,18 @@ const ROUTE_LABELS: RouteLabel[] = [
   { pattern: /^\/maintenance\/pm-schedules/, label: 'Maintenance PM Schedules' },
   { pattern: /^\/maintenance\/reports/, label: 'Maintenance Reports' },
   { pattern: /^\/reports/, label: 'Reports' },
+  { pattern: /^\/store\/dashboard/, label: 'Store Dashboard' },
+  { pattern: /^\/store\/items/, label: 'Store Items' },
+  { pattern: /^\/store\/stock-balance/, label: 'Store Stock Balance' },
+  { pattern: /^\/store\/opening-stock/, label: 'Opening Stock' },
+  { pattern: /^\/store\/material-receipts/, label: 'Material Receipts' },
+  { pattern: /^\/store\/material-issues/, label: 'Material Issues' },
+  { pattern: /^\/store\/material-returns/, label: 'Material Returns' },
+  { pattern: /^\/store\/ledger/, label: 'Store Item Ledger' },
+  { pattern: /^\/store\/low-stock/, label: 'Low Stock / Reorder' },
+  { pattern: /^\/store\/reports/, label: 'Store Reports' },
+  { pattern: /^\/store\/material-trace\/[^/]+$/, label: 'Item Lifecycle Details' },
+  { pattern: /^\/store\/material-trace/, label: 'Store Material Lifecycle' },
 ];
 
 // Settings categories carry their own display labels so the trail reads
@@ -102,6 +114,7 @@ const PARENT_LABELS: Record<string, string> = {
   organization: 'Organization',
   admin: 'Administration',
   inventory: 'Inventory',
+  store: 'Store Department',
   procurement: 'Procurement',
   sales: 'Sales',
   production: 'Production',
@@ -176,9 +189,12 @@ const Breadcrumbs: React.FC<BreadcrumbsProps> = ({ style }) => {
       label = override ? override[1] : PARENT_LABELS[segment];
     }
     if (!label) {
-      label = segment
-        .replace(/[-_]+/g, ' ')
-        .replace(/\b\w/g, (c) => c.toUpperCase());
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(segment);
+      label = isUuid
+        ? 'Details'
+        : segment
+            .replace(/[-_]+/g, ' ')
+            .replace(/\b\w/g, (c) => c.toUpperCase());
     }
 
     // Deduplicate adjacent identical breadcrumb labels (safeguard against "Production / Production")

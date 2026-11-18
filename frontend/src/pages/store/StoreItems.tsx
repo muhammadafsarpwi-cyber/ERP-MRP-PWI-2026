@@ -1,14 +1,15 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
+  App,
   Card,
   Table,
   Select,
   Tag,
-  Empty,
   Row,
   Col,
   Space,
   Input,
+  InputNumber,
   Button,
   Badge,
   Tooltip,
@@ -28,10 +29,14 @@ import {
   ClearOutlined,
   CheckCircleOutlined,
   InfoCircleOutlined,
+  HistoryOutlined,
+  CheckOutlined,
+  EditOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 import PageHeader from '../../components/shared/PageHeader';
+import StoreMaterialLifecycleModal from './components/lifecycle/StoreMaterialLifecycleModal';
 
 const { Text } = Typography;
 
@@ -71,10 +76,19 @@ interface Store {
   status?: string;
 }
 
+const EXCLUDED_MANUFACTURING_TYPES = new Set([
+  'RAW_MATERIAL',
+  'FINISHED_GOOD',
+  'WORK_IN_PROGRESS',
+  'SEMI_FINISHED',
+]);
+
 interface ItemDetail {
   id: string;
   itemCode: string;
   name: string;
+  itemType?: string;
+  categoryName?: string;
   uomCode?: string;
   uomName?: string;
 }
@@ -83,6 +97,7 @@ interface StoreItemRecord {
   id: string;
   storeId: string;
   itemId: string;
+  divisionId?: string | null;
   item?: ItemDetail | null;
   store?: Store;
   bin: string | null;
@@ -95,18 +110,23 @@ interface StoreItemRecord {
   preferredIssueMethod: string;
   batchTracked: boolean;
   serialTracked: boolean;
+  onHandStock?: number;
+  availableStock?: number;
   status: string;
 }
 
 const StoreItems: React.FC = () => {
   const { token } = theme.useToken();
+  const { message } = App.useApp();
 
   // Master lookups
   const [divisions, setDivisions] = useState<Division[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
-  const [itemMasterMap, setItemMasterMap] = useState<Map<string, { itemCode: string; name: string; uomCode?: string }>>(new Map());
+  const [itemMasterMap, setItemMasterMap] = useState<Map<string, { itemCode: string; name: string; itemType?: string; categoryName?: string; uomCode?: string }>>(new Map());
+  const [allGeneralItems, setAllGeneralItems] = useState<StoreItemRecord[]>([]);
+  const [balanceByWarehouse, setBalanceByWarehouse] = useState<Map<string, Map<string, number>>>(new Map());
 
   // Selection states
   const [selectedDivisionId, setSelectedDivisionId] = useState<string | undefined>();
@@ -116,23 +136,32 @@ const StoreItems: React.FC = () => {
 
   // Filter & Search states
   const [searchText, setSearchText] = useState<string>('');
+  const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
 
   // Data & loading states
   const [items, setItems] = useState<StoreItemRecord[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [lookupsLoading, setLookupsLoading] = useState<boolean>(true);
+  const [lifecycleItem, setLifecycleItem] = useState<{ itemId: string; itemCode?: string; itemName?: string } | null>(null);
+  const [editingCell, setEditingCell] = useState<{
+    itemId: string;
+    field: 'locationDetail' | 'minimumStock' | 'reorderLevel' | 'maximumStock';
+  } | null>(null);
+  const [editingValue, setEditingValue] = useState<string | number | null>(null);
+  const [savingCell, setSavingCell] = useState<boolean>(false);
 
-  // 1. Initial Load of master data (Divisions, Sections, Departments, Stores, Items)
+  // 1. Initial Load of master data (Divisions, Sections, Departments, Stores, Items, Balances)
   const loadInitialLookups = useCallback(async () => {
     setLookupsLoading(true);
     try {
-      const [divRes, secRes, deptRes, storeRes, itemRes] = await Promise.allSettled([
+      const [divRes, secRes, deptRes, storeRes, itemRes, balRes] = await Promise.allSettled([
         apiService.get<any>('/divisions', { limit: 100, status: 'ACTIVE' }),
         apiService.get<any>('/sections', { limit: 200, status: 'ACTIVE' }),
         apiService.get<any>('/departments', { limit: 300, status: 'ACTIVE' }),
         apiService.get<any>('/store/stores', { status: 'ACTIVE' }),
-        apiService.get<any>('/master-data/items', { limit: 1000 }),
+        apiService.get<any>('/master-data/items', { limit: 5000 }),
+        apiService.get<any>('/inventory/balances', { limit: 5000 }),
       ]);
 
       if (divRes.status === 'fulfilled') {
@@ -149,22 +178,73 @@ const StoreItems: React.FC = () => {
       }
       if (storeRes.status === 'fulfilled') {
         const raw = storeRes.value;
-        setStores(Array.isArray(raw) ? raw : raw?.data || []);
+        const rawStores: Store[] = Array.isArray(raw) ? raw : raw?.data || [];
+        setStores(rawStores.filter((s) => String(s.storeType || '').toUpperCase() === 'GENERAL'));
+      }
+      if (balRes.status === 'fulfilled') {
+        const raw = balRes.value;
+        const list: any[] = Array.isArray(raw) ? raw : raw?.data || [];
+        const whMap = new Map<string, Map<string, number>>();
+        list.forEach((b: any) => {
+          const whId = b.warehouseId || b.warehouse_id;
+          const itemId = b.itemId || b.item_id;
+          if (!whId || !itemId) return;
+          const onHand = Number(b.onHand ?? b.on_hand ?? 0);
+          if (!whMap.has(whId)) whMap.set(whId, new Map<string, number>());
+          const itemMap = whMap.get(whId)!;
+          itemMap.set(itemId, (itemMap.get(itemId) || 0) + onHand);
+        });
+        setBalanceByWarehouse(whMap);
       }
       if (itemRes.status === 'fulfilled') {
         const raw = itemRes.value;
         const list = Array.isArray(raw) ? raw : raw?.data || [];
-        const map = new Map<string, { itemCode: string; name: string; uomCode?: string }>();
+        const map = new Map<string, { itemCode: string; name: string; itemType?: string; categoryName?: string; uomCode?: string }>();
+        const generalRecords: StoreItemRecord[] = [];
         list.forEach((it: any) => {
-          if (it.id && it.itemType !== 'FINISHED_GOOD') {
+          const itemType = String(it.itemType || 'OTHER').toUpperCase();
+          const isStoreItem = Boolean(it.isStoreItem ?? it.is_store_item);
+          if (it.id && isStoreItem && !EXCLUDED_MANUFACTURING_TYPES.has(itemType)) {
+            const uomCode = it.baseUom?.code || it.uom?.code || it.uomCode;
+            const categoryName = it.category?.name || it.categoryName;
+            const storageLocation = it.storageLocation || it.storage_location || null;
             map.set(it.id, {
               itemCode: it.itemCode,
               name: it.name,
-              uomCode: it.baseUom?.code || it.uom?.code || it.uomCode,
+              itemType,
+              categoryName,
+              uomCode,
+            });
+            generalRecords.push({
+              id: `master-${it.id}`,
+              storeId: '',
+              itemId: it.id,
+              divisionId: it.divisionId || it.division_id || null,
+              item: {
+                id: it.id,
+                itemCode: it.itemCode,
+                name: it.name,
+                itemType,
+                categoryName,
+                uomCode,
+                uomName: it.baseUom?.name || it.uom?.name,
+              },
+              bin: null,
+              rack: null,
+              shelf: null,
+              locationDetail: storageLocation,
+              minimumStock: Number(it.minimumStockLevel || 0),
+              reorderLevel: Number(it.reorderLevel || 0),
+              maximumStock: Number(it.maximumStockLevel || 0),
+              preferredIssueMethod: 'MANUAL',
+              batchTracked: Boolean(it.batchTracked),
+              serialTracked: Boolean(it.serialTracked),
+              status: it.isActive === false ? 'INACTIVE' : 'ACTIVE',
             });
           }
         });
         setItemMasterMap(map);
+        setAllGeneralItems(generalRecords);
       }
     } catch (err) {
       console.error('Failed to load initial lookups:', err);
@@ -177,19 +257,55 @@ const StoreItems: React.FC = () => {
     loadInitialLookups();
   }, [loadInitialLookups]);
 
-  // 2. Cascaded filtered lists
+  // 2. Cascaded filtered lists (strictly Store-related Sections & Departments)
+  const storeLinkedSectionIds = useMemo(() => {
+    const ids = new Set<string>();
+    stores.forEach((st) => {
+      if (st.sectionId) ids.add(st.sectionId);
+    });
+    departments.forEach((d) => {
+      if (
+        d.sectionId &&
+        (stores.some((st) => st.departmentId === d.id) ||
+          d.name.toLowerCase().includes('store'))
+      ) {
+        ids.add(d.sectionId);
+      }
+    });
+    return ids;
+  }, [stores, departments]);
+
   const availableSections = useMemo(() => {
-    if (!selectedDivisionId) return sections;
-    return sections.filter((s) => !s.divisionId || s.divisionId === selectedDivisionId);
-  }, [sections, selectedDivisionId]);
+    return sections.filter((s) => {
+      if (selectedDivisionId && s.divisionId !== selectedDivisionId) return false;
+      const isStoreSection =
+        storeLinkedSectionIds.has(s.id) || s.name.toLowerCase().includes('store');
+      return isStoreSection;
+    });
+  }, [sections, selectedDivisionId, storeLinkedSectionIds]);
 
   const availableDepartments = useMemo(() => {
     return departments.filter((d) => {
-      if (selectedDivisionId && d.divisionId && d.divisionId !== selectedDivisionId) return false;
-      if (selectedSectionId && d.sectionId && d.sectionId !== selectedSectionId) return false;
-      return true;
+      if (selectedDivisionId && d.divisionId !== selectedDivisionId) return false;
+      if (selectedSectionId) {
+        return d.sectionId === selectedSectionId;
+      }
+      const isStoreDept =
+        stores.some((st) => st.departmentId === d.id) ||
+        d.name.toLowerCase().includes('store');
+      return isStoreDept;
     });
-  }, [departments, selectedDivisionId, selectedSectionId]);
+  }, [departments, selectedDivisionId, selectedSectionId, stores]);
+
+  // Auto-select Department when a Section is chosen and has exactly 1 matching department
+  useEffect(() => {
+    if (selectedSectionId && availableDepartments.length === 1) {
+      const onlyDeptId = availableDepartments[0].id;
+      if (selectedDepartmentId !== onlyDeptId) {
+        setSelectedDepartmentId(onlyDeptId);
+      }
+    }
+  }, [selectedSectionId, availableDepartments, selectedDepartmentId]);
 
   // Stores filtered by current hierarchy selection
   const matchingStores = useMemo(() => {
@@ -201,21 +317,20 @@ const StoreItems: React.FC = () => {
     });
   }, [stores, selectedDivisionId, selectedSectionId, selectedDepartmentId]);
 
-  // 3. Auto-detect & auto-select Store when Division -> Section -> Department are selected
+  // 3. Silently auto-resolve linked Store when Division -> Section -> Department are selected
   useEffect(() => {
-    // If the user has picked a Department or Section:
-    if (selectedDepartmentId || selectedSectionId) {
+    if (selectedDepartmentId) {
       if (matchingStores.length > 0) {
-        // If current store is not in matching stores, auto-select the first matching store!
         if (!selectedStoreId || !matchingStores.some((s) => s.id === selectedStoreId)) {
           setSelectedStoreId(matchingStores[0].id);
         }
       } else {
-        // No matching store for this combination
         setSelectedStoreId(undefined);
       }
+    } else {
+      setSelectedStoreId(undefined);
     }
-  }, [selectedDivisionId, selectedSectionId, selectedDepartmentId, matchingStores, selectedStoreId]);
+  }, [selectedDepartmentId, matchingStores, selectedStoreId]);
 
   // 4. Fetch store items when selectedStoreId changes
   const loadItems = useCallback(async (storeId: string) => {
@@ -223,52 +338,47 @@ const StoreItems: React.FC = () => {
     try {
       const response = await apiService.get<any>(`/store/stores/${storeId}/items`);
       const list: StoreItemRecord[] = Array.isArray(response) ? response : response?.data || [];
-
-      // Ensure item details (code, name, uom) are loaded for all items in the store
-      const missingIds = list.map((r) => r.itemId).filter((id) => Boolean(id) && !itemMasterMap.has(id));
-      if (missingIds.length > 0) {
-        const itemFetches = missingIds.map(async (id) => {
-          try {
-            const itemRes = await apiService.get<any>(`/master-data/items/${id}`);
-            const itemData = itemRes?.data || itemRes;
-            if (itemData && itemData.id) {
-              return {
-                id: itemData.id,
-                itemCode: itemData.itemCode,
-                name: itemData.name,
-                uomCode: itemData.baseUom?.code || itemData.uom?.code || itemData.uomCode,
-              };
-            }
-          } catch {
-            return null;
-          }
-        });
-
-        const fetched = await Promise.all(itemFetches);
-        setItemMasterMap((prev) => {
-          const next = new Map(prev);
-          fetched.forEach((d) => {
-            if (d) next.set(d.id, d);
-          });
-          return next;
-        });
-      }
-
       setItems(list);
     } catch {
       setItems([]);
     } finally {
       setLoading(false);
     }
-  }, [itemMasterMap]);
+  }, []);
 
   useEffect(() => {
-    if (selectedStoreId) {
+    if (selectedDepartmentId && selectedStoreId) {
       loadItems(selectedStoreId);
-    } else {
-      setItems([]);
+      return;
     }
-  }, [selectedStoreId, loadItems]);
+
+    // Progressive live filter across all General Store items & warehouses
+    const activeWhIds = stores
+      .filter((s) => !selectedDivisionId || !s.divisionId || s.divisionId === selectedDivisionId)
+      .map((s) => s.warehouseId)
+      .filter((id): id is string => Boolean(id));
+
+    const nextItems = allGeneralItems
+      .filter((it) => {
+        if (!selectedDivisionId) return true;
+        return it.divisionId === selectedDivisionId;
+      })
+      .map((it) => {
+        let onHand = 0;
+        activeWhIds.forEach((whId) => {
+          const whMap = balanceByWarehouse.get(whId);
+          if (whMap) {
+            onHand += whMap.get(it.itemId) || 0;
+          }
+        });
+        return {
+          ...it,
+          onHandStock: onHand,
+        };
+      });
+
+    setItems(nextItems);
+  }, [selectedDepartmentId, selectedStoreId, selectedDivisionId, stores, allGeneralItems, balanceByWarehouse, loadItems]);
 
   // Selection handlers
   const handleDivisionChange = (divisionId?: string) => {
@@ -292,6 +402,7 @@ const StoreItems: React.FC = () => {
     setSelectedDepartmentId(undefined);
     setSelectedStoreId(undefined);
     setSearchText('');
+    setCategoryFilter('ALL');
     setStatusFilter('ALL');
   };
 
@@ -300,35 +411,67 @@ const StoreItems: React.FC = () => {
     return stores.find((s) => s.id === selectedStoreId);
   }, [stores, selectedStoreId]);
 
-  // Filtered items based on search and status
-  const filteredItems = useMemo(() => {
-    return items.filter((item) => {
-      if (statusFilter !== 'ALL' && item.status !== statusFilter) {
-        return false;
-      }
-      if (!searchText.trim()) return true;
-
+  const availableCategories = useMemo(() => {
+    const types = new Set<string>();
+    items.forEach((item) => {
       const master = itemMasterMap.get(item.itemId);
-      const q = searchText.toLowerCase().trim();
-      const code = (item.item?.itemCode || master?.itemCode || '').toLowerCase();
-      const name = (item.item?.name || master?.name || '').toLowerCase();
-      const rawId = item.itemId?.toLowerCase() || '';
-      const bin = item.bin?.toLowerCase() || '';
-      const rack = item.rack?.toLowerCase() || '';
-      const shelf = item.shelf?.toLowerCase() || '';
-      const loc = item.locationDetail?.toLowerCase() || '';
-
-      return (
-        code.includes(q) ||
-        name.includes(q) ||
-        rawId.includes(q) ||
-        bin.includes(q) ||
-        rack.includes(q) ||
-        shelf.includes(q) ||
-        loc.includes(q)
-      );
+      const t = (item.item?.itemType || master?.itemType || '').toUpperCase();
+      if (t && !EXCLUDED_MANUFACTURING_TYPES.has(t)) {
+        types.add(t);
+      }
     });
-  }, [items, searchText, statusFilter, itemMasterMap]);
+    return Array.from(types).sort();
+  }, [items, itemMasterMap]);
+
+  // Filtered & sorted items (live in-hand stock items first)
+  const filteredItems = useMemo(() => {
+    return items
+      .filter((item) => {
+        const master = itemMasterMap.get(item.itemId);
+        const itemType = (item.item?.itemType || master?.itemType || '').toUpperCase();
+        if (EXCLUDED_MANUFACTURING_TYPES.has(itemType)) {
+          return false;
+        }
+        if (categoryFilter !== 'ALL' && itemType !== categoryFilter) {
+          return false;
+        }
+        if (statusFilter !== 'ALL' && item.status !== statusFilter) {
+          return false;
+        }
+        if (!searchText.trim()) return true;
+
+        const q = searchText.toLowerCase().trim();
+        const code = (item.item?.itemCode || master?.itemCode || '').toLowerCase();
+        const name = (item.item?.name || master?.name || '').toLowerCase();
+        const cat = (item.item?.categoryName || master?.categoryName || itemType || '').toLowerCase();
+        const rawId = item.itemId?.toLowerCase() || '';
+        const bin = item.bin?.toLowerCase() || '';
+        const rack = item.rack?.toLowerCase() || '';
+        const shelf = item.shelf?.toLowerCase() || '';
+        const loc = item.locationDetail?.toLowerCase() || '';
+
+        return (
+          code.includes(q) ||
+          name.includes(q) ||
+          cat.includes(q) ||
+          rawId.includes(q) ||
+          bin.includes(q) ||
+          rack.includes(q) ||
+          shelf.includes(q) ||
+          loc.includes(q)
+        );
+      })
+      .sort((a, b) => {
+        const stockA = Number(a.onHandStock || 0);
+        const stockB = Number(b.onHandStock || 0);
+        if ((stockB > 0 ? 1 : 0) !== (stockA > 0 ? 1 : 0)) {
+          return stockB > 0 ? 1 : -1;
+        }
+        const codeA = (a.item?.itemCode || itemMasterMap.get(a.itemId)?.itemCode || '').toLowerCase();
+        const codeB = (b.item?.itemCode || itemMasterMap.get(b.itemId)?.itemCode || '').toLowerCase();
+        return codeA.localeCompare(codeB);
+      });
+  }, [items, searchText, categoryFilter, statusFilter, itemMasterMap]);
 
   // Export to CSV
   const handleExportCSV = () => {
@@ -386,6 +529,62 @@ const StoreItems: React.FC = () => {
     document.body.removeChild(link);
   };
 
+  const handleInlineSave = async (
+    record: StoreItemRecord,
+    field: 'locationDetail' | 'minimumStock' | 'reorderLevel' | 'maximumStock',
+    rawVal: string | number | null,
+  ) => {
+    const itemId = record.itemId;
+    if (!itemId) {
+      setEditingCell(null);
+      return;
+    }
+
+    const payload: {
+      storeId?: string;
+      locationDetail?: string | null;
+      minStock?: number;
+      reorderLevel?: number;
+      maxStock?: number;
+    } = {
+      storeId: selectedStoreId || record.storeId || undefined,
+    };
+
+    if (field === 'locationDetail') {
+      payload.locationDetail = typeof rawVal === 'string' ? rawVal.trim() || null : null;
+    } else if (field === 'minimumStock') {
+      payload.minStock = Number(rawVal || 0);
+    } else if (field === 'reorderLevel') {
+      payload.reorderLevel = Number(rawVal || 0);
+    } else if (field === 'maximumStock') {
+      payload.maxStock = Number(rawVal || 0);
+    }
+
+    setSavingCell(true);
+    try {
+      await apiService.put(`/store/items/${itemId}/inline-sync`, payload);
+      const applyUpdate = (list: StoreItemRecord[]) =>
+        list.map((r) => {
+          if (r.itemId !== itemId) return r;
+          return {
+            ...r,
+            locationDetail: field === 'locationDetail' ? (payload.locationDetail ?? null) : r.locationDetail,
+            minimumStock: field === 'minimumStock' ? (payload.minStock ?? 0) : r.minimumStock,
+            reorderLevel: field === 'reorderLevel' ? (payload.reorderLevel ?? 0) : r.reorderLevel,
+            maximumStock: field === 'maximumStock' ? (payload.maxStock ?? 0) : r.maximumStock,
+          };
+        });
+      setItems(applyUpdate);
+      setAllGeneralItems(applyUpdate);
+      message.success('Saved & synced with Item Master');
+      setEditingCell(null);
+    } catch {
+      message.error('Failed to save inline update');
+    } finally {
+      setSavingCell(false);
+    }
+  };
+
   const columns: ColumnsType<StoreItemRecord> = [
     {
       title: '#',
@@ -411,9 +610,14 @@ const StoreItems: React.FC = () => {
         return (
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Text strong style={{ color: token.colorPrimary, fontSize: 13 }}>
+              <Button
+                type="link"
+                size="small"
+                style={{ padding: 0, height: 'auto', fontWeight: 700, fontSize: 13 }}
+                onClick={() => setLifecycleItem({ itemId: record.itemId, itemCode, itemName: itemName || undefined })}
+              >
                 {itemCode}
-              </Text>
+              </Button>
               {uomCode && (
                 <Tag color="cyan" style={{ fontSize: 11, padding: '0 6px', margin: 0 }}>
                   {uomCode}
@@ -434,95 +638,195 @@ const StoreItems: React.FC = () => {
       },
     },
     {
+      title: 'Category',
+      key: 'category',
+      width: 150,
+      render: (_: any, record: StoreItemRecord) => {
+        const master = itemMasterMap.get(record.itemId);
+        const cat = record.item?.categoryName || master?.categoryName || record.item?.itemType || master?.itemType;
+        return cat ? (
+          <Tag color="blue" style={{ fontSize: 11, margin: 0 }}>
+            {String(cat).replace(/_/g, ' ')}
+          </Tag>
+        ) : (
+          <Text type="secondary" style={{ fontSize: 12 }}>—</Text>
+        );
+      },
+    },
+    {
       title: 'Storage Location',
       key: 'location',
-      width: 220,
-      render: (_: any, record: StoreItemRecord) => (
-        <Space direction="vertical" size={2}>
-          <Space size={4} wrap>
-            {record.bin ? (
-              <Tag style={{ margin: 0, fontSize: 11 }}>Bin: {record.bin}</Tag>
-            ) : null}
-            {record.rack ? (
-              <Tag style={{ margin: 0, fontSize: 11 }}>Rack: {record.rack}</Tag>
-            ) : null}
-            {record.shelf ? (
-              <Tag style={{ margin: 0, fontSize: 11 }}>Shelf: {record.shelf}</Tag>
-            ) : null}
-            {!record.bin && !record.rack && !record.shelf && (
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                -
-              </Text>
-            )}
-          </Space>
-          {record.locationDetail && (
-            <Text type="secondary" style={{ fontSize: 11 }}>
-              {record.locationDetail}
-            </Text>
-          )}
-        </Space>
-      ),
+      width: 210,
+      render: (_: any, record: StoreItemRecord) => {
+        const isEditing =
+          editingCell?.itemId === record.itemId && editingCell?.field === 'locationDetail';
+        const cleanDetail =
+          record.locationDetail && record.locationDetail !== 'Auto-linked from Item Master / Ledger'
+            ? record.locationDetail
+            : null;
+
+        if (isEditing) {
+          return (
+            <Space.Compact style={{ width: '100%' }} size="small">
+              <Input
+                autoFocus
+                size="small"
+                placeholder="e.g. Rack A-01 / Bin-14"
+                value={typeof editingValue === 'string' ? editingValue : ''}
+                disabled={savingCell}
+                onChange={(e) => setEditingValue(e.target.value)}
+                onPressEnter={() => handleInlineSave(record, 'locationDetail', editingValue)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') setEditingCell(null);
+                }}
+              />
+              <Button
+                size="small"
+                type="primary"
+                icon={<CheckOutlined />}
+                loading={savingCell}
+                onClick={() => handleInlineSave(record, 'locationDetail', editingValue)}
+              />
+            </Space.Compact>
+          );
+        }
+
+        return (
+          <Tooltip title="Click to edit Storage Location">
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => {
+                setEditingCell({ itemId: record.itemId, field: 'locationDetail' });
+                setEditingValue(cleanDetail || '');
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  setEditingCell({ itemId: record.itemId, field: 'locationDetail' });
+                  setEditingValue(cleanDetail || '');
+                }
+              }}
+              style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, minHeight: 24 }}
+            >
+              {!record.bin && !record.rack && !record.shelf && !cleanDetail ? (
+                <Text type="secondary" style={{ fontSize: 12 }}>—</Text>
+              ) : (
+                <Space direction="vertical" size={2}>
+                  {(record.bin || record.rack || record.shelf) && (
+                    <Space size={4} wrap>
+                      {record.bin ? <Tag style={{ margin: 0, fontSize: 11 }}>Bin: {record.bin}</Tag> : null}
+                      {record.rack ? <Tag style={{ margin: 0, fontSize: 11 }}>Rack: {record.rack}</Tag> : null}
+                      {record.shelf ? <Tag style={{ margin: 0, fontSize: 11 }}>Shelf: {record.shelf}</Tag> : null}
+                    </Space>
+                  )}
+                  {cleanDetail && (
+                    <Text style={{ fontSize: 12 }}>{cleanDetail}</Text>
+                  )}
+                </Space>
+              )}
+              <EditOutlined style={{ fontSize: 11, color: token.colorTextTertiary }} />
+            </div>
+          </Tooltip>
+        );
+      },
     },
     {
-      title: 'Min Stock',
-      dataIndex: 'minimumStock',
-      key: 'minimumStock',
-      width: 100,
+      title: 'In-Hand Qty',
+      dataIndex: 'onHandStock',
+      key: 'onHandStock',
+      width: 130,
       align: 'right',
-      render: (v: number) => (
-        <Text style={{ fontWeight: 500 }}>
-          {Number(v || 0).toLocaleString()}
-        </Text>
-      ),
+      render: (v: number, record: StoreItemRecord) => {
+        const master = itemMasterMap.get(record.itemId);
+        const uomCode = record.item?.uomCode || master?.uomCode || '';
+        const qty = Number(v || 0);
+        return (
+          <Text
+            strong
+            style={{
+              fontVariantNumeric: 'tabular-nums',
+              color: qty > 0 ? token.colorSuccess : token.colorTextTertiary,
+              fontSize: 13,
+            }}
+          >
+            {qty.toLocaleString()}{uomCode ? ` ${uomCode}` : ''}
+          </Text>
+        );
+      },
     },
-    {
-      title: 'Reorder Level',
-      dataIndex: 'reorderLevel',
-      key: 'reorderLevel',
-      width: 110,
-      align: 'right',
-      render: (v: number) => (
-        <Text style={{ fontWeight: 600, color: token.colorWarningText || '#d97706' }}>
-          {Number(v || 0).toLocaleString()}
-        </Text>
-      ),
-    },
-    {
-      title: 'Max Stock',
-      dataIndex: 'maximumStock',
-      key: 'maximumStock',
-      width: 100,
-      align: 'right',
-      render: (v: number) => (
-        <Text style={{ fontWeight: 500 }}>
-          {Number(v || 0).toLocaleString()}
-        </Text>
-      ),
-    },
-    {
-      title: 'Tracking',
-      key: 'tracking',
-      width: 140,
-      render: (_: any, record: StoreItemRecord) => (
-        <Space size={4} wrap>
-          {record.batchTracked && <Tag color="blue" style={{ fontSize: 11 }}>Batch</Tag>}
-          {record.serialTracked && <Tag color="purple" style={{ fontSize: 11 }}>Serial</Tag>}
-          {!record.batchTracked && !record.serialTracked && (
-            <Tag style={{ fontSize: 11, color: token.colorTextTertiary }}>Standard</Tag>
-          )}
-        </Space>
-      ),
-    },
-    {
-      title: 'Issue Method',
-      dataIndex: 'preferredIssueMethod',
-      key: 'preferredIssueMethod',
-      width: 110,
-      align: 'center',
-      render: (method: string) => (
-        <Tag style={{ fontSize: 11 }}>{method || 'MANUAL'}</Tag>
-      ),
-    },
+    ...(['minimumStock', 'reorderLevel', 'maximumStock'] as const).map((fieldKey) => {
+      const meta =
+        fieldKey === 'minimumStock'
+          ? { title: 'Min Stock', width: 115, color: undefined, weight: 500 }
+          : fieldKey === 'reorderLevel'
+          ? { title: 'Reorder Level', width: 120, color: token.colorWarningText || '#d97706', weight: 600 }
+          : { title: 'Max Stock', width: 115, color: undefined, weight: 500 };
+
+      return {
+        title: meta.title,
+        dataIndex: fieldKey,
+        key: fieldKey,
+        width: meta.width,
+        align: 'right' as const,
+        render: (v: number, record: StoreItemRecord) => {
+          const isEditing =
+            editingCell?.itemId === record.itemId && editingCell?.field === fieldKey;
+
+          if (isEditing) {
+            return (
+              <Space.Compact size="small" style={{ width: '100%', justifyContent: 'flex-end' }}>
+                <InputNumber
+                  autoFocus
+                  size="small"
+                  min={0}
+                  controls={false}
+                  style={{ width: 72 }}
+                  value={typeof editingValue === 'number' ? editingValue : Number(v || 0)}
+                  disabled={savingCell}
+                  onChange={(val) => setEditingValue(val ?? 0)}
+                  onPressEnter={() => handleInlineSave(record, fieldKey, editingValue)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') setEditingCell(null);
+                  }}
+                />
+                <Button
+                  size="small"
+                  type="primary"
+                  icon={<CheckOutlined />}
+                  loading={savingCell}
+                  onClick={() => handleInlineSave(record, fieldKey, editingValue)}
+                />
+              </Space.Compact>
+            );
+          }
+
+          return (
+            <Tooltip title={`Click to edit ${meta.title}`}>
+              <span
+                role="button"
+                tabIndex={0}
+                onClick={() => {
+                  setEditingCell({ itemId: record.itemId, field: fieldKey });
+                  setEditingValue(Number(v || 0));
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    setEditingCell({ itemId: record.itemId, field: fieldKey });
+                    setEditingValue(Number(v || 0));
+                  }
+                }}
+                style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+              >
+                <Text style={{ fontWeight: meta.weight, color: meta.color }}>
+                  {Number(v || 0).toLocaleString()}
+                </Text>
+                <EditOutlined style={{ fontSize: 10, color: token.colorTextTertiary }} />
+              </span>
+            </Tooltip>
+          );
+        },
+      };
+    }),
     {
       title: 'Status',
       dataIndex: 'status',
@@ -537,6 +841,27 @@ const StoreItems: React.FC = () => {
           {status}
         </Tag>
       ),
+    },
+    {
+      title: 'Actions',
+      key: 'actions',
+      width: 110,
+      align: 'center',
+      render: (_: any, record: StoreItemRecord) => {
+        const master = itemMasterMap.get(record.itemId);
+        const itemCode = record.item?.itemCode || master?.itemCode || record.itemId;
+        const itemName = record.item?.name || master?.name || undefined;
+        return (
+          <Button
+            type="link"
+            size="small"
+            icon={<HistoryOutlined />}
+            onClick={() => setLifecycleItem({ itemId: record.itemId, itemCode, itemName })}
+          >
+            Lifecycle
+          </Button>
+        );
+      },
     },
   ];
 
@@ -586,7 +911,7 @@ const StoreItems: React.FC = () => {
 
           <Row gutter={[16, 16]} align="middle">
             {/* 1. Division Selector */}
-            <Col xs={24} sm={12} md={6}>
+            <Col xs={24} sm={12} md={8}>
               <div style={{ marginBottom: 4 }}>
                 <Space size={4}>
                   <ApartmentOutlined style={{ color: '#2563eb' }} />
@@ -594,7 +919,7 @@ const StoreItems: React.FC = () => {
                 </Space>
               </div>
               <Select
-                placeholder="Select Division"
+                placeholder="All Divisions"
                 style={{ width: '100%' }}
                 loading={lookupsLoading}
                 value={selectedDivisionId}
@@ -610,7 +935,7 @@ const StoreItems: React.FC = () => {
             </Col>
 
             {/* 2. Section Selector */}
-            <Col xs={24} sm={12} md={6}>
+            <Col xs={24} sm={12} md={8}>
               <div style={{ marginBottom: 4 }}>
                 <Space size={4}>
                   <BranchesOutlined style={{ color: '#0891b2' }} />
@@ -618,7 +943,7 @@ const StoreItems: React.FC = () => {
                 </Space>
               </div>
               <Select
-                placeholder={selectedDivisionId ? 'Select Section' : 'Choose Division first'}
+                placeholder="All Store Sections"
                 style={{ width: '100%' }}
                 loading={lookupsLoading}
                 value={selectedSectionId}
@@ -634,37 +959,13 @@ const StoreItems: React.FC = () => {
             </Col>
 
             {/* 3. Department Selector */}
-            <Col xs={24} sm={12} md={6}>
-              <div style={{ marginBottom: 4 }}>
+            <Col xs={24} sm={24} md={8}>
+              <div style={{ marginBottom: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <Space size={4}>
                   <BuildOutlined style={{ color: '#059669' }} />
                   <Text style={{ fontSize: 12, fontWeight: 600 }}>Department</Text>
                 </Space>
-              </div>
-              <Select
-                placeholder={selectedSectionId || selectedDivisionId ? 'Select Department' : 'Choose Section first'}
-                style={{ width: '100%' }}
-                loading={lookupsLoading}
-                value={selectedDepartmentId}
-                onChange={handleDepartmentChange}
-                allowClear
-                showSearch
-                optionFilterProp="label"
-                options={availableDepartments.map((dp) => ({
-                  value: dp.id,
-                  label: `${dp.departmentCode ? `${dp.departmentCode} - ` : ''}${dp.name}`,
-                }))}
-              />
-            </Col>
-
-            {/* 4. Store Selector (Auto-detected or selectable) */}
-            <Col xs={24} sm={12} md={6}>
-              <div style={{ marginBottom: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Space size={4}>
-                  <ShopOutlined style={{ color: '#10b981' }} />
-                  <Text style={{ fontSize: 12, fontWeight: 600 }}>Store / Warehouse</Text>
-                </Space>
-                {(selectedDivisionId || selectedSectionId || selectedDepartmentId || selectedStoreId) && (
+                {(selectedDivisionId || selectedSectionId || selectedDepartmentId) && (
                   <Button
                     type="link"
                     size="small"
@@ -677,17 +978,17 @@ const StoreItems: React.FC = () => {
                 )}
               </div>
               <Select
-                placeholder="Auto-detected Store"
+                placeholder="All Store Departments"
                 style={{ width: '100%' }}
                 loading={lookupsLoading}
-                value={selectedStoreId}
-                onChange={setSelectedStoreId}
+                value={selectedDepartmentId}
+                onChange={handleDepartmentChange}
                 allowClear
                 showSearch
                 optionFilterProp="label"
-                options={matchingStores.map((s) => ({
-                  value: s.id,
-                  label: `${s.storeCode} - ${s.storeName}`,
+                options={availableDepartments.map((dp) => ({
+                  value: dp.id,
+                  label: `${dp.departmentCode ? `${dp.departmentCode} - ` : ''}${dp.name}`,
                 }))}
               />
             </Col>
@@ -752,94 +1053,74 @@ const StoreItems: React.FC = () => {
           }}
           styles={{ body: { padding: '16px 20px' } }}
         >
-          {/* Table Search & Status Filters */}
-          {selectedStoreId && (
-            <Row gutter={[16, 12]} justify="space-between" align="middle" style={{ marginBottom: 16 }}>
-              <Col xs={24} sm={14} md={10}>
-                <Input
-                  placeholder="Search item code, description, bin, rack, or shelf..."
-                  prefix={<SearchOutlined style={{ color: token.colorTextTertiary }} />}
-                  value={searchText}
-                  onChange={(e) => setSearchText(e.target.value)}
-                  allowClear
-                />
-              </Col>
-              <Col xs={24} sm={10} md={6} style={{ textAlign: 'right' }}>
-                <Space>
-                  <Text style={{ fontSize: 12 }}>Status:</Text>
-                  <Select
-                    value={statusFilter}
-                    onChange={setStatusFilter}
-                    style={{ width: 110 }}
-                    options={[
-                      { value: 'ALL', label: 'All' },
-                      { value: 'ACTIVE', label: 'Active' },
-                      { value: 'INACTIVE', label: 'Inactive' },
-                    ]}
-                  />
-                </Space>
-              </Col>
-            </Row>
-          )}
-
-          {!selectedStoreId ? (
-            <div style={{ padding: '40px 0' }}>
-              <Empty
-                image={Empty.PRESENTED_IMAGE_SIMPLE}
-                description={
-                  <div style={{ maxWidth: 440, margin: '0 auto' }}>
-                    <Text strong style={{ fontSize: 14, display: 'block', marginBottom: 4 }}>
-                      Select Division, Section, and Department
-                    </Text>
-                    <Text type="secondary" style={{ fontSize: 12 }}>
-                      Choose your organizational hierarchy above. The associated Store and its inventory items will automatically load.
-                    </Text>
-                    {stores.length > 0 && (
-                      <div style={{ marginTop: 16 }}>
-                        <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 8 }}>
-                          Or quickly jump to an existing store:
-                        </Text>
-                        <Space wrap style={{ justifyContent: 'center' }}>
-                          {stores.slice(0, 3).map((st) => (
-                            <Button
-                              key={st.id}
-                              size="small"
-                              icon={<ShopOutlined />}
-                              onClick={() => {
-                                if (st.divisionId) setSelectedDivisionId(st.divisionId);
-                                if (st.sectionId) setSelectedSectionId(st.sectionId);
-                                if (st.departmentId) setSelectedDepartmentId(st.departmentId);
-                                setSelectedStoreId(st.id);
-                              }}
-                            >
-                              {st.storeName}
-                            </Button>
-                          ))}
-                        </Space>
-                      </div>
-                    )}
-                  </div>
-                }
+          {/* Table Search, Category & Status Filters */}
+          <Row gutter={[16, 12]} justify="space-between" align="middle" style={{ marginBottom: 16 }}>
+            <Col xs={24} sm={12} md={10}>
+              <Input
+                placeholder="Search item code, description, category, bin, rack, or shelf..."
+                prefix={<SearchOutlined style={{ color: token.colorTextTertiary }} />}
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
+                allowClear
               />
-            </div>
-          ) : (
-            <Table
-              columns={columns}
-              dataSource={filteredItems}
-              rowKey="id"
-              loading={loading}
-              pagination={{
-                pageSize: 20,
-                showSizeChanger: true,
-                pageSizeOptions: ['10', '20', '50', '100'],
-                showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} items`,
-              }}
-              scroll={{ x: 'max-content' }}
-              size="middle"
-            />
-          )}
+            </Col>
+            <Col xs={24} sm={12} md={14} style={{ textAlign: 'right' }}>
+              <Space wrap>
+                <Text style={{ fontSize: 12 }}>Category:</Text>
+                <Select
+                  value={categoryFilter}
+                  onChange={setCategoryFilter}
+                  style={{ width: 190, textAlign: 'left' }}
+                  showSearch
+                  optionFilterProp="label"
+                  options={[
+                    { value: 'ALL', label: 'All General Categories' },
+                    ...availableCategories.map((cat) => ({
+                      value: cat,
+                      label: cat.replace(/_/g, ' '),
+                    })),
+                  ]}
+                />
+                <Text style={{ fontSize: 12 }}>Status:</Text>
+                <Select
+                  value={statusFilter}
+                  onChange={setStatusFilter}
+                  style={{ width: 110, textAlign: 'left' }}
+                  options={[
+                    { value: 'ALL', label: 'All' },
+                    { value: 'ACTIVE', label: 'Active' },
+                    { value: 'INACTIVE', label: 'Inactive' },
+                  ]}
+                />
+              </Space>
+            </Col>
+          </Row>
+
+          <Table
+            columns={columns}
+            dataSource={filteredItems}
+            rowKey="id"
+            loading={loading || lookupsLoading}
+            pagination={{
+              pageSize: 20,
+              showSizeChanger: true,
+              pageSizeOptions: ['10', '20', '50', '100'],
+              showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} items`,
+            }}
+            scroll={{ x: 'max-content' }}
+            size="middle"
+          />
         </Card>
       </div>
+
+      <StoreMaterialLifecycleModal
+        open={Boolean(lifecycleItem)}
+        itemId={lifecycleItem?.itemId}
+        initialItemCode={lifecycleItem?.itemCode}
+        initialItemName={lifecycleItem?.itemName}
+        initialStoreId={selectedStoreId}
+        onClose={() => setLifecycleItem(null)}
+      />
     </div>
   );
 };

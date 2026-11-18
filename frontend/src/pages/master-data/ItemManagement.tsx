@@ -129,9 +129,9 @@ const num = (v: number | null | undefined): string =>
 
 // Display only the human-readable business name (never expose codes/IDs in normal views).
 const divisionName = (r: Item): string | null =>
-  r.division ? r.division.name : (r.divisionName ?? null);
+  r.division ? r.division.name : (r.divisionName ?? (r.department as any)?.division?.name ?? null);
 const sectionName = (r: Item): string | null =>
-  r.section ? r.section.name : (r.sectionName ?? null);
+  r.section ? r.section.name : (r.sectionName ?? (r.department as any)?.section?.name ?? null);
 const departmentName = (r: Item): string | null =>
   r.department ? r.department.name : (r.departmentName ?? null);
 // Category name: the API returns the nested `category` relation object; the flat
@@ -1754,6 +1754,8 @@ const ItemManagement: React.FC = () => {
       isSellable: true,
       isManufacturable: false,
       isStockItem: true,
+      isStoreItem: false,
+      storageLocation: undefined,
       processes: [],
       sourceItemId: undefined,
       operationalSequenceMask: ['RM_STORES', 'WIRE_STRAIGHTENING', 'SPOKE_HEADING', 'PLATING_PLANT'],
@@ -1901,6 +1903,8 @@ const ItemManagement: React.FC = () => {
       isSellable: record.isSellable ?? true,
       isManufacturable: record.isManufacturable ?? false,
       isStockItem: record.isStockItem ?? true,
+      isStoreItem: (record as any).isStoreItem ?? false,
+      storageLocation: (record as any).storageLocation ?? undefined,
       minimumStockLevel: record.minimumStockLevel ?? undefined,
       maximumStockLevel: record.maximumStockLevel ?? undefined,
       reorderLevel: record.reorderLevel ?? undefined,
@@ -2046,6 +2050,8 @@ const ItemManagement: React.FC = () => {
       isSellable: record.isSellable ?? true,
       isManufacturable: record.isManufacturable ?? false,
       isStockItem: record.isStockItem ?? true,
+      isStoreItem: (record as any).isStoreItem ?? false,
+      storageLocation: (record as any).storageLocation ?? undefined,
       minimumStockLevel: record.minimumStockLevel ?? undefined,
       maximumStockLevel: record.maximumStockLevel ?? undefined,
       reorderLevel: record.reorderLevel ?? undefined,
@@ -2110,6 +2116,7 @@ const ItemManagement: React.FC = () => {
         'manufacturerPartNumber',
         'brand',
         'model',
+        'storageLocation',
         'minimumStockLevel',
         'maximumStockLevel',
         'reorderLevel',
@@ -4415,6 +4422,11 @@ const ItemManagement: React.FC = () => {
                   style={{ width: 300, borderRadius: 8 }}
                   value={searchInput}
                   onChange={(e) => setSearchInput(e.target.value)}
+                  onPressEnter={() => {
+                    const trimmed = searchInput.trim();
+                    setSearch(trimmed);
+                    setPage(1);
+                  }}
                 />
 
                 {/* Columns Toggle Dropdown */}
@@ -6260,8 +6272,21 @@ const ItemManagement: React.FC = () => {
                                   </Form.Item>
                                 </Col>
                               ))}
+                              <Col xs={24} sm={12} md={12}>
+                                <Form.Item
+                                  name="isStoreItem"
+                                  label="Store Item (Include in General Store)"
+                                  valuePropName="checked"
+                                  style={{ marginBottom: 4 }}
+                                >
+                                  <Switch size="small" />
+                                </Form.Item>
+                              </Col>
                             </Row>
                             <div className="erp-form-responsive-grid" style={{ marginTop: 8 }}>
+                              <Form.Item name="storageLocation" label="Storage Location / Rack-Bin">
+                                <Input placeholder="e.g. Rack A-01 / Bin-14" maxLength={150} />
+                              </Form.Item>
                               <Form.Item name="minimumStockLevel" label="Min Stock Level"><InputNumber min={0} style={{ width: '100%' }} placeholder="0" /></Form.Item>
                               <Form.Item name="maximumStockLevel" label="Max Stock Level"><InputNumber min={0} style={{ width: '100%' }} placeholder="0" /></Form.Item>
                               <Form.Item name="reorderLevel" label="Reorder Level"><InputNumber min={0} style={{ width: '100%' }} placeholder="0" /></Form.Item>

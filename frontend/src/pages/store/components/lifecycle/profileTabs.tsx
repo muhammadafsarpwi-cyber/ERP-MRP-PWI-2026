@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
-import { Alert, Card, Descriptions, Steps, Table, Tag } from 'antd';
+import { Alert, Card, Descriptions, Table, Tag, Tooltip, theme } from 'antd';
+import { CheckCircleFilled, ClockCircleOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import JsBarcode from 'jsbarcode';
 import { AuditEvent, BalanceRow, MaterialLifecycle, StoreConfigRow, TimelineStage } from '../../../../services/storeMaterialTrace';
@@ -226,26 +227,86 @@ export const BarcodeTab: React.FC<{ item: MaterialLifecycle['item'] }> = ({ item
 };
 
 export const TimelineSteps: React.FC<{ stages: TimelineStage[] }> = ({ stages }) => {
+  const { token } = theme.useToken();
   const reached = stages.filter((s) => s.reached).length;
   return (
     <>
-      <div style={{ marginBottom: 10 }}>
-        <Tag color="green">
+      <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+        <Tag color={reached > 0 ? 'green' : 'default'} style={{ margin: 0, fontWeight: 600 }}>
           {reached} / {stages.length} stages reached
         </Tag>
       </div>
-      <Steps
-        direction="horizontal"
-        current={reached}
-        size="small"
-        responsive
-        style={{ overflowX: 'auto', paddingBottom: 8 }}
-        items={stages.map((s) => ({
-          status: s.reached ? 'finish' : 'wait',
-          title: s.label,
-          description: <span style={{ fontSize: 11, color: 'var(--theme-text-muted)' }}>{s.reached && s.date ? fmtDate(s.date) : s.note || ''}</span>,
-        }))}
-      />
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(136px, 1fr))',
+          gap: 8,
+        }}
+      >
+        {stages.map((s, idx) => {
+          const isReached = Boolean(s.reached);
+          return (
+            <Tooltip
+              key={`${s.key || s.label}-${idx}`}
+              title={`${idx + 1}. ${s.label}${isReached && s.date ? ` — ${fmtDate(s.date)}` : s.note ? ` — ${s.note}` : ''}`}
+            >
+              <div
+                style={{
+                  padding: '8px 10px',
+                  borderRadius: 10,
+                  border: `1px solid ${isReached ? token.colorSuccessBorder : token.colorBorderSecondary}`,
+                  background: isReached ? token.colorSuccessBg : token.colorFillAlter,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 4,
+                  minHeight: 62,
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      minWidth: 20,
+                      height: 20,
+                      padding: '0 5px',
+                      borderRadius: 999,
+                      fontSize: 11,
+                      fontWeight: 700,
+                      background: isReached ? token.colorSuccess : token.colorFillSecondary,
+                      color: isReached ? '#fff' : token.colorTextSecondary,
+                    }}
+                  >
+                    {idx + 1}
+                  </span>
+                  {isReached ? (
+                    <CheckCircleFilled style={{ color: token.colorSuccess, fontSize: 13 }} />
+                  ) : (
+                    <ClockCircleOutlined style={{ color: token.colorTextTertiary, fontSize: 13 }} />
+                  )}
+                </div>
+                <div
+                  style={{
+                    fontSize: 12,
+                    fontWeight: isReached ? 600 : 500,
+                    lineHeight: 1.25,
+                    color: isReached ? token.colorText : token.colorTextSecondary,
+                    wordBreak: 'break-word',
+                  }}
+                >
+                  {s.label}
+                </div>
+                {(s.date || s.note) && (
+                  <div style={{ fontSize: 10.5, color: token.colorTextTertiary, lineHeight: 1.2 }}>
+                    {isReached && s.date ? fmtDate(s.date) : s.note || ''}
+                  </div>
+                )}
+              </div>
+            </Tooltip>
+          );
+        })}
+      </div>
     </>
   );
 };

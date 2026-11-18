@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Card, Table, Select, Tag, Spin, Empty, Row, Col, Statistic, Button, Space, Tooltip } from 'antd';
-import { DatabaseOutlined, WarningOutlined, HistoryOutlined, BookOutlined } from '@ant-design/icons';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { Card, Table, Select, Tag, Spin, Empty, Row, Col, Statistic, Button, Space, Tooltip, Input } from 'antd';
+import { DatabaseOutlined, WarningOutlined, HistoryOutlined, BookOutlined, SearchOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { useNavigate } from 'react-router-dom';
 import apiService from '../../services/api';
@@ -9,11 +9,13 @@ import PageHeader from '../../components/shared/PageHeader';
 
 import OrgStoreCascadingFilter, { OrgStoreFilterValue, OrgStoreFilterMeta } from '../../components/shared/OrgStoreCascadingFilter';
 import StockItemLedgerDrawer from './components/StockItemLedgerDrawer';
+import StoreMaterialLifecycleModal from './components/lifecycle/StoreMaterialLifecycleModal';
 
 interface Store {
   id: string;
   storeCode: string;
   storeName: string;
+  storeType?: string;
   warehouseId: string;
   divisionId?: string;
   sectionId?: string;
@@ -24,6 +26,7 @@ interface StockItem {
   itemId: string;
   itemCode: string;
   itemName: string;
+  itemType?: string;
   materialRoleUsage?: string;
   uomCode: string;
   onHand: number;
@@ -47,6 +50,7 @@ const StoreStockBalance: React.FC = () => {
   const [storesLoading, setStoresLoading] = useState(true);
   const [drawerVisible, setDrawerVisible] = useState(false);
   const [activeItem, setActiveItem] = useState<StockItem | null>(null);
+  const [lifecycleItem, setLifecycleItem] = useState<StockItem | null>(null);
 
   const handleOpenLedger = (record: StockItem) => {
     setActiveItem(record);
@@ -91,32 +95,46 @@ const StoreStockBalance: React.FC = () => {
         const store = stores.find(s => s.id === storeId);
         targetWhId = store?.warehouseId;
       }
-      const url = targetWhId ? `/inventory/balances?warehouseId=${targetWhId}&limit=200` : `/inventory/balances?limit=200`;
+      const url = targetWhId ? `/inventory/balances?warehouseId=${targetWhId}&limit=5000` : `/inventory/balances?limit=5000`;
       const response = await apiService.get<any>(url);
       const rawItems: any[] = Array.isArray(response) ? response : (response?.data || []);
-      const items: StockItem[] = rawItems.map((b: any) => {
-        const onHand = Number(b.onHand || 0);
-        const reserved = Number(b.reserved || 0);
-        const available = onHand - reserved;
-        const minimumStock = Number(b.item?.minimumStockLevel || 0);
-        const reorderLevel = Number(b.item?.reorderLevel || 0);
-        const maximumStock = Number(b.item?.maximumStockLevel || 0);
-        const isRaw = (b.item?.itemType || b.item?.item_type || '').toUpperCase().includes('RAW');
-        return {
-          itemId: b.itemId,
-          itemCode: b.item?.itemCode || '',
-          itemName: b.item?.name || '',
-          materialRoleUsage: b.item?.materialRoleUsage || b.item?.material_role_usage || (isRaw ? 'Process Component Materials' : ''),
-          uomCode: b.uom?.code || '',
-          onHand,
-          reserved,
-          available,
-          minimumStock,
-          reorderLevel,
-          maximumStock,
-          shortage: Math.max(0, minimumStock - available),
-        };
-      });
+      const selectedStoreObj = stores.find(s => s.id === storeId);
+      const isSpecificNonGeneralStore =
+        selectedStoreObj &&
+        String(selectedStoreObj.storeType || '').toUpperCase() !== 'GENERAL';
+      const excludedTypes = new Set(['RAW_MATERIAL', 'FINISHED_GOOD', 'WORK_IN_PROGRESS', 'SEMI_FINISHED']);
+
+      const items: StockItem[] = rawItems
+        .filter((b: any) => {
+          if (isSpecificNonGeneralStore) return true;
+          const t = String(b.item?.itemType || b.item?.item_type || '').toUpperCase();
+          return !excludedTypes.has(t);
+        })
+        .map((b: any) => {
+          const onHand = Number(b.onHand || 0);
+          const reserved = Number(b.reserved || 0);
+          const available = onHand - reserved;
+          const minimumStock = Number(b.item?.minimumStockLevel || 0);
+          const reorderLevel = Number(b.item?.reorderLevel || 0);
+          const maximumStock = Number(b.item?.maximumStockLevel || 0);
+          const itemType = b.item?.itemType || b.item?.item_type || '';
+          const isRaw = itemType.toUpperCase().includes('RAW');
+          return {
+            itemId: b.itemId,
+            itemCode: b.item?.itemCode || '',
+            itemName: b.item?.name || '',
+            itemType,
+            materialRoleUsage: b.item?.materialRoleUsage || b.item?.material_role_usage || (isRaw ? 'Process Component Materials' : ''),
+            uomCode: b.uom?.code || '',
+            onHand,
+            reserved,
+            available,
+            minimumStock,
+            reorderLevel,
+            maximumStock,
+            shortage: Math.max(0, minimumStock - available),
+          };
+        });
       setStockData(items);
     } catch (err) {
       console.error('Failed to load stock data:', err);
@@ -145,7 +163,22 @@ const StoreStockBalance: React.FC = () => {
   };
 
   const columns: ColumnsType<StockItem> = [
-    { title: 'Item Code', dataIndex: 'itemCode', key: 'itemCode', width: 120 },
+    {
+      title: 'Item Code',
+      dataIndex: 'itemCode',
+      key: 'itemCode',
+      width: 120,
+      render: (code: string, record: StockItem) => (
+        <Button
+          type="link"
+          size="small"
+          style={{ padding: 0, fontWeight: 600 }}
+          onClick={() => setLifecycleItem(record)}
+        >
+          {code}
+        </Button>
+      ),
+    },
     { title: 'Item Name', dataIndex: 'itemName', key: 'itemName', width: 200 },
     {
       title: 'Material Role / Usage',
@@ -233,19 +266,38 @@ const StoreStockBalance: React.FC = () => {
             type="link"
             size="small"
             icon={<HistoryOutlined />}
-            onClick={() => navigate(`/store/material-trace/${record.itemId}`)}
+            onClick={() => setLifecycleItem(record)}
           >
-            Trace
+            Lifecycle
           </Button>
         </Space>
       ),
     },
   ];
 
+  const [itemTypeFilter, setItemTypeFilter] = useState<string>('ALL');
+  const [searchText, setSearchText] = useState<string>('');
+
+  const itemTypeOptions = useMemo(() => {
+    const types = Array.from(new Set(stockData.map((s) => s.itemType).filter(Boolean) as string[])).sort();
+    return [{ value: 'ALL', label: 'All Item Categories' }, ...types.map((t) => ({ value: t, label: t.replace(/_/g, ' ') }))];
+  }, [stockData]);
+
+  const filteredStockData = useMemo(() => {
+    return stockData.filter((s) => {
+      if (itemTypeFilter !== 'ALL' && s.itemType !== itemTypeFilter) return false;
+      if (searchText.trim()) {
+        const q = searchText.trim().toLowerCase();
+        return s.itemCode.toLowerCase().includes(q) || s.itemName.toLowerCase().includes(q);
+      }
+      return true;
+    });
+  }, [stockData, itemTypeFilter, searchText]);
+
   const selectedStore = stores.find((s) => s.id === selectedStoreId);
-  const totalItems = stockData.length;
-  const lowStockItems = stockData.filter(i => i.shortage > 0).length;
-  const outOfStockItems = stockData.filter(i => i.available <= 0).length;
+  const totalItems = filteredStockData.length;
+  const lowStockItems = filteredStockData.filter(i => i.shortage > 0).length;
+  const outOfStockItems = filteredStockData.filter(i => i.available <= 0).length;
 
   return (
     <div>
@@ -262,6 +314,26 @@ const StoreStockBalance: React.FC = () => {
             onChange={handleCascadeChange}
             size="middle"
           />
+          <Row gutter={[12, 8]} style={{ marginTop: 10 }}>
+            <Col xs={24} sm={12} md={8}>
+              <Input
+                allowClear
+                prefix={<SearchOutlined />}
+                placeholder="Search item code or name..."
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
+              />
+            </Col>
+            <Col xs={24} sm={12} md={8}>
+              <Select
+                style={{ width: '100%' }}
+                value={itemTypeFilter}
+                onChange={setItemTypeFilter}
+                options={itemTypeOptions}
+                placeholder="Filter by Item Category"
+              />
+            </Col>
+          </Row>
         </Card>
 
         {Boolean(selectedStoreId || cascadeFilter.warehouseId) && (
@@ -284,7 +356,7 @@ const StoreStockBalance: React.FC = () => {
           ) : (
             <Table
               columns={columns}
-              dataSource={stockData}
+              dataSource={filteredStockData}
               rowKey="itemId"
               loading={loading}
               pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (t) => `${t} items` }}
@@ -307,6 +379,15 @@ const StoreStockBalance: React.FC = () => {
           currentAvailable={activeItem?.available}
           uomCode={activeItem?.uomCode}
           onDataChanged={loadStock}
+        />
+
+        <StoreMaterialLifecycleModal
+          open={Boolean(lifecycleItem)}
+          itemId={lifecycleItem?.itemId}
+          initialItemCode={lifecycleItem?.itemCode}
+          initialItemName={lifecycleItem?.itemName}
+          initialStoreId={selectedStoreId}
+          onClose={() => setLifecycleItem(null)}
         />
       </div>
     </div>

@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Card, Descriptions, Empty, Select, Space, Spin, Table, Tag } from 'antd';
-import { ArrowLeftOutlined, HistoryOutlined, ReloadOutlined, TagsOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, ReloadOutlined, TagsOutlined } from '@ant-design/icons';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import PageHeader from '../../components/shared/PageHeader';
 import usePermission from '../../hooks/usePermission';
+import { useWorkspaceTabStore } from '../../store/workspaceTabStore';
 import {
   fetchItemLifecycle,
   type EtaRow,
@@ -157,7 +158,7 @@ const reconciliationMetrics: Array<{ label: string; key: keyof MaterialLifecycle
 ];
 
 const storeHistoryMetrics = (lc: MaterialLifecycle): Array<{ label: string; value: number; color?: string }> => [
-  { label: 'Opening Stock', value: lc.ledger.opening },
+  { label: 'Opening Stock', value: lc.ledger.totals?.opening ?? lc.ledger.opening },
   { label: 'GRN Receipts', value: lc.ledger.totals.grnsIn, color: '#52c41a' },
   { label: 'Store Receipts', value: lc.ledger.totals.materialReceiptsIn, color: '#13c2c2' },
   { label: 'Production Consumption', value: lc.ledger.totals.productionConsumption, color: '#fa541c' },
@@ -171,11 +172,23 @@ const storeHistoryMetrics = (lc: MaterialLifecycle): Array<{ label: string; valu
   { label: 'Closing Stock', value: lc.ledger.closing, color: '#3f8600' },
 ];
 
-const StoreItemLifecycle: React.FC = () => {
-  const { itemId } = useParams<{ itemId: string }>();
+export interface StoreMaterialLifecycleViewProps {
+  itemId: string;
+  storeId?: string;
+  onStoreChange?: (value?: string) => void;
+  isModal?: boolean;
+  onItemLoaded?: (item: MaterialLifecycle['item']) => void;
+}
+
+export const StoreMaterialLifecycleView: React.FC<StoreMaterialLifecycleViewProps> = ({
+  itemId,
+  storeId,
+  onStoreChange,
+  isModal = false,
+  onItemLoaded,
+}) => {
   const navigate = useNavigate();
   const { can } = usePermission();
-  const [searchParams, setSearchParams] = useSearchParams();
 
   const [lc, setLc] = useState<MaterialLifecycle | null>(null);
   const [loading, setLoading] = useState(false);
@@ -184,7 +197,6 @@ const StoreItemLifecycle: React.FC = () => {
   const [activeTab, setActiveTab] = useState('Item Information');
   const [doc, setDoc] = useState<DocRef | null>(null);
 
-  const storeId = searchParams.get('storeId') || undefined;
   const applied = useMemo<MaterialLifecycleFilters>(() => ({ storeId }), [storeId]);
 
   useEffect(() => {
@@ -196,39 +208,15 @@ const StoreItemLifecycle: React.FC = () => {
     setLoading(true);
     setError(null);
     fetchItemLifecycle(itemId, applied)
-      .then(setLc)
+      .then((res) => {
+        setLc(res);
+        if (res?.item && onItemLoaded) {
+          onItemLoaded(res.item);
+        }
+      })
       .catch((err: any) => setError(err?.message || 'Failed to load item lifecycle'))
       .finally(() => setLoading(false));
   }, [itemId, applied]);
-
-  const handleStoreChange = (value?: string) => {
-    const next = new URLSearchParams(searchParams);
-    if (value) next.set('storeId', value);
-    else next.delete('storeId');
-    setSearchParams(next);
-  };
-
-  if (!itemId) {
-    return (
-      <>
-        <PageHeader icon={<TagsOutlined />} title="Material Trace" subtitle="Full item lifecycle, history & ETA tracking" />
-        <div className="page-container">
-          <Empty description="Select an item to trace its complete lifecycle.">
-            <Space>
-              <Button type="primary" onClick={() => navigate('/store/stock-balance')}>
-                Browse Store Stock
-              </Button>
-              <Button onClick={() => navigate('/store/material-requests')}>
-                Browse Material Requests
-              </Button>
-            </Space>
-          </Empty>
-        </div>
-      </>
-    );
-  }
-
-  const item = lc?.item;
 
   const tabRender = (): React.ReactNode => {
     if (!lc) return null;
@@ -280,18 +268,19 @@ const StoreItemLifecycle: React.FC = () => {
 
   return (
     <>
-      <PageHeader icon={<TagsOutlined />} title="Store Material Lifecycle" subtitle={item ? `${item.item_code} · ${item.name}` : 'Traceability & ETA'} />
-      <div className="page-container">
+      <div className={isModal ? undefined : 'page-container'}>
         <Space style={{ marginBottom: 12 }} wrap>
-          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/store/stock-balance')}>
-            Back to Stock Balance
-          </Button>
+          {!isModal && (
+            <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/store/stock-balance')}>
+              Back to Stock Balance
+            </Button>
+          )}
           <Select
             allowClear
             placeholder="Filter by store"
-            style={{ minWidth: 220 }}
+            style={{ minWidth: 240 }}
             value={storeId}
-            onChange={handleStoreChange}
+            onChange={onStoreChange}
             options={stores.map((s) => ({ value: s.id, label: `${s.storeName} (${s.storeCode})` }))}
           />
           <Button icon={<ReloadOutlined />} onClick={() => { setLoading(true); fetchItemLifecycle(itemId, applied).then(setLc).catch((e: any) => setError(e?.message || 'Failed to reload')).finally(() => setLoading(false)); }}>
@@ -381,6 +370,68 @@ const StoreItemLifecycle: React.FC = () => {
         )}
       </div>
       <DocumentDetailDrawer doc={doc} onClose={() => setDoc(null)} />
+    </>
+  );
+};
+
+const StoreItemLifecycle: React.FC = () => {
+  const { itemId } = useParams<{ itemId: string }>();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [loadedItem, setLoadedItem] = useState<MaterialLifecycle['item'] | null>(null);
+
+  const storeId = searchParams.get('storeId') || undefined;
+
+  const handleStoreChange = (value?: string) => {
+    const next = new URLSearchParams(searchParams);
+    if (value) next.set('storeId', value);
+    else next.delete('storeId');
+    setSearchParams(next);
+  };
+
+  useEffect(() => {
+    if (!loadedItem) return;
+    const cleanTitle = `${loadedItem.item_code} — ${loadedItem.name}`;
+    const tabStore = useWorkspaceTabStore.getState();
+    const active = tabStore.tabs.find((t) => t.id === tabStore.activeTabId);
+    if (active && active.title !== cleanTitle) {
+      tabStore.openTab({ ...active, title: cleanTitle });
+    }
+  }, [loadedItem]);
+
+  if (!itemId) {
+    return (
+      <>
+        <PageHeader icon={<TagsOutlined />} title="Store Material Lifecycle" subtitle="Full item lifecycle, history & ETA tracking" />
+        <div className="page-container">
+          <Empty description="Select an item to trace its complete lifecycle.">
+            <Space>
+              <Button type="primary" onClick={() => navigate('/store/stock-balance')}>
+                Browse Store Stock Balance
+              </Button>
+              <Button onClick={() => navigate('/store/items')}>
+                Browse Store Items
+              </Button>
+            </Space>
+          </Empty>
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <PageHeader
+        icon={<TagsOutlined />}
+        title="Store Material Lifecycle"
+        subtitle={loadedItem ? `${loadedItem.item_code} — ${loadedItem.name}` : 'Traceability & ETA'}
+      />
+      <StoreMaterialLifecycleView
+        itemId={itemId}
+        storeId={storeId}
+        onStoreChange={handleStoreChange}
+        onItemLoaded={setLoadedItem}
+      />
     </>
   );
 };
