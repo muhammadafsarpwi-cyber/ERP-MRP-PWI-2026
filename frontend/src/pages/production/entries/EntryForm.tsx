@@ -567,25 +567,27 @@ const EntryForm: React.FC<EntryFormProps> = ({
     if (isSpoke) {
       // Return Spoke division warehouses, exclude any CCD/Cable warehouses
       const spokeWhs = pool.filter((w) => {
+        if (w.divisionId === 'd1000000-0000-0000-0000-000000000001') return true;
+        if (w.divisionId === 'd1000000-0000-0000-0000-000000000002') return false;
         const c = (w.warehouseCode || '').toLowerCase();
         const n = (w.name || '').toLowerCase();
-        if (c.startsWith('ccd') || n.includes('ccd') || n.includes('cable')) return false;
-        if (w.divisionId === 'd1000000-0000-0000-0000-000000000001') return true;
-        if (c.includes('spi') || c.includes('spk') || c.includes('spd') || n.includes('spoke') || c.includes('st-') || c.includes('sw-') || c.includes('pl-')) return true;
+        if (c.startsWith('ccd') || n.includes('ccd') || n.includes('cable') || n.includes('spiral')) return false;
+        if (/\bspi\b/.test(n) || c.includes('spi') || c.includes('spk') || c.includes('spd') || n.includes('spoke') || c.includes('st-') || c.includes('sw-') || c.includes('pl-')) return true;
         return !c.includes('ccd');
       });
       return spokeWhs.length > 0 ? spokeWhs : pool.filter((w) => !(w.warehouseCode || '').toLowerCase().startsWith('ccd'));
     }
 
     if (isCables) {
-      // Return Control Cable warehouses, exclude Spoke/SPI warehouses
+      // Return Control Cable warehouses, exclude Spoke/SPI warehouses (never match "spi" inside "spiral")
       const ccdWhs = pool.filter((w) => {
+        if (w.divisionId === 'd1000000-0000-0000-0000-000000000002') return true;
+        if (w.divisionId === 'd1000000-0000-0000-0000-000000000001') return false;
         const c = (w.warehouseCode || '').toLowerCase();
         const n = (w.name || '').toLowerCase();
-        if (c.startsWith('spi') || n.includes('spi') || n.includes('spoke')) return false;
-        if (w.divisionId === 'd1000000-0000-0000-0000-000000000002') return true;
-        if (c.includes('ccd') || n.includes('cable')) return true;
-        return !c.includes('spi');
+        if (c.startsWith('spi') || c.startsWith('spk') || /\bspi\b/.test(n) || n.includes('spoke')) return false;
+        if (c.includes('ccd') || n.includes('cable') || n.includes('spiral')) return true;
+        return !c.startsWith('spi');
       });
       return ccdWhs.length > 0 ? ccdWhs : pool.filter((w) => !(w.warehouseCode || '').toLowerCase().startsWith('spi'));
     }
@@ -712,9 +714,12 @@ const EntryForm: React.FC<EntryFormProps> = ({
       const inItemId = (inItem as any)?.id;
       const fullInItem = inItemId ? lookups.items.find((i) => i.id === inItemId) : null;
       const inItemDeptId = (inItem as any)?.departmentId || fullInItem?.departmentId;
+      if (inItemDeptId) {
+        matchedRawWh = warehouses.find((w) => w.departmentId === inItemDeptId);
+      }
       const inItemDept = inItemDeptId ? lookups.departments.find((d) => d.id === inItemDeptId) : null;
       const inDeptText = label(inItemDept?.name, inItemDept?.departmentCode);
-      if (inDeptText.includes('straight') || inDeptText.includes('st') || inItem.itemCode?.startsWith('WIP-ST')) {
+      if (!matchedRawWh && (inDeptText.includes('straight') || inDeptText.includes('st') || inItem.itemCode?.startsWith('WIP-ST'))) {
         matchedRawWh = warehouses.find((w) => label(w.name, w.warehouseCode).includes('st production') || w.warehouseCode === 'SPI-ST-001');
       } else if (inDeptText.includes('spoke') || inItem.itemCode?.startsWith('WIP-SP')) {
         matchedRawWh = warehouses.find((w) => label(w.name, w.warehouseCode).includes('spk production') || w.warehouseCode === 'SPI-SP-003');
@@ -1434,11 +1439,17 @@ const EntryForm: React.FC<EntryFormProps> = ({
       return false;
     }
 
-    // 3. Strict inclusion: Item Type must be WIP or RM
+    // 3. Strict inclusion: Item Type must be WIP, Finished Good (e.g. Packing FG items), or RM
     const isWip = type === 'WORK_IN_PROGRESS' || type === 'WIP' || code.startsWith('WIP-');
+    const isFg =
+      type === 'FINISHED_GOOD' ||
+      type === 'FINISHED_GOODS' ||
+      type === 'FG' ||
+      code.startsWith('CCD-FG') ||
+      code.startsWith('SPI-FG');
     const isRm = type === 'RAW_MATERIAL' || type === 'RM' || code.startsWith('RM-');
 
-    return isWip || isRm;
+    return isWip || isFg || isRm;
   }, []);
 
   const departmentItems = useMemo(() => {
