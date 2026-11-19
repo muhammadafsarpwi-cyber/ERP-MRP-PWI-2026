@@ -29,6 +29,8 @@ import {
   ComponentItemQueryDto,
   ActiveToolsQueryDto,
   LifeReportQueryDto,
+  ToolChangeoverDto,
+  RemountToolDto,
 } from '../dto';
 
 /**
@@ -73,6 +75,41 @@ export class ToolLifecycleController {
   @ApiOperation({ summary: 'Currently installed (active) tools with derived used/remaining production life' })
   async activeTools(@Query() query: ActiveToolsQueryDto, @Req() req: any) {
     return this.service.activeTools(this.getCompanyId(req), query);
+  }
+
+  @Get('standby-tools')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.component_change.view')
+  @ApiOperation({ summary: 'Reusable standby tools paused after part/size changeover with preserved cumulative life' })
+  async standbyTools(@Query() query: ActiveToolsQueryDto, @Req() req: any) {
+    return this.service.standbyTools(this.getCompanyId(req), query);
+  }
+
+  @Post('changes/:id/changeover')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.component_change.create')
+  @ApiOperation({ summary: 'Unmount an active tool for Part/Size Changeover (STANDBY reusable) or Permanent Close (CLOSED)' })
+  async changeover(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: ToolChangeoverDto,
+    @Req() req: any,
+  ) {
+    return this.service.changeoverTool(id, dto, this.getCompanyId(req), this.getUserId(req));
+  }
+
+  @Post('changes/:id/remount')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.component_change.create')
+  @ApiOperation({ summary: 'Re-mount a reusable STANDBY tool onto a target machine and resume accumulating production life' })
+  async remount(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: RemountToolDto,
+    @Req() req: any,
+  ) {
+    return this.service.remountTool(id, dto, this.getCompanyId(req), this.getUserId(req));
   }
 
   @Get('life-report')

@@ -39,6 +39,29 @@ export const TOOL_DISPOSITION_TYPES: ReadonlyArray<ToolDispositionType> = [
   ToolDispositionType.OTHER,
 ];
 
+/** Lifecycle state of a tracked tool run. */
+export enum ToolLifecycleStatus {
+  ACTIVE = 'ACTIVE',
+  STANDBY = 'STANDBY',
+  CLOSED = 'CLOSED',
+}
+
+export interface MountingSessionRecord {
+  sessionNo: number;
+  machineId: string;
+  machineCode?: string | null;
+  mountedAt: string;
+  unmountedAt?: string | null;
+  startCounter: number;
+  endCounter?: number | null;
+  sessionProduction: number;
+  action: 'MOUNTED' | 'STANDBY' | 'REMOUNTED' | 'CLOSED';
+  operatorName?: string | null;
+  shiftInchargeName?: string | null;
+  reason?: string | null;
+  remarks?: string | null;
+}
+
 /**
  * A single tool / component change (installation or removal) recorded against
  * a machine + component. Production counter snapshots (before / after) are the
@@ -156,4 +179,22 @@ export class ComponentChange extends BaseEntity {
 
   @Column({ name: 'disposition_note', type: 'text', nullable: true })
   dispositionNote: string | null;
+
+  /** Lifecycle state: ACTIVE (mounted), STANDBY (paused/reusable after changeover), CLOSED (retired/scrapped). */
+  @Column({ name: 'lifecycle_status', type: 'varchar', length: 20, default: ToolLifecycleStatus.ACTIVE })
+  lifecycleStatus: ToolLifecycleStatus;
+
+  /** Preserved cumulative production life from all prior completed mounting sessions of this Run #. */
+  @Column({ name: 'accumulated_life_before_current_session', type: 'numeric', precision: 19, scale: 4, default: '0' })
+  accumulatedLifeBeforeCurrentSession: string;
+
+  /** Ordered audit log of individual mount / unmount / remount sessions under this same Run #. */
+  @Column({ name: 'mounting_sessions', type: 'jsonb', default: () => "'[]'::jsonb" })
+  mountingSessions: MountingSessionRecord[];
+
+  @Column({ name: 'last_operator_name', type: 'varchar', length: 150, nullable: true })
+  lastOperatorName: string | null;
+
+  @Column({ name: 'last_shift_incharge_name', type: 'varchar', length: 150, nullable: true })
+  lastShiftInchargeName: string | null;
 }

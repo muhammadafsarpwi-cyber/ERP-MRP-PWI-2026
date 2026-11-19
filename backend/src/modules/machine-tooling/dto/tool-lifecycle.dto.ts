@@ -181,3 +181,92 @@ export class LifeReportQueryDto {
   @IsOptional() @Type(() => Number) @Min(1) page?: number;
   @IsOptional() @Type(() => Number) @Min(1) limit?: number;
 }
+
+export class ToolChangeoverDto {
+  @ApiProperty({ description: 'STANDBY (Part/Size Changeover — Reusable) or CLOSE (Worn Out / Damaged — Permanent)' })
+  @IsEnum(['STANDBY', 'CLOSE'] as const)
+  action!: 'STANDBY' | 'CLOSE';
+
+  @ApiProperty({ description: 'Changeover / unmount date (YYYY-MM-DD)' })
+  @IsDateString()
+  changeDate!: string;
+
+  @ApiPropertyOptional({ description: 'Changeover / unmount time (HH:MM or HH:MM:SS)' })
+  @IsOptional()
+  @Matches(/^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/, { message: 'changeTime must be HH:MM or HH:MM:SS' })
+  changeTime?: string | null;
+
+  @ApiPropertyOptional({ description: 'Optional manual machine counter at unmount (leave empty to auto-derive)' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  productionCounterBefore?: number;
+
+  @ApiPropertyOptional({ description: 'Physical condition (USED / DAMAGED / REWORKED / OTHER)', enum: ComponentConditionStatus })
+  @IsOptional()
+  @IsEnum(ComponentConditionStatus)
+  conditionStatus?: ComponentConditionStatus;
+
+  @ApiPropertyOptional({ description: 'Disposition for permanent close (SCRAPPED / RETURN_TO_STORE / SENT_FOR_REWORK / etc.)', enum: ToolDispositionType })
+  @IsOptional()
+  @IsEnum(ToolDispositionType)
+  dispositionType?: ToolDispositionType;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(150)
+  operatorName?: string | null;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(150)
+  shiftInchargeName?: string | null;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  reason?: string | null;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  remarks?: string | null;
+}
+
+export class RemountToolDto {
+  @ApiProperty({ description: 'Target Machine UUID where the reusable standby tool is being re-mounted' })
+  @IsUUID()
+  machineId!: string;
+
+  @ApiProperty({ description: 'Mount date (YYYY-MM-DD)' })
+  @IsDateString()
+  mountDate!: string;
+
+  @ApiPropertyOptional({ description: 'Mount time (HH:MM or HH:MM:SS)' })
+  @IsOptional()
+  @Matches(/^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/, { message: 'mountTime must be HH:MM or HH:MM:SS' })
+  mountTime?: string | null;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(150)
+  operatorName?: string | null;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(150)
+  shiftInchargeName?: string | null;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  remarks?: string | null;
+}

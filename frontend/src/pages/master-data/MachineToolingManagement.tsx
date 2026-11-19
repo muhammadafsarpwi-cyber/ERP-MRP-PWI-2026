@@ -9,8 +9,13 @@ import {
   SwapRightOutlined, ToolOutlined, HistoryOutlined, BarChartOutlined,
   CheckCircleOutlined, UnorderedListOutlined, SwapOutlined, PlusCircleOutlined, DesktopOutlined,
   AppstoreOutlined, ThunderboltOutlined, EyeInvisibleOutlined, CloseOutlined,
-  ClusterOutlined, LinkOutlined,
+  ClusterOutlined, LinkOutlined, PlayCircleOutlined, PauseCircleOutlined,
 } from '@ant-design/icons';
+import {
+  ToolChangeoverModal,
+  RemountStandbyToolModal,
+  type StandbyToolOption,
+} from './components/ToolChangeoverModals';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import apiService from '../../services/api';
@@ -151,6 +156,8 @@ interface ActiveToolRec {
   installDate: string; installTime?: string | null;
   installCounter?: number | null; derivedCounter?: number | null;
   usedByInstalled?: number | null; liveWeightKg?: number | null; remainingByInstalled?: number | null;
+  accumulatedLifeBeforeCurrentSession?: number | null; currentSessionProduction?: number | null;
+  sessionCount?: number;
   storeIssueId?: string | null; storeIssueNumber?: string | null;
   operatorName?: string | null; shiftInchargeName?: string | null; issuedByName?: string | null;
   jobCardNo?: string | null; changeDate: string; closedAt?: string | null;
@@ -167,6 +174,7 @@ interface LifeRowRec {
   toolCode: string; newToolDescription?: string | null; oldToolCode?: string | null;
   installDate: string; installTime?: string | null; removeDate?: string | null;
   installCounter?: number | null; removalCounter?: number | null; productionLife?: number | null;
+  accumulatedLifeBeforeCurrentSession?: number | null; sessionCount?: number;
   conditionStatus?: string | null; dispositionType?: string | null; dispositionNote?: string | null;
   reason?: string | null; remarks?: string | null; status: string; closedAt?: string | null;
   jobCardNo?: string | null; storeIssueNumber?: string | null; storeIssueId?: string | null;
@@ -177,7 +185,7 @@ interface LifeRowRec {
 interface LifeReportData {
   data: LifeRowRec[]; total: number; page: number; limit: number;
   summary: {
-    installs: number; active: number; closed: number; withDisposition: number;
+    installs: number; active: number; standby?: number; closed: number; withDisposition: number;
     totalProductionLife: number; avgLife: number | null; minLife: number | null; maxLife: number | null;
   };
 }
@@ -1545,6 +1553,45 @@ const MachineToolingManagement: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, atPage, fetchActiveTools]);
 
+  /* ── Standby (Reusable) Tool Pool + Changeover & Re-Mount Modals ────────── */
+  const [standbyTools, setStandbyTools] = useState<StandbyToolOption[]>([]);
+  const [standbyLoading, setStandbyLoading] = useState(false);
+  const [changeoverOpen, setChangeoverOpen] = useState(false);
+  const [changeoverTarget, setChangeoverTarget] = useState<ActiveToolRec | null>(null);
+  const [remountOpen, setRemountOpen] = useState(false);
+
+  const fetchStandbyTools = useCallback(async () => {
+    setStandbyLoading(true);
+    try {
+      const res = await apiService.get<{ data: StandbyToolOption[]; total: number }>(
+        '/machine-tooling/standby-tools',
+        { limit: 200 },
+        { silent: true },
+      );
+      setStandbyTools(res?.data || []);
+    } catch {
+      setStandbyTools([]);
+    } finally {
+      setStandbyLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'active' || activeTab === 'life') {
+      void fetchStandbyTools();
+    }
+  }, [activeTab, fetchStandbyTools]);
+
+  const openChangeover = (tool: ActiveToolRec) => {
+    setChangeoverTarget(tool);
+    setChangeoverOpen(true);
+  };
+
+  const openRemountModal = () => {
+    void fetchStandbyTools();
+    setRemountOpen(true);
+  };
+
   const [installOpen, setInstallOpen] = useState(false);
   const [installSaving, setInstallSaving] = useState(false);
   const [installForm] = Form.useForm();
@@ -1895,10 +1942,17 @@ const MachineToolingManagement: React.FC = () => {
       ),
     },
     {
-      title: 'Active Tool / Run #', key: 'tool', width: 220,
+      title: 'Active Tool / Run #', key: 'tool', width: 230,
       render: (_, r) => (
         <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.3 }}>
-          <code style={{ fontWeight: 700, color: 'var(--theme-accent)' }}>{r.installedToolCode}</code>
+          <Space size={6} wrap>
+            <code style={{ fontWeight: 700, color: 'var(--theme-accent)' }}>{r.installedToolCode}</code>
+            {(r.sessionCount ?? 1) > 1 && (
+              <Tag color="cyan" style={{ margin: 0, fontSize: 10, lineHeight: '16px', padding: '0 5px' }}>
+                Session #{r.sessionCount}
+              </Tag>
+            )}
+          </Space>
           {r.newToolDescription && (
             <span style={{ fontSize: 11, color: 'var(--theme-text-muted)' }}>{r.newToolDescription}</span>
           )}
@@ -1956,16 +2010,18 @@ const MachineToolingManagement: React.FC = () => {
       render: () => <StatusBadge status="ACTIVE" />,
     },
     {
-      title: 'Actions', key: 'actions', fixed: 'right', width: 125,
+      title: 'Actions', key: 'actions', fixed: 'right', width: 175,
       render: (_, r) => (
         <Space size={4}>
-          <Tooltip title={`Close / retire tool run ${r.installedToolCode} — ${r.machine?.machineCode ?? ''}`}>
+          <Tooltip title={`Part/size changeover (pause to Standby) or permanently close ${r.installedToolCode}`}>
             <Button
-              type="link" danger size="small" icon={<SwapRightOutlined />}
-              onClick={() => openRemove(r)}
-              aria-label={`Close tool ${r.installedToolCode}`}
+              size="small"
+              icon={<SwapOutlined />}
+              onClick={() => openChangeover(r)}
+              aria-label={`Unmount or changeover tool ${r.installedToolCode}`}
+              style={{ borderColor: '#f59e0b', color: '#d97706', fontWeight: 600 }}
             >
-              Close / Retire
+              Unmount / Changeover
             </Button>
           </Tooltip>
         </Space>
@@ -2055,14 +2111,34 @@ const MachineToolingManagement: React.FC = () => {
       render: (_, r) => (r.storeIssueNumber ? <code>{r.storeIssueNumber}</code> : EMPTY),
     },
     {
-      title: 'Status', key: 'status', width: 100,
-      render: (_, r) => <StatusBadge status={r.status} />,
+      title: 'Status', key: 'status', width: 135,
+      render: (_, r) =>
+        r.status === 'STANDBY' ? (
+          <Tag color="gold" icon={<PauseCircleOutlined />} style={{ fontWeight: 700, margin: 0 }}>
+            STANDBY
+          </Tag>
+        ) : (
+          <StatusBadge status={r.status} />
+        ),
     },
     {
-      title: 'Actions', key: 'actions', fixed: 'right', width: 110,
+      title: 'Actions', key: 'actions', fixed: 'right', width: 130,
       render: (_, r) => (
         <Space size={4}>
-          {r.status === 'CLOSED' ? (
+          {r.status === 'STANDBY' ? (
+            <Tooltip title={`Re-mount reusable standby tool ${r.toolCode} onto a machine`}>
+              <Button
+                type="link"
+                size="small"
+                icon={<PlayCircleOutlined />}
+                onClick={openRemountModal}
+                style={{ color: '#059669', fontWeight: 600 }}
+                aria-label={`Re-mount standby tool ${r.toolCode}`}
+              >
+                Re-Mount
+              </Button>
+            </Tooltip>
+          ) : r.status === 'CLOSED' ? (
             <Tooltip title={r.dispositionType ? 'Update disposition' : `Record disposition for ${r.toolCode}`}>
               <Button
                 type="link" size="small" icon={<EditOutlined />}
@@ -2179,6 +2255,20 @@ const MachineToolingManagement: React.FC = () => {
       `Track tool / die / mould life per machine, record changes, and review monthly consumption · ${componentsTotal} components`,
       <ToolOutlined />,
       <Space size={8}>
+        {(activeTab === 'active' || activeTab === 'life') && can('manufacturing.component_change.create') && (
+          <Button
+            icon={<PlayCircleOutlined />}
+            onClick={openRemountModal}
+            style={{
+              borderRadius: 6,
+              fontWeight: 600,
+              borderColor: '#f59e0b',
+              color: '#d97706',
+            }}
+          >
+            Re-Mount Standby Tool{standbyTools.length > 0 ? ` (${standbyTools.length})` : ''}
+          </Button>
+        )}
         {primaryAdd?.show && (
           <Button
             type="primary"
@@ -2201,18 +2291,22 @@ const MachineToolingManagement: React.FC = () => {
           onClick={() => {
             if (activeTab === 'setup') fetchComponents(compPage);
             else if (activeTab === 'changes') fetchChanges(chgPage);
-            else if (activeTab === 'active') fetchActiveTools(atPage);
-            else if (activeTab === 'life') fetchLifeReport(lifePage);
-            else if (activeTab === 'report') fetchReport();
+            else if (activeTab === 'active') {
+              fetchActiveTools(atPage);
+              fetchStandbyTools();
+            } else if (activeTab === 'life') {
+              fetchLifeReport(lifePage);
+              fetchStandbyTools();
+            } else if (activeTab === 'report') fetchReport();
           }}
         />
       </Space>,
       MASTER_MACHINE_TOOLS_TAB_ID,
     );
   }, [
-    primaryAdd, activeTab, componentsTotal,
+    primaryAdd, activeTab, componentsTotal, standbyTools.length,
     compPage, chgPage, atPage, lifePage, fetchComponents, fetchChanges,
-    fetchActiveTools, fetchLifeReport, fetchReport,
+    fetchActiveTools, fetchLifeReport, fetchReport, fetchStandbyTools,
   ]);
 
   useEffect(() => {
@@ -2676,9 +2770,24 @@ const MachineToolingManagement: React.FC = () => {
                 onRefresh={() => fetchActiveTools(atPage)}
               />
             </div>
-            <div style={{ padding: '12px 14px 0', display: 'flex', flexWrap: 'wrap', gap: 24 }}>
+            <div style={{ padding: '12px 14px 0', display: 'flex', flexWrap: 'wrap', gap: 24, alignItems: 'center' }}>
               <Statistic title="Active Tools" value={activeToolsTotal} />
               <Statistic title="Active Machines" value={new Set(activeTools.map((a) => a.machineId)).size} />
+              <Statistic
+                title="Standby (Reusable)"
+                value={standbyTools.length}
+                valueStyle={{ color: '#d97706' }}
+              />
+              {standbyTools.length > 0 && can('manufacturing.component_change.create') && (
+                <Button
+                  size="small"
+                  icon={<PlayCircleOutlined />}
+                  onClick={openRemountModal}
+                  style={{ borderColor: '#f59e0b', color: '#d97706', fontWeight: 600 }}
+                >
+                  Re-Mount Standby Tool ({standbyTools.length})
+                </Button>
+              )}
             </div>
             <Alert
               style={{ margin: '10px 14px' }}
@@ -2748,10 +2857,11 @@ const MachineToolingManagement: React.FC = () => {
                     value: fLifeStatus,
                     options: [
                       { value: 'ACTIVE', label: 'ACTIVE' },
+                      { value: 'STANDBY', label: 'STANDBY (REUSABLE)' },
                       { value: 'CLOSED', label: 'CLOSED' },
                     ],
                     onChange: (v) => { setFLifeStatus(v); setLifePage(1); },
-                    width: 120,
+                    width: 170,
                   },
                 ]}
                 actions={
@@ -2787,13 +2897,54 @@ const MachineToolingManagement: React.FC = () => {
                 onRefresh={() => fetchLifeReport(lifePage)}
               />
             </div>
-            <div style={{ padding: '12px 14px 0', display: 'flex', flexWrap: 'wrap', gap: 24 }}>
-              <Statistic title="Installs" value={lifeSummary?.installs ?? 0} />
+            <div style={{ padding: '12px 14px 0', display: 'flex', flexWrap: 'wrap', gap: 24, alignItems: 'center' }}>
+              <Statistic title="Total Runs" value={lifeSummary?.installs ?? 0} />
               <Statistic title="Active" value={lifeSummary?.active ?? 0} />
+              <Statistic
+                title="Standby (Reusable)"
+                value={lifeSummary?.standby ?? standbyTools.length}
+                valueStyle={{ color: '#d97706' }}
+              />
               <Statistic title="Closed" value={lifeSummary?.closed ?? 0} />
               <Statistic title="With Disposition" value={lifeSummary?.withDisposition ?? 0} />
               <Statistic title="Total Production Life" value={fmtNum(lifeSummary?.totalProductionLife)} />
               <Statistic title="Avg Life" value={fmtNum(lifeSummary?.avgLife)} />
+            </div>
+            <div style={{ padding: '10px 14px 0', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+              <Button
+                size="small"
+                type={!fLifeStatus ? 'primary' : 'default'}
+                onClick={() => { setFLifeStatus(undefined); setLifePage(1); }}
+              >
+                All Runs ({lifeSummary?.installs ?? lifeTotal})
+              </Button>
+              <Button
+                size="small"
+                type={fLifeStatus === 'ACTIVE' ? 'primary' : 'default'}
+                onClick={() => { setFLifeStatus('ACTIVE'); setLifePage(1); }}
+              >
+                Active ({lifeSummary?.active ?? 0})
+              </Button>
+              <Button
+                size="small"
+                type={fLifeStatus === 'STANDBY' ? 'primary' : 'default'}
+                icon={<PauseCircleOutlined />}
+                onClick={() => { setFLifeStatus('STANDBY'); setLifePage(1); }}
+                style={
+                  fLifeStatus === 'STANDBY'
+                    ? { background: '#d97706', borderColor: '#d97706' }
+                    : { borderColor: '#f59e0b', color: '#d97706' }
+                }
+              >
+                Standby (Reusable) ({lifeSummary?.standby ?? standbyTools.length})
+              </Button>
+              <Button
+                size="small"
+                type={fLifeStatus === 'CLOSED' ? 'primary' : 'default'}
+                onClick={() => { setFLifeStatus('CLOSED'); setLifePage(1); }}
+              >
+                Closed ({lifeSummary?.closed ?? 0})
+              </Button>
             </div>
             <Alert
               style={{ margin: '10px 14px' }}
@@ -4120,6 +4271,34 @@ const MachineToolingManagement: React.FC = () => {
           )}
         </div>
       )}
+      <ToolChangeoverModal
+        open={changeoverOpen}
+        tool={changeoverTarget}
+        onClose={() => {
+          setChangeoverOpen(false);
+          setChangeoverTarget(null);
+        }}
+        onSuccess={() => {
+          void fetchActiveTools(atPage);
+          void fetchStandbyTools();
+          void fetchLifeReport(lifePage);
+          void fetchChanges(chgPage);
+        }}
+      />
+
+      <RemountStandbyToolModal
+        open={remountOpen}
+        machines={machineOptions}
+        standbyTools={standbyTools}
+        loadingStandby={standbyLoading}
+        onClose={() => setRemountOpen(false)}
+        onSuccess={() => {
+          void fetchActiveTools(atPage);
+          void fetchStandbyTools();
+          void fetchLifeReport(lifePage);
+          void fetchChanges(chgPage);
+        }}
+      />
     </div>
     </TabKeepAlive>
   );

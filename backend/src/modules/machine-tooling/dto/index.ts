@@ -24,4 +24,6 @@ export {
   LinkStoreIssueDto,
   ActiveToolsQueryDto,
   LifeReportQueryDto,
+  ToolChangeoverDto,
+  RemountToolDto,
 } from './tool-lifecycle.dto';

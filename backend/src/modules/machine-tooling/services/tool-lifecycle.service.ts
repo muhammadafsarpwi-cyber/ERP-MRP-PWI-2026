@@ -4,10 +4,16 @@ import {
   BadRequestException,
   ConflictException,
   Logger,
+  OnModuleInit,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Repository } from 'typeorm';
-import { ComponentChange, TOOL_DISPOSITION_TYPES } from '../entities/component-change.entity';
+import {
+  ComponentChange,
+  MountingSessionRecord,
+  TOOL_DISPOSITION_TYPES,
+  ToolLifecycleStatus,
+} from '../entities/component-change.entity';
 import { ComponentType, MachineComponent } from '../entities/machine-component.entity';
 import { MachineComponentItem } from '../entities/machine-component-item.entity';
 import { Machine } from '../../production/entities/machine.entity';
@@ -21,6 +27,8 @@ import {
   UpdateDispositionDto,
   CreateComponentItemDto,
   UpdateComponentItemDto,
+  ToolChangeoverDto,
+  RemountToolDto,
 } from '../dto';
 import { numOrNull } from './machine-component.service';
 
@@ -41,7 +49,7 @@ import { numOrNull } from './machine-component.service';
  * (dated variant of the TASK25 SUM); the ERP has no native machine counter.
  */
 @Injectable()
-export class ToolLifecycleService {
+export class ToolLifecycleService implements OnModuleInit {
   private readonly logger = new Logger(ToolLifecycleService.name);
 
   constructor(
@@ -62,6 +70,27 @@ export class ToolLifecycleService {
     @InjectRepository(MaterialIssue)
     private readonly materialIssueRepo: Repository<MaterialIssue>,
   ) {}
+
+  async onModuleInit() {
+    try {
+      await this.changeRepo.manager.query(`
+        ALTER TABLE component_changes
+          ADD COLUMN IF NOT EXISTS lifecycle_status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+          ADD COLUMN IF NOT EXISTS accumulated_life_before_current_session NUMERIC(19,4) NOT NULL DEFAULT 0,
+          ADD COLUMN IF NOT EXISTS mounting_sessions JSONB NOT NULL DEFAULT '[]'::jsonb,
+          ADD COLUMN IF NOT EXISTS last_operator_name VARCHAR(150),
+          ADD COLUMN IF NOT EXISTS last_shift_incharge_name VARCHAR(150)
+      `);
+      await this.changeRepo.manager.query(`
+        UPDATE component_changes
+           SET lifecycle_status = 'CLOSED'
+         WHERE lifecycle_status = 'ACTIVE' AND closed_at IS NOT NULL
+      `);
+      this.logger.log('Verified component_changes lifecycle changeover & standby schema.');
+    } catch (err: any) {
+      this.logger.warn(`Tool lifecycle schema verification skipped: ${err?.message || err}`);
+    }
+  }
 
   // ─── Derived counter ───────────────────────────────────────────────────────
 
@@ -220,18 +249,49 @@ export class ToolLifecycleService {
       if (previousActive) {
         const installCounter = numOrNull(previousActive.productionCounterAfter) ?? 0;
         const closingCounter = Math.max(installCounter, currentCounter);
-        const accumulatedLife = Number(Math.max(0, closingCounter - installCounter).toFixed(4));
+        const sessionProd = Number(Math.max(0, closingCounter - installCounter).toFixed(4));
+        const priorAccumulated = numOrNull(previousActive.accumulatedLifeBeforeCurrentSession) ?? 0;
+        const totalAccumulated = Number((priorAccumulated + sessionProd).toFixed(4));
+        const sessions = Array.isArray(previousActive.mountingSessions) ? [...previousActive.mountingSessions] : [];
+        const closeReason = hasOldReturn
+          ? `Replaced by new issue ${issueNumber} (Old Returned Scrap)`
+          : `Replaced by new issue ${issueNumber}`;
+
+        if (sessions.length > 0 && !sessions[sessions.length - 1].unmountedAt) {
+          sessions[sessions.length - 1] = {
+            ...sessions[sessions.length - 1],
+            unmountedAt: new Date().toISOString(),
+            endCounter: closingCounter,
+            sessionProduction: sessionProd,
+            action: 'CLOSED',
+            reason: closeReason,
+          };
+        } else {
+          sessions.push({
+            sessionNo: sessions.length + 1,
+            machineId: previousActive.machineId,
+            machineCode: machine.machineCode,
+            mountedAt: previousActive.changeDate,
+            unmountedAt: new Date().toISOString(),
+            startCounter: installCounter,
+            endCounter: closingCounter,
+            sessionProduction: sessionProd,
+            action: 'CLOSED',
+            reason: closeReason,
+          });
+        }
 
         previousActive.productionCounterBefore = String(closingCounter);
-        previousActive.productionSincePrevious = String(accumulatedLife);
+        previousActive.accumulatedLifeBeforeCurrentSession = String(totalAccumulated);
+        previousActive.productionSincePrevious = String(totalAccumulated);
+        previousActive.mountingSessions = sessions;
+        previousActive.lifecycleStatus = ToolLifecycleStatus.CLOSED;
         previousActive.closedAt = new Date();
         previousActive.conditionStatus = hasOldReturn ? 'USED' : (previousActive.conditionStatus || 'USED');
         previousActive.dispositionType = hasOldReturn
           ? 'SCRAPPED'
           : (previousActive.dispositionType || 'RETURN_TO_STORE');
-        previousActive.reason = hasOldReturn
-          ? `Replaced by new issue ${issueNumber} (Old Returned Scrap)`
-          : `Replaced by new issue ${issueNumber}`;
+        previousActive.reason = closeReason;
         previousActive.updatedBy = userId ?? null;
         await this.changeRepo.save(previousActive);
         closedCount++;
@@ -243,6 +303,18 @@ export class ToolLifecycleService {
       });
       const runNumber = priorRuns + 1;
       const newToolCode = `${item.itemCode} · Run #${runNumber}`;
+      const initialSession: MountingSessionRecord = {
+        sessionNo: 1,
+        machineId: machine.id,
+        machineCode: machine.machineCode,
+        mountedAt: `${normalizedDate}T${nowTime}:00`,
+        unmountedAt: null,
+        startCounter: currentCounter,
+        endCounter: null,
+        sessionProduction: 0,
+        action: 'MOUNTED',
+        reason: `Issued via ${issueNumber}`,
+      };
 
       const nextRun = this.changeRepo.create({
         companyId,
@@ -258,6 +330,9 @@ export class ToolLifecycleService {
         productionCounterBefore: null,
         productionCounterAfter: String(currentCounter),
         productionSincePrevious: '0',
+        accumulatedLifeBeforeCurrentSession: '0',
+        lifecycleStatus: ToolLifecycleStatus.ACTIVE,
+        mountingSessions: [initialSession],
         reason: `Issued via ${issueNumber}`,
         conditionStatus: 'NEW',
         remarks: line.remarks?.trim() || `Auto-started from Material Issue ${issueNumber}`,
@@ -280,8 +355,8 @@ export class ToolLifecycleService {
   /**
    * Live Daily Production Accumulation:
    * Called automatically when a Daily Production Entry is created/updated/deleted.
-   * Recomputes and persists Current Life (Production Qty) on every ACTIVE tool
-   * currently mounted on `machineId`.
+   * Recomputes and persists Cumulative Life (Previous Sessions + Current Session)
+   * on every ACTIVE tool currently mounted on `machineId`.
    */
   async syncActiveToolsForMachine(companyId: string, machineId: string): Promise<number> {
     if (!companyId || !machineId) return 0;
@@ -300,11 +375,315 @@ export class ToolLifecycleService {
 
     for (const run of activeRuns) {
       const installCounter = numOrNull(run.productionCounterAfter) ?? 0;
-      const liveUsed = Number(Math.max(0, derived - installCounter).toFixed(4));
-      run.productionSincePrevious = String(liveUsed);
+      const priorAccumulated = numOrNull(run.accumulatedLifeBeforeCurrentSession) ?? 0;
+      const currentSessionUsed = Math.max(0, derived - installCounter);
+      const liveTotal = Number((priorAccumulated + currentSessionUsed).toFixed(4));
+      run.productionSincePrevious = String(liveTotal);
       await this.changeRepo.save(run);
     }
     return activeRuns.length;
+  }
+
+  // ─── Standby Tools (Unmounted / Reusable Tool Crib Pool) ──────────────────
+
+  async standbyTools(
+    companyId: string,
+    query: { machineId?: string; componentId?: string; search?: string; page?: number; limit?: number } = {},
+  ): Promise<{ data: any[]; total: number; page: number; limit: number }> {
+    const { machineId, componentId, search, page = 1, limit = 100 } = query || {};
+    const qb = this.changeRepo
+      .createQueryBuilder('cc')
+      .leftJoinAndSelect('cc.machine', 'machine')
+      .leftJoinAndSelect('cc.component', 'component')
+      .leftJoinAndSelect('component.item', 'componentItem')
+      .leftJoinAndSelect('component.uom', 'componentUom')
+      .leftJoinAndSelect('cc.storeIssue', 'storeIssue')
+      .where('cc.companyId = :companyId', { companyId })
+      .andWhere('cc.isActive = true')
+      .andWhere('cc.lifecycleStatus = :status', { status: ToolLifecycleStatus.STANDBY });
+
+    if (machineId) qb.andWhere('cc.machineId = :machineId', { machineId });
+    if (componentId) qb.andWhere('cc.componentId = :componentId', { componentId });
+    if (search) {
+      qb.andWhere(
+        '(component.componentCode ILIKE :search OR component.componentName ILIKE :search OR cc.newToolCode ILIKE :search OR machine.machineCode ILIKE :search)',
+        { search: `%${search}%` },
+      );
+    }
+    qb.orderBy('cc.closedAt', 'DESC').addOrderBy('cc.updatedAt', 'DESC');
+
+    const total = await qb.getCount();
+    qb.skip((page - 1) * limit).take(limit);
+    const changes = await qb.getMany();
+
+    const data = changes.map((c) => {
+      const preservedLife =
+        numOrNull(c.accumulatedLifeBeforeCurrentSession) ?? numOrNull(c.productionSincePrevious) ?? 0;
+      const expected = numOrNull((c.component as any)?.expectedLifeQuantity);
+      const sessions = Array.isArray(c.mountingSessions) ? c.mountingSessions : [];
+      return {
+        id: c.id,
+        machineId: c.machineId,
+        machine: c.machine
+          ? { id: c.machine.id, machineCode: c.machine.machineCode, machineNumber: c.machine.machineNumber, name: c.machine.name }
+          : null,
+        componentId: c.componentId,
+        component: c.component
+          ? {
+              id: c.component.id,
+              componentCode: c.component.componentCode,
+              componentName: c.component.componentName,
+              componentType: c.component.componentType,
+              itemId: c.component.itemId,
+              expectedLifeQuantity: expected,
+              uomCode: (c.component as any).uom?.code ?? null,
+            }
+          : null,
+        toolCode: c.newToolCode,
+        newToolDescription: c.newToolDescription,
+        preservedLife,
+        remainingLife: expected !== null ? Math.max(0, expected - preservedLife) : null,
+        sessionCount: sessions.length || 1,
+        mountingSessions: sessions,
+        unmountedAt: c.closedAt,
+        lastOperatorName: c.lastOperatorName || (c.storeIssue as any)?.operatorName || null,
+        lastShiftInchargeName: c.lastShiftInchargeName || (c.storeIssue as any)?.shiftInchargeName || null,
+        storeIssueId: c.storeIssueId,
+        storeIssueNumber: (c.storeIssue as any)?.issueNumber ?? null,
+        reason: c.reason,
+        remarks: c.remarks,
+        status: ToolLifecycleStatus.STANDBY,
+      };
+    });
+
+    return { data, total, page, limit };
+  }
+
+  // ─── Unmount / Tool Changeover (STANDBY or Permanent CLOSE) ───────────────
+
+  async changeoverTool(
+    changeId: string,
+    dto: ToolChangeoverDto,
+    companyId: string,
+    userId?: string,
+  ): Promise<any> {
+    const change = await this.changeRepo.findOne({
+      where: { id: changeId, companyId, isActive: true },
+      relations: ['machine', 'component', 'component.uom', 'storeIssue'],
+    });
+    if (!change) throw new NotFoundException(`Tool run '${changeId}' not found in this company`);
+    if (change.closedAt !== null || change.lifecycleStatus !== ToolLifecycleStatus.ACTIVE) {
+      throw new BadRequestException(
+        `Tool '${change.newToolCode}' is currently '${change.lifecycleStatus}' and cannot be unmounted.`,
+      );
+    }
+
+    const derivedAtDate =
+      dto.productionCounterBefore !== undefined && dto.productionCounterBefore !== null
+        ? dto.productionCounterBefore
+        : await this.deriveCounterAt(companyId, change.machineId, dto.changeDate);
+
+    const installCounter = numOrNull(change.productionCounterAfter) ?? 0;
+    const closingCounter = Math.max(installCounter, derivedAtDate);
+    const sessionProduction = Number(Math.max(0, closingCounter - installCounter).toFixed(4));
+    const priorAccumulated = numOrNull(change.accumulatedLifeBeforeCurrentSession) ?? 0;
+    const totalCumulativeLife = Number((priorAccumulated + sessionProduction).toFixed(4));
+
+    const machineCode = change.machine?.machineCode ?? null;
+    const sessions: MountingSessionRecord[] = Array.isArray(change.mountingSessions)
+      ? [...change.mountingSessions]
+      : [];
+    const unmountIso = `${dto.changeDate}T${dto.changeTime || new Date().toTimeString().slice(0, 5)}:00`;
+    const isStandby = dto.action === 'STANDBY';
+    const defaultReason = isStandby
+      ? 'Part / Size Changeover — Kept in Standby (Reusable)'
+      : 'Tool Worn Out / Damaged — Closed Permanently';
+    const finalReason = dto.reason?.trim() || defaultReason;
+
+    if (sessions.length > 0 && !sessions[sessions.length - 1].unmountedAt) {
+      sessions[sessions.length - 1] = {
+        ...sessions[sessions.length - 1],
+        unmountedAt: unmountIso,
+        endCounter: closingCounter,
+        sessionProduction,
+        action: isStandby ? 'STANDBY' : 'CLOSED',
+        operatorName: dto.operatorName?.trim() || sessions[sessions.length - 1].operatorName || null,
+        shiftInchargeName: dto.shiftInchargeName?.trim() || sessions[sessions.length - 1].shiftInchargeName || null,
+        reason: finalReason,
+        remarks: dto.remarks?.trim() || null,
+      };
+    } else {
+      sessions.push({
+        sessionNo: sessions.length + 1,
+        machineId: change.machineId,
+        machineCode,
+        mountedAt: change.changeDate,
+        unmountedAt: unmountIso,
+        startCounter: installCounter,
+        endCounter: closingCounter,
+        sessionProduction,
+        action: isStandby ? 'STANDBY' : 'CLOSED',
+        operatorName: dto.operatorName?.trim() || null,
+        shiftInchargeName: dto.shiftInchargeName?.trim() || null,
+        reason: finalReason,
+        remarks: dto.remarks?.trim() || null,
+      });
+    }
+
+    delete (change as any).machine;
+    delete (change as any).component;
+    delete (change as any).storeIssue;
+
+    change.productionCounterBefore = String(closingCounter);
+    change.accumulatedLifeBeforeCurrentSession = String(totalCumulativeLife);
+    change.productionSincePrevious = String(totalCumulativeLife);
+    change.mountingSessions = sessions;
+    change.lifecycleStatus = isStandby ? ToolLifecycleStatus.STANDBY : ToolLifecycleStatus.CLOSED;
+    change.closedAt = new Date();
+    change.reason = finalReason;
+    change.lastOperatorName = dto.operatorName?.trim() || change.lastOperatorName;
+    change.lastShiftInchargeName = dto.shiftInchargeName?.trim() || change.lastShiftInchargeName;
+    if (dto.remarks?.trim()) change.remarks = dto.remarks.trim();
+
+    if (isStandby) {
+      change.conditionStatus = dto.conditionStatus || 'USED';
+      change.dispositionType = 'RETAINED';
+      change.dispositionNote = 'Held in reusable Standby / Tool Crib pool after changeover';
+    } else {
+      change.conditionStatus = dto.conditionStatus || 'USED';
+      change.dispositionType = dto.dispositionType || 'SCRAPPED';
+      change.dispositionNote = dto.remarks?.trim() || 'Permanently closed via Tool Changeover';
+    }
+    change.updatedBy = userId ?? null;
+
+    await this.changeRepo.save(change);
+    return {
+      ...(await this.lifeDetail(companyId, changeId)),
+      sessionProduction,
+      totalCumulativeLife,
+      lifecycleStatus: change.lifecycleStatus,
+    };
+  }
+
+  // ─── Re-Mount Reusable Standby Tool ───────────────────────────────────────
+
+  async remountTool(
+    changeId: string,
+    dto: RemountToolDto,
+    companyId: string,
+    userId?: string,
+  ): Promise<any> {
+    const change = await this.changeRepo.findOne({
+      where: { id: changeId, companyId, isActive: true },
+      relations: ['machine', 'component', 'component.item', 'component.uom', 'storeIssue'],
+    });
+    if (!change) throw new NotFoundException(`Standby tool run '${changeId}' not found in this company`);
+    if (change.lifecycleStatus !== ToolLifecycleStatus.STANDBY) {
+      throw new BadRequestException(
+        `Tool '${change.newToolCode}' is currently '${change.lifecycleStatus}'. Only STANDBY tools can be re-mounted.`,
+      );
+    }
+
+    const targetMachine = await this.assertMachineActive(companyId, dto.machineId);
+
+    // Resolve target MachineComponent on targetMachine (same component if same machine, else find/create for targetMachine)
+    let targetComponentId = change.componentId;
+    if (change.machineId !== targetMachine.id) {
+      const srcComp = change.component;
+      let match: MachineComponent | null = null;
+      if (srcComp?.itemId) {
+        match = await this.componentRepo.findOne({
+          where: { companyId, machineId: targetMachine.id, itemId: srcComp.itemId, isActive: true },
+        });
+      }
+      if (!match && srcComp?.componentCode) {
+        match = await this.componentRepo.findOne({
+          where: { companyId, machineId: targetMachine.id, componentCode: srcComp.componentCode, isActive: true },
+        });
+      }
+      if (!match) {
+        const created = this.componentRepo.create({
+          companyId,
+          machineId: targetMachine.id,
+          itemId: srcComp?.itemId ?? null,
+          componentType: srcComp?.componentType ?? ComponentType.TOOL,
+          componentName: srcComp?.componentName ?? change.newToolDescription ?? change.newToolCode,
+          componentCode: srcComp?.componentCode ?? change.newToolCode.split(' · ')[0],
+          uomId: srcComp?.uomId ?? null,
+          expectedLifeQuantity: srcComp?.expectedLifeQuantity ?? null,
+          description: `Auto-linked when re-mounting standby tool ${change.newToolCode}`,
+          createdBy: userId ?? null,
+          updatedBy: userId ?? null,
+        });
+        created.isActive = true;
+        match = await this.componentRepo.save(created);
+      }
+      targetComponentId = match.id;
+    }
+
+    // Ensure target machine+component does not already have an ACTIVE tool mounted
+    const existingActive = await this.changeRepo.findOne({
+      where: { companyId, componentId: targetComponentId, isActive: true, closedAt: IsNull() },
+    });
+    if (existingActive) {
+      throw new ConflictException(
+        `Machine '${targetMachine.machineCode}' already has an ACTIVE tool ('${existingActive.newToolCode}') mounted on this component. Unmount it to Standby or Close it first.`,
+      );
+    }
+
+    const currentCounter = await this.deriveCounterAt(companyId, targetMachine.id, dto.mountDate);
+    const mountTime = dto.mountTime || new Date().toTimeString().slice(0, 5);
+    const preservedLife =
+      numOrNull(change.accumulatedLifeBeforeCurrentSession) ?? numOrNull(change.productionSincePrevious) ?? 0;
+
+    const sessions: MountingSessionRecord[] = Array.isArray(change.mountingSessions)
+      ? [...change.mountingSessions]
+      : [];
+    sessions.push({
+      sessionNo: sessions.length + 1,
+      machineId: targetMachine.id,
+      machineCode: targetMachine.machineCode,
+      mountedAt: `${dto.mountDate}T${mountTime}:00`,
+      unmountedAt: null,
+      startCounter: currentCounter,
+      endCounter: null,
+      sessionProduction: 0,
+      action: 'REMOUNTED',
+      operatorName: dto.operatorName?.trim() || null,
+      shiftInchargeName: dto.shiftInchargeName?.trim() || null,
+      reason: `Re-mounted from Standby pool onto ${targetMachine.machineCode}`,
+      remarks: dto.remarks?.trim() || null,
+    });
+
+    delete (change as any).machine;
+    delete (change as any).component;
+    delete (change as any).storeIssue;
+
+    change.machineId = targetMachine.id;
+    change.componentId = targetComponentId;
+    change.changeDate = dto.mountDate;
+    change.changeTime = mountTime;
+    change.productionCounterAfter = String(currentCounter);
+    change.productionCounterBefore = null;
+    change.accumulatedLifeBeforeCurrentSession = String(preservedLife);
+    change.productionSincePrevious = String(preservedLife);
+    change.mountingSessions = sessions;
+    change.lifecycleStatus = ToolLifecycleStatus.ACTIVE;
+    change.closedAt = null;
+    change.dispositionType = null;
+    change.dispositionNote = null;
+    change.lastOperatorName = dto.operatorName?.trim() || change.lastOperatorName;
+    change.lastShiftInchargeName = dto.shiftInchargeName?.trim() || change.lastShiftInchargeName;
+    change.reason = `Re-mounted on ${targetMachine.machineCode} (Session #${sessions.length})`;
+    if (dto.remarks?.trim()) change.remarks = dto.remarks.trim();
+    change.updatedBy = userId ?? null;
+
+    await this.changeRepo.save(change);
+    return {
+      ...(await this.lifeDetail(companyId, changeId)),
+      preservedLife,
+      sessionNumber: sessions.length,
+    };
   }
 
   // ─── Active tools (currently installed) ────────────────────────────────────
@@ -379,7 +758,11 @@ export class ToolLifecycleService {
       const installCounter = numOrNull(c.productionCounterAfter);
       const derived = counters.get(c.machineId) ?? 0;
       const expected = numOrNull((c.component as any)?.expectedLifeQuantity);
-      const used = installCounter !== null ? Math.max(0, Number((derived - installCounter).toFixed(4))) : derived;
+      const priorAccumulated = numOrNull(c.accumulatedLifeBeforeCurrentSession) ?? 0;
+      const currentSessionUsed =
+        installCounter !== null ? Math.max(0, Number((derived - installCounter).toFixed(4))) : derived;
+      const used = Number((priorAccumulated + currentSessionUsed).toFixed(4));
+      const sessions = Array.isArray(c.mountingSessions) ? c.mountingSessions : [];
       return {
         id: c.id,
         machineId: c.machineId,
@@ -403,13 +786,17 @@ export class ToolLifecycleService {
         installTime: c.changeTime,
         installCounter,
         derivedCounter: derived,
+        accumulatedLifeBeforeCurrentSession: priorAccumulated,
+        currentSessionProduction: currentSessionUsed,
         usedByInstalled: used,
+        sessionCount: sessions.length || 1,
+        mountingSessions: sessions,
         liveWeightKg: weightMap.get(c.id) ?? 0,
         remainingByInstalled: expected !== null ? Math.max(0, expected - used) : null,
         storeIssueId: c.storeIssueId,
         storeIssueNumber: (c.storeIssue as any)?.issueNumber ?? null,
-        operatorName: (c.storeIssue as any)?.operatorName ?? null,
-        shiftInchargeName: (c.storeIssue as any)?.shiftInchargeName ?? null,
+        operatorName: c.lastOperatorName || (c.storeIssue as any)?.operatorName || null,
+        shiftInchargeName: c.lastShiftInchargeName || (c.storeIssue as any)?.shiftInchargeName || null,
         issuedByName: (c.storeIssue as any)?.issuedByName ?? null,
         jobCardNo: (c.jobCard as any)?.jobCardNo ?? (c.jobCard as any)?.code ?? null,
         changeDate: c.changeDate,
@@ -616,6 +1003,7 @@ export class ToolLifecycleService {
     summary: {
       installs: number;
       active: number;
+      standby: number;
       closed: number;
       withDisposition: number;
       totalProductionLife: number;
@@ -654,7 +1042,8 @@ export class ToolLifecycleService {
     if (from) qb.andWhere('cc.changeDate >= :from', { from });
     if (to) qb.andWhere('cc.changeDate <= :to', { to });
     if (status === 'ACTIVE') qb.andWhere('cc.closedAt IS NULL');
-    if (status === 'CLOSED') qb.andWhere('cc.closedAt IS NOT NULL');
+    if (status === 'STANDBY') qb.andWhere('cc.lifecycleStatus = :standbyStatus', { standbyStatus: ToolLifecycleStatus.STANDBY });
+    if (status === 'CLOSED') qb.andWhere('cc.closedAt IS NOT NULL AND cc.lifecycleStatus = :closedStatus', { closedStatus: ToolLifecycleStatus.CLOSED });
     if (search) {
       qb.andWhere(
         '(component.componentCode ILIKE :search OR component.componentName ILIKE :search OR cc.newToolCode ILIKE :search OR cc.oldToolCode ILIKE :search OR machine.machineCode ILIKE :search OR machine.name ILIKE :search OR cc.dispositionType ILIKE :search)',
@@ -685,12 +1074,22 @@ export class ToolLifecycleService {
       const installCounter = numOrNull(c.productionCounterAfter);
       const removalCounter = numOrNull(c.productionCounterBefore);
       const expected = numOrNull((c.component as any)?.expectedLifeQuantity);
-      const isClosed = c.closedAt !== null;
-      const liveUsed =
-        !isClosed && installCounter !== null
+      const priorAccumulated = numOrNull(c.accumulatedLifeBeforeCurrentSession) ?? 0;
+      const effectiveStatus =
+        c.closedAt === null
+          ? ToolLifecycleStatus.ACTIVE
+          : c.lifecycleStatus === ToolLifecycleStatus.STANDBY
+            ? ToolLifecycleStatus.STANDBY
+            : ToolLifecycleStatus.CLOSED;
+      const isActive = effectiveStatus === ToolLifecycleStatus.ACTIVE;
+      const liveSession =
+        isActive && installCounter !== null
           ? Math.max(0, Number(((liveCounters.get(c.machineId) ?? 0) - installCounter).toFixed(4)))
           : null;
-      const productionLife = isClosed ? numOrNull(c.productionSincePrevious) : (liveUsed ?? numOrNull(c.productionSincePrevious));
+      const productionLife = isActive
+        ? Number((priorAccumulated + (liveSession ?? 0)).toFixed(4))
+        : (numOrNull(c.productionSincePrevious) ?? priorAccumulated);
+      const sessions = Array.isArray(c.mountingSessions) ? c.mountingSessions : [];
 
       return {
         id: c.id,
@@ -718,18 +1117,21 @@ export class ToolLifecycleService {
         installCounter,
         removalCounter,
         productionLife,
+        accumulatedLifeBeforeCurrentSession: priorAccumulated,
+        sessionCount: sessions.length || 1,
+        mountingSessions: sessions,
         conditionStatus: c.conditionStatus,
         dispositionType: c.dispositionType,
         dispositionNote: c.dispositionNote,
         reason: c.reason,
         remarks: c.remarks,
-        status: isClosed ? 'CLOSED' : 'ACTIVE',
+        status: effectiveStatus,
         closedAt: c.closedAt,
         jobCardNo: (c.jobCard as any)?.jobCardNo ?? (c.jobCard as any)?.code ?? null,
         storeIssueNumber: (c.storeIssue as any)?.issueNumber ?? null,
         storeIssueId: c.storeIssueId,
-        operatorName: (c.storeIssue as any)?.operatorName ?? null,
-        shiftInchargeName: (c.storeIssue as any)?.shiftInchargeName ?? null,
+        operatorName: c.lastOperatorName || (c.storeIssue as any)?.operatorName || null,
+        shiftInchargeName: c.lastShiftInchargeName || (c.storeIssue as any)?.shiftInchargeName || null,
         issuedByName: (c.storeIssue as any)?.issuedByName ?? null,
         changedAt: c.changedAt,
         changedBy: c.changedBy,
@@ -745,8 +1147,9 @@ export class ToolLifecycleService {
       limit,
       summary: {
         installs: data.length,
-        active: data.filter((r) => r.status === 'ACTIVE').length,
-        closed: data.filter((r) => r.status === 'CLOSED').length,
+        active: data.filter((r) => r.status === ToolLifecycleStatus.ACTIVE).length,
+        standby: data.filter((r) => r.status === ToolLifecycleStatus.STANDBY).length,
+        closed: data.filter((r) => r.status === ToolLifecycleStatus.CLOSED).length,
         withDisposition: data.filter((r) => r.dispositionType).length,
         totalProductionLife: lives.length ? Number(lives.reduce((a, b) => a + b, 0).toFixed(4)) : 0,
         avgLife: lives.length ? Number((lives.reduce((a, b) => a + b, 0) / lives.length).toFixed(4)) : null,
