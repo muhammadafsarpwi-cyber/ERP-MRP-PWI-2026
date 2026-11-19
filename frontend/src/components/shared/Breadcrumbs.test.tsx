@@ -29,4 +29,9 @@ describe('Breadcrumbs', () => {
     renderAt('/production/receiving');
     expect(crumbTexts()).toEqual(['Home', 'Production', 'Raw Material Receiving']);
   });
+
+  it('renders Home / Store Department / Store Issue Notes (SIN) for /store/material-issues', () => {
+    renderAt('/store/material-issues');
+    expect(crumbTexts()).toEqual(['Home', 'Store Department', 'Store Issue Notes (SIN)']);
+  });
 });

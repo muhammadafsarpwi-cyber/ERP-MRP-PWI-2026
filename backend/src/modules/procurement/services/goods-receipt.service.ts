@@ -245,16 +245,43 @@ export class GoodsReceiptService {
         let postUomId = line.uomId;
 
         // Auto-convert to item's base UOM (e.g. Gross to Pieces) when posting to inventory
+        let itemEntity: Item | null = null;
         if (line.itemId) {
-          const item = await manager.getRepository(Item).findOne({ where: { id: line.itemId } });
-          if (item && item.baseUomId && line.uomId && item.baseUomId !== line.uomId) {
-            const conv = await manager.getRepository(UomConversion).findOne({
-              where: { fromUomId: line.uomId, toUomId: item.baseUomId },
-            });
-            if (conv && Number(conv.conversionFactor) > 0) {
-              postQty = acceptedQty * Number(conv.conversionFactor);
-              postUomId = item.baseUomId;
+          const itemRepo = manager.getRepository(Item);
+          if (itemRepo && typeof itemRepo.findOne === 'function') {
+            itemEntity = await itemRepo.findOne({ where: { id: line.itemId } });
+            if (itemEntity && itemEntity.baseUomId && line.uomId && itemEntity.baseUomId !== line.uomId) {
+              const conv = await manager.getRepository(UomConversion).findOne({
+                where: { fromUomId: line.uomId, toUomId: itemEntity.baseUomId },
+              });
+              if (conv && Number(conv.conversionFactor) > 0) {
+                postQty = acceptedQty * Number(conv.conversionFactor);
+                postUomId = itemEntity.baseUomId;
+              }
             }
+          }
+        }
+
+        const poLineForCost = (line.poLineId ? byId.get(line.poLineId) : undefined)
+          || poLines.find((l) => l.itemId === line.itemId);
+        const rawUnitPrice = Number(line.unitPrice || poLineForCost?.unitPrice || 0);
+        const effectiveUnitCost =
+          rawUnitPrice > 0 && postQty > 0
+            ? Number(((acceptedQty * rawUnitPrice) / postQty).toFixed(4))
+            : 0;
+
+        let prevWarehouseOnHand = 0;
+        if (effectiveUnitCost > 0 && typeof manager.query === 'function') {
+          try {
+            const balSumRows: Array<{ prev_qty: string | number }> = await manager.query(
+              `SELECT COALESCE(SUM(on_hand), 0) AS prev_qty
+                 FROM inventory_balances
+                WHERE company_id = $1 AND item_id = $2 AND warehouse_id = $3 AND status = 'ACTIVE'`,
+              [locked.companyId, line.itemId, locked.warehouseId],
+            );
+            prevWarehouseOnHand = Number(balSumRows?.[0]?.prev_qty || 0);
+          } catch {
+            prevWarehouseOnHand = 0;
           }
         }
 
@@ -267,6 +294,8 @@ export class GoodsReceiptService {
           locationId: line.locationId || undefined,
           batchId: line.batchId || undefined,
           quantity: postQty,
+          unitCost: effectiveUnitCost > 0 ? effectiveUnitCost : null,
+          totalCost: effectiveUnitCost > 0 ? Number((postQty * effectiveUnitCost).toFixed(4)) : null,
           uomId: postUomId,
           direction: 'IN',
           referenceType: GRN_REFERENCE_TYPE,
@@ -279,6 +308,24 @@ export class GoodsReceiptService {
           locked.companyId, line.itemId, locked.warehouseId,
           line.locationId, line.batchId, postUomId, postQty, 'IN', manager,
         );
+
+        // Update warehouse weighted average cost and Item Master latest purchase cost
+        // (Historical posted issues & past month vouchers remain untouched)
+        if (effectiveUnitCost > 0) {
+          await this.inventoryBalanceService.updateWeightedAverageCost?.(
+            locked.companyId,
+            line.itemId,
+            locked.warehouseId,
+            postQty,
+            effectiveUnitCost,
+            prevWarehouseOnHand,
+            manager,
+          );
+          const itemRepo = manager.getRepository(Item);
+          if (itemRepo && typeof itemRepo.update === 'function') {
+            await itemRepo.update({ id: line.itemId }, { costPrice: effectiveUnitCost });
+          }
+        }
 
         const poLine = (line.poLineId ? byId.get(line.poLineId) : undefined)
           || poLines.find((l) => l.itemId === line.itemId);

@@ -144,14 +144,14 @@ describe('StoreIssues Component', () => {
     expect(screen.getByText('POSTED')).toBeInTheDocument();
   });
 
-  it('allows opening New Material Issue modal with destination hierarchy and machine', async () => {
+  it('allows opening Create Store Issue Note modal with destination hierarchy and machine', async () => {
     renderWithRouter(<StoreIssues />);
 
     await waitFor(() => {
-      expect(screen.getByText('New Material Issue')).toBeInTheDocument();
+      expect(screen.getByText('Create Store Issue Note')).toBeInTheDocument();
     });
 
-    const newBtn = screen.getByText('New Material Issue').closest('button')!;
+    const newBtn = screen.getByText('Create Store Issue Note').closest('button')!;
     fireEvent.click(newBtn);
 
     await waitFor(() => {

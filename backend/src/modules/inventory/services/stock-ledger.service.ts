@@ -21,6 +21,8 @@ export class StockLedgerService {
     warehouseId: string;
     locationId?: string;
     quantity: number;
+    unitCost?: number | null;
+    totalCost?: number | null;
     uomId: string;
     direction: string;
     referenceType?: string;
@@ -35,6 +37,16 @@ export class StockLedgerService {
     departmentId?: string | null;
   }, manager?: EntityManager): Promise<StockLedger> {
     const repo = manager ? manager.getRepository(StockLedger) : this.repo;
+    const resolvedUnitCost =
+      data.unitCost !== undefined && data.unitCost !== null && Number.isFinite(Number(data.unitCost))
+        ? Number(data.unitCost)
+        : null;
+    const resolvedTotalCost =
+      data.totalCost !== undefined && data.totalCost !== null && Number.isFinite(Number(data.totalCost))
+        ? Number(data.totalCost)
+        : resolvedUnitCost !== null
+          ? Number((Number(data.quantity || 0) * resolvedUnitCost).toFixed(4))
+          : null;
     const entry = repo.create({
       companyId: data.companyId,
       transactionType: data.transactionType,
@@ -43,6 +55,8 @@ export class StockLedgerService {
       warehouseId: data.warehouseId,
       locationId: data.locationId || null,
       quantity: data.quantity,
+      unitCost: resolvedUnitCost,
+      totalCost: resolvedTotalCost,
       uomId: data.uomId,
       direction: data.direction,
       referenceType: data.referenceType || null,

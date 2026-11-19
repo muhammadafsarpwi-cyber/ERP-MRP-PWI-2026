@@ -281,6 +281,71 @@ describe('ComponentChangeService — monthly consumption report', () => {
     );
     const res = await service.monthlyReport(COMPANY, '2026-09');
     expect(res.rows).toEqual([]);
+    expect(res.machines).toEqual([]);
     expect(res.totals.changes).toBe(0);
+    expect(res.totals.totalCost).toBe(0);
+    expect(res.totals.avgCostPerGross).toBeNull();
+  });
+
+  it('computes unitCost, totalCost, costPerGross (144 PCS), machine summary grouping, and divisionId filter', async () => {
+    const qb = Object.assign(makeQb(), {
+      getMany: jest.fn().mockResolvedValue([
+        chg({
+          id: 'c-cost-1',
+          machine: {
+            id: MACHINE,
+            machineCode: 'SPK-01',
+            name: 'Spoke Heading Machine #01',
+            divisionId: 'div-spoke',
+            division: { id: 'div-spoke', name: 'Spoke Division' },
+          },
+          component: {
+            id: COMPONENT,
+            componentCode: 'SP-216007',
+            componentName: 'SPOKE HEADING PUNCH',
+            componentType: 'TOOLING',
+            unitCost: '25000.0000',
+            uom: { code: 'SET' },
+          },
+          productionSincePrevious: '265500.0000',
+        }),
+        chg({
+          id: 'c-cost-2',
+          componentId: 'comp-die-2',
+          machine: {
+            id: MACHINE,
+            machineCode: 'SPK-01',
+            name: 'Spoke Heading Machine #01',
+            divisionId: 'div-spoke',
+            division: { id: 'div-spoke', name: 'Spoke Division' },
+          },
+          component: {
+            id: 'comp-die-2',
+            componentCode: 'SP-216014',
+            componentName: 'SPOKE HEADING DIE',
+            componentType: 'TOOLING',
+            item: { id: 'item-2', costPrice: 12000 },
+            uom: { code: 'SET' },
+          },
+          productionSincePrevious: '265500.0000',
+        }),
+      ]),
+    });
+    changeRepo.createQueryBuilder.mockReturnValue(qb);
+
+    const res = await service.monthlyReport(COMPANY, '2026-11', undefined, 'div-spoke');
+    expect(qb.andWhere).toHaveBeenCalledWith('machine.divisionId = :divisionId', { divisionId: 'div-spoke' });
+    expect(res.rows).toHaveLength(2);
+    expect(res.machines).toHaveLength(1);
+    const spk01 = res.machines[0];
+    expect(spk01.toolCount).toBe(2);
+    expect(spk01.qtyUsed).toBe(2);
+    expect(spk01.totalCost).toBe(37000);
+    // Uses max parallel run output (265,500 PCS) so machine PCS is not double-counted
+    expect(spk01.productionCovered).toBe(265500);
+    // (37000 / 265500) * 144 = 20.07
+    expect(spk01.costPerGross).toBe(20.07);
+    expect(res.totals.totalCost).toBe(37000);
+    expect(res.totals.avgCostPerGross).toBe(20.07);
   });
 });

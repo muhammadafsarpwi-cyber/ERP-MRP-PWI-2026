@@ -78,6 +78,12 @@ export class StockLedger {
   @Column({ type: 'decimal', precision: 15, scale: 4 })
   quantity: number;
 
+  @Column({ name: 'unit_cost', type: 'decimal', precision: 19, scale: 4, nullable: true })
+  unitCost?: number | null;
+
+  @Column({ name: 'total_cost', type: 'decimal', precision: 19, scale: 4, nullable: true })
+  totalCost?: number | null;
+
   @Column({ name: 'uom_id', type: 'uuid' })
   uomId: string;
 

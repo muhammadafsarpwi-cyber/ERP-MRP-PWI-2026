@@ -162,7 +162,7 @@ const storeHistoryMetrics = (lc: MaterialLifecycle): Array<{ label: string; valu
   { label: 'GRN Receipts', value: lc.ledger.totals.grnsIn, color: '#52c41a' },
   { label: 'Store Receipts', value: lc.ledger.totals.materialReceiptsIn, color: '#13c2c2' },
   { label: 'Production Consumption', value: lc.ledger.totals.productionConsumption, color: '#fa541c' },
-  { label: 'Material Issues', value: lc.ledger.totals.issuesOut, color: '#f5222d' },
+  { label: 'Store Issue Notes (SIN)', value: lc.ledger.totals.issuesOut, color: '#f5222d' },
   { label: 'Returns', value: lc.ledger.totals.returnsIn, color: '#fa8c16' },
   { label: 'Transfers In', value: lc.ledger.totals.transfersIn, color: '#1677ff' },
   { label: 'Transfers Out', value: lc.ledger.totals.transfersOut, color: '#2f54eb' },

@@ -4,6 +4,7 @@ import {
   IsNumber,
   IsEnum,
   IsIn,
+  IsArray,
   Matches,
   Min,
   MaxLength,
@@ -20,16 +21,23 @@ import { IsUUID } from '../../../common/uuid-loose.validator';
 export const UUID_LOOSE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
 export class CreateMachineComponentDto {
-  @ApiProperty({ description: 'Machine UUID (from Machine Master) the component is tracked on' })
+  @ApiPropertyOptional({ description: 'Primary Machine UUID (from Machine Master)' })
+  @IsOptional()
   @IsUUID()
-  machineId!: string;
+  machineId?: string;
+
+  @ApiPropertyOptional({ description: 'List of Machine UUIDs when assigning one tool across multiple machines', type: [String] })
+  @IsOptional()
+  @IsArray()
+  @Matches(UUID_LOOSE, { each: true, message: 'Each machineId must be a UUID' })
+  machineIds?: string[];
 
   @ApiPropertyOptional({ description: 'Item Master UUID when the component/tool corresponds to an item' })
   @IsOptional()
   @Matches(UUID_LOOSE, { message: 'itemId must be a UUID' })
   itemId?: string | null;
 
-  @ApiPropertyOptional({ enum: ComponentType, default: ComponentType.COMPONENT })
+  @ApiPropertyOptional({ enum: ComponentType, default: ComponentType.TOOLING })
   @IsOptional()
   @IsEnum(ComponentType)
   componentType?: ComponentType;
@@ -70,6 +78,13 @@ export class CreateMachineComponentDto {
   @Min(0)
   maxThreshold?: number;
 
+  @ApiPropertyOptional({ description: 'Tool unit cost / purchase rate in PKR (>= 0)' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  unitCost?: number | null;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
@@ -79,6 +94,7 @@ export class CreateMachineComponentDto {
 
 export class UpdateMachineComponentDto {
   @IsOptional() @IsUUID() machineId?: string;
+  @IsOptional() @IsArray() @Matches(UUID_LOOSE, { each: true, message: 'Each machineId must be a UUID' }) machineIds?: string[];
   @IsOptional() @Matches(UUID_LOOSE, { message: 'itemId must be a UUID' }) itemId?: string | null;
   @IsOptional() @IsEnum(ComponentType) componentType?: ComponentType;
   @IsOptional() @IsString() @MaxLength(255) componentName?: string;
@@ -87,7 +103,16 @@ export class UpdateMachineComponentDto {
   @IsOptional() @Type(() => Number) @IsNumber() @Min(0.0001) expectedLifeQuantity?: number;
   @IsOptional() @Type(() => Number) @IsNumber() @Min(0) minThreshold?: number;
   @IsOptional() @Type(() => Number) @IsNumber() @Min(0) maxThreshold?: number;
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) unitCost?: number | null;
   @IsOptional() @IsString() @MaxLength(2000) description?: string | null;
+}
+
+export class UpdateComponentUnitCostDto {
+  @ApiProperty({ description: 'Tool unit cost / purchase rate in PKR (>= 0)' })
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  unitCost!: number;
 }
 
 export class MachineComponentQueryDto {

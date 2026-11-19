@@ -93,7 +93,7 @@ const ROUTE_LABELS: RouteLabel[] = [
   { pattern: /^\/store\/stock-balance/, label: 'Store Stock Balance' },
   { pattern: /^\/store\/opening-stock/, label: 'Opening Stock' },
   { pattern: /^\/store\/material-receipts/, label: 'Material Receipts' },
-  { pattern: /^\/store\/material-issues/, label: 'Material Issues' },
+  { pattern: /^\/store\/material-issues/, label: 'Store Issue Notes (SIN)' },
   { pattern: /^\/store\/material-returns/, label: 'Material Returns' },
   { pattern: /^\/store\/ledger/, label: 'Store Item Ledger' },
   { pattern: /^\/store\/low-stock/, label: 'Low Stock / Reorder' },

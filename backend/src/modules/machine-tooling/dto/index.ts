@@ -3,6 +3,7 @@ export {
   UpdateMachineComponentDto,
   MachineComponentQueryDto,
   ChangeComponentStatusDto,
+  UpdateComponentUnitCostDto,
 } from './machine-component.dto';
 export {
   CreateComponentChangeDto,

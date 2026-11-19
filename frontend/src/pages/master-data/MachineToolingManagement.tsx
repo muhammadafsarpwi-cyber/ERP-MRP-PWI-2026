@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   App, Button, Space, Select, Form, Input, InputNumber, Popconfirm, Tabs,
   Descriptions, Row, Col, Tag, Tooltip, DatePicker, TimePicker, Alert, Statistic,
-  Checkbox, Dropdown,
+  Checkbox, Dropdown, Modal, theme, Grid,
 } from 'antd';
 import {
   PlusOutlined, EditOutlined, EyeOutlined, DeleteOutlined, ReloadOutlined,
@@ -10,16 +10,28 @@ import {
   CheckCircleOutlined, UnorderedListOutlined, SwapOutlined, PlusCircleOutlined, DesktopOutlined,
   AppstoreOutlined, ThunderboltOutlined, EyeInvisibleOutlined, CloseOutlined,
   ClusterOutlined, LinkOutlined, PlayCircleOutlined, PauseCircleOutlined,
+  InfoCircleOutlined, ExportOutlined, DownOutlined, FileExcelOutlined,
+  FilePdfOutlined, PrinterOutlined, RiseOutlined, TagOutlined, PoweroffOutlined,
+  CheckOutlined, DollarOutlined, ArrowsAltOutlined, ShrinkOutlined,
 } from '@ant-design/icons';
+import './machineTooling.css';
 import {
   ToolChangeoverModal,
   RemountStandbyToolModal,
   type StandbyToolOption,
 } from './components/ToolChangeoverModals';
+import {
+  loadCompanyLogoDataUrl,
+  exportToolReportCSV,
+  exportToolReportPDF,
+  printToolReport,
+  type ToolExportPayload,
+} from './components/toolLifecycleExport';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import apiService from '../../services/api';
 import { usePermission } from '../../hooks/usePermission';
+import { useUserStore } from '../../store/userStore';
 import {
   PageHeader, StatusBadge, ERPTable, TableToolbar, TabKeepAlive, GlobalLoading,
   DraggableResizableModal, SaveResultDialog,
@@ -29,12 +41,52 @@ import { tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCac
 import { useHeaderActions } from '../../components/layout/headerActionsStore';
 import { handleValidationErrors } from '../../utils/formValidationHelper';
 
-const COMPONENT_TYPES = ['DIE', 'MOULD', 'CHAIN', 'TOOL', 'FIXTURE', 'COMPONENT', 'OTHER'];
+const COMPONENT_TYPES = ['TOOLING', 'SPARE_CONSUMABLE'] as const;
+const COMPONENT_TYPE_LABELS: Record<string, string> = {
+  TOOLING: 'Tooling',
+  TOOL: 'Tooling',
+  DIE: 'Tooling',
+  MOULD: 'Tooling',
+  FIXTURE: 'Tooling',
+  SPARE_CONSUMABLE: 'Spare / Consumable',
+  COMPONENT: 'Spare / Consumable',
+  CHAIN: 'Spare / Consumable',
+  OTHER: 'Spare / Consumable',
+};
+const normalizeComponentTypeClient = (raw?: string | null): 'TOOLING' | 'SPARE_CONSUMABLE' => {
+  const upper = String(raw || '').trim().toUpperCase();
+  if (
+    upper === 'SPARE_CONSUMABLE' ||
+    upper === 'COMPONENT' ||
+    upper === 'CHAIN' ||
+    upper === 'OTHER' ||
+    upper === 'SPARE_PART' ||
+    upper === 'CONSUMABLE'
+  ) {
+    return 'SPARE_CONSUMABLE';
+  }
+  return 'TOOLING';
+};
+const formatComponentTypeLabel = (raw?: string | null): string => {
+  const upper = String(raw || '').trim().toUpperCase();
+  return COMPONENT_TYPE_LABELS[upper] || (raw ? raw : 'Tooling');
+};
+const COMPONENT_TYPE_OPTIONS = [
+  { value: 'TOOLING', label: 'Tooling' },
+  { value: 'SPARE_CONSUMABLE', label: 'Spare / Consumable' },
+];
 const CONDITION_STATUSES = ['NEW', 'USED', 'DAMAGED', 'REWORKED', 'OTHER'];
 
 const COMPONENT_TYPE_COLORS: Record<string, string> = {
-  DIE: 'volcano', MOULD: 'purple', CHAIN: 'cyan', TOOL: 'geekblue',
-  FIXTURE: 'orange', COMPONENT: 'gold', OTHER: 'default',
+  TOOLING: 'geekblue',
+  SPARE_CONSUMABLE: 'cyan',
+  DIE: 'geekblue',
+  MOULD: 'geekblue',
+  CHAIN: 'cyan',
+  TOOL: 'geekblue',
+  FIXTURE: 'geekblue',
+  COMPONENT: 'cyan',
+  OTHER: 'cyan',
 };
 const CONDITION_COLORS: Record<string, string> = {
   NEW: 'green', USED: 'blue', DAMAGED: 'red', REWORKED: 'orange', OTHER: 'default',
@@ -73,6 +125,18 @@ const fmtNum = (v: unknown): string => {
   return Number(n.toFixed(4)).toLocaleString('en-US', { maximumFractionDigits: 4 });
 };
 
+/** Machine production output unit across all 5 tabs, KPIs, drawers, and exports. */
+const PRODUCTION_UOM = 'PCS';
+
+const fmtPkr = (v: unknown, decimals: number = 0): string => {
+  const n = num(v);
+  if (n === null) return '—';
+  return `Rs. ${Number(n).toLocaleString('en-US', {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  })}`;
+};
+
 interface MachineLk { id: string; machineCode?: string | null; machineNumber?: string | null; name?: string | null; divisionId?: string | null; sectionId?: string | null; departmentId?: string | null; }
 interface ItemLk {
   id: string;
@@ -96,11 +160,11 @@ interface MasterItemTypeLk { id: string; code: string; name: string; status?: st
 interface JobCardLk { id: string; jobCardNo?: string | null; code?: string | null; }
 
 interface ComponentRec {
-  id: string; companyId: string; machineId: string; itemId: string | null; uomId: string | null;
+  id: string; companyId: string; machineId: string; machineIds?: string[]; itemId: string | null; uomId: string | null;
   componentType: string; componentName: string; componentCode: string;
   expectedLifeQuantity?: string | number | null; minThreshold?: string | number | null;
   maxThreshold?: string | number | null; description?: string | null; isActive: boolean;
-  machine?: MachineLk | null; item?: ItemLk | null; uom?: UomLk | null;
+  machine?: MachineLk | null; machines?: MachineLk[]; item?: ItemLk | null; uom?: UomLk | null;
   createdAt?: string | null; updatedAt?: string | null;
 }
 
@@ -109,7 +173,13 @@ interface ChangeRec {
   oldToolCode: string | null; newToolCode: string; newToolDescription: string | null;
   changeDate: string; changeTime: string | null;
   productionCounterBefore?: string | number | null; productionCounterAfter?: string | number | null;
-  productionSincePrevious?: string | number | null; reason: string | null;
+  productionSincePrevious?: string | number | null;
+  currentLifeQty?: number | null;
+  uomCode?: string | null;
+  isLiveActive?: boolean;
+  closedAt?: string | null;
+  lifecycleStatus?: string | null;
+  reason: string | null;
   conditionStatus: string | null; remarks: string | null; changedAt?: string | null; isActive: boolean;
   machine?: MachineLk | null; component?: ComponentRec | null;
   jobCard?: { id: string; jobCardNo?: string | null; code?: string | null } | null;
@@ -118,6 +188,14 @@ interface ChangeRec {
 
 interface ComponentHistory {
   component: ComponentRec;
+  selectedMachineId?: string;
+  assignedMachines?: Array<{
+    id: string;
+    machineCode?: string | null;
+    machineNumber?: string | null;
+    name?: string | null;
+    derivedCounter?: number;
+  }>;
   machine: { id: string; machineId?: string | null; machineCode?: string | null; machineNumber?: string | null; name?: string | null };
   counter: { value: number | null; base: string };
   summary: {
@@ -131,15 +209,60 @@ interface ComponentHistory {
 }
 
 interface ReportRow {
-  machine: { id: string; machineCode: string; machineName: string | null } | null;
-  component: { id: string; componentCode: string; componentName: string; componentType: string; uomCode: string | null } | null;
-  changes: number; toolsInstalled: number; qtyUsed: number; productionCovered: number;
-  avgLife: number | null; minLife: number | null; maxLife: number | null; lastChangeDate: string | null;
+  machine: {
+    id: string;
+    machineCode: string;
+    machineName: string | null;
+    divisionId?: string | null;
+    divisionName?: string | null;
+  } | null;
+  component: {
+    id: string;
+    itemId?: string | null;
+    componentCode: string;
+    componentName: string;
+    componentType: string;
+    uomCode: string | null;
+  } | null;
+  changes: number;
+  toolsInstalled: number;
+  qtyUsed: number;
+  unitCost: number;
+  costSource?: 'SNAPSHOT' | 'COMPONENT' | 'INVENTORY_AVG' | 'ITEM_MASTER' | 'LATEST_GRN' | 'NONE';
+  totalCost: number;
+  productionCovered: number;
+  costPerGross: number | null;
+  avgLife: number | null;
+  minLife: number | null;
+  maxLife: number | null;
+  lastChangeDate: string | null;
+}
+interface ReportMachineSummary {
+  machine: ReportRow['machine'];
+  toolCount: number;
+  changes: number;
+  qtyUsed: number;
+  totalCost: number;
+  productionCovered: number;
+  costPerGross: number | null;
+  lastChangeDate: string | null;
+  components: ReportRow[];
 }
 interface MonthlyReport {
-  month: string; start: string; end: string;
+  month: string;
+  start: string;
+  end: string;
   rows: ReportRow[];
-  totals: { machines: number; components: number; changes: number; qtyUsed: number; productionCovered: number; };
+  machines?: ReportMachineSummary[];
+  totals: {
+    machines: number;
+    components: number;
+    changes: number;
+    qtyUsed: number;
+    productionCovered: number;
+    totalCost?: number;
+    avgCostPerGross?: number | null;
+  };
 }
 
 /* TASK26 — lifecycle records */
@@ -150,14 +273,22 @@ interface ActiveToolRec {
   componentId: string;
   component: {
     id: string; componentCode: string; componentName: string; componentType: string;
-    expectedLifeQuantity?: string | number | null; uomCode?: string | null;
+    expectedLifeQuantity?: string | number | null; minThreshold?: string | number | null; maxThreshold?: string | number | null;
+    uomCode?: string | null;
   } | null;
   installedToolCode: string; newToolDescription?: string | null;
   installDate: string; installTime?: string | null;
   installCounter?: number | null; derivedCounter?: number | null;
   usedByInstalled?: number | null; liveWeightKg?: number | null; remainingByInstalled?: number | null;
+  lifeProgressPct?: number | null;
   accumulatedLifeBeforeCurrentSession?: number | null; currentSessionProduction?: number | null;
   sessionCount?: number;
+  mountingSessions?: Array<{
+    sessionNo: number; machineId: string; machineCode?: string | null; mountedAt: string;
+    unmountedAt?: string | null; startCounter: number; endCounter?: number | null;
+    sessionProduction: number; action: string; operatorName?: string | null;
+    shiftInchargeName?: string | null; reason?: string | null; remarks?: string | null;
+  }>;
   storeIssueId?: string | null; storeIssueNumber?: string | null;
   operatorName?: string | null; shiftInchargeName?: string | null; issuedByName?: string | null;
   jobCardNo?: string | null; changeDate: string; closedAt?: string | null;
@@ -169,12 +300,15 @@ interface LifeRowRec {
   componentId: string;
   component: {
     id: string; componentCode: string; componentName: string; componentType: string;
-    expectedLifeQuantity?: string | number | null; uomCode?: string | null;
+    expectedLifeQuantity?: string | number | null; minThreshold?: string | number | null; maxThreshold?: string | number | null;
+    uomCode?: string | null;
   } | null;
   toolCode: string; newToolDescription?: string | null; oldToolCode?: string | null;
   installDate: string; installTime?: string | null; removeDate?: string | null;
   installCounter?: number | null; removalCounter?: number | null; productionLife?: number | null;
+  lifeProgressPct?: number | null;
   accumulatedLifeBeforeCurrentSession?: number | null; sessionCount?: number;
+  mountingSessions?: ActiveToolRec['mountingSessions'];
   conditionStatus?: string | null; dispositionType?: string | null; dispositionNote?: string | null;
   reason?: string | null; remarks?: string | null; status: string; closedAt?: string | null;
   jobCardNo?: string | null; storeIssueNumber?: string | null; storeIssueId?: string | null;
@@ -226,6 +360,26 @@ interface MachineToolsTabCache {
 const MachineToolingManagement: React.FC = () => {
   const { message } = App.useApp();
   const { can } = usePermission();
+  const { token } = theme.useToken();
+  const screens = Grid.useBreakpoint();
+  const isMobile = !screens.md;
+  const currentUser = useUserStore((s) => s.user);
+  const printedByName = useMemo(() => {
+    const full = [currentUser?.firstName, currentUser?.lastName].filter(Boolean).join(' ').trim();
+    return full || currentUser?.displayName || currentUser?.username || currentUser?.email || 'Muhammad Afsar';
+  }, [currentUser]);
+  const [logoDataUrl, setLogoDataUrl] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    void loadCompanyLogoDataUrl().then((url) => {
+      if (active && url) setLogoDataUrl(url);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const [activeTab, setActiveTab] = useState(() => {
     try {
@@ -395,7 +549,7 @@ const MachineToolingManagement: React.FC = () => {
   const [compModalOpen, setCompModalOpen] = useState(false);
   const [editingComponent, setEditingComponent] = useState<ComponentRec | null>(null);
   const [compForm] = Form.useForm();
-  const [liveCompValues, setLiveCompValues] = useState<Record<string, any>>({ componentType: 'COMPONENT' });
+  const [liveCompValues, setLiveCompValues] = useState<Record<string, any>>({ componentType: 'TOOLING', machineIds: [] });
 
   useEffect(() => {
     try {
@@ -587,20 +741,43 @@ const MachineToolingManagement: React.FC = () => {
     });
   }, [displayedItems, divisions, sections, departments]);
 
+  // Optional machine-department sub-filter inside Machine(s) picker (independent of Store Item department e.g. SPI General Store)
+  const [modalMachineDeptFilter, setModalMachineDeptFilter] = useState<string | undefined>(undefined);
+
+  const modalDivisionMachines = useMemo(() => {
+    if (!itemFilterDivision) return machines;
+    return machines.filter((m) => m.divisionId === itemFilterDivision);
+  }, [machines, itemFilterDivision]);
+
+  const modalMachineDeptChips = useMemo(() => {
+    const counts = new Map<string, { id: string; name: string; count: number }>();
+    for (const m of modalDivisionMachines) {
+      if (!m.departmentId) continue;
+      const depName = departments.find((d) => d.id === m.departmentId)?.name;
+      if (!depName || /store/i.test(depName)) continue;
+      const cur = counts.get(m.departmentId) || { id: m.departmentId, name: depName, count: 0 };
+      cur.count += 1;
+      counts.set(m.departmentId, cur);
+    }
+    return Array.from(counts.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [modalDivisionMachines, departments]);
+
   const modalMachineOptions = useMemo(() => {
-    let list = machines;
-    if (itemFilterDepartment) {
-      list = list.filter((m) => m.departmentId === itemFilterDepartment);
-    } else if (itemFilterSection) {
-      list = list.filter((m) => m.sectionId === itemFilterSection);
-    } else if (itemFilterDivision) {
-      list = list.filter((m) => m.divisionId === itemFilterDivision);
+    let list = modalDivisionMachines;
+    if (modalMachineDeptFilter) {
+      list = list.filter((m) => m.departmentId === modalMachineDeptFilter);
     }
 
-    const currentMachineId = liveCompValues.machineId;
-    if (currentMachineId && !list.some((m) => m.id === currentMachineId)) {
-      const activeMach = machines.find((m) => m.id === currentMachineId);
-      if (activeMach) list = [activeMach, ...list];
+    const selectedIds: string[] = Array.isArray(liveCompValues.machineIds)
+      ? liveCompValues.machineIds
+      : liveCompValues.machineId
+        ? [liveCompValues.machineId]
+        : [];
+    for (const id of selectedIds) {
+      if (id && !list.some((m) => m.id === id)) {
+        const activeMach = machines.find((m) => m.id === id);
+        if (activeMach) list = [activeMach, ...list];
+      }
     }
 
     return list.map((m) => {
@@ -613,12 +790,18 @@ const MachineToolingManagement: React.FC = () => {
         searchText: `${m.machineCode || ''} ${m.machineNumber || ''} ${m.name || ''} ${depName || ''}`.toLowerCase(),
       };
     });
-  }, [machines, departments, sections, itemFilterDepartment, itemFilterSection, itemFilterDivision, liveCompValues.machineId]);
+  }, [modalDivisionMachines, modalMachineDeptFilter, machines, departments, sections, liveCompValues.machineIds, liveCompValues.machineId]);
 
-  const liveCompMachine = useMemo(
-    () => machines.find((m) => m.id === liveCompValues.machineId),
-    [machines, liveCompValues.machineId],
-  );
+  const liveCompMachines = useMemo(() => {
+    const selectedIds: string[] = Array.isArray(liveCompValues.machineIds)
+      ? liveCompValues.machineIds
+      : liveCompValues.machineId
+        ? [liveCompValues.machineId]
+        : [];
+    return selectedIds
+      .map((id) => machines.find((m) => m.id === id))
+      .filter((m): m is MachineLk => Boolean(m));
+  }, [machines, liveCompValues.machineIds, liveCompValues.machineId]);
   const liveCompStoreItem = useMemo(
     () => displayedItems.find((i) => i.id === liveCompValues.itemId) || items.find((i) => i.id === liveCompValues.itemId),
     [displayedItems, items, liveCompValues.itemId],
@@ -638,6 +821,8 @@ const MachineToolingManagement: React.FC = () => {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyData, setHistoryData] = useState<ComponentHistory | null>(null);
+  const [historyComponentId, setHistoryComponentId] = useState<string | null>(null);
+  const [historyMachineFilter, setHistoryMachineFilter] = useState<string>('ALL');
 
   const fetchComponents = async (pageNum: number = 1) => {
     setComponentsLoading(true);
@@ -707,11 +892,19 @@ const MachineToolingManagement: React.FC = () => {
     setIsCompMinimized(false);
     setEditingComponent(null);
     compForm.resetFields();
-    compForm.setFieldsValue({ componentType: 'COMPONENT' });
-    setLiveCompValues({ componentType: 'COMPONENT' });
+    const initialDefaults = {
+      componentType: 'TOOLING',
+      machineIds: [],
+      expectedLifeQuantity: 600000,
+      minThreshold: 300000,
+      maxThreshold: 600000,
+    };
+    compForm.setFieldsValue(initialDefaults);
+    setLiveCompValues(initialDefaults);
     setItemFilterDivision(undefined);
     setItemFilterDepartment(undefined);
     setItemFilterSection(undefined);
+    setModalMachineDeptFilter(undefined);
     setItemFilterType('Tooling');
     setItemSearchText('');
     setCompModalOpen(true);
@@ -738,19 +931,24 @@ const MachineToolingManagement: React.FC = () => {
     if (item) {
       const uomId = item.baseUomId || item.baseUom?.id;
       const upperName = ((item.name || '') + ' ' + (item.itemCode || '')).toUpperCase();
-      let inferredType: string | undefined = undefined;
-      if (upperName.includes('DIE')) inferredType = 'DIE';
-      else if (upperName.includes('MOULD') || upperName.includes('MOLD')) inferredType = 'MOULD';
-      else if (upperName.includes('CHAIN')) inferredType = 'CHAIN';
-      else if (upperName.includes('FIXTURE')) inferredType = 'FIXTURE';
-      else if (upperName.includes('TOOL') || upperName.includes('BLADE') || upperName.includes('PUNCH') || upperName.includes('ROLLER')) inferredType = 'TOOL';
+      let inferredType: 'TOOLING' | 'SPARE_CONSUMABLE' = 'TOOLING';
+      if (
+        upperName.includes('CHAIN') ||
+        upperName.includes('BEARING') ||
+        upperName.includes('BELT') ||
+        upperName.includes('SENSOR') ||
+        upperName.includes('SPARE') ||
+        upperName.includes('CONSUMABLE')
+      ) {
+        inferredType = 'SPARE_CONSUMABLE';
+      }
 
       const updates: any = {
         itemId: selectedItemId,
         componentName: item.name || item.itemCode,
         componentCode: item.itemCode,
         ...(uomId ? { uomId } : {}),
-        ...(inferredType ? { componentType: inferredType } : {}),
+        componentType: inferredType,
       };
 
       compForm.setFieldsValue(updates);
@@ -764,16 +962,22 @@ const MachineToolingManagement: React.FC = () => {
   const handleEditComponent = (record: ComponentRec) => {
     setIsCompMinimized(false);
     setEditingComponent(record);
+    const assignedIds = Array.isArray(record.machineIds) && record.machineIds.length > 0
+      ? record.machineIds
+      : record.machineId
+        ? [record.machineId]
+        : [];
     const initialVals = {
-      machineId: record.machineId,
-      componentType: record.componentType,
+      machineIds: assignedIds,
+      machineId: assignedIds[0] || record.machineId,
+      componentType: normalizeComponentTypeClient(record.componentType),
       componentName: record.componentName,
       componentCode: record.componentCode,
       itemId: record.itemId || undefined,
       uomId: record.uomId || undefined,
-      expectedLifeQuantity: num(record.expectedLifeQuantity) ?? undefined,
-      minThreshold: num(record.minThreshold) ?? undefined,
-      maxThreshold: num(record.maxThreshold) ?? undefined,
+      expectedLifeQuantity: num(record.expectedLifeQuantity) ?? 600000,
+      minThreshold: num(record.minThreshold) ?? 300000,
+      maxThreshold: num(record.maxThreshold) ?? 600000,
       description: record.description || undefined,
     };
     compForm.setFieldsValue(initialVals);
@@ -792,16 +996,27 @@ const MachineToolingManagement: React.FC = () => {
       setItemFilterDepartment(undefined);
       setItemFilterType('Tooling');
     }
+    setModalMachineDeptFilter(undefined);
     setItemSearchText('');
     setCompModalOpen(true);
   };
 
-  const buildComponentPayload = (values: any): any => ({
-    ...values,
-    expectedLifeQuantity: values.expectedLifeQuantity != null ? Number(values.expectedLifeQuantity) : undefined,
-    minThreshold: values.minThreshold != null ? Number(values.minThreshold) : undefined,
-    maxThreshold: values.maxThreshold != null ? Number(values.maxThreshold) : undefined,
-  });
+  const buildComponentPayload = (values: any): any => {
+    const machineIds: string[] = Array.isArray(values.machineIds)
+      ? values.machineIds.filter(Boolean)
+      : values.machineId
+        ? [values.machineId]
+        : [];
+    return {
+      ...values,
+      machineIds,
+      machineId: machineIds[0] || values.machineId,
+      componentType: normalizeComponentTypeClient(values.componentType),
+      expectedLifeQuantity: values.expectedLifeQuantity != null ? Number(values.expectedLifeQuantity) : undefined,
+      minThreshold: values.minThreshold != null ? Number(values.minThreshold) : undefined,
+      maxThreshold: values.maxThreshold != null ? Number(values.maxThreshold) : undefined,
+    };
+  };
 
   const handleSaveComponent = async () => {
     if (saving) return;
@@ -855,15 +1070,16 @@ const MachineToolingManagement: React.FC = () => {
     }
   };
 
-  const handleViewHistory = async (record: ComponentRec) => {
-    setIsHistoryMinimized(false);
-    setHistoryOpen(true);
+  const loadHistoryForComponent = useCallback(async (componentId: string, machineIdFilter: string = 'ALL') => {
     setHistoryLoading(true);
-    setHistoryData(null);
     try {
+      const params: Record<string, string> = { counter: 'derive' };
+      if (machineIdFilter && machineIdFilter !== 'ALL') {
+        params.machineId = machineIdFilter;
+      }
       const res = await apiService.get<any>(
-        `/machine-tooling/components/${record.id}/history`,
-        { counter: 'derive' },
+        `/machine-tooling/components/${componentId}/history`,
+        params,
       );
       setHistoryData(res?.data ?? res);
     } catch (error: any) {
@@ -872,6 +1088,15 @@ const MachineToolingManagement: React.FC = () => {
     } finally {
       setHistoryLoading(false);
     }
+  }, [message]);
+
+  const handleViewHistory = async (record: ComponentRec) => {
+    setIsHistoryMinimized(false);
+    setHistoryOpen(true);
+    setHistoryData(null);
+    setHistoryComponentId(record.id);
+    setHistoryMachineFilter('ALL');
+    await loadHistoryForComponent(record.id, 'ALL');
   };
 
   // Tooling Component Setup Column Visibility
@@ -904,99 +1129,277 @@ const MachineToolingManagement: React.FC = () => {
     }
   });
 
-  const componentColumns: ColumnsType<ComponentRec> = [
-    {
-      title: 'Component', key: 'component', width: 280,
-      sorter: (a, b) => a.componentName.localeCompare(b.componentName),
-      render: (_, r) => (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+  const renderToolItemStack = useCallback(
+    (
+      code?: string | null,
+      name?: string | null,
+      opts?: {
+        linkedItemCode?: string | null;
+        extraMeta?: string | null;
+        withIcon?: boolean;
+      },
+    ) => {
+      const codeStr = String(code || '').trim();
+      const rawName = String(name || codeStr || '—').trim();
+      const parenIdx = rawName.indexOf('(');
+      const mainName = parenIdx > 0 ? rawName.slice(0, parenIdx).trim() : rawName;
+      const specPart = parenIdx > 0 ? rawName.slice(parenIdx).trim() : '';
+      const linkedDifferent =
+        opts?.linkedItemCode &&
+        opts.linkedItemCode.toUpperCase() !== codeStr.toUpperCase();
+
+      const content = (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
+          {/* Line 1 (Top): Bold Orange Item Code pill */}
+          {(codeStr || linkedDifferent) && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+              {codeStr && (
+                <span
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    color: '#EA580C',
+                    background: '#FFF7ED',
+                    border: '1px solid #FED7AA',
+                    fontWeight: 700,
+                    fontSize: 12,
+                    lineHeight: '18px',
+                    padding: '0 7px',
+                    borderRadius: 5,
+                    letterSpacing: '0.02em',
+                    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                  }}
+                >
+                  {opts?.linkedItemCode &&
+                    opts.linkedItemCode.toUpperCase() === codeStr.toUpperCase() && (
+                      <LinkOutlined style={{ fontSize: 10.5 }} />
+                    )}
+                  {codeStr}
+                </span>
+              )}
+              {linkedDifferent && (
+                <Tag color="cyan" style={{ fontSize: 10.5, padding: '0 5px', borderRadius: 4, margin: 0 }}>
+                  <LinkOutlined style={{ marginRight: 2 }} />
+                  {opts?.linkedItemCode}
+                </Tag>
+              )}
+              {opts?.extraMeta && (
+                <span style={{ fontSize: 10.5, fontWeight: 600, color: token.colorTextTertiary }}>
+                  {opts.extraMeta}
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Line 2 (Middle): Main Item Name before '(' */}
+          <span
+            style={{
+              fontWeight: 700,
+              fontSize: 13,
+              lineHeight: 1.3,
+              color: token.colorText,
+              whiteSpace: 'normal',
+              wordBreak: 'break-word',
+            }}
+          >
+            {mainName}
+          </span>
+
+          {/* Line 3 (Bottom): Bracket specification starting at '(' without truncation */}
+          {specPart && (
+            <span
+              style={{
+                fontSize: 11.5,
+                fontWeight: 600,
+                lineHeight: 1.3,
+                color: token.colorTextSecondary,
+                whiteSpace: 'normal',
+                wordBreak: 'break-word',
+              }}
+            >
+              {specPart}
+            </span>
+          )}
+        </div>
+      );
+
+      if (!opts?.withIcon) return content;
+
+      return (
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
           <div
             style={{
-              width: 36,
-              height: 36,
-              borderRadius: 10,
-              background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.12) 0%, rgba(16, 185, 129, 0.15) 100%)',
-              border: '1px solid rgba(99, 102, 241, 0.25)',
+              width: 34,
+              height: 34,
+              borderRadius: 9,
+              background: 'linear-gradient(135deg, rgba(234, 88, 12, 0.12) 0%, rgba(249, 115, 22, 0.14) 100%)',
+              border: '1px solid rgba(234, 88, 12, 0.25)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              color: '#4f46e5',
-              fontSize: 16,
+              color: '#EA580C',
+              fontSize: 15,
               flexShrink: 0,
+              marginTop: 2,
             }}
           >
             <ToolOutlined />
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-            <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #0f172a)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {r.componentName}
-            </span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
-              <Tag color="geekblue" style={{ fontSize: 11, padding: '0 6px', borderRadius: 4, fontWeight: 600, margin: 0 }}>
-                {r.componentCode}
-              </Tag>
-              {r.item && (
-                <Tag color="cyan" style={{ fontSize: 10, padding: '0 4px', borderRadius: 4, margin: 0 }}>
-                  <LinkOutlined style={{ marginRight: 2 }} />
-                  {r.item.itemCode}
-                </Tag>
-              )}
-            </div>
-          </div>
+          {content}
         </div>
-      ),
+      );
+    },
+    [token.colorText, token.colorTextSecondary, token.colorTextTertiary],
+  );
+
+  const renderDateValue = useCallback(
+    (date?: string | null, time?: string | null) => {
+      if (!date) return EMPTY;
+      if (!time) {
+        return <span className="pwi-date-navy">{date}</span>;
+      }
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.3 }}>
+          <span className="pwi-date-navy">{date}</span>
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: 500,
+              color: token.colorTextTertiary,
+              fontVariantNumeric: 'tabular-nums',
+            }}
+          >
+            {time}
+          </span>
+        </div>
+      );
+    },
+    [token.colorTextTertiary],
+  );
+
+  type ActionPillVariant = 'blue' | 'green' | 'amber' | 'orange' | 'red';
+  const ACTION_PILL_STYLES: Record<ActionPillVariant, React.CSSProperties> = {
+    blue: { color: '#1D4ED8', background: '#DBEAFE', border: '1px solid #93C5FD' },
+    green: { color: '#15803D', background: '#DCFCE7', border: '1px solid #86EFAC' },
+    amber: { color: '#B45309', background: '#FEF3C7', border: '1px solid #FCD34D' },
+    orange: { color: '#C2410C', background: '#FFEDD5', border: '1px solid #FDBA74' },
+    red: { color: '#B91C1C', background: '#FEE2E2', border: '1px solid #FCA5A5' },
+  };
+
+  const renderActionPill = (
+    variant: ActionPillVariant,
+    icon: React.ReactNode,
+    title: string,
+    ariaLabel: string,
+    onClick?: () => void,
+  ) => (
+    <Tooltip title={title}>
+      <button
+        type="button"
+        className={`pwi-action-pill pwi-action-pill--${variant}`}
+        aria-label={ariaLabel}
+        {...(onClick ? { onClick } : {})}
+        style={{
+          width: 28,
+          height: 28,
+          minWidth: 28,
+          padding: 0,
+          borderRadius: 7,
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          cursor: 'pointer',
+          fontSize: 13.5,
+          lineHeight: 1,
+          transition: 'transform 0.14s ease, box-shadow 0.14s ease, filter 0.14s ease',
+          ...ACTION_PILL_STYLES[variant],
+        }}
+      >
+        {icon}
+      </button>
+    </Tooltip>
+  );
+
+  const renderLiveBadge = (label: string = 'Live') => (
+    <span
+      className="pwi-live-pill"
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 5,
+        padding: '1px 8px 1px 6px',
+        borderRadius: 999,
+        background: '#DCFCE7',
+        color: '#15803D',
+        border: '1px solid #86EFAC',
+        fontSize: 10.5,
+        fontWeight: 700,
+        lineHeight: '16px',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      <span className="pwi-live-dot" aria-hidden="true" />
+      <span>{label}</span>
+    </span>
+  );
+
+  const componentColumns: ColumnsType<ComponentRec> = [
+    {
+      title: 'Component', key: 'component', width: 295,
+      sorter: (a, b) => a.componentName.localeCompare(b.componentName),
+      render: (_, r) =>
+        renderToolItemStack(r.componentCode, r.componentName, {
+          linkedItemCode: r.item?.itemCode,
+          withIcon: true,
+        }),
     },
     {
-      title: 'Machine', key: 'machine', width: 220, sorter: true,
+      title: 'Machine(s)', key: 'machine', width: 270, sorter: true,
       render: (_, r) => {
-        const m = r.machine;
-        if (!m) {
+        const list =
+          Array.isArray(r.machines) && r.machines.length > 0
+            ? r.machines
+            : r.machine
+              ? [r.machine]
+              : [];
+        if (list.length === 0) {
           return <Tag color="default" style={{ borderRadius: 6, color: '#94a3b8' }}>Unassigned</Tag>;
         }
         return (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <div
-              style={{
-                width: 30,
-                height: 30,
-                borderRadius: 8,
-                background: 'rgba(14, 165, 233, 0.1)',
-                border: '1px solid rgba(14, 165, 233, 0.25)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#0284c7',
-                fontSize: 14,
-                flexShrink: 0,
-              }}
-            >
-              <ClusterOutlined />
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.25 }}>
-              <span style={{ fontWeight: 600, color: '#0369a1', fontSize: 13 }}>
-                {m.machineCode ?? m.name ?? '—'}
-              </span>
-              <span style={{ fontSize: 11, color: '#64748b' }}>
-                {m.name && m.name !== m.machineCode ? m.name : (m.machineNumber ? `#${m.machineNumber}` : '')}
-              </span>
-            </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, alignItems: 'center' }}>
+            {list.map((m) => (
+              <Tooltip
+                key={m.id}
+                title={m.name && m.name !== m.machineCode ? `${m.machineCode} — ${m.name}` : (m.machineCode ?? m.name)}
+              >
+                <Tag
+                  color="geekblue"
+                  icon={<ClusterOutlined />}
+                  style={{
+                    margin: 0,
+                    borderRadius: 6,
+                    fontWeight: 600,
+                    fontSize: 11.5,
+                    padding: '1px 7px',
+                  }}
+                >
+                  {m.machineCode ?? m.name ?? m.id}
+                </Tag>
+              </Tooltip>
+            ))}
           </div>
         );
       },
     },
     {
-      title: 'Type', dataIndex: 'componentType', key: 'componentType', width: 120,
+      title: 'Type', dataIndex: 'componentType', key: 'componentType', width: 155,
       render: (t: string) => {
-        const typeStyles: Record<string, { bg: string; color: string; border: string }> = {
-          DIE: { bg: 'rgba(99, 102, 241, 0.1)', color: '#4f46e5', border: 'rgba(99, 102, 241, 0.3)' },
-          MOULD: { bg: 'rgba(14, 165, 233, 0.1)', color: '#0284c7', border: 'rgba(14, 165, 233, 0.3)' },
-          TOOL: { bg: 'rgba(16, 185, 129, 0.1)', color: '#059669', border: 'rgba(16, 185, 129, 0.3)' },
-          BLADE: { bg: 'rgba(245, 158, 11, 0.1)', color: '#d97706', border: 'rgba(245, 158, 11, 0.3)' },
-          PUNCH: { bg: 'rgba(236, 72, 153, 0.1)', color: '#db2777', border: 'rgba(236, 72, 153, 0.3)' },
-          ROLLER: { bg: 'rgba(168, 85, 247, 0.1)', color: '#9333ea', border: 'rgba(168, 85, 247, 0.3)' },
-          CHAIN: { bg: 'rgba(20, 184, 166, 0.1)', color: '#0d9488', border: 'rgba(20, 184, 166, 0.3)' },
-        };
-        const s = typeStyles[t?.toUpperCase()] || { bg: 'rgba(100, 116, 139, 0.1)', color: '#475569', border: 'rgba(100, 116, 139, 0.25)' };
+        const norm = normalizeComponentTypeClient(t);
+        const s =
+          norm === 'SPARE_CONSUMABLE'
+            ? { bg: 'rgba(14, 165, 233, 0.1)', color: '#0284c7', border: 'rgba(14, 165, 233, 0.3)' }
+            : { bg: 'rgba(99, 102, 241, 0.1)', color: '#4f46e5', border: 'rgba(99, 102, 241, 0.3)' };
         return (
           <span
             style={{
@@ -1004,15 +1407,16 @@ const MachineToolingManagement: React.FC = () => {
               alignItems: 'center',
               padding: '3px 10px',
               borderRadius: 20,
-              fontSize: 11,
+              fontSize: 11.5,
               fontWeight: 700,
-              letterSpacing: 0.3,
+              letterSpacing: 0.2,
               background: s.bg,
               color: s.color,
               border: `1px solid ${s.border}`,
+              whiteSpace: 'nowrap',
             }}
           >
-            {t}
+            {formatComponentTypeLabel(t)}
           </span>
         );
       },
@@ -1028,7 +1432,7 @@ const MachineToolingManagement: React.FC = () => {
               {fmtNum(val)}
             </span>
             <Tag color="purple" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0, borderRadius: 4, fontWeight: 700 }}>
-              {r.uom?.code || 'PCS'}
+              {PRODUCTION_UOM}
             </Tag>
           </div>
         );
@@ -1116,79 +1520,55 @@ const MachineToolingManagement: React.FC = () => {
         ),
     },
     {
-      title: 'Actions', key: 'actions', fixed: 'right', width: 250,
+      title: 'Actions', key: 'actions', fixed: 'right', width: 178,
       render: (_, r) => (
-        <div className="erp-table-actions" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <Tooltip title={`View Life History — ${r.componentCode}`}>
-            <Button
-              type="text"
-              size="small"
-              className="erp-action-btn act-view"
-              icon={<EyeOutlined />}
-              onClick={() => handleViewHistory(r)}
-              aria-label={`View component — ${r.componentCode}`}
-            />
-          </Tooltip>
-          <Tooltip title={`Breakdown Items — ${r.componentCode}`}>
-            <Button
-              type="text"
-              size="small"
-              className="erp-action-btn"
-              icon={<UnorderedListOutlined />}
-              onClick={() => openItems(r)}
-              aria-label={`Breakdown items — ${r.componentCode}`}
-            />
-          </Tooltip>
-          <Tooltip title={`Edit Component — ${r.componentCode}`}>
-            <Button
-              type="text"
-              size="small"
-              className="erp-action-btn act-edit"
-              icon={<EditOutlined />}
-              onClick={() => handleEditComponent(r)}
-              aria-label={`Edit component — ${r.componentCode}`}
-            />
-          </Tooltip>
+        <div className="pwi-setup-actions" style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          {renderActionPill(
+            'blue',
+            <EyeOutlined />,
+            `View Replacement History — ${r.componentCode}`,
+            `View replacement history — ${r.componentCode}`,
+            () => handleViewHistory(r),
+          )}
+          {renderActionPill(
+            'green',
+            <SwapOutlined />,
+            `Install / Change Tool — ${r.componentCode}`,
+            `Install or change tool — ${r.componentCode}`,
+            () => openInstallForComponent(r),
+          )}
+          {renderActionPill(
+            'amber',
+            <EditOutlined />,
+            `Edit Setup — ${r.componentCode}`,
+            `Edit setup — ${r.componentCode}`,
+            () => handleEditComponent(r),
+          )}
           <Popconfirm
             title={r.isActive ? `Deactivate ${r.componentCode}?` : `Activate ${r.componentCode}?`}
             okText={r.isActive ? 'Deactivate' : 'Activate'}
             okButtonProps={{ danger: r.isActive }}
             onConfirm={() => handleToggleComponentStatus(r)}
           >
-            <Button
-              size="small"
-              style={{
-                borderRadius: 6,
-                fontSize: 11,
-                fontWeight: 700,
-                padding: '0 8px',
-                height: 28,
-                display: 'inline-flex',
-                alignItems: 'center',
-                background: 'transparent',
-                color: r.isActive ? '#dc2626' : '#16a34a',
-                border: r.isActive ? '1px solid #fca5a5' : '1px solid #86efac',
-              }}
-            >
-              {r.isActive ? 'Deactivate' : 'Activate'}
-            </Button>
+            {renderActionPill(
+              r.isActive ? 'orange' : 'green',
+              <PoweroffOutlined />,
+              r.isActive ? `Deactivate — ${r.componentCode}` : `Activate — ${r.componentCode}`,
+              r.isActive ? `Deactivate — ${r.componentCode}` : `Activate — ${r.componentCode}`,
+            )}
           </Popconfirm>
           <Popconfirm
-            title="Delete this component?"
+            title="Delete this tool setup?"
             description="Components with change transactions are deactivated instead of deleted."
             onConfirm={() => handleDeleteComponent(r)}
             okButtonProps={{ danger: true }}
           >
-            <Tooltip title={`Delete — ${r.componentCode}`}>
-              <Button
-                type="text"
-                size="small"
-                danger
-                className="erp-action-btn act-delete"
-                icon={<DeleteOutlined />}
-                aria-label={`Delete component — ${r.componentCode}`}
-              />
-            </Tooltip>
+            {renderActionPill(
+              'red',
+              <DeleteOutlined />,
+              `Delete — ${r.componentCode}`,
+              `Delete — ${r.componentCode}`,
+            )}
           </Popconfirm>
         </div>
       ),
@@ -1313,7 +1693,14 @@ const MachineToolingManagement: React.FC = () => {
   };
 
   const componentOptionsForMachine = useMemo(
-    () => (changePickMachine ? componentOptions.filter((c) => c.machineId === changePickMachine) : componentOptions),
+    () =>
+      changePickMachine
+        ? componentOptions.filter(
+            (c) =>
+              c.machineId === changePickMachine ||
+              (Array.isArray(c.machineIds) && c.machineIds.includes(changePickMachine)),
+          )
+        : componentOptions,
     [componentOptions, changePickMachine],
   );
 
@@ -1402,16 +1789,11 @@ const MachineToolingManagement: React.FC = () => {
 
   const changeColumns: ColumnsType<ChangeRec> = [
     {
-      title: 'Date', key: 'date', width: 130, sorter: true,
-      render: (_, r) => (
-        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.3 }}>
-          <span>{r.changeDate}</span>
-          {r.changeTime && <span style={{ fontSize: 11, color: 'var(--theme-text-muted)' }}>{r.changeTime}</span>}
-        </div>
-      ),
+      title: 'Date', key: 'date', width: 112, sorter: true,
+      render: (_, r) => renderDateValue(r.changeDate, r.changeTime),
     },
     {
-      title: 'Machine', key: 'machine', width: 170,
+      title: 'Machine', key: 'machine', width: 138,
       render: (_, r) => (
         <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.3 }}>
           <span style={{ fontWeight: 500 }}>{r.machine?.machineCode ?? '—'}</span>
@@ -1422,16 +1804,15 @@ const MachineToolingManagement: React.FC = () => {
       ),
     },
     {
-      title: 'Component', key: 'component', width: 200,
-      render: (_, r) => (
-        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.3 }}>
-          <span style={{ fontWeight: 500 }}>{r.component?.componentName ?? r.componentId}</span>
-          <code style={{ fontSize: 11, color: 'var(--theme-text-muted)' }}>{r.component?.componentCode}</code>
-        </div>
-      ),
+      title: 'Component', key: 'component', width: 245,
+      render: (_, r) =>
+        renderToolItemStack(
+          r.component?.componentCode,
+          r.component?.componentName ?? r.componentId,
+        ),
     },
     {
-      title: 'Tool Change', key: 'toolChange', width: 240,
+      title: 'Tool Change', key: 'toolChange', width: 210,
       render: (_, r) => (
         <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.3 }}>
           <Space size={4}>
@@ -1446,43 +1827,108 @@ const MachineToolingManagement: React.FC = () => {
       ),
     },
     {
-      title: 'Life', key: 'life', width: 110, sorter: true,
-      render: (_, r) => fmtNum(r.productionSincePrevious),
+      title: 'Life', key: 'life', width: 150, sorter: true,
+      render: (_, r) => {
+        const lifeVal = r.currentLifeQty ?? r.productionSincePrevious;
+        if (lifeVal === null || lifeVal === undefined || lifeVal === '') return EMPTY;
+        const isLive =
+          r.isLiveActive ??
+          (!r.closedAt && r.lifecycleStatus !== 'STANDBY' && r.lifecycleStatus !== 'CLOSED');
+        return (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span
+              style={{
+                fontWeight: 700,
+                color: isLive ? 'var(--theme-primary)' : 'var(--theme-text)',
+                fontVariantNumeric: 'tabular-nums',
+              }}
+            >
+              {fmtNum(lifeVal)} {PRODUCTION_UOM}
+            </span>
+            {isLive && renderLiveBadge()}
+          </div>
+        );
+      },
     },
     {
-      title: 'Condition', dataIndex: 'conditionStatus', key: 'conditionStatus', width: 120,
+      title: 'Condition', dataIndex: 'conditionStatus', key: 'conditionStatus', width: 108,
       render: (v: string | null) =>
         v ? <Tag color={CONDITION_COLORS[v] ?? 'default'}>{v}</Tag> : EMPTY,
     },
     {
-      title: 'Job Card', key: 'jobCard', width: 130,
+      title: 'Job Card', key: 'jobCard', width: 112,
       render: (_, r) => (r.jobCard?.jobCardNo || r.jobCard?.code) ? <code>{r.jobCard?.jobCardNo || r.jobCard?.code}</code> : EMPTY,
     },
     {
-      title: 'Actions', key: 'actions', fixed: 'right', width: 120,
-      render: (_, r) => (
-        <Space size={4}>
-          <Tooltip title={`View change — ${r.changeDate} ${r.newToolCode}`}>
-            <Button
-              type="text" size="small" icon={<EyeOutlined />}
-              onClick={() => handleViewChange(r)}
-              aria-label={`View change — ${r.changeDate} ${r.newToolCode}`}
-            />
-          </Tooltip>
-          <Tooltip title={`Edit change — ${r.changeDate} ${r.newToolCode}`}>
-            <Button
-              type="text" size="small" icon={<EditOutlined />}
-              onClick={() => openRecordChange(r)}
-              aria-label={`Edit change — ${r.changeDate} ${r.newToolCode}`}
-            />
-          </Tooltip>
-          <Popconfirm title="Delete this change transaction?" onConfirm={() => handleDeleteChange(r)} okButtonProps={{ danger: true }}>
-            <Tooltip title={`Delete change — ${r.changeDate} ${r.newToolCode}`}>
-              <Button type="text" size="small" danger icon={<DeleteOutlined />} aria-label={`Delete change — ${r.changeDate} ${r.newToolCode}`} />
-            </Tooltip>
-          </Popconfirm>
-        </Space>
-      ),
+      title: 'Actions', key: 'actions', fixed: 'right', width: 142,
+      render: (_, r) => {
+        const isLive =
+          r.isLiveActive ??
+          (!r.closedAt && r.lifecycleStatus !== 'STANDBY' && r.lifecycleStatus !== 'CLOSED');
+        return (
+          <div className="pwi-setup-actions" style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            {renderActionPill(
+              'blue',
+              <EyeOutlined />,
+              `View Details — ${r.changeDate} ${r.newToolCode}`,
+              `View change — ${r.changeDate} ${r.newToolCode}`,
+              () => handleViewChange(r),
+            )}
+            {renderActionPill(
+              'green',
+              <SwapOutlined />,
+              isLive ? `Unmount / Changeover — ${r.newToolCode}` : `Edit / Install — ${r.newToolCode}`,
+              `Unmount or changeover tool — ${r.newToolCode}`,
+              () => {
+                if (isLive) {
+                  const mapped: ActiveToolRec = {
+                    id: r.id,
+                    machineId: r.machineId,
+                    machine: r.machine || null,
+                    componentId: r.componentId,
+                    component: r.component
+                      ? {
+                          id: r.component.id,
+                          componentCode: r.component.componentCode,
+                          componentName: r.component.componentName,
+                          componentType: r.component.componentType,
+                          expectedLifeQuantity: r.component.expectedLifeQuantity,
+                          uomCode: r.uomCode || r.component.uom?.code || null,
+                        }
+                      : null,
+                    installedToolCode: r.newToolCode,
+                    newToolDescription: r.newToolDescription,
+                    installDate: r.changeDate,
+                    installTime: r.changeTime,
+                    installCounter: num(r.productionCounterAfter),
+                    usedByInstalled: num(r.currentLifeQty ?? r.productionSincePrevious) ?? 0,
+                    changeDate: r.changeDate,
+                    closedAt: r.closedAt,
+                  };
+                  openChangeover(mapped);
+                } else {
+                  openRecordChange(r);
+                }
+              },
+            )}
+            {renderActionPill(
+              'amber',
+              <EditOutlined />,
+              `Edit Change — ${r.changeDate} ${r.newToolCode}`,
+              `Edit change — ${r.changeDate} ${r.newToolCode}`,
+              () => openRecordChange(r),
+            )}
+            <Popconfirm title="Delete this change transaction?" onConfirm={() => handleDeleteChange(r)} okButtonProps={{ danger: true }}>
+              {renderActionPill(
+                'red',
+                <DeleteOutlined />,
+                `Delete — ${r.changeDate} ${r.newToolCode}`,
+                `Delete change — ${r.changeDate} ${r.newToolCode}`,
+              )}
+            </Popconfirm>
+          </div>
+        );
+      },
     },
   ];
 
@@ -1494,26 +1940,70 @@ const MachineToolingManagement: React.FC = () => {
     });
   }, [changeColumns, chgVisibleCols]);
 
-  /* ── Tab 3: Monthly consumption ──────────────────────────────────────────── */
+  /* ── Tab 5: Monthly consumption ──────────────────────────────────────────── */
   const [reportMonth, setReportMonth] = useState<dayjs.Dayjs>(dayjs());
+  const [fReportDivision, setFReportDivision] = useState<string | undefined>(undefined);
   const [fReportMachine, setFReportMachine] = useState<string | undefined>(undefined);
   const [report, setReport] = useState<MonthlyReport | null>(null);
   const [reportLoading, setReportLoading] = useState(false);
+  const [expandedMachineKeys, setExpandedMachineKeys] = useState<React.Key[]>([]);
+  const [editingRateCompId, setEditingRateCompId] = useState<string | null>(null);
+  const [editingRateValue, setEditingRateValue] = useState<number>(0);
+  const [savingRate, setSavingRate] = useState(false);
+
+  const reportDivisionOptions = useMemo(() => {
+    const activeDivIds = new Set(machines.map((m) => m.divisionId).filter(Boolean));
+    const list = divisions.filter((d) => activeDivIds.size === 0 || activeDivIds.has(d.id));
+    return list
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((d) => ({ value: d.id, label: d.name }));
+  }, [divisions, machines]);
+
+  const reportMachineOptions = useMemo(() => {
+    const list = fReportDivision
+      ? machines.filter((m) => m.divisionId === fReportDivision)
+      : machines;
+    return list.map((m) => ({
+      value: m.id,
+      label: `${m.machineCode ?? m.name ?? m.id}${m.name && m.name !== m.machineCode ? ` — ${m.name}` : ''}`,
+    }));
+  }, [machines, fReportDivision]);
 
   const fetchReport = useCallback(async () => {
     setReportLoading(true);
     try {
       const params: any = { month: reportMonth.format('YYYY-MM') };
+      if (fReportDivision) params.divisionId = fReportDivision;
       if (fReportMachine) params.machineId = fReportMachine;
-      const res = await apiService.get<{ data: MonthlyReport }>('/machine-tooling/changes/reports/monthly', params);
-      setReport(res.data);
+      const res = await apiService.get<any>('/machine-tooling/changes/reports/monthly', params);
+      setReport(res?.data ?? res ?? null);
       setReportLoading(false);
     } catch (error: any) {
       setReport(null);
       setReportLoading(false);
       message.error(extractApiError(error, 'Failed to load monthly consumption report'));
     }
-  }, [reportMonth, fReportMachine, message]);
+  }, [reportMonth, fReportDivision, fReportMachine, message]);
+
+  const handleSaveComponentRate = useCallback(
+    async (componentId: string, unitCost: number) => {
+      setSavingRate(true);
+      try {
+        await apiService.patch(`/machine-tooling/components/${componentId}/unit-cost`, {
+          unitCost: Math.max(0, Number(unitCost) || 0),
+        });
+        message.success('Tool unit rate updated');
+        setEditingRateCompId(null);
+        await fetchReport();
+      } catch (error: any) {
+        message.error(extractApiError(error, 'Failed to update unit rate'));
+      } finally {
+        setSavingRate(false);
+      }
+    },
+    [fetchReport, message],
+  );
 
   useEffect(() => {
     if (activeTab === 'report') fetchReport();
@@ -1582,9 +2072,45 @@ const MachineToolingManagement: React.FC = () => {
     }
   }, [activeTab, fetchStandbyTools]);
 
+  const [sessionDetailOpen, setSessionDetailOpen] = useState(false);
+  const [sessionDetailRow, setSessionDetailRow] = useState<LifeRowRec | null>(null);
+
   const openChangeover = (tool: ActiveToolRec) => {
     setChangeoverTarget(tool);
     setChangeoverOpen(true);
+  };
+
+  const openChangeoverFromLifeRow = (row: LifeRowRec) => {
+    const mapped: ActiveToolRec = {
+      id: row.id,
+      machineId: row.machineId,
+      machine: row.machine,
+      componentId: row.componentId,
+      component: row.component,
+      installedToolCode: row.toolCode,
+      newToolDescription: row.newToolDescription,
+      installDate: row.installDate,
+      installTime: row.installTime,
+      installCounter: row.installCounter,
+      usedByInstalled: row.productionLife ?? 0,
+      accumulatedLifeBeforeCurrentSession: row.accumulatedLifeBeforeCurrentSession ?? 0,
+      sessionCount: row.sessionCount ?? 1,
+      mountingSessions: row.mountingSessions,
+      storeIssueId: row.storeIssueId,
+      storeIssueNumber: row.storeIssueNumber,
+      operatorName: row.operatorName,
+      shiftInchargeName: row.shiftInchargeName,
+      issuedByName: row.issuedByName,
+      jobCardNo: row.jobCardNo,
+      changeDate: row.installDate,
+      closedAt: row.closedAt,
+    };
+    openChangeover(mapped);
+  };
+
+  const openSessionDetails = (row: LifeRowRec) => {
+    setSessionDetailRow(row);
+    setSessionDetailOpen(true);
   };
 
   const openRemountModal = () => {
@@ -1618,7 +2144,11 @@ const MachineToolingManagement: React.FC = () => {
       if (compRes.status === 'fulfilled') setInstallComponents(compRes.value.data || []);
       if (actRes.status === 'fulfilled') {
         setActiveComponentIds(
-          new Set((actRes.value.data || []).flatMap((a) => (a.componentId ? [a.componentId] : []))),
+          new Set(
+            (actRes.value.data || []).flatMap((a) =>
+              a.componentId && a.machineId ? [`${a.machineId}::${a.componentId}`] : [],
+            ),
+          ),
         );
       }
       if (siRes.status === 'fulfilled') {
@@ -1639,9 +2169,30 @@ const MachineToolingManagement: React.FC = () => {
     }
   };
 
+  const openInstallForComponent = async (comp: ComponentRec) => {
+    const primaryMachineId =
+      (Array.isArray(comp.machineIds) && comp.machineIds.length > 0 ? comp.machineIds[0] : comp.machineId) || undefined;
+    await openInstall();
+    setInstallPickMachine(primaryMachineId);
+    installForm.setFieldsValue({
+      machineId: primaryMachineId,
+      componentId: comp.id,
+      newToolCode: comp.componentCode,
+      newToolDescription: comp.componentName,
+    });
+  };
+
   const installableComponents = useMemo(() => {
-    const base = installPickMachine ? installComponents.filter((c) => c.machineId === installPickMachine) : installComponents;
-    return base.filter((c) => !activeComponentIds.has(c.id));
+    const base = installPickMachine
+      ? installComponents.filter(
+          (c) =>
+            c.machineId === installPickMachine ||
+            (Array.isArray(c.machineIds) && c.machineIds.includes(installPickMachine)),
+        )
+      : installComponents;
+    return base.filter((c) =>
+      installPickMachine ? !activeComponentIds.has(`${installPickMachine}::${c.id}`) : true,
+    );
   }, [installComponents, installPickMachine, activeComponentIds]);
 
   const handleInstallSubmit = async () => {
@@ -1778,6 +2329,43 @@ const MachineToolingManagement: React.FC = () => {
     if (activeTab === 'life') fetchLifeReport(lifePage);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, lifePage, fetchLifeReport]);
+
+  // Hydrate all tab count badges (Change History, Active Tools, Tool Life History, Standby) once on mount
+  useEffect(() => {
+    if (!can('manufacturing.component_change.view')) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [chgRes, actRes, lifeRes, stRes] = await Promise.allSettled([
+          apiService.get<{ data: ChangeRec[]; total: number }>('/machine-tooling/changes', { page: 1, limit: chgPageSize }, { silent: true }),
+          apiService.get<{ data: ActiveToolRec[]; total: number }>('/machine-tooling/active-tools', { page: 1, limit: atPageSize }, { silent: true }),
+          apiService.get<LifeReportData>('/machine-tooling/life-report', { page: 1, limit: lifePageSize }, { silent: true }),
+          apiService.get<{ data: StandbyToolOption[]; total: number }>('/machine-tooling/standby-tools', { limit: 200 }, { silent: true }),
+        ]);
+        if (cancelled) return;
+        if (chgRes.status === 'fulfilled' && chgRes.value) {
+          setChanges(chgRes.value.data || []);
+          setChangesTotal(chgRes.value.total || 0);
+        }
+        if (actRes.status === 'fulfilled' && actRes.value) {
+          setActiveTools(actRes.value.data || []);
+          setActiveToolsTotal(actRes.value.total || 0);
+        }
+        if (lifeRes.status === 'fulfilled' && lifeRes.value) {
+          setLifeRows(lifeRes.value.data || []);
+          setLifeTotal(lifeRes.value.total || 0);
+          setLifeSummary(lifeRes.value.summary || null);
+        }
+        if (stRes.status === 'fulfilled' && stRes.value) {
+          setStandbyTools(stRes.value.data || []);
+        }
+      } catch {}
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const [disposeOpen, setDisposeOpen] = useState(false);
   const [disposeSaving, setDisposeSaving] = useState(false);
@@ -1933,13 +2521,13 @@ const MachineToolingManagement: React.FC = () => {
       ),
     },
     {
-      title: 'Component', key: 'component', width: 215,
-      render: (_, r) => (
-        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.3 }}>
-          <span style={{ fontWeight: 500 }}>{r.component?.componentName ?? r.componentId}</span>
-          <code style={{ fontSize: 11, color: 'var(--theme-text-muted)' }}>{r.component?.componentCode} · {r.component?.componentType}</code>
-        </div>
-      ),
+      title: 'Component', key: 'component', width: 265,
+      render: (_, r) =>
+        renderToolItemStack(
+          r.component?.componentCode,
+          r.component?.componentName ?? r.componentId,
+          { extraMeta: formatComponentTypeLabel(r.component?.componentType) },
+        ),
     },
     {
       title: 'Active Tool / Run #', key: 'tool', width: 230,
@@ -1960,42 +2548,66 @@ const MachineToolingManagement: React.FC = () => {
       ),
     },
     {
-      title: 'Issued / Mounted Date', key: 'installDate', width: 140,
-      render: (_, r) => (
-        <div style={{ lineHeight: 1.3 }}>
-          <div style={{ fontWeight: 500 }}>{r.installDate}</div>
-          {r.installTime && <div style={{ fontSize: 11, color: 'var(--theme-text-muted)' }}>{r.installTime}</div>}
-        </div>
-      ),
+      title: 'Issued / Mounted Date', key: 'installDate', width: 175,
+      render: (_, r) => renderDateValue(r.installDate, r.installTime),
     },
     {
-      title: 'Current Life (Production Qty)', key: 'used', width: 175,
-      render: (_, r) => (
-        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.3 }}>
-          <span style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--theme-primary)' }}>
-            {fmtNum(r.usedByInstalled)}{r.component?.uomCode ? ` ${r.component.uomCode}` : ''}
-          </span>
-          {r.liveWeightKg != null && r.liveWeightKg > 0 && (
-            <span style={{ fontSize: 11, color: 'var(--theme-text-muted)' }}>
-              {fmtNum(r.liveWeightKg)} Kg produced
-            </span>
-          )}
-        </div>
-      ),
+      title: 'Current Life (Production Qty)', key: 'used', width: 235,
+      render: (_, r) => {
+        const expected = num(r.component?.expectedLifeQuantity);
+        const pct =
+          r.lifeProgressPct ??
+          (expected && expected > 0 && r.usedByInstalled != null
+            ? Number(((r.usedByInstalled / expected) * 100).toFixed(1))
+            : null);
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.35 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--theme-primary)', fontVariantNumeric: 'tabular-nums' }}>
+                {fmtNum(r.usedByInstalled)} {PRODUCTION_UOM}
+              </span>
+              {renderLiveBadge()}
+            </div>
+            {pct != null && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                <Tag
+                  color={pct >= 100 ? 'error' : pct >= 80 ? 'warning' : 'success'}
+                  style={{ margin: 0, fontSize: 10, lineHeight: '16px', padding: '0 5px', fontWeight: 700 }}
+                >
+                  {pct}% of {fmtNum(expected)} {PRODUCTION_UOM}
+                </Tag>
+              </div>
+            )}
+            {r.liveWeightKg != null && r.liveWeightKg > 0 && (
+              <span style={{ fontSize: 11, color: 'var(--theme-text-muted)', marginTop: 2 }}>
+                {fmtNum(r.liveWeightKg)} Kg produced
+              </span>
+            )}
+          </div>
+        );
+      },
     },
     {
-      title: 'Remaining Life', key: 'remaining', width: 140,
-      render: (_, r) =>
-        r.remainingByInstalled != null ? (
-          <span style={{ fontWeight: 600 }}>
-            {fmtNum(r.remainingByInstalled)}{r.component?.uomCode ? ` ${r.component.uomCode}` : ''}
-          </span>
-        ) : (
-          <Tag color="blue" style={{ margin: 0 }}>Live Tracking</Tag>
-        ),
+      title: 'Expected / Remaining', key: 'remaining', width: 175,
+      render: (_, r) => {
+        const expected = num(r.component?.expectedLifeQuantity);
+        if (expected != null && r.remainingByInstalled != null) {
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.35 }}>
+              <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+                {fmtNum(r.remainingByInstalled)} {PRODUCTION_UOM} left
+              </span>
+              <span style={{ fontSize: 11, color: 'var(--theme-text-muted)' }}>
+                Target: {fmtNum(expected)} {PRODUCTION_UOM}
+              </span>
+            </div>
+          );
+        }
+        return renderLiveBadge('Live Tracking');
+      },
     },
     {
-      title: 'Voucher # & Operator', key: 'storeIssue', width: 175,
+      title: 'Voucher # & Operator', key: 'storeIssue', width: 190,
       render: (_, r) => (
         <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.3 }}>
           {r.storeIssueNumber ? <code style={{ fontWeight: 600 }}>{r.storeIssueNumber}</code> : EMPTY}
@@ -2006,32 +2618,28 @@ const MachineToolingManagement: React.FC = () => {
       ),
     },
     {
-      title: 'Status', key: 'status', width: 100,
+      title: 'Status', key: 'status', width: 120,
       render: () => <StatusBadge status="ACTIVE" />,
     },
     {
-      title: 'Actions', key: 'actions', fixed: 'right', width: 175,
+      title: 'Actions', key: 'actions', fixed: 'right', width: 76, align: 'center',
       render: (_, r) => (
-        <Space size={4}>
-          <Tooltip title={`Part/size changeover (pause to Standby) or permanently close ${r.installedToolCode}`}>
-            <Button
-              size="small"
-              icon={<SwapOutlined />}
-              onClick={() => openChangeover(r)}
-              aria-label={`Unmount or changeover tool ${r.installedToolCode}`}
-              style={{ borderColor: '#f59e0b', color: '#d97706', fontWeight: 600 }}
-            >
-              Unmount / Changeover
-            </Button>
-          </Tooltip>
-        </Space>
+        <div className="pwi-setup-actions" style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          {renderActionPill(
+            'green',
+            <SwapOutlined />,
+            `Unmount / Changeover (pause to Standby or close) — ${r.installedToolCode}`,
+            `Unmount or changeover tool ${r.installedToolCode}`,
+            () => openChangeover(r),
+          )}
+        </div>
       ),
     },
   ];
 
   const lifeColumns: ColumnsType<LifeRowRec> = [
     {
-      title: 'Machine', key: 'machine', width: 150,
+      title: 'Machine', key: 'machine', width: 145,
       render: (_, r) => (
         <div style={{ lineHeight: 1.3 }}>
           <span style={{ fontWeight: 600 }}>{r.machine?.machineCode ?? '—'}</span>
@@ -2040,16 +2648,15 @@ const MachineToolingManagement: React.FC = () => {
       ),
     },
     {
-      title: 'Component', key: 'component', width: 190,
-      render: (_, r) => (
-        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.3 }}>
-          <span style={{ fontWeight: 500 }}>{r.component?.componentName ?? r.componentId}</span>
-          <code style={{ fontSize: 11, color: 'var(--theme-text-muted)' }}>{r.component?.componentCode}</code>
-        </div>
-      ),
+      title: 'Component', key: 'component', width: 265,
+      render: (_, r) =>
+        renderToolItemStack(
+          r.component?.componentCode,
+          r.component?.componentName ?? r.componentId,
+        ),
     },
     {
-      title: 'Tool Run', key: 'tool', width: 200,
+      title: 'Tool Run', key: 'tool', width: 190,
       render: (_, r) => (
         <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.3 }}>
           <code style={{ fontWeight: 700, color: 'var(--theme-accent)' }}>{r.toolCode}</code>
@@ -2060,45 +2667,61 @@ const MachineToolingManagement: React.FC = () => {
       ),
     },
     {
-      title: 'Issued Date', key: 'installed', width: 120,
-      render: (_, r) => (
-        <div style={{ lineHeight: 1.3 }}>
-          <div>{r.installDate}</div>
-          {r.installTime && <div style={{ fontSize: 11, color: 'var(--theme-text-muted)' }}>{r.installTime}</div>}
-        </div>
-      ),
+      title: 'Issued Date', key: 'installed', width: 130,
+      render: (_, r) => renderDateValue(r.installDate, r.installTime),
     },
     {
-      title: 'Closed Date', key: 'removed', width: 110,
-      render: (_, r) => r.removeDate || EMPTY,
+      title: 'Closed Date', key: 'removed', width: 125,
+      render: (_, r) => renderDateValue(r.removeDate),
     },
     {
-      title: 'Production Life', key: 'life', width: 150, sorter: true,
-      render: (_, r) =>
-        r.productionLife != null ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontWeight: 700, color: r.status === 'ACTIVE' ? 'var(--theme-primary)' : 'var(--theme-text)' }}>
-              {fmtNum(r.productionLife)}{r.component?.uomCode ? ` ${r.component.uomCode}` : ''}
-            </span>
-            {r.status === 'ACTIVE' && <Tag color="processing" style={{ margin: 0, fontSize: 10 }}>Live</Tag>}
+      title: 'Production Life', key: 'life', width: 205, sorter: true,
+      render: (_, r) => {
+        if (r.productionLife == null) return EMPTY;
+        const expected = num(r.component?.expectedLifeQuantity);
+        const pct =
+          r.lifeProgressPct ??
+          (expected && expected > 0 ? Number(((r.productionLife / expected) * 100).toFixed(1)) : null);
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.35 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontWeight: 700, color: r.status === 'ACTIVE' ? 'var(--theme-primary)' : 'var(--theme-text)', fontVariantNumeric: 'tabular-nums' }}>
+                {fmtNum(r.productionLife)} {PRODUCTION_UOM}
+              </span>
+              {r.status === 'ACTIVE' && renderLiveBadge()}
+            </div>
+            {pct != null && expected != null && (
+              <span style={{ fontSize: 11, color: pct >= 100 ? '#dc2626' : pct >= 80 ? '#d97706' : '#059669', fontWeight: 600 }}>
+                {pct}% of {fmtNum(expected)} {PRODUCTION_UOM}
+              </span>
+            )}
           </div>
-        ) : EMPTY,
+        );
+      },
     },
     {
-      title: 'End Reason', key: 'reason', width: 210, ellipsis: true,
-      render: (_, r) =>
-        r.reason ? (
+      title: 'End Reason', key: 'reason', width: 205, ellipsis: true,
+      render: (_, r) => {
+        if (r.status === 'ACTIVE') {
+          return (
+            <span style={{ color: '#059669', fontWeight: 600, fontSize: 12.5 }}>
+              In Service (Running)
+            </span>
+          );
+        }
+        return r.reason ? (
           <Tooltip title={r.reason}>
             <span>{r.reason}</span>
           </Tooltip>
-        ) : EMPTY,
+        ) : EMPTY;
+      },
     },
     {
-      title: 'Condition', key: 'condition', width: 110,
+      title: 'Condition', key: 'condition', width: 120,
       render: (_, r) => (r.conditionStatus ? <Tag color={CONDITION_COLORS[r.conditionStatus] ?? 'default'}>{r.conditionStatus}</Tag> : EMPTY),
     },
     {
-      title: 'Disposition', key: 'disposition', width: 145,
+      title: 'Disposition', key: 'disposition', width: 150,
       render: (_, r) =>
         r.dispositionType ? (
           <Tooltip title={r.dispositionNote || `Disposition of tool ${r.toolCode}`}>
@@ -2107,11 +2730,11 @@ const MachineToolingManagement: React.FC = () => {
         ) : EMPTY,
     },
     {
-      title: 'Voucher #', key: 'storeIssue', width: 135,
+      title: 'Voucher #', key: 'storeIssue', width: 150,
       render: (_, r) => (r.storeIssueNumber ? <code>{r.storeIssueNumber}</code> : EMPTY),
     },
     {
-      title: 'Status', key: 'status', width: 135,
+      title: 'Status', key: 'status', width: 125,
       render: (_, r) =>
         r.status === 'STANDBY' ? (
           <Tag color="gold" icon={<PauseCircleOutlined />} style={{ fontWeight: 700, margin: 0 }}>
@@ -2122,72 +2745,371 @@ const MachineToolingManagement: React.FC = () => {
         ),
     },
     {
-      title: 'Actions', key: 'actions', fixed: 'right', width: 130,
+      title: 'Actions', key: 'actions', width: 92, fixed: 'right', align: 'center',
       render: (_, r) => (
-        <Space size={4}>
-          {r.status === 'STANDBY' ? (
-            <Tooltip title={`Re-mount reusable standby tool ${r.toolCode} onto a machine`}>
-              <Button
-                type="link"
-                size="small"
-                icon={<PlayCircleOutlined />}
-                onClick={openRemountModal}
-                style={{ color: '#059669', fontWeight: 600 }}
-                aria-label={`Re-mount standby tool ${r.toolCode}`}
-              >
-                Re-Mount
-              </Button>
-            </Tooltip>
-          ) : r.status === 'CLOSED' ? (
-            <Tooltip title={r.dispositionType ? 'Update disposition' : `Record disposition for ${r.toolCode}`}>
-              <Button
-                type="link" size="small" icon={<EditOutlined />}
-                onClick={() => openDispose(r)}
-                aria-label={`Dispose tool ${r.toolCode}`}
-              >
-                Dispose
-              </Button>
-            </Tooltip>
-          ) : (
-            <StatusBadge status="ACTIVE" />
+        <div className="pwi-setup-actions" style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          {renderActionPill(
+            'blue',
+            <EyeOutlined />,
+            `View Session Details — ${r.toolCode}`,
+            `View session details for ${r.toolCode}`,
+            () => openSessionDetails(r),
           )}
-        </Space>
+          {r.status === 'ACTIVE' && can('manufacturing.component_change.create') && renderActionPill(
+            'green',
+            <SwapOutlined />,
+            `Unmount / Changeover — ${r.toolCode}`,
+            `Unmount or changeover tool ${r.toolCode}`,
+            () => openChangeoverFromLifeRow(r),
+          )}
+          {r.status === 'STANDBY' && can('manufacturing.component_change.create') && renderActionPill(
+            'green',
+            <PlayCircleOutlined />,
+            `Re-Mount Standby Tool — ${r.toolCode}`,
+            `Re-mount standby tool ${r.toolCode}`,
+            openRemountModal,
+          )}
+          {r.status === 'CLOSED' && renderActionPill(
+            'amber',
+            <EditOutlined />,
+            r.dispositionType ? `Edit Disposition — ${r.toolCode}` : `Record Disposition — ${r.toolCode}`,
+            `Dispose tool ${r.toolCode}`,
+            () => openDispose(r),
+          )}
+        </div>
       ),
     },
   ];
 
-  const reportColumns: ColumnsType<ReportRow> = [
+  const reportMachines = useMemo<ReportMachineSummary[]>(() => {
+    if (Array.isArray(report?.machines) && report.machines.length > 0) {
+      return report.machines;
+    }
+    const rows = report?.rows ?? [];
+    const map = new Map<string, ReportMachineSummary>();
+    for (const r of rows) {
+      const mId = r.machine?.id ?? 'unknown';
+      const cur = map.get(mId) ?? {
+        machine: r.machine,
+        toolCount: 0,
+        changes: 0,
+        qtyUsed: 0,
+        totalCost: 0,
+        productionCovered: 0,
+        costPerGross: null,
+        lastChangeDate: null,
+        components: [],
+      };
+      cur.toolCount += 1;
+      cur.changes += r.changes;
+      cur.qtyUsed += r.qtyUsed;
+      cur.totalCost = Number((cur.totalCost + (r.totalCost || 0)).toFixed(2));
+      if ((r.productionCovered || 0) > cur.productionCovered) {
+        cur.productionCovered = r.productionCovered || 0;
+      }
+      if (r.lastChangeDate && (!cur.lastChangeDate || r.lastChangeDate > cur.lastChangeDate)) {
+        cur.lastChangeDate = r.lastChangeDate;
+      }
+      cur.components.push(r);
+      map.set(mId, cur);
+    }
+    return Array.from(map.values()).map((mg) => ({
+      ...mg,
+      costPerGross:
+        mg.productionCovered > 0
+          ? Number(((mg.totalCost / mg.productionCovered) * 144).toFixed(2))
+          : null,
+    }));
+  }, [report]);
+
+  const reportMachineColumns: ColumnsType<ReportMachineSummary> = [
     {
-      title: 'Machine', key: 'machine', width: 200,
-      render: (_, r) => (
-        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.3 }}>
-          <span style={{ fontWeight: 500 }}>{r.machine?.machineCode ?? '—'}</span>
-          {r.machine?.machineName && (
-            <span style={{ fontSize: 11, color: 'var(--theme-text-muted)' }}>{r.machine.machineName}</span>
+      title: 'Machine',
+      key: 'machine',
+      width: 240,
+      render: (_, m) => (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, lineHeight: 1.3 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <Tag color="geekblue" icon={<ClusterOutlined />} style={{ margin: 0, fontWeight: 700, borderRadius: 6 }}>
+              {m.machine?.machineCode ?? '—'}
+            </Tag>
+            {m.machine?.divisionName && (
+              <Tag color="cyan" style={{ margin: 0, fontSize: 10.5, borderRadius: 5, fontWeight: 600 }}>
+                {m.machine.divisionName}
+              </Tag>
+            )}
+          </div>
+          {m.machine?.machineName && (
+            <span style={{ fontSize: 12, fontWeight: 600, color: token.colorText }}>
+              {m.machine.machineName}
+            </span>
           )}
         </div>
       ),
     },
     {
-      title: 'Component', key: 'component', width: 240,
-      render: (_, r) => (
-        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.3 }}>
-          <span style={{ fontWeight: 500 }}>{r.component?.componentName}</span>
-          <code style={{ fontSize: 11, color: 'var(--theme-text-muted)' }}>
-            {r.component?.componentCode} · {r.component?.componentType} {r.component?.uomCode ? `· ${r.component.uomCode}` : ''}
-          </code>
+      title: 'Tools Used',
+      key: 'toolsUsed',
+      width: 175,
+      render: (_, m) => (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, lineHeight: 1.3 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Tag color="blue" style={{ margin: 0, fontWeight: 700, borderRadius: 12 }}>
+              {m.toolCount} {m.toolCount === 1 ? 'Tool Type' : 'Tool Types'}
+            </Tag>
+            <span style={{ fontWeight: 700, color: token.colorText, fontVariantNumeric: 'tabular-nums' }}>
+              {fmtNum(m.qtyUsed)} Qty
+            </span>
+          </div>
+          <span style={{ fontSize: 11, color: token.colorTextTertiary }}>
+            {m.changes} {m.changes === 1 ? 'changeover' : 'changeovers'}
+          </span>
         </div>
       ),
     },
-    { title: 'Changes', dataIndex: 'changes', key: 'changes', width: 90 },
-    { title: 'Qty Used', dataIndex: 'qtyUsed', key: 'qtyUsed', width: 100 },
-    { title: 'Production Covered', dataIndex: 'productionCovered', key: 'productionCovered', width: 150, render: fmtNum },
-    { title: 'Avg Life', dataIndex: 'avgLife', key: 'avgLife', width: 110, render: fmtNum },
     {
-      title: 'Life Range', key: 'lifeRange', width: 130,
-      render: (_, r) => `${fmtNum(r.minLife)} – ${fmtNum(r.maxLife)}`,
+      title: 'Total Tooling Cost',
+      dataIndex: 'totalCost',
+      key: 'totalCost',
+      width: 170,
+      align: 'right',
+      render: (v: number, m) => {
+        const missingRates = (m.components || []).filter((c) => !(c.unitCost > 0)).length;
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+            <span style={{ fontWeight: 700, fontSize: 13.5, color: token.colorText, fontVariantNumeric: 'tabular-nums' }}>
+              {fmtPkr(v)}
+            </span>
+            {missingRates > 0 && (
+              <Tag color="warning" style={{ margin: 0, fontSize: 10, lineHeight: '15px', fontWeight: 600 }}>
+                {missingRates} rate{missingRates === 1 ? '' : 's'} needed (expand)
+              </Tag>
+            )}
+          </div>
+        );
+      },
     },
-    { title: 'Last Change', dataIndex: 'lastChangeDate', key: 'lastChangeDate', width: 120, render: (v: string | null) => v || EMPTY },
+    {
+      title: 'Production Covered',
+      dataIndex: 'productionCovered',
+      key: 'productionCovered',
+      width: 185,
+      align: 'right',
+      render: (v: number) => (
+        <span style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--theme-primary)', fontVariantNumeric: 'tabular-nums' }}>
+          {fmtNum(v)} {PRODUCTION_UOM}
+        </span>
+      ),
+    },
+    {
+      title: 'Cost / Gross (144 PCS)',
+      dataIndex: 'costPerGross',
+      key: 'costPerGross',
+      width: 185,
+      align: 'right',
+      render: (v: number | null) =>
+        v != null ? (
+          <Tag
+            color={v > 0 ? 'purple' : 'default'}
+            style={{ margin: 0, fontWeight: 700, fontSize: 12, padding: '2px 9px', borderRadius: 6, fontVariantNumeric: 'tabular-nums' }}
+          >
+            {fmtPkr(v, 2)} / Gross
+          </Tag>
+        ) : (
+          EMPTY
+        ),
+    },
+    {
+      title: 'Last Change',
+      dataIndex: 'lastChangeDate',
+      key: 'lastChangeDate',
+      width: 125,
+      render: (v: string | null) => renderDateValue(v),
+    },
+  ];
+
+  const reportDetailColumns: ColumnsType<ReportRow> = [
+    {
+      title: 'Component / Tooling',
+      key: 'component',
+      width: 265,
+      render: (_, r) =>
+        renderToolItemStack(r.component?.componentCode, r.component?.componentName, {
+          extraMeta: formatComponentTypeLabel(r.component?.componentType),
+        }),
+    },
+    { title: 'Changes', dataIndex: 'changes', key: 'changes', width: 78, align: 'right' },
+    {
+      title: 'Qty Used',
+      key: 'qtyUsed',
+      width: 105,
+      align: 'right',
+      render: (_, r) => (
+        <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+          {fmtNum(r.qtyUsed)}
+          {r.component?.uomCode ? ` ${r.component.uomCode}` : ''}
+        </span>
+      ),
+    },
+    {
+      title: 'Unit Rate (PKR)',
+      key: 'unitCost',
+      width: 195,
+      align: 'right',
+      render: (_, r) => {
+        const compId = r.component?.id;
+        const isEditing = compId && editingRateCompId === compId;
+        if (isEditing) {
+          return (
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end' }}
+            >
+              <InputNumber
+                size="small"
+                min={0}
+                step={100}
+                value={editingRateValue}
+                onChange={(val) => setEditingRateValue(Number(val) || 0)}
+                onPressEnter={() => handleSaveComponentRate(compId, editingRateValue)}
+                style={{ width: 105 }}
+                autoFocus
+              />
+              <Button
+                size="small"
+                type="primary"
+                icon={<CheckOutlined />}
+                loading={savingRate}
+                onClick={() => handleSaveComponentRate(compId, editingRateValue)}
+                aria-label="Save unit rate"
+              />
+              <Button
+                size="small"
+                icon={<CloseOutlined />}
+                onClick={() => setEditingRateCompId(null)}
+                aria-label="Cancel edit rate"
+              />
+            </div>
+          );
+        }
+        const hasRate = (r.unitCost ?? 0) > 0;
+        const srcLabel =
+          r.costSource === 'SNAPSHOT'
+            ? 'Issued'
+            : r.costSource === 'INVENTORY_AVG'
+              ? 'Avg Cost'
+              : r.costSource === 'LATEST_GRN'
+                ? 'GRN'
+                : r.costSource === 'ITEM_MASTER'
+                  ? 'Item Master'
+                  : r.costSource === 'COMPONENT'
+                    ? 'Saved'
+                    : null;
+        return (
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', lineHeight: 1.2 }}>
+              <span
+                style={{
+                  fontWeight: 700,
+                  color: hasRate ? token.colorText : '#d97706',
+                  fontVariantNumeric: 'tabular-nums',
+                }}
+              >
+                {hasRate ? fmtPkr(r.unitCost) : 'Rs. 0'}
+              </span>
+              {srcLabel && (
+                <span style={{ fontSize: 10, color: token.colorTextTertiary }}>{srcLabel}</span>
+              )}
+            </div>
+            {compId && can('manufacturing.tool_component.update') && (
+              <Tooltip title={hasRate ? 'Edit tool unit rate (PKR)' : 'Enter missing unit rate (PKR)'}>
+                <button
+                  type="button"
+                  className="pwi-action-pill pwi-action-pill--amber"
+                  aria-label={`Edit unit rate for ${r.component?.componentCode}`}
+                  onClick={() => {
+                    setEditingRateCompId(compId);
+                    setEditingRateValue(r.unitCost || 0);
+                  }}
+                  style={{
+                    width: 24,
+                    height: 24,
+                    minWidth: 24,
+                    padding: 0,
+                    borderRadius: 6,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                    color: '#B45309',
+                    background: '#FEF3C7',
+                    border: '1px solid #FCD34D',
+                  }}
+                >
+                  <EditOutlined style={{ fontSize: 12 }} />
+                </button>
+              </Tooltip>
+            )}
+          </div>
+        );
+      },
+    },
+    {
+      title: 'Total Cost',
+      dataIndex: 'totalCost',
+      key: 'totalCost',
+      width: 130,
+      align: 'right',
+      render: (v: number) => (
+        <span style={{ fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+          {fmtPkr(v)}
+        </span>
+      ),
+    },
+    {
+      title: 'Production Covered',
+      dataIndex: 'productionCovered',
+      key: 'productionCovered',
+      width: 165,
+      align: 'right',
+      render: (v: number, r) => (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', lineHeight: 1.25 }}>
+          <span style={{ fontWeight: 700, color: 'var(--theme-primary)', fontVariantNumeric: 'tabular-nums' }}>
+            {fmtNum(v)} {PRODUCTION_UOM}
+          </span>
+          {r.avgLife != null && r.changes > 1 && (
+            <span style={{ fontSize: 10.5, color: token.colorTextTertiary }}>
+              Avg: {fmtNum(r.avgLife)} {PRODUCTION_UOM}
+            </span>
+          )}
+        </div>
+      ),
+    },
+    {
+      title: 'Cost / Gross (144 PCS)',
+      dataIndex: 'costPerGross',
+      key: 'costPerGross',
+      width: 155,
+      align: 'right',
+      render: (v: number | null) =>
+        v != null ? (
+          <span style={{ fontWeight: 700, color: '#7c3aed', fontVariantNumeric: 'tabular-nums' }}>
+            {fmtPkr(v, 2)} / Gross
+          </span>
+        ) : (
+          EMPTY
+        ),
+    },
+    {
+      title: 'Last Change',
+      dataIndex: 'lastChangeDate',
+      key: 'lastChangeDate',
+      width: 112,
+      render: (v: string | null) => renderDateValue(v),
+    },
   ];
 
   const primaryAdd =
@@ -2231,10 +3153,554 @@ const MachineToolingManagement: React.FC = () => {
               }
             : null;
 
+  const handleRefreshActiveTab = useCallback(() => {
+    if (activeTab === 'setup') fetchComponents(compPage);
+    else if (activeTab === 'changes') fetchChanges(chgPage);
+    else if (activeTab === 'active') {
+      fetchActiveTools(atPage);
+      fetchStandbyTools();
+    } else if (activeTab === 'life') {
+      fetchLifeReport(lifePage);
+      fetchStandbyTools();
+    } else if (activeTab === 'report') fetchReport();
+  }, [
+    activeTab, compPage, chgPage, atPage, lifePage,
+    fetchComponents, fetchChanges, fetchActiveTools, fetchLifeReport, fetchReport, fetchStandbyTools,
+  ]);
+
+  const buildActiveTabExportPayload = useCallback(async (): Promise<ToolExportPayload> => {
+    const fmtMachine = (m?: { machineCode?: string | null; machineNumber?: string | null; name?: string | null } | null) => {
+      if (!m) return '—';
+      const code = m.machineCode || m.machineNumber || '';
+      const nm = m.name || '';
+      if (code && nm) return `${code} — ${nm}`;
+      return code || nm || '—';
+    };
+    const lookupMachineLabel = (machineId?: string) => {
+      if (!machineId) return undefined;
+      const m = machines.find((x) => x.id === machineId);
+      return m ? fmtMachine(m) : machineId;
+    };
+    const fmtDate = (d?: string | null) => (d ? dayjs(d).format('DD MMM YYYY') : '—');
+    const fmtQty = (v?: number | string | null, uom?: string | null) => {
+      const n = num(v);
+      if (n === null) return '—';
+      return `${Number(n.toFixed(2)).toLocaleString('en-US')}${uom ? ` ${uom}` : ''}`;
+    };
+
+    if (activeTab === 'life') {
+      const params: Record<string, any> = { page: 1, limit: 2000 };
+      if (lifeSearch) params.search = lifeSearch;
+      if (fLifeMachine) params.machineId = fLifeMachine;
+      if (fLifeComponent) params.componentId = fLifeComponent;
+      if (fLifeDisposition) params.dispositionType = fLifeDisposition;
+      if (fLifeStatus) params.status = fLifeStatus;
+      if (fLifeFrom) params.from = fLifeFrom;
+      if (fLifeTo) params.to = fLifeTo;
+
+      let rows = lifeRows;
+      let summary = lifeSummary;
+      try {
+        const res = await apiService.get<LifeReportData>('/machine-tooling/life-report', params, { silent: true });
+        if (res?.data) {
+          rows = res.data;
+          summary = res.summary || lifeSummary;
+        }
+      } catch {}
+
+      const filterParts: string[] = [];
+      if (fLifeStatus) filterParts.push(`Status: ${fLifeStatus}`);
+      if (fLifeMachine) filterParts.push(`Machine: ${lookupMachineLabel(fLifeMachine)}`);
+      if (fLifeDisposition) filterParts.push(`Disposition: ${DISPOSITION_LABELS[fLifeDisposition] || fLifeDisposition}`);
+      if (fLifeFrom || fLifeTo) filterParts.push(`Period: ${fLifeFrom || '...'} to ${fLifeTo || '...'}`);
+      if (lifeSearch) filterParts.push(`Search: "${lifeSearch}"`);
+
+      return {
+        reportTitle: 'Machine Tools & Component Life History Report',
+        subtitle: 'Machine Tools & Components · Engineering & Store Control',
+        fileBaseName: 'PWI-Tool-Life-Report',
+        printedBy: printedByName,
+        filterSummary: filterParts.length > 0 ? filterParts.join(' · ') : 'All Tool Runs (No Active Filters)',
+        kpis: [
+          { label: 'Total Runs', value: String(summary?.installs ?? rows.length), tone: 'neutral' },
+          { label: 'Active', value: String(summary?.active ?? rows.filter((r) => r.status === 'ACTIVE').length), tone: 'success' },
+          { label: 'Standby', value: String(summary?.standby ?? rows.filter((r) => r.status === 'STANDBY').length), tone: 'warning' },
+          { label: 'Closed', value: String(summary?.closed ?? rows.filter((r) => r.status === 'CLOSED').length), tone: 'neutral' },
+          { label: 'With Disposition', value: String(summary?.withDisposition ?? rows.filter((r) => !!r.dispositionType).length), tone: 'primary' },
+          {
+            label: 'Total Production Life',
+            value: `${fmtNum(summary?.totalProductionLife ?? rows.reduce((s, r) => s + (num(r.productionLife) || 0), 0))} ${PRODUCTION_UOM}`,
+            tone: 'primary',
+          },
+          {
+            label: 'Avg Life',
+            value: summary?.avgLife != null ? `${fmtNum(summary.avgLife)} ${PRODUCTION_UOM}` : '—',
+            tone: 'neutral',
+          },
+        ],
+        columns: [
+          { header: '#', key: 'seq', align: 'center', widthWeight: 0.45 },
+          { header: 'Machine', key: 'machine', widthWeight: 1.45 },
+          { header: 'Component', key: 'component', widthWeight: 1.45 },
+          { header: 'Tool Run', key: 'toolRun', widthWeight: 1.05 },
+          { header: 'Issued Date', key: 'issuedDate', widthWeight: 0.85 },
+          { header: 'Closed Date', key: 'closedDate', widthWeight: 0.85 },
+          { header: 'Production Life', key: 'productionLife', align: 'right', widthWeight: 0.95 },
+          { header: 'End Reason', key: 'endReason', widthWeight: 1.1 },
+          { header: 'Condition', key: 'condition', align: 'center', widthWeight: 0.7 },
+          { header: 'Disposition', key: 'disposition', widthWeight: 0.95 },
+          { header: 'Voucher #', key: 'voucher', widthWeight: 0.9 },
+          { header: 'Status', key: 'status', align: 'center', widthWeight: 0.68 },
+        ],
+        rows: rows.map((r, idx) => ({
+          seq: idx + 1,
+          machine: fmtMachine(r.machine),
+          component: r.component ? `${r.component.componentCode} — ${r.component.componentName}` : '—',
+          toolRun: `${r.toolCode}${(r.sessionCount ?? 1) > 1 ? ` (S${r.sessionCount})` : ''}`,
+          issuedDate: fmtDate(r.installDate),
+          closedDate: fmtDate(r.removeDate || r.closedAt),
+          productionLife: fmtQty(r.productionLife, PRODUCTION_UOM),
+          endReason: r.status === 'ACTIVE' ? 'In Service (Running)' : (r.reason || r.remarks || '—'),
+          condition: r.conditionStatus || '—',
+          disposition: r.dispositionType ? DISPOSITION_LABELS[r.dispositionType] || r.dispositionType : 'Pending',
+          voucher: r.storeIssueNumber || r.jobCardNo || '—',
+          status: r.status || '—',
+        })),
+      };
+    }
+
+    if (activeTab === 'active') {
+      const params: Record<string, any> = { page: 1, limit: 2000 };
+      if (atSearch) params.search = atSearch;
+      if (fAtMachine) params.machineId = fAtMachine;
+
+      let rows = activeTools;
+      try {
+        const res = await apiService.get<{ data: ActiveToolRec[] }>('/machine-tooling/active-tools', params, { silent: true });
+        if (res?.data) rows = res.data;
+      } catch {}
+
+      const filterParts: string[] = [];
+      if (fAtMachine) filterParts.push(`Machine: ${lookupMachineLabel(fAtMachine)}`);
+      if (atSearch) filterParts.push(`Search: "${atSearch}"`);
+
+      const totalLive = rows.reduce((s, r) => s + (num(r.usedByInstalled) || 0), 0);
+      return {
+        reportTitle: 'Active Mounted Machine Tools Report',
+        subtitle: 'Machine Tools & Components · Live Production Run Status',
+        fileBaseName: 'PWI-Active-Tools-Report',
+        printedBy: printedByName,
+        filterSummary: filterParts.length > 0 ? filterParts.join(' · ') : 'All Currently Mounted Tools',
+        kpis: [
+          { label: 'Active Mounted Tools', value: String(rows.length), tone: 'success' },
+          { label: 'Reusable Standby Pool', value: String(standbyTools.length), tone: 'warning' },
+          { label: 'Multi-Session Runs', value: String(rows.filter((r) => (r.sessionCount ?? 1) > 1).length), tone: 'primary' },
+          { label: 'Combined Live Output', value: `${fmtNum(totalLive)} ${PRODUCTION_UOM}`, tone: 'primary' },
+        ],
+        columns: [
+          { header: '#', key: 'seq', align: 'center', widthWeight: 0.45 },
+          { header: 'Machine', key: 'machine', widthWeight: 1.45 },
+          { header: 'Component', key: 'component', widthWeight: 1.45 },
+          { header: 'Tool Code', key: 'toolCode', widthWeight: 1.05 },
+          { header: 'Issued Date', key: 'installDate', widthWeight: 0.9 },
+          { header: 'Prior Sessions', key: 'priorLife', align: 'right', widthWeight: 0.9 },
+          { header: 'Current Session', key: 'currentSession', align: 'right', widthWeight: 0.95 },
+          { header: 'Total Life', key: 'totalLife', align: 'right', widthWeight: 0.95 },
+          { header: 'Remaining', key: 'remaining', align: 'right', widthWeight: 0.9 },
+          { header: 'Voucher #', key: 'voucher', widthWeight: 0.9 },
+          { header: 'Operator / Issuer', key: 'operator', widthWeight: 1.0 },
+        ],
+        rows: rows.map((r, idx) => ({
+          seq: idx + 1,
+          machine: fmtMachine(r.machine),
+          component: r.component ? `${r.component.componentCode} — ${r.component.componentName}` : '—',
+          toolCode: `${r.installedToolCode}${(r.sessionCount ?? 1) > 1 ? ` (S${r.sessionCount})` : ''}`,
+          installDate: fmtDate(r.installDate),
+          priorLife: fmtQty(r.accumulatedLifeBeforeCurrentSession ?? 0, PRODUCTION_UOM),
+          currentSession: fmtQty(r.currentSessionProduction ?? r.usedByInstalled, PRODUCTION_UOM),
+          totalLife: fmtQty(r.usedByInstalled, PRODUCTION_UOM),
+          remaining: r.remainingByInstalled != null ? fmtQty(r.remainingByInstalled, PRODUCTION_UOM) : '—',
+          voucher: r.storeIssueNumber || r.jobCardNo || '—',
+          operator: r.operatorName || r.issuedByName || '—',
+        })),
+      };
+    }
+
+    if (activeTab === 'changes') {
+      const params: Record<string, any> = { page: 1, limit: 2000 };
+      if (chgSearch) params.search = chgSearch;
+      if (fChgMachine) params.machineId = fChgMachine;
+      if (fChgComponent) params.componentId = fChgComponent;
+      if (fChgCondition) params.conditionStatus = fChgCondition;
+      if (fChgFrom) params.from = fChgFrom;
+      if (fChgTo) params.to = fChgTo;
+
+      let rows = changes;
+      try {
+        const res = await apiService.get<{ data: ChangeRec[] }>('/machine-tooling/changes', params, { silent: true });
+        if (res?.data) rows = res.data;
+      } catch {}
+
+      const filterParts: string[] = [];
+      if (fChgMachine) filterParts.push(`Machine: ${lookupMachineLabel(fChgMachine)}`);
+      if (fChgCondition) filterParts.push(`Condition: ${fChgCondition}`);
+      if (fChgFrom || fChgTo) filterParts.push(`Period: ${fChgFrom || '...'} to ${fChgTo || '...'}`);
+      if (chgSearch) filterParts.push(`Search: "${chgSearch}"`);
+
+      return {
+        reportTitle: 'Machine Tool Changeover & Replacement Log',
+        subtitle: 'Machine Tools & Components · Historical Tool Changeover Audit',
+        fileBaseName: 'PWI-Tool-Change-History',
+        printedBy: printedByName,
+        filterSummary: filterParts.length > 0 ? filterParts.join(' · ') : 'All Tool Change Events',
+        kpis: [
+          { label: 'Total Changes', value: String(rows.length), tone: 'primary' },
+          { label: 'New Tools Installed', value: String(rows.filter((r) => r.conditionStatus === 'NEW').length), tone: 'success' },
+          {
+            label: 'Damaged / Reworked',
+            value: String(rows.filter((r) => r.conditionStatus === 'DAMAGED' || r.conditionStatus === 'REWORKED').length),
+            tone: 'warning',
+          },
+          {
+            label: 'Total Production Covered',
+            value: `${fmtNum(rows.reduce((s, r) => s + (num(r.currentLifeQty ?? r.productionSincePrevious) || 0), 0))} ${PRODUCTION_UOM}`,
+            tone: 'neutral',
+          },
+        ],
+        columns: [
+          { header: '#', key: 'seq', align: 'center', widthWeight: 0.45 },
+          { header: 'Change Date', key: 'changeDate', widthWeight: 0.85 },
+          { header: 'Machine', key: 'machine', widthWeight: 1.4 },
+          { header: 'Component', key: 'component', widthWeight: 1.4 },
+          { header: 'Old Tool', key: 'oldTool', widthWeight: 0.95 },
+          { header: 'New Tool', key: 'newTool', widthWeight: 0.95 },
+          { header: 'Production Life', key: 'prodPrev', align: 'right', widthWeight: 0.95 },
+          { header: 'Condition', key: 'condition', align: 'center', widthWeight: 0.75 },
+          { header: 'Reason / Remarks', key: 'reason', widthWeight: 1.25 },
+          { header: 'Changed By', key: 'changedBy', widthWeight: 0.9 },
+        ],
+        rows: rows.map((r, idx) => ({
+          seq: idx + 1,
+          changeDate: fmtDate(r.changeDate),
+          machine: fmtMachine(r.machine),
+          component: r.component ? `${r.component.componentCode} — ${r.component.componentName}` : '—',
+          oldTool: r.oldToolCode || '—',
+          newTool: r.newToolCode || '—',
+          prodPrev: fmtQty(r.currentLifeQty ?? r.productionSincePrevious, PRODUCTION_UOM),
+          condition: r.conditionStatus || '—',
+          reason: r.reason || r.remarks || '—',
+          changedBy: r.changedByUser?.fullName || r.changedByUser?.name || '—',
+        })),
+      };
+    }
+
+    if (activeTab === 'report') {
+      const rows = report?.rows || [];
+      const filterParts = [`Month: ${reportMonth.format('MMMM YYYY')}`];
+      if (fReportDivision) {
+        const divName = divisions.find((d) => d.id === fReportDivision)?.name || fReportDivision;
+        filterParts.push(`Division: ${divName}`);
+      }
+      if (fReportMachine) filterParts.push(`Machine: ${lookupMachineLabel(fReportMachine)}`);
+
+      return {
+        reportTitle: `Monthly Tool Consumption & Cost Report — ${reportMonth.format('MMMM YYYY')}`,
+        subtitle: 'Machine Tools & Components · Cost per Gross (144 PCS) & Output Analysis',
+        fileBaseName: `PWI-Monthly-Tool-Consumption-${reportMonth.format('YYYY-MM')}`,
+        printedBy: printedByName,
+        filterSummary: filterParts.join(' · '),
+        kpis: [
+          { label: 'Report Period', value: reportMonth.format('MMM YYYY'), tone: 'primary' },
+          { label: 'Machines', value: String(report?.totals?.machines ?? 0), tone: 'neutral' },
+          { label: 'Tools Installed', value: fmtNum(report?.totals?.qtyUsed ?? 0), tone: 'neutral' },
+          { label: 'Production Covered', value: `${fmtNum(report?.totals?.productionCovered ?? 0)} ${PRODUCTION_UOM}`, tone: 'success' },
+          { label: 'Total Tooling Cost', value: fmtPkr(report?.totals?.totalCost ?? 0), tone: 'warning' },
+          {
+            label: 'Avg Cost / Gross (144 PCS)',
+            value: report?.totals?.avgCostPerGross != null ? `${fmtPkr(report.totals.avgCostPerGross, 2)} / Gross` : '—',
+            tone: 'danger',
+          },
+        ],
+        columns: [
+          { header: '#', key: 'seq', align: 'center', widthWeight: 0.4 },
+          { header: 'Machine', key: 'machine', widthWeight: 1.35 },
+          { header: 'Division', key: 'division', widthWeight: 0.9 },
+          { header: 'Component', key: 'component', widthWeight: 1.45 },
+          { header: 'Changes', key: 'changes', align: 'right', widthWeight: 0.55 },
+          { header: 'Qty Used', key: 'qtyUsed', align: 'right', widthWeight: 0.7 },
+          { header: 'Unit Rate (PKR)', key: 'unitCost', align: 'right', widthWeight: 0.85 },
+          { header: 'Total Cost (PKR)', key: 'totalCost', align: 'right', widthWeight: 0.9 },
+          { header: 'Production Covered', key: 'productionCovered', align: 'right', widthWeight: 1.0 },
+          { header: 'Cost / Gross', key: 'costPerGross', align: 'right', widthWeight: 0.85 },
+          { header: 'Last Change', key: 'lastChange', widthWeight: 0.8 },
+        ],
+        rows: rows.map((r, idx) => ({
+          seq: idx + 1,
+          machine: fmtMachine(r.machine ? { machineCode: r.machine.machineCode, name: r.machine.machineName } : null),
+          division: r.machine?.divisionName || '—',
+          component: r.component ? `${r.component.componentCode} — ${r.component.componentName}` : '—',
+          changes: r.changes,
+          qtyUsed: fmtQty(r.qtyUsed, r.component?.uomCode),
+          unitCost: fmtPkr(r.unitCost ?? 0),
+          totalCost: fmtPkr(r.totalCost ?? 0),
+          productionCovered: fmtQty(r.productionCovered, PRODUCTION_UOM),
+          costPerGross: r.costPerGross != null ? `${fmtPkr(r.costPerGross, 2)} / Gross` : '—',
+          lastChange: fmtDate(r.lastChangeDate),
+        })),
+      };
+    }
+
+    // Default: Tool & Component Setup ('setup')
+    const params: Record<string, any> = { page: 1, limit: 2000 };
+    if (compSearch) params.search = compSearch;
+    if (fCompMachine) params.machineId = fCompMachine;
+    if (fCompType) params.componentType = fCompType;
+
+    let rows = components;
+    try {
+      const res = await apiService.get<{ data: ComponentRec[] }>('/machine-tooling/components', params, { silent: true });
+      if (res?.data) rows = res.data;
+    } catch {}
+
+    const filterParts: string[] = [];
+    if (fCompMachine) filterParts.push(`Machine: ${lookupMachineLabel(fCompMachine)}`);
+    if (fCompType) filterParts.push(`Type: ${fCompType}`);
+    if (compSearch) filterParts.push(`Search: "${compSearch}"`);
+
+    return {
+      reportTitle: 'Machine Tools & Components Master Registry',
+      subtitle: 'Machine Tools & Components · Engineering Master Setup',
+      fileBaseName: 'PWI-Tool-Component-Setup',
+      printedBy: printedByName,
+      filterSummary: filterParts.length > 0 ? filterParts.join(' · ') : 'All Registered Machine Tools & Components',
+      kpis: [
+        { label: 'Total Components', value: String(rows.length), tone: 'primary' },
+        { label: 'Store-Linked Items', value: String(rows.filter((r) => !!r.itemId || !!r.item).length), tone: 'success' },
+        { label: 'Active Definitions', value: String(rows.filter((r) => r.isActive).length), tone: 'neutral' },
+      ],
+      columns: [
+        { header: '#', key: 'seq', align: 'center', widthWeight: 0.45 },
+        { header: 'Component Code', key: 'code', widthWeight: 0.95 },
+        { header: 'Component Name', key: 'name', widthWeight: 1.45 },
+        { header: 'Type', key: 'type', align: 'center', widthWeight: 0.7 },
+        { header: 'Machine', key: 'machine', widthWeight: 1.4 },
+        { header: 'Linked Store Item', key: 'storeItem', widthWeight: 1.45 },
+        { header: 'Expected Life', key: 'expectedLife', align: 'right', widthWeight: 0.85 },
+        { header: 'Status', key: 'status', align: 'center', widthWeight: 0.65 },
+      ],
+      rows: rows.map((r, idx) => {
+        const machineList =
+          Array.isArray(r.machines) && r.machines.length > 0
+            ? r.machines.map((m) => m.machineCode || m.name || '').filter(Boolean).join(', ')
+            : fmtMachine(r.machine);
+        return {
+          seq: idx + 1,
+          code: r.componentCode || '—',
+          name: r.componentName || '—',
+          type: formatComponentTypeLabel(r.componentType),
+          machine: machineList || '—',
+          storeItem: r.item ? `${r.item.itemCode} — ${r.item.name || ''}` : '—',
+          expectedLife: fmtQty(r.expectedLifeQuantity, PRODUCTION_UOM),
+          status: r.isActive ? 'ACTIVE' : 'CLOSED',
+        };
+      }),
+    };
+  }, [
+    activeTab, printedByName, machines, divisions,
+    lifeSearch, fLifeMachine, fLifeComponent, fLifeDisposition, fLifeStatus, fLifeFrom, fLifeTo, lifeRows, lifeSummary,
+    atSearch, fAtMachine, activeTools, standbyTools.length,
+    chgSearch, fChgMachine, fChgComponent, fChgCondition, fChgFrom, fChgTo, changes,
+    report, reportMonth, fReportDivision, fReportMachine,
+    compSearch, fCompMachine, fCompType, components,
+  ]);
+
+  const handleHeaderExportCSV = useCallback(async () => {
+    setExporting(true);
+    try {
+      const payload = await buildActiveTabExportPayload();
+      if (payload.rows.length === 0) {
+        message.info('No records available to export');
+        return;
+      }
+      exportToolReportCSV(payload);
+      message.success(`Exported ${payload.rows.length} record(s) to CSV`);
+    } catch (err: any) {
+      message.error(extractApiError(err, 'Failed to export CSV report'));
+    } finally {
+      setExporting(false);
+    }
+  }, [buildActiveTabExportPayload, message]);
+
+  const handleHeaderExportPDF = useCallback(async () => {
+    setExporting(true);
+    try {
+      const [payload, logo] = await Promise.all([
+        buildActiveTabExportPayload(),
+        logoDataUrl ? Promise.resolve(logoDataUrl) : loadCompanyLogoDataUrl(),
+      ]);
+      if (payload.rows.length === 0) {
+        message.info('No records available to export as PDF');
+        return;
+      }
+      exportToolReportPDF(payload, logo);
+      message.success(`Downloaded PDF report (${payload.rows.length} record(s))`);
+    } catch (err: any) {
+      message.error(extractApiError(err, 'Failed to generate PDF report'));
+    } finally {
+      setExporting(false);
+    }
+  }, [buildActiveTabExportPayload, logoDataUrl, message]);
+
+  const handleHeaderPrint = useCallback(async () => {
+    // Open the print window synchronously within the user click gesture so popup blockers do not block it
+    const printWin = window.open('', '_blank', 'width=1240,height=840');
+    if (!printWin) {
+      message.warning('Pop-up blocked by browser. Please allow pop-ups for this site to print the executive report.');
+      return;
+    }
+    printWin.document.write(
+      '<!DOCTYPE html><html><head><title>Preparing Executive Report...</title></head><body style="font-family:Segoe UI,Arial,sans-serif;padding:32px;color:#334155;">Preparing Executive Report...</body></html>',
+    );
+    setExporting(true);
+    try {
+      const [payload, logo] = await Promise.all([
+        buildActiveTabExportPayload(),
+        logoDataUrl ? Promise.resolve(logoDataUrl) : loadCompanyLogoDataUrl(),
+      ]);
+      printToolReport(payload, logo, printWin);
+    } catch (err: any) {
+      try {
+        printWin.close();
+      } catch {}
+      message.error(extractApiError(err, 'Failed to prepare printable report'));
+    } finally {
+      setExporting(false);
+    }
+  }, [buildActiveTabExportPayload, logoDataUrl, message]);
+
+  const headerActionButtons = useMemo(
+    () => (
+      <div
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'flex-end',
+          gap: 6,
+          flexWrap: 'wrap',
+          maxWidth: '100%',
+        }}
+      >
+        <Dropdown
+          trigger={['click']}
+          placement="bottomRight"
+          menu={{
+            items: [
+              {
+                key: 'csv',
+                icon: <FileExcelOutlined style={{ color: '#059669' }} />,
+                label: 'Export Excel / CSV',
+                onClick: () => { void handleHeaderExportCSV(); },
+              },
+              {
+                key: 'pdf',
+                icon: <FilePdfOutlined style={{ color: '#dc2626' }} />,
+                label: 'Download PDF',
+                onClick: () => { void handleHeaderExportPDF(); },
+              },
+              { type: 'divider' },
+              {
+                key: 'print',
+                icon: <PrinterOutlined style={{ color: token.colorPrimary }} />,
+                label: 'Print Report',
+                onClick: () => { void handleHeaderPrint(); },
+              },
+            ],
+          }}
+        >
+          <Button
+            icon={<ExportOutlined />}
+            loading={exporting}
+            style={{
+              height: 34,
+              borderRadius: 8,
+              fontWeight: 600,
+              fontSize: 12.5,
+              paddingInline: 10,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 5,
+            }}
+          >
+            <span>Export</span>
+            <DownOutlined style={{ fontSize: 10, opacity: 0.75 }} />
+          </Button>
+        </Dropdown>
+
+        {(activeTab === 'active' || activeTab === 'life') && can('manufacturing.component_change.create') && (
+          <Button
+            icon={<PlayCircleOutlined />}
+            onClick={openRemountModal}
+            style={{
+              height: 34,
+              borderRadius: 8,
+              fontWeight: 600,
+              fontSize: 12.5,
+              paddingInline: 10,
+              borderColor: '#f59e0b',
+              color: '#d97706',
+            }}
+          >
+            Re-Mount Standby{standbyTools.length > 0 ? ` (${standbyTools.length})` : ''}
+          </Button>
+        )}
+
+        {primaryAdd?.show && (
+          <Button
+            type="primary"
+            icon={primaryAdd.icon}
+            onClick={primaryAdd.onClick}
+            style={{
+              height: 34,
+              borderRadius: 8,
+              fontWeight: 600,
+              fontSize: 12.5,
+              paddingInline: 11,
+              background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+              borderColor: '#059669',
+              boxShadow: '0 2px 6px rgba(16, 185, 129, 0.28)',
+            }}
+          >
+            {primaryAdd.label}
+          </Button>
+        )}
+
+        <Button
+          icon={<ReloadOutlined />}
+          title="Refresh current tab data"
+          onClick={handleRefreshActiveTab}
+          style={{
+            height: 34,
+            borderRadius: 8,
+            fontWeight: 600,
+            fontSize: 12.5,
+            paddingInline: 10,
+            flexShrink: 0,
+          }}
+        >
+          {!isMobile && 'Refresh'}
+        </Button>
+      </div>
+    ),
+    [
+      activeTab, can, standbyTools.length, primaryAdd, isMobile, token.colorPrimary, exporting,
+      handleHeaderExportCSV, handleHeaderExportPDF, handleHeaderPrint, handleRefreshActiveTab,
+    ],
+  );
+
   useEffect(() => {
-    const { setHeaderMeta, clearHeaderMeta } = useHeaderActions.getState();
+    const { setHeaderMeta } = useHeaderActions.getState();
     setHeaderMeta(
-      <Space align="center" size={10}>
+      <Space align="center" size={8}>
         <ToolOutlined style={{ color: 'var(--theme-accent, #10b981)' }} />
         <span>Machine Tools & Components</span>
         <span
@@ -2245,69 +3711,19 @@ const MachineToolingManagement: React.FC = () => {
             color: '#10b981',
             borderRadius: 6,
             padding: '2px 8px',
-            fontSize: 12,
+            fontSize: 11.5,
             fontWeight: 700,
           }}
         >
           Enterprise 2027
         </span>
       </Space>,
-      `Track tool / die / mould life per machine, record changes, and review monthly consumption · ${componentsTotal} components`,
+      `Tool life tracking, changeovers & monthly consumption · ${componentsTotal} components`,
       <ToolOutlined />,
-      <Space size={8}>
-        {(activeTab === 'active' || activeTab === 'life') && can('manufacturing.component_change.create') && (
-          <Button
-            icon={<PlayCircleOutlined />}
-            onClick={openRemountModal}
-            style={{
-              borderRadius: 6,
-              fontWeight: 600,
-              borderColor: '#f59e0b',
-              color: '#d97706',
-            }}
-          >
-            Re-Mount Standby Tool{standbyTools.length > 0 ? ` (${standbyTools.length})` : ''}
-          </Button>
-        )}
-        {primaryAdd?.show && (
-          <Button
-            type="primary"
-            icon={primaryAdd.icon}
-            onClick={primaryAdd.onClick}
-            style={{
-              borderRadius: 6,
-              fontWeight: 600,
-              background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-              borderColor: '#059669',
-              boxShadow: '0 2px 8px rgba(16, 185, 129, 0.35)',
-            }}
-          >
-            {primaryAdd.label}
-          </Button>
-        )}
-        <Button
-          icon={<ReloadOutlined />}
-          title="Refresh current tab data"
-          onClick={() => {
-            if (activeTab === 'setup') fetchComponents(compPage);
-            else if (activeTab === 'changes') fetchChanges(chgPage);
-            else if (activeTab === 'active') {
-              fetchActiveTools(atPage);
-              fetchStandbyTools();
-            } else if (activeTab === 'life') {
-              fetchLifeReport(lifePage);
-              fetchStandbyTools();
-            } else if (activeTab === 'report') fetchReport();
-          }}
-        />
-      </Space>,
+      headerActionButtons,
       MASTER_MACHINE_TOOLS_TAB_ID,
     );
-  }, [
-    primaryAdd, activeTab, componentsTotal, standbyTools.length,
-    compPage, chgPage, atPage, lifePage, fetchComponents, fetchChanges,
-    fetchActiveTools, fetchLifeReport, fetchReport, fetchStandbyTools,
-  ]);
+  }, [componentsTotal, headerActionButtons]);
 
   useEffect(() => {
     return () => {
@@ -2323,7 +3739,19 @@ const MachineToolingManagement: React.FC = () => {
       }}
       serialize={() => ({ components, componentsTotal, compPage, compPageSize, compSearch, activeTab, lookups: { machines, items, uoms, divisions, sections, departments, masterItemTypes } })}
     >
-      <div>
+      <div
+        className="pwi-tooling-executive-page"
+        style={{
+          ['--pwi-accent-primary' as any]: token.colorPrimary,
+          ['--theme-table-header-color' as any]: '#FFFFFF',
+          ['--ui-table-header-text' as any]: '#FFFFFF',
+          ['--theme-table-header-border' as any]: 'rgba(255, 255, 255, 0.14)',
+          ['--ui-table-header-rule' as any]: 'rgba(255, 255, 255, 0.14)',
+          ['--theme-table-row-odd' as any]: token.colorBgContainer,
+          ['--theme-table-row-even' as any]: token.colorBgContainer,
+          ['--theme-table-row-hover' as any]: token.colorFillTertiary,
+        }}
+      >
       <PageHeader
         icon={<ToolOutlined />}
         title={
@@ -2345,7 +3773,8 @@ const MachineToolingManagement: React.FC = () => {
             </span>
           </Space>
         }
-        subtitle={`Track tool / die / mould life per machine, record changes, and review monthly consumption · ${componentsTotal} components`}
+        subtitle={`Tool life tracking, changeovers & monthly consumption · ${componentsTotal} components`}
+        extra={headerActionButtons}
         showBreadcrumbs
       />
 
@@ -2364,10 +3793,10 @@ const MachineToolingManagement: React.FC = () => {
             alignItems: 'stretch',
             width: '100%',
             overflowX: 'auto',
-            padding: '6px 6px 8px 6px',
+            padding: '8px 10px 10px 10px',
             scrollbarWidth: 'thin',
-            background: '#f8fafc',
-            borderBottom: '1px solid #e2e8f0',
+            background: token.colorFillAlter,
+            borderBottom: `1px solid ${token.colorBorderSecondary}`,
           }}
         >
           {[
@@ -2397,17 +3826,17 @@ const MachineToolingManagement: React.FC = () => {
                   display: 'inline-flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  gap: 8,
+                  gap: 9,
                   padding: isFirst
-                    ? '10px 22px 10px 16px'
+                    ? '12px 26px 12px 20px'
                     : isLast
-                    ? '10px 18px 10px 24px'
-                    : '10px 20px 10px 24px',
+                    ? '12px 22px 12px 28px'
+                    : '12px 24px 12px 28px',
                   marginLeft: isFirst ? 0 : -6,
                   zIndex: isSelected ? 12 : arr.length - idx,
-                  fontSize: 12.5,
+                  fontSize: 13.5,
                   fontWeight: 700,
-                  letterSpacing: '0.4px',
+                  letterSpacing: '0.3px',
                   whiteSpace: 'nowrap',
                   border: 'none',
                   outline: 'none',
@@ -2416,15 +3845,15 @@ const MachineToolingManagement: React.FC = () => {
                   transition: 'all 0.18s cubic-bezier(0.4, 0, 0.2, 1)',
                   background: isSelected
                     ? `linear-gradient(135deg, ${tab.activeBg} 0%, ${tab.color} 100%)`
-                    : 'linear-gradient(135deg, #ffffff 0%, #f1f5f9 100%)',
-                  color: isSelected ? '#ffffff' : '#334155',
+                    : token.colorBgContainer,
+                  color: isSelected ? '#ffffff' : token.colorText,
                   boxShadow: isSelected
                     ? `0 4px 14px ${tab.color}55, inset 0 0 0 1.5px rgba(255,255,255,0.3)`
-                    : 'inset 0 0 0 1px #e2e8f0',
-                  transform: isSelected ? 'scale(1.025)' : 'scale(1)',
+                    : `inset 0 0 0 1px ${token.colorBorderSecondary}`,
+                  transform: isSelected ? 'scale(1.02)' : 'scale(1)',
                 }}
               >
-                <span style={{ fontSize: 14, display: 'flex', alignItems: 'center' }}>{tab.icon}</span>
+                <span style={{ fontSize: 15, display: 'flex', alignItems: 'center' }}>{tab.icon}</span>
                 <span>{tab.label}</span>
                 {tab.count !== null && (
                   <span
@@ -2432,14 +3861,14 @@ const MachineToolingManagement: React.FC = () => {
                       display: 'inline-flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      minWidth: 22,
-                      height: 20,
-                      padding: '0 6px',
-                      borderRadius: 10,
-                      fontSize: 11,
+                      minWidth: 24,
+                      height: 22,
+                      padding: '0 7px',
+                      borderRadius: 11,
+                      fontSize: 11.5,
                       fontWeight: 800,
-                      background: isSelected ? 'rgba(255, 255, 255, 0.28)' : '#e2e8f0',
-                      color: isSelected ? '#ffffff' : '#475569',
+                      background: isSelected ? 'rgba(255, 255, 255, 0.26)' : token.colorFillSecondary,
+                      color: isSelected ? '#ffffff' : token.colorTextSecondary,
                       boxShadow: isSelected ? '0 1px 3px rgba(0,0,0,0.2)' : 'none',
                     }}
                   >
@@ -2463,6 +3892,7 @@ const MachineToolingManagement: React.FC = () => {
             <div style={{ width: '100%' }}>
               <div style={{ padding: '8px 10px', borderBottom: '1px solid var(--theme-border, rgba(148, 163, 184, 0.12))' }}>
                 <TableToolbar
+                showExportButtons={false}
                 searchPlaceholder="Search component name, code, machine..."
                 searchValue={compSearch}
                 onSearchChange={(v) => { setCompSearch(v); setCompPage(1); }}
@@ -2479,7 +3909,7 @@ const MachineToolingManagement: React.FC = () => {
                     key: 'type',
                     placeholder: 'Type',
                     value: fCompType,
-                    options: COMPONENT_TYPES.map((t) => ({ value: t, label: t })),
+                    options: COMPONENT_TYPE_OPTIONS,
                     onChange: (v) => { setFCompType(v); setCompPage(1); },
                   },
                 ]}
@@ -2542,7 +3972,7 @@ const MachineToolingManagement: React.FC = () => {
                 dataSource={components}
                 rowKey="id"
                 loading={false}
-                scroll={{ x: 1450 }}
+                scroll={{ x: 'max-content' }}
                 containerStyle={{ border: 'none', borderRadius: 0, boxShadow: 'none' }}
                 emptyTitle="No components found"
                 emptyDescription="Add a tool, die, mould or component to start tracking its life."
@@ -2563,6 +3993,7 @@ const MachineToolingManagement: React.FC = () => {
           <>
             <div style={{ padding: '8px 10px', borderBottom: '1px solid var(--theme-border, rgba(148, 163, 184, 0.12))' }}>
               <TableToolbar
+                showExportButtons={false}
                 searchPlaceholder="Search change, tool code, machine..."
                 searchValue={chgSearch}
                 onSearchChange={(v) => { setChgSearch(v); setChgPage(1); }}
@@ -2669,7 +4100,6 @@ const MachineToolingManagement: React.FC = () => {
                     </Button>
                   </>
                 }
-                onRefresh={() => fetchChanges(chgPage)}
               />
             </div>
             <div style={{ width: '100%', overflowX: 'auto' }}>
@@ -2678,7 +4108,7 @@ const MachineToolingManagement: React.FC = () => {
                 dataSource={changes}
                 rowKey="id"
                 loading={false}
-                scroll={{ x: 1300 }}
+                scroll={{ x: 'max-content' }}
                 containerStyle={{ border: 'none', borderRadius: 0, boxShadow: 'none' }}
                 emptyTitle="No changes recorded"
                 emptyDescription="Record a tool / component change to build the life history."
@@ -2699,50 +4129,224 @@ const MachineToolingManagement: React.FC = () => {
           <>
             <div style={{ padding: '8px 10px', borderBottom: '1px solid var(--theme-border, rgba(148, 163, 184, 0.12))' }}>
               <TableToolbar
+                showExportButtons={false}
                 left={
-                  <Space size={8}>
+                  <Space size={8} wrap>
                     <DatePicker picker="month" value={reportMonth} onChange={(d) => d && setReportMonth(d)} allowClear={false} />
+                    <Select
+                      placeholder="All Divisions"
+                      allowClear
+                      showSearch
+                      optionFilterProp="label"
+                      value={fReportDivision}
+                      onChange={(divId) => {
+                        setFReportDivision(divId);
+                        if (divId && fReportMachine) {
+                          const mach = machines.find((m) => m.id === fReportMachine);
+                          if (mach && mach.divisionId !== divId) {
+                            setFReportMachine(undefined);
+                          }
+                        }
+                      }}
+                      style={{ width: 200 }}
+                      options={reportDivisionOptions}
+                    />
                     <Select
                       placeholder="All machines"
                       allowClear
+                      showSearch
+                      optionFilterProp="label"
                       value={fReportMachine}
                       onChange={(v) => setFReportMachine(v)}
                       style={{ width: 220 }}
-                      options={machineOptions}
+                      options={reportMachineOptions}
                     />
+                    {(fReportDivision || fReportMachine) && (
+                      <Button
+                        type="link"
+                        danger
+                        onClick={() => {
+                          setFReportDivision(undefined);
+                          setFReportMachine(undefined);
+                        }}
+                      >
+                        Clear
+                      </Button>
+                    )}
                   </Space>
                 }
-                right={
-                  <Button icon={<ReloadOutlined />} onClick={fetchReport}>
-                    Refresh
-                  </Button>
+                actions={
+                  reportMachines.length > 0 ? (
+                    <Button
+                      size="small"
+                      style={{ borderRadius: 6, fontWeight: 600 }}
+                      onClick={() => {
+                        if (expandedMachineKeys.length >= reportMachines.length) {
+                          setExpandedMachineKeys([]);
+                        } else {
+                          setExpandedMachineKeys(reportMachines.map((m) => m.machine?.id ?? 'unknown'));
+                        }
+                      }}
+                    >
+                      {expandedMachineKeys.length >= reportMachines.length ? 'Collapse All' : 'Expand All Breakdown'}
+                    </Button>
+                  ) : null
                 }
               />
             </div>
-            <div style={{ padding: '12px 14px 0', display: 'flex', flexWrap: 'wrap', gap: 24 }}>
-              <Statistic title="Month" value={reportMonth.format('MMMM YYYY')} />
-              <Statistic title="Machines" value={report?.totals.machines ?? 0} />
-              <Statistic title="Component Lines" value={report?.totals.components ?? 0} />
-              <Statistic title="Changes" value={report?.totals.changes ?? 0} />
-              <Statistic title="Tools Installed" value={report?.totals.qtyUsed ?? 0} />
-              <Statistic title="Production Covered" value={fmtNum(report?.totals.productionCovered)} />
+            <div
+              style={{
+                padding: '14px 16px 6px',
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(175px, 1fr))',
+                gap: 12,
+              }}
+            >
+              {[
+                { label: 'Month', value: reportMonth.format('MMMM YYYY'), accent: '#7c3aed', bgTint: 'rgba(124, 58, 237, 0.12)', icon: <BarChartOutlined /> },
+                { label: 'Machines', value: report?.totals.machines ?? 0, accent: '#3b82f6', bgTint: 'rgba(59, 130, 246, 0.12)', icon: <DesktopOutlined /> },
+                { label: 'Tools Installed', value: fmtNum(report?.totals.qtyUsed ?? 0), accent: '#0284c7', bgTint: 'rgba(2, 132, 199, 0.12)', icon: <ToolOutlined /> },
+                { label: 'Production Covered', value: `${fmtNum(report?.totals.productionCovered ?? 0)} ${PRODUCTION_UOM}`, accent: '#10b981', bgTint: 'rgba(16, 185, 129, 0.12)', icon: <RiseOutlined /> },
+                { label: 'Total Tooling Cost', value: fmtPkr(report?.totals.totalCost ?? 0), accent: '#d97706', bgTint: 'rgba(217, 119, 6, 0.12)', icon: <DollarOutlined /> },
+                {
+                  label: 'Avg Cost / Gross (144 PCS)',
+                  value: report?.totals.avgCostPerGross != null ? `${fmtPkr(report.totals.avgCostPerGross, 2)} / Gross` : '—',
+                  accent: '#dc2626',
+                  bgTint: 'rgba(220, 38, 38, 0.12)',
+                  icon: <ThunderboltOutlined />,
+                },
+              ].map((kpi) => (
+                <div
+                  key={kpi.label}
+                  className="pwi-kpi-card"
+                  style={{
+                    ['--kpi-accent' as any]: kpi.accent,
+                    background: token.colorBgContainer,
+                    border: `1px solid ${token.colorBorderSecondary}`,
+                    borderTop: `3px solid ${kpi.accent}`,
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: token.colorTextSecondary }}>
+                      {kpi.label}
+                    </span>
+                    <span
+                      style={{
+                        width: 32,
+                        height: 32,
+                        borderRadius: 9,
+                        background: kpi.bgTint,
+                        color: kpi.accent,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: 15,
+                        flexShrink: 0,
+                      }}
+                    >
+                      {kpi.icon}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 21, fontWeight: 800, color: token.colorText, lineHeight: 1.2, fontVariantNumeric: 'tabular-nums' }}>
+                    {kpi.value}
+                  </div>
+                </div>
+              ))}
             </div>
-            <Alert
-              style={{ margin: '10px 14px' }}
-              type="info"
-              showIcon
-              message="Derived production quantities"
-              description="Machines have no native counter in the ERP; production-covered figures are computed from recorded counter snapshots between changes."
-            />
+            <div
+              style={{
+                margin: '10px 16px 12px',
+                padding: '10px 14px',
+                borderRadius: 8,
+                background: token.colorFillAlter,
+                border: `1px solid ${token.colorBorderSecondary}`,
+                borderLeft: '3px solid #7c3aed',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                fontSize: 13,
+                color: token.colorTextSecondary,
+              }}
+            >
+              <InfoCircleOutlined style={{ color: '#7c3aed', fontSize: 15, flexShrink: 0 }} />
+              <div>
+                <strong style={{ color: token.colorText }}>Machine Cost per Gross (144 PCS)</strong> —{' '}
+                <span>Click any machine row to expand its punch & die breakdown and edit missing tool unit rates inline. Cost / Gross = (Total Tooling Cost / Production Covered PCS) × 144.</span>
+              </div>
+            </div>
             <div style={{ width: '100%', overflowX: 'auto' }}>
               <ERPTable
-                columns={reportColumns}
-                dataSource={report?.rows ?? []}
-                rowKey={(r) => `${r.machine?.id ?? '?'}-${r.component?.id ?? '?'}`}
-                loading={false}
-                scroll={{ x: 1300 }}
+                columns={reportMachineColumns}
+                dataSource={reportMachines}
+                rowKey={(m) => m.machine?.id ?? 'unknown'}
+                loading={reportLoading}
+                scroll={{ x: 'max-content' }}
                 containerStyle={{ border: 'none', borderRadius: 0, boxShadow: 'none' }}
                 pagination={false}
+                expandable={{
+                  columnWidth: 46,
+                  expandedRowKeys: expandedMachineKeys,
+                  onExpandedRowsChange: (keys) => setExpandedMachineKeys([...keys]),
+                  expandRowByClick: true,
+                  rowExpandable: (m) => Array.isArray(m.components) && m.components.length > 0,
+                  expandIcon: ({ expanded, onExpand, record }) =>
+                    Array.isArray(record.components) && record.components.length > 0 ? (
+                      <Tooltip title={expanded ? 'Collapse tool breakdown' : 'Expand tool breakdown'}>
+                        <button
+                          type="button"
+                          className={`pwi-expand-pill ${expanded ? 'pwi-expand-pill--active' : ''}`}
+                          aria-label={
+                            expanded
+                              ? `Collapse ${record.machine?.machineCode || 'machine'} tool breakdown`
+                              : `Expand ${record.machine?.machineCode || 'machine'} tool breakdown`
+                          }
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onExpand(record, e);
+                          }}
+                          style={{
+                            width: 26,
+                            height: 26,
+                            minWidth: 26,
+                            padding: 0,
+                            borderRadius: 6,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: 'pointer',
+                            color: expanded ? '#FFFFFF' : '#EA580C',
+                            background: expanded ? '#EA580C' : '#FFF7ED',
+                            border: `1px solid ${expanded ? '#EA580C' : '#FDBA74'}`,
+                            fontSize: 13.5,
+                            lineHeight: 1,
+                            transition: 'transform 0.14s ease, box-shadow 0.14s ease, background-color 0.14s ease, color 0.14s ease',
+                          }}
+                        >
+                          {expanded ? <ShrinkOutlined /> : <ArrowsAltOutlined />}
+                        </button>
+                      </Tooltip>
+                    ) : null,
+                  expandedRowRender: (m) => (
+                    <div
+                      style={{
+                        padding: '8px 10px',
+                        background: token.colorFillAlter,
+                        borderRadius: 8,
+                        border: `1px solid ${token.colorBorderSecondary}`,
+                      }}
+                    >
+                      <ERPTable
+                        columns={reportDetailColumns}
+                        dataSource={m.components ?? []}
+                        rowKey={(r) => `${r.machine?.id ?? '?'}-${r.component?.id ?? '?'}`}
+                        size="small"
+                        pagination={false}
+                        scroll={{ x: 'max-content' }}
+                        containerStyle={{ border: `1px solid ${token.colorBorderSecondary}`, borderRadius: 6, boxShadow: 'none' }}
+                      />
+                    </div>
+                  ),
+                }}
                 emptyTitle="No consumption for this month"
                 emptyDescription="Record component changes in the selected month to see the consumption report."
               />
@@ -2754,6 +4358,7 @@ const MachineToolingManagement: React.FC = () => {
           <>
             <div style={{ padding: '8px 10px', borderBottom: '1px solid var(--theme-border, rgba(148, 163, 184, 0.12))' }}>
               <TableToolbar
+                showExportButtons={false}
                 searchPlaceholder="Search active tool, component, machine..."
                 searchValue={atSearch}
                 onSearchChange={(v) => { setAtSearch(v); setAtPage(1); }}
@@ -2767,42 +4372,86 @@ const MachineToolingManagement: React.FC = () => {
                     width: 180,
                   },
                 ]}
-                onRefresh={() => fetchActiveTools(atPage)}
               />
             </div>
-            <div style={{ padding: '12px 14px 0', display: 'flex', flexWrap: 'wrap', gap: 24, alignItems: 'center' }}>
-              <Statistic title="Active Tools" value={activeToolsTotal} />
-              <Statistic title="Active Machines" value={new Set(activeTools.map((a) => a.machineId)).size} />
-              <Statistic
-                title="Standby (Reusable)"
-                value={standbyTools.length}
-                valueStyle={{ color: '#d97706' }}
-              />
-              {standbyTools.length > 0 && can('manufacturing.component_change.create') && (
-                <Button
-                  size="small"
-                  icon={<PlayCircleOutlined />}
-                  onClick={openRemountModal}
-                  style={{ borderColor: '#f59e0b', color: '#d97706', fontWeight: 600 }}
+            <div
+              style={{
+                padding: '14px 16px 6px',
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(175px, 1fr))',
+                gap: 12,
+              }}
+            >
+              {[
+                { label: 'Active Tools', value: activeToolsTotal, accent: '#0284c7', bgTint: 'rgba(2, 132, 199, 0.12)', icon: <ToolOutlined />, color: token.colorText },
+                { label: 'Active Machines', value: new Set(activeTools.map((a) => a.machineId)).size, accent: '#10b981', bgTint: 'rgba(16, 185, 129, 0.12)', icon: <DesktopOutlined />, color: token.colorText },
+                { label: 'Standby (Reusable)', value: standbyTools.length, accent: '#d97706', bgTint: 'rgba(217, 119, 6, 0.12)', icon: <PauseCircleOutlined />, color: '#d97706' },
+              ].map((kpi) => (
+                <div
+                  key={kpi.label}
+                  className="pwi-kpi-card"
+                  style={{
+                    ['--kpi-accent' as any]: kpi.accent,
+                    background: token.colorBgContainer,
+                    border: `1px solid ${token.colorBorderSecondary}`,
+                    borderTop: `3px solid ${kpi.accent}`,
+                  }}
                 >
-                  Re-Mount Standby Tool ({standbyTools.length})
-                </Button>
-              )}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: token.colorTextSecondary }}>
+                      {kpi.label}
+                    </span>
+                    <span
+                      style={{
+                        width: 32,
+                        height: 32,
+                        borderRadius: 9,
+                        background: kpi.bgTint,
+                        color: kpi.accent,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: 15,
+                        flexShrink: 0,
+                      }}
+                    >
+                      {kpi.icon}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 25, fontWeight: 800, color: kpi.color, lineHeight: 1.15, fontVariantNumeric: 'tabular-nums' }}>
+                    {kpi.value}
+                  </div>
+                </div>
+              ))}
             </div>
-            <Alert
-              style={{ margin: '10px 14px' }}
-              type="info"
-              showIcon
-              message="Automated Closed-Loop Tool Life Tracking"
-              description="Posting a Store Material Issue against a machine automatically closes the previous active tool run (archiving its final production count into Tool Life History) and starts a new sequential Run # at 0. Every Daily Production Entry saved for that machine automatically updates the live Current Life (Production Qty & Weight Kg) below."
-            />
+            <div
+              style={{
+                margin: '10px 16px 12px',
+                padding: '10px 14px',
+                borderRadius: 8,
+                background: token.colorFillAlter,
+                border: `1px solid ${token.colorBorderSecondary}`,
+                borderLeft: '3px solid #0284c7',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                fontSize: 13,
+                color: token.colorTextSecondary,
+              }}
+            >
+              <InfoCircleOutlined style={{ color: '#0284c7', fontSize: 15, flexShrink: 0 }} />
+              <div>
+                <strong style={{ color: token.colorText }}>Automatic Production Life</strong> —{' '}
+                <span>Live production counter accumulated from Daily Production Entries between tool mount and unmount/close dates.</span>
+              </div>
+            </div>
             <div style={{ width: '100%', overflowX: 'auto' }}>
               <ERPTable
                 columns={activeToolColumns}
                 dataSource={activeTools}
                 rowKey="id"
                 loading={false}
-                scroll={{ x: 1500 }}
+                scroll={{ x: 'max-content' }}
                 containerStyle={{ border: 'none', borderRadius: 0, boxShadow: 'none' }}
                 emptyTitle="No active tools"
                 emptyDescription="Install a tool on a machine to start its lifecycle tracking, or use Record Change in Change History for snapshot-style changes."
@@ -2823,6 +4472,7 @@ const MachineToolingManagement: React.FC = () => {
           <>
             <div style={{ padding: '8px 10px', borderBottom: '1px solid var(--theme-border, rgba(148, 163, 184, 0.12))' }}>
               <TableToolbar
+                showExportButtons={false}
                 searchPlaceholder="Search tool, component, machine, disposition..."
                 searchValue={lifeSearch}
                 onSearchChange={(v) => { setLifeSearch(v); setLifePage(1); }}
@@ -2894,39 +4544,167 @@ const MachineToolingManagement: React.FC = () => {
                     </Button>
                   </>
                 }
-                onRefresh={() => fetchLifeReport(lifePage)}
               />
             </div>
-            <div style={{ padding: '12px 14px 0', display: 'flex', flexWrap: 'wrap', gap: 24, alignItems: 'center' }}>
-              <Statistic title="Total Runs" value={lifeSummary?.installs ?? 0} />
-              <Statistic title="Active" value={lifeSummary?.active ?? 0} />
-              <Statistic
-                title="Standby (Reusable)"
-                value={lifeSummary?.standby ?? standbyTools.length}
-                valueStyle={{ color: '#d97706' }}
-              />
-              <Statistic title="Closed" value={lifeSummary?.closed ?? 0} />
-              <Statistic title="With Disposition" value={lifeSummary?.withDisposition ?? 0} />
-              <Statistic title="Total Production Life" value={fmtNum(lifeSummary?.totalProductionLife)} />
-              <Statistic title="Avg Life" value={fmtNum(lifeSummary?.avgLife)} />
+            {/* 7 Interactive Executive KPI Summary Cards */}
+            <div
+              style={{
+                padding: '14px 16px 6px',
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+                gap: 12,
+              }}
+            >
+              {[
+                {
+                  label: 'Total Runs',
+                  value: lifeSummary?.installs ?? 0,
+                  accent: '#3b82f6',
+                  bgTint: 'rgba(59, 130, 246, 0.12)',
+                  icon: <ToolOutlined />,
+                  color: token.colorText,
+                  filterStatus: undefined as string | undefined,
+                  clickable: true,
+                  isSelected: fLifeStatus === undefined,
+                },
+                {
+                  label: 'Active',
+                  value: lifeSummary?.active ?? 0,
+                  accent: '#10b981',
+                  bgTint: 'rgba(16, 185, 129, 0.12)',
+                  icon: <CheckCircleOutlined />,
+                  color: '#059669',
+                  filterStatus: 'ACTIVE',
+                  clickable: true,
+                  isSelected: fLifeStatus === 'ACTIVE',
+                },
+                {
+                  label: 'Standby (Reusable)',
+                  value: lifeSummary?.standby ?? standbyTools.length,
+                  accent: '#d97706',
+                  bgTint: 'rgba(217, 119, 6, 0.12)',
+                  icon: <PauseCircleOutlined />,
+                  color: '#d97706',
+                  filterStatus: 'STANDBY',
+                  clickable: true,
+                  isSelected: fLifeStatus === 'STANDBY',
+                },
+                {
+                  label: 'Closed',
+                  value: lifeSummary?.closed ?? 0,
+                  accent: '#64748b',
+                  bgTint: 'rgba(100, 116, 139, 0.12)',
+                  icon: <HistoryOutlined />,
+                  color: token.colorText,
+                  filterStatus: 'CLOSED',
+                  clickable: true,
+                  isSelected: fLifeStatus === 'CLOSED',
+                },
+                {
+                  label: 'With Disposition',
+                  value: lifeSummary?.withDisposition ?? 0,
+                  accent: '#8b5cf6',
+                  bgTint: 'rgba(139, 92, 246, 0.12)',
+                  icon: <TagOutlined />,
+                  color: token.colorText,
+                  clickable: false,
+                  isSelected: false,
+                },
+                {
+                  label: 'Total Production Life',
+                  value: `${fmtNum(lifeSummary?.totalProductionLife)} ${PRODUCTION_UOM}`,
+                  accent: '#0284c7',
+                  bgTint: 'rgba(2, 132, 199, 0.12)',
+                  icon: <ThunderboltOutlined />,
+                  color: token.colorText,
+                  clickable: false,
+                  isSelected: false,
+                },
+                {
+                  label: 'Avg Life',
+                  value: `${fmtNum(lifeSummary?.avgLife)} ${PRODUCTION_UOM}`,
+                  accent: '#059669',
+                  bgTint: 'rgba(5, 150, 105, 0.12)',
+                  icon: <RiseOutlined />,
+                  color: token.colorText,
+                  clickable: false,
+                  isSelected: false,
+                },
+              ].map((kpi) => {
+                const card = (
+                  <div
+                    key={kpi.label}
+                    className={`pwi-kpi-card ${kpi.clickable ? 'pwi-kpi-card--clickable' : ''} ${kpi.isSelected && fLifeStatus ? 'pwi-kpi-card--active' : ''}`}
+                    onClick={
+                      kpi.clickable
+                        ? () => {
+                            setFLifeStatus(kpi.filterStatus);
+                            setLifePage(1);
+                          }
+                        : undefined
+                    }
+                    style={{
+                      ['--kpi-accent' as any]: kpi.accent,
+                      background: token.colorBgContainer,
+                      border: `1px solid ${token.colorBorderSecondary}`,
+                      borderTop: `3px solid ${kpi.accent}`,
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: token.colorTextSecondary }}>
+                        {kpi.label}
+                      </span>
+                      <span
+                        style={{
+                          width: 32,
+                          height: 32,
+                          borderRadius: 9,
+                          background: kpi.bgTint,
+                          color: kpi.accent,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: 15,
+                          flexShrink: 0,
+                        }}
+                      >
+                        {kpi.icon}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 25, fontWeight: 800, color: kpi.color, lineHeight: 1.15, fontVariantNumeric: 'tabular-nums' }}>
+                      {kpi.value}
+                    </div>
+                  </div>
+                );
+                return kpi.clickable ? (
+                  <Tooltip key={kpi.label} title={`Click to filter by ${kpi.label}`}>
+                    {card}
+                  </Tooltip>
+                ) : (
+                  card
+                );
+              })}
             </div>
-            <div style={{ padding: '10px 14px 0', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+
+            {/* Segmented Status Filter Pills */}
+            <div style={{ padding: '12px 16px 4px', display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
               <Button
-                size="small"
+                className="pwi-status-pill-btn"
                 type={!fLifeStatus ? 'primary' : 'default'}
                 onClick={() => { setFLifeStatus(undefined); setLifePage(1); }}
               >
                 All Runs ({lifeSummary?.installs ?? lifeTotal})
               </Button>
               <Button
-                size="small"
+                className="pwi-status-pill-btn"
                 type={fLifeStatus === 'ACTIVE' ? 'primary' : 'default'}
+                icon={<CheckCircleOutlined />}
                 onClick={() => { setFLifeStatus('ACTIVE'); setLifePage(1); }}
               >
                 Active ({lifeSummary?.active ?? 0})
               </Button>
               <Button
-                size="small"
+                className="pwi-status-pill-btn"
                 type={fLifeStatus === 'STANDBY' ? 'primary' : 'default'}
                 icon={<PauseCircleOutlined />}
                 onClick={() => { setFLifeStatus('STANDBY'); setLifePage(1); }}
@@ -2939,27 +4717,44 @@ const MachineToolingManagement: React.FC = () => {
                 Standby (Reusable) ({lifeSummary?.standby ?? standbyTools.length})
               </Button>
               <Button
-                size="small"
+                className="pwi-status-pill-btn"
                 type={fLifeStatus === 'CLOSED' ? 'primary' : 'default'}
+                icon={<HistoryOutlined />}
                 onClick={() => { setFLifeStatus('CLOSED'); setLifePage(1); }}
               >
                 Closed ({lifeSummary?.closed ?? 0})
               </Button>
             </div>
-            <Alert
-              style={{ margin: '10px 14px' }}
-              type="info"
-              showIcon
-              message="Automatic production life"
-              description="Production life = DERIVED counter at removal − counter at install (SUM of production_entries.actual_quantity up to each date). Manual snapshot counters override the derivation when provided. Record the disposition of closed tools to complete the lifecycle."
-            />
+
+            {/* Sleek Minimal Callout Bar */}
+            <div
+              style={{
+                margin: '10px 16px 12px',
+                padding: '10px 14px',
+                borderRadius: 8,
+                background: token.colorFillAlter,
+                border: `1px solid ${token.colorBorderSecondary}`,
+                borderLeft: '3px solid #0284c7',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                fontSize: 13,
+                color: token.colorTextSecondary,
+              }}
+            >
+              <InfoCircleOutlined style={{ color: '#0284c7', fontSize: 15, flexShrink: 0 }} />
+              <div>
+                <strong style={{ color: token.colorText }}>Automatic Production Life</strong> —{' '}
+                <span>Live production counter accumulated from Daily Production Entries between tool mount and unmount/close dates.</span>
+              </div>
+            </div>
             <div style={{ width: '100%', overflowX: 'auto' }}>
               <ERPTable
                 columns={lifeColumns}
                 dataSource={lifeRows}
                 rowKey="id"
                 loading={false}
-                scroll={{ x: 1600 }}
+                scroll={{ x: 'max-content' }}
                 containerStyle={{ border: 'none', borderRadius: 0, boxShadow: 'none' }}
                 emptyTitle="No lifecycle history"
                 emptyDescription="Install tools (Active Tools tab) and remove them to build the tool life history report."
@@ -3191,14 +4986,8 @@ const MachineToolingManagement: React.FC = () => {
                                     if (dept?.divisionId && !itemFilterDivision) {
                                       setItemFilterDivision(dept.divisionId);
                                     }
-                                    // If a machine is selected that does not belong to this newly selected department, clear it
-                                    if (liveCompValues.machineId) {
-                                      const curMach = machines.find((m) => m.id === liveCompValues.machineId);
-                                      if (curMach && curMach.departmentId && curMach.departmentId !== val) {
-                                        compForm.setFieldValue('machineId', undefined);
-                                        setLiveCompValues((prev) => ({ ...prev, machineId: undefined }));
-                                      }
-                                    }
+                                    // Do NOT filter or clear Machine(s) by Store Department (e.g. SPI General Store);
+                                    // production machines live across departments within the selected Division.
                                   }
                                 }}
                                 options={availableDepartments.map((d) => ({ value: d.id, label: d.name }))}
@@ -3270,48 +5059,143 @@ const MachineToolingManagement: React.FC = () => {
                         </Form.Item>
                       </div>
                     </Col>
-                    <Col xs={24} sm={12}>
-                      <Form.Item name="machineId" label="Machine" rules={[{ required: true, message: 'Machine is required' }]}>
-                        <Select
-                          showSearch
-                          optionFilterProp="label"
-                          placeholder={
-                            itemFilterDepartment
-                              ? `Select machine in ${departments.find((d) => d.id === itemFilterDepartment)?.name || 'department'}...`
-                              : 'Select machine'
-                          }
-                          options={modalMachineOptions}
-                          size="middle"
-                          style={{
-                            width: '100%',
-                            border: liveCompValues.machineId ? '1.5px solid #10b981' : '1.5px solid rgba(239, 68, 68, 0.45)',
-                            borderRadius: 6,
-                          }}
-                          onChange={(val) => {
-                            compForm.setFieldValue('machineId', val);
-                            setLiveCompValues((prev) => ({ ...prev, machineId: val }));
-                            if (val) {
-                              const selMach = machines.find((m) => m.id === val);
-                              if (selMach) {
-                                if (selMach.divisionId && !itemFilterDivision) setItemFilterDivision(selMach.divisionId);
-                                if (selMach.sectionId && !itemFilterSection) setItemFilterSection(selMach.sectionId);
-                                if (selMach.departmentId && !itemFilterDepartment) setItemFilterDepartment(selMach.departmentId);
-                              }
+                    <Col span={24}>
+                      {(() => {
+                        const selectedIds: string[] = Array.isArray(liveCompValues.machineIds)
+                          ? liveCompValues.machineIds
+                          : [];
+                        const divName = itemFilterDivision
+                          ? divisions.find((d) => d.id === itemFilterDivision)?.name
+                          : undefined;
+                        const activeDeptName = modalMachineDeptFilter
+                          ? departments.find((d) => d.id === modalMachineDeptFilter)?.name
+                          : undefined;
+                        const scopeLabel = activeDeptName || divName;
+                        const filteredIds = modalMachineOptions.map((o) => o.value);
+                        const allFilteredSelected =
+                          filteredIds.length > 0 && filteredIds.every((id) => selectedIds.includes(id));
+
+                        return (
+                          <Form.Item
+                            name="machineIds"
+                            label={
+                              <div style={{ display: 'flex', flexDirection: 'column', width: '100%', gap: 6 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', gap: 12, flexWrap: 'wrap' }}>
+                                  <span>
+                                    Machine(s) <span style={{ fontSize: 11.5, fontWeight: 500, color: '#64748b' }}>({selectedIds.length} selected)</span>
+                                  </span>
+                                  <Space size={8}>
+                                    <Checkbox
+                                      checked={allFilteredSelected}
+                                      indeterminate={
+                                        !allFilteredSelected &&
+                                        filteredIds.some((id) => selectedIds.includes(id))
+                                      }
+                                      disabled={filteredIds.length === 0}
+                                      onChange={(e) => {
+                                        const nextIds = e.target.checked
+                                          ? Array.from(new Set([...selectedIds, ...filteredIds]))
+                                          : selectedIds.filter((id) => !filteredIds.includes(id));
+                                        compForm.setFieldValue('machineIds', nextIds);
+                                        setLiveCompValues((prev) => ({ ...prev, machineIds: nextIds }));
+                                      }}
+                                    >
+                                      <span style={{ fontSize: 12, fontWeight: 600, color: '#2563eb' }}>
+                                        {scopeLabel
+                                          ? `Select All Machines in ${scopeLabel} (${filteredIds.length})`
+                                          : `Select All Machines (${filteredIds.length})`}
+                                      </span>
+                                    </Checkbox>
+                                    {selectedIds.length > 0 && (
+                                      <Button
+                                        type="link"
+                                        size="small"
+                                        danger
+                                        style={{ padding: 0, height: 'auto', fontSize: 12 }}
+                                        onClick={() => {
+                                          compForm.setFieldValue('machineIds', []);
+                                          setLiveCompValues((prev) => ({ ...prev, machineIds: [] }));
+                                        }}
+                                      >
+                                        Clear
+                                      </Button>
+                                    )}
+                                  </Space>
+                                </div>
+                                {modalMachineDeptChips.length > 1 && (
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+                                    <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>Quick Dept:</span>
+                                    <Tag
+                                      onClick={() => setModalMachineDeptFilter(undefined)}
+                                      color={!modalMachineDeptFilter ? 'blue' : 'default'}
+                                      style={{ cursor: 'pointer', margin: 0, fontSize: 11, borderRadius: 10 }}
+                                    >
+                                      All ({modalDivisionMachines.length})
+                                    </Tag>
+                                    {modalMachineDeptChips.map((chip) => (
+                                      <Tag
+                                        key={chip.id}
+                                        onClick={() =>
+                                          setModalMachineDeptFilter((prev) => (prev === chip.id ? undefined : chip.id))
+                                        }
+                                        color={modalMachineDeptFilter === chip.id ? 'blue' : 'default'}
+                                        style={{ cursor: 'pointer', margin: 0, fontSize: 11, borderRadius: 10 }}
+                                      >
+                                        {chip.name} ({chip.count})
+                                      </Tag>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
                             }
-                          }}
-                          notFoundContent={
-                            <div style={{ padding: '8px 12px', textAlign: 'center', color: '#94a3b8', fontSize: 12 }}>
-                              {itemFilterDepartment
-                                ? `No machines registered under ${departments.find((d) => d.id === itemFilterDepartment)?.name || 'this department'}`
-                                : 'No machines found'}
-                            </div>
-                          }
-                        />
-                      </Form.Item>
+                            rules={[{ required: true, type: 'array', min: 1, message: 'Select at least one machine' }]}
+                          >
+                            <Select
+                              mode="multiple"
+                              showSearch
+                              allowClear
+                              optionFilterProp="label"
+                              maxTagCount="responsive"
+                              placeholder={
+                                scopeLabel
+                                  ? `Select machines in ${scopeLabel}...`
+                                  : 'Select one or more machines (or use Select All above)'
+                              }
+                              options={modalMachineOptions}
+                              size="middle"
+                              style={{
+                                width: '100%',
+                                border:
+                                  selectedIds.length > 0
+                                    ? '1.5px solid #10b981'
+                                    : '1.5px solid rgba(239, 68, 68, 0.45)',
+                                borderRadius: 6,
+                              }}
+                              onChange={(vals: string[]) => {
+                                compForm.setFieldValue('machineIds', vals);
+                                setLiveCompValues((prev) => ({ ...prev, machineIds: vals }));
+                                if (vals?.length === 1) {
+                                  const selMach = machines.find((m) => m.id === vals[0]);
+                                  if (selMach?.divisionId && !itemFilterDivision) {
+                                    setItemFilterDivision(selMach.divisionId);
+                                  }
+                                }
+                              }}
+                              notFoundContent={
+                                <div style={{ padding: '8px 12px', textAlign: 'center', color: '#94a3b8', fontSize: 12 }}>
+                                  {scopeLabel
+                                    ? `No machines found in ${scopeLabel}`
+                                    : 'No machines found'}
+                                </div>
+                              }
+                            />
+                          </Form.Item>
+                        );
+                      })()}
                     </Col>
                     <Col xs={24} sm={12}>
-                      <Form.Item name="componentType" label="Component Type" rules={[{ required: true }]}>
-                        <Select options={COMPONENT_TYPES.map((t) => ({ value: t, label: t }))} size="middle" />
+                      <Form.Item name="componentType" label="Tool / Component Type" rules={[{ required: true }]}>
+                        <Select options={COMPONENT_TYPE_OPTIONS} size="middle" />
                       </Form.Item>
                     </Col>
                     <Col xs={24} sm={12}>
@@ -3401,8 +5285,8 @@ const MachineToolingManagement: React.FC = () => {
                       <Tag color="geekblue" style={{ fontSize: 13, padding: '3px 10px', borderRadius: 16, fontWeight: 700 }}>
                         {liveCompValues.componentCode || (editingComponent ? editingComponent.componentCode : 'TOOL-CODE')}
                       </Tag>
-                      <Tag color={COMPONENT_TYPE_COLORS[liveCompValues.componentType || 'COMPONENT'] || 'default'} style={{ fontSize: 12, padding: '2px 8px', borderRadius: 12 }}>
-                        {liveCompValues.componentType || 'COMPONENT'}
+                      <Tag color={COMPONENT_TYPE_COLORS[liveCompValues.componentType || 'TOOLING'] || 'geekblue'} style={{ fontSize: 12, padding: '2px 8px', borderRadius: 12 }}>
+                        {formatComponentTypeLabel(liveCompValues.componentType)}
                       </Tag>
                     </div>
 
@@ -3411,7 +5295,18 @@ const MachineToolingManagement: React.FC = () => {
                     </div>
 
                     <div style={{ fontSize: 12, color: 'var(--theme-text-muted, #64748b)', marginBottom: 14 }}>
-                      Machine: <strong>{liveCompMachine ? `${liveCompMachine.machineCode} — ${liveCompMachine.name}` : 'No Machine Assigned'}</strong>
+                      <div style={{ marginBottom: 4 }}>Assigned Machine(s) ({liveCompMachines.length}):</div>
+                      {liveCompMachines.length > 0 ? (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                          {liveCompMachines.map((m) => (
+                            <Tag key={m.id} color="geekblue" style={{ margin: 0, fontWeight: 600 }}>
+                              {m.machineCode || m.name}
+                            </Tag>
+                          ))}
+                        </div>
+                      ) : (
+                        <strong>No Machine Assigned</strong>
+                      )}
                     </div>
 
                     {liveCompStoreItem && (
@@ -3458,90 +5353,299 @@ const MachineToolingManagement: React.FC = () => {
             </div>
           </DraggableResizableModal>
 
-      {/* Component history / stats modal */}
-      <DraggableResizableModal
+      {/* Component Replacement History Modal — Signature Double-Border Executive Frame */}
+      <Modal
         open={historyOpen}
         onCancel={() => setHistoryOpen(false)}
-        onMinimize={() => {
-          setHistoryOpen(false);
-          setIsHistoryMinimized(true);
+        footer={null}
+        closable={false}
+        centered
+        width={900}
+        destroyOnHidden
+        styles={{
+          content: {
+            padding: 7,
+            borderRadius: 20,
+            background: token.colorFillSecondary,
+            border: `1px solid ${token.colorBorder}`,
+            boxShadow: '0 24px 64px rgba(0, 0, 0, 0.28)',
+          },
+          body: { padding: 0 },
         }}
-        width={820}
-        height={640}
-        minWidth={640}
-        minHeight={480}
-        footer={<Button type="primary" onClick={() => setHistoryOpen(false)}>Close</Button>}
-        title={
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-            <HistoryOutlined style={{ color: 'var(--theme-accent, #10b981)' }} />
-            Component Replacement History
-          </span>
-        }
-        subtitle={historyData ? `${historyData.component.componentName} — ${historyData.component.componentCode}` : 'Loading...'}
-        styles={{ body: { overflow: 'auto' } }}
       >
-        {historyLoading ? (
-          <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}>
-            <GlobalLoading title="Loading History..." subtitle="Retrieving component replacement history..." badgeText="LIVE DATABASE QUERY" minHeight={200} />
-          </div>
-        ) : historyData ? (
-          <div>
-            <Alert
-              style={{ marginBottom: 14 }}
-              type="info"
-              showIcon
-              message="Machines have no native counter in the ERP"
-              description={`Current counter is DERIVED as the SUM of production entry actual quantities (${fmtNum(historyData.counter.value)}). Use recorded counter snapshots for exact life between changes.`}
-            />
-            <Row gutter={16}>
-              <Col span={12}>
-                <Descriptions column={1} size="small" bordered
-                  items={[
-                    { key: 'machine', label: 'Machine', children: `${historyData.machine.machineCode ?? '—'} ${historyData.machine.machineNumber ?? ''} ${historyData.machine.name ?? ''}`.trim() || '—' },
-                    { key: 'life', label: 'Expected Life', children: fmtNum(historyData.summary.expectedLifeQuantity) },
-                    { key: 'window', label: 'Window', children: `${fmtNum(historyData.summary.minThreshold)} – ${fmtNum(historyData.summary.maxThreshold)}` },
-                    { key: 'changes', label: 'Total Changes', children: historyData.summary.totalChanges },
-                    { key: 'first', label: 'First Change', children: historyData.summary.firstChangeDate || '—' },
-                    { key: 'last', label: 'Last Change', children: historyData.summary.lastChangeDate || '—' },
-                  ]}
-                />
-              </Col>
-              <Col span={12}>
-                <Descriptions column={1} size="small" bordered
-                  items={[
-                    { key: 'installed', label: 'Installed Tool', children: historyData.summary.installedToolCode || '—' },
-                    { key: 'atInstall', label: 'Counter at Install', children: fmtNum(historyData.summary.counterAtInstall) },
-                    { key: 'current', label: 'Current Counter (derived)', children: fmtNum(historyData.counter.value) },
-                    { key: 'used', label: 'Used by Installed', children: fmtNum(historyData.summary.usedByInstalled) },
-                    { key: 'remaining', label: 'Remaining', children: fmtNum(historyData.summary.remainingByInstalled) },
-                    { key: 'avg', label: 'Avg Life', children: fmtNum(historyData.summary.avgLife) },
-                    { key: 'range', label: 'Life Min / Max', children: `${fmtNum(historyData.summary.minLife)} / ${fmtNum(historyData.summary.maxLife)}` },
-                  ]}
-                />
-              </Col>
-            </Row>
-            <div style={{ padding: '14px 2px 6px', fontWeight: 600, color: 'var(--theme-text)' }}>
-              Change History ({historyData.changes.length})
+        <div
+          style={{
+            borderRadius: 14,
+            background: token.colorBgContainer,
+            border: `1px solid ${token.colorBorderSecondary}`,
+            overflow: 'hidden',
+          }}
+        >
+          {/* Header Strip */}
+          <div
+            style={{
+              padding: '14px 20px',
+              background: `linear-gradient(135deg, ${token.colorFillAlter} 0%, ${token.colorBgContainer} 100%)`,
+              borderBottom: `1px solid ${token.colorBorderSecondary}`,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 12,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 12,
+                  background: `linear-gradient(135deg, ${token.colorPrimary} 0%, #f97316 100%)`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#fff',
+                  fontSize: 18,
+                  boxShadow: '0 4px 12px rgba(249, 115, 22, 0.25)',
+                  flexShrink: 0,
+                }}
+              >
+                <HistoryOutlined />
+              </div>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: token.colorPrimary }}>
+                  Tool Lifecycle & Replacement Analytics
+                </div>
+                <div style={{ fontSize: 16.5, fontWeight: 800, color: token.colorText }}>
+                  Component Replacement History
+                </div>
+                <div style={{ fontSize: 12, color: token.colorTextSecondary }}>
+                  {historyData ? `${historyData.component.componentName} — ${historyData.component.componentCode}` : 'Loading tool runs...'}
+                </div>
+              </div>
             </div>
-            <ERPTable
-              columns={[
-                { title: 'Date', key: 'date', width: 110, render: (_, r) => `${r.changeDate}${r.changeTime ? ` ${r.changeTime}` : ''}` },
-                { title: 'Tool', key: 'tool', width: 180, render: (_, r) => `${r.oldToolCode || '—'} → ${r.newToolCode}` },
-                { title: 'Counter Before', key: 'cb', width: 130, render: (_, r) => fmtNum(r.productionCounterBefore) },
-                { title: 'Counter After', key: 'ca', width: 130, render: (_, r) => fmtNum(r.productionCounterAfter) },
-                { title: 'Life', key: 'life', width: 110, render: (_, r) => fmtNum(r.productionSincePrevious) },
-                { title: 'Reason', key: 'reason', width: 160, render: (_, r) => r.reason || EMPTY },
-              ]}
-              dataSource={historyData.changes}
-              rowKey="id"
-              size="small"
-              pagination={false}
-              scroll={{ x: 900 }}
-              containerStyle={{ border: 'none', boxShadow: 'none' }}
-            />
+
+            <Space size={6}>
+              <Tooltip title="Minimize">
+                <Button
+                  type="text"
+                  size="small"
+                  onClick={() => {
+                    setHistoryOpen(false);
+                    setIsHistoryMinimized(true);
+                  }}
+                  style={{ color: token.colorTextSecondary, fontWeight: 700 }}
+                >
+                  —
+                </Button>
+              </Tooltip>
+              <Button
+                type="text"
+                size="small"
+                icon={<CloseOutlined />}
+                onClick={() => setHistoryOpen(false)}
+                style={{ color: token.colorTextSecondary }}
+              />
+            </Space>
           </div>
-        ) : null}
-      </DraggableResizableModal>
+
+          {/* Modal Body */}
+          <div style={{ padding: '16px 20px', maxHeight: '72vh', overflowY: 'auto' }}>
+            {historyLoading ? (
+              <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}>
+                <GlobalLoading title="Loading History..." subtitle="Retrieving component replacement history across assigned machines..." badgeText="LIVE DATABASE QUERY" minHeight={200} />
+              </div>
+            ) : historyData ? (
+              <div>
+                {/* Machine Filter Pill Bar */}
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: 8,
+                    padding: '10px 12px',
+                    borderRadius: 10,
+                    background: token.colorFillAlter,
+                    border: `1px solid ${token.colorBorderSecondary}`,
+                    marginBottom: 14,
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: token.colorTextSecondary, marginRight: 4 }}>
+                      <ClusterOutlined style={{ marginRight: 5 }} />
+                      Machine Scope:
+                    </span>
+                    <Button
+                      size="small"
+                      type={historyMachineFilter === 'ALL' ? 'primary' : 'default'}
+                      onClick={() => {
+                        setHistoryMachineFilter('ALL');
+                        if (historyComponentId) void loadHistoryForComponent(historyComponentId, 'ALL');
+                      }}
+                      style={{ borderRadius: 16, fontWeight: 600 }}
+                    >
+                      All Assigned Machines ({historyData.assignedMachines?.length ?? 1})
+                    </Button>
+                    {(historyData.assignedMachines || []).map((m) => (
+                      <Button
+                        key={m.id}
+                        size="small"
+                        type={historyMachineFilter === m.id ? 'primary' : 'default'}
+                        onClick={() => {
+                          setHistoryMachineFilter(m.id);
+                          if (historyComponentId) void loadHistoryForComponent(historyComponentId, m.id);
+                        }}
+                        style={{ borderRadius: 16, fontWeight: 600 }}
+                      >
+                        {m.machineCode || m.name}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Summary KPI Strip */}
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+                    gap: 10,
+                    marginBottom: 14,
+                  }}
+                >
+                  {[
+                    {
+                      label: 'Expected Life',
+                      value: `${fmtNum(historyData.summary.expectedLifeQuantity)} ${PRODUCTION_UOM}`,
+                      color: token.colorPrimary,
+                    },
+                    {
+                      label: 'Total Changes / Runs',
+                      value: String(historyData.summary.totalChanges),
+                      color: '#0284c7',
+                    },
+                    {
+                      label: 'Used by Installed',
+                      value: `${fmtNum(historyData.summary.usedByInstalled)} ${PRODUCTION_UOM}`,
+                      color: '#10b981',
+                    },
+                    {
+                      label: 'Avg Life',
+                      value: `${fmtNum(historyData.summary.avgLife)} ${PRODUCTION_UOM}`,
+                      color: '#d97706',
+                    },
+                  ].map((tile) => (
+                    <div
+                      key={tile.label}
+                      style={{
+                        padding: '10px 12px',
+                        borderRadius: 10,
+                        background: token.colorFillAlter,
+                        border: `1px solid ${token.colorBorderSecondary}`,
+                        borderTop: `3px solid ${tile.color}`,
+                      }}
+                    >
+                      <div style={{ fontSize: 11, fontWeight: 600, color: token.colorTextSecondary, textTransform: 'uppercase' }}>
+                        {tile.label}
+                      </div>
+                      <div style={{ fontSize: 16, fontWeight: 800, color: token.colorText, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
+                        {tile.value}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <Alert
+                  style={{ marginBottom: 14 }}
+                  type="info"
+                  showIcon
+                  message="Derived Production Counter"
+                  description={`Cumulative output counter across ${historyData.machine.machineCode || 'scope'}: ${fmtNum(historyData.counter.value)}.`}
+                />
+
+                <Row gutter={14}>
+                  <Col xs={24} md={12}>
+                    <Descriptions column={1} size="small" bordered
+                      items={[
+                        { key: 'machine', label: 'Machine', children: `${historyData.machine.machineCode ?? '—'}${historyData.machine.name ? ` (${historyData.machine.name})` : ''}` },
+                        { key: 'life', label: 'Expected Life', children: fmtNum(historyData.summary.expectedLifeQuantity) },
+                        { key: 'window', label: 'Life Window', children: `${fmtNum(historyData.summary.minThreshold)} – ${fmtNum(historyData.summary.maxThreshold)}` },
+                        { key: 'changes', label: 'Total Changes', children: historyData.summary.totalChanges },
+                        { key: 'first', label: 'First Change', children: renderDateValue(historyData.summary.firstChangeDate) },
+                        { key: 'last', label: 'Last Change', children: renderDateValue(historyData.summary.lastChangeDate) },
+                      ]}
+                    />
+                  </Col>
+                  <Col xs={24} md={12}>
+                    <Descriptions column={1} size="small" bordered
+                      items={[
+                        { key: 'installed', label: 'Installed Tool', children: historyData.summary.installedToolCode || '—' },
+                        { key: 'atInstall', label: 'Counter at Install', children: fmtNum(historyData.summary.counterAtInstall) },
+                        { key: 'current', label: 'Current Counter (derived)', children: fmtNum(historyData.counter.value) },
+                        { key: 'used', label: 'Used by Installed', children: fmtNum(historyData.summary.usedByInstalled) },
+                        { key: 'remaining', label: 'Remaining', children: fmtNum(historyData.summary.remainingByInstalled) },
+                        { key: 'avg', label: 'Avg Life', children: fmtNum(historyData.summary.avgLife) },
+                        { key: 'range', label: 'Life Min / Max', children: `${fmtNum(historyData.summary.minLife)} / ${fmtNum(historyData.summary.maxLife)}` },
+                      ]}
+                    />
+                  </Col>
+                </Row>
+
+                <div style={{ padding: '14px 2px 6px', fontWeight: 700, color: token.colorText }}>
+                  Change History ({historyData.changes.length})
+                </div>
+                <ERPTable
+                  columns={[
+                    { title: 'Date', key: 'date', width: 120, render: (_, r) => renderDateValue(r.changeDate, r.changeTime) },
+                    { title: 'Machine', key: 'machine', width: 110, render: (_, r) => <Tag color="geekblue" style={{ margin: 0, fontWeight: 600 }}>{r.machine?.machineCode ?? '—'}</Tag> },
+                    { title: 'Tool', key: 'tool', width: 185, render: (_, r) => `${r.oldToolCode || '—'} → ${r.newToolCode}` },
+                    { title: 'Counter Before', key: 'cb', width: 120, align: 'right', render: (_, r) => fmtNum(r.productionCounterBefore) },
+                    { title: 'Counter After', key: 'ca', width: 120, align: 'right', render: (_, r) => fmtNum(r.productionCounterAfter) },
+                    {
+                      title: 'Life',
+                      key: 'life',
+                      width: 140,
+                      align: 'right',
+                      render: (_, r) => {
+                        const lifeVal = r.currentLifeQty ?? r.productionSincePrevious;
+                        const isLive =
+                          r.isLiveActive ??
+                          (!r.closedAt && r.lifecycleStatus !== 'STANDBY' && r.lifecycleStatus !== 'CLOSED');
+                        return lifeVal != null ? (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                            <strong>{`${fmtNum(lifeVal)} ${PRODUCTION_UOM}`}</strong>
+                            {isLive && renderLiveBadge()}
+                          </span>
+                        ) : EMPTY;
+                      },
+                    },
+                    { title: 'Reason', key: 'reason', width: 165, render: (_, r) => r.reason || EMPTY },
+                  ]}
+                  dataSource={historyData.changes}
+                  rowKey="id"
+                  size="small"
+                  pagination={false}
+                  scroll={{ x: 960 }}
+                  containerStyle={{ border: `1px solid ${token.colorBorderSecondary}`, borderRadius: 8, boxShadow: 'none' }}
+                />
+              </div>
+            ) : null}
+          </div>
+
+          {/* Footer Bar */}
+          <div
+            style={{
+              padding: '12px 20px',
+              background: token.colorFillAlter,
+              borderTop: `1px solid ${token.colorBorderSecondary}`,
+              display: 'flex',
+              justifyContent: 'flex-end',
+            }}
+          >
+            <Button type="primary" onClick={() => setHistoryOpen(false)}>Close</Button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Change create / edit modal */}
       <DraggableResizableModal
@@ -3598,7 +5702,7 @@ const MachineToolingManagement: React.FC = () => {
                   placeholder="Select component tracked on this machine"
                   options={componentOptionsForMachine.map((c) => ({
                     value: c.id,
-                    label: `${c.componentCode} — ${c.componentName} (${c.componentType})`,
+                    label: `${c.componentCode} — ${c.componentName} (${formatComponentTypeLabel(c.componentType)})`,
                   }))}
                   loading={componentOptions.length === 0}
                   onChange={(compId) => {
@@ -3727,10 +5831,13 @@ const MachineToolingManagement: React.FC = () => {
                 }}
               >
                 <div style={{ fontSize: 11, color: 'var(--theme-text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
-                  Pieces Produced (Life)
+                  Production Output (Life)
                 </div>
                 <div style={{ fontSize: 20, fontWeight: 700, color: '#4f46e5', marginTop: 2 }}>
-                  {fmtNum(changeDetail.productionSincePrevious)} <span style={{ fontSize: 12, fontWeight: 500 }}>PCS</span>
+                  {fmtNum(changeDetail.currentLifeQty ?? changeDetail.productionSincePrevious)}{' '}
+                  <span style={{ fontSize: 12, fontWeight: 500 }}>
+                    {PRODUCTION_UOM}
+                  </span>
                 </div>
               </div>
 
@@ -3774,11 +5881,12 @@ const MachineToolingManagement: React.FC = () => {
               type="info"
               showIcon
               message="Production Output Derivation"
-              description={
-                changeDetail.productionCounterBefore != null && changeDetail.productionCounterAfter != null
-                  ? `This change closed ${fmtNum(changeDetail.productionSincePrevious)} of production for the previous tool (counter ${fmtNum(changeDetail.productionCounterBefore)} − previous install ${fmtNum(changeDetail.productionCounterAfter)}) — ${fmtNum(changeDetail.productionSincePrevious)} Pieces produced by this machine during this tool run.`
-                  : `This change closed ${fmtNum(changeDetail.productionSincePrevious)} of production — Total machine output: ${fmtNum(changeDetail.productionSincePrevious)} Pieces.`
-              }
+              description={(() => {
+                const lifeTxt = fmtNum(changeDetail.currentLifeQty ?? changeDetail.productionSincePrevious);
+                return changeDetail.productionCounterBefore != null && changeDetail.productionCounterAfter != null
+                  ? `Accumulated output: ${lifeTxt} ${PRODUCTION_UOM} (counter ${fmtNum(changeDetail.productionCounterBefore)} − install ${fmtNum(changeDetail.productionCounterAfter)}).`
+                  : `Accumulated production output during this tool run: ${lifeTxt} ${PRODUCTION_UOM}.`;
+              })()}
             />
 
             <Descriptions column={2} size="small" bordered
@@ -3791,7 +5899,21 @@ const MachineToolingManagement: React.FC = () => {
                 { key: 'condition', label: 'Condition', children: changeDetail.conditionStatus || '—' },
                 { key: 'cb', label: 'Counter Before (Removal)', children: fmtNum(changeDetail.productionCounterBefore) },
                 { key: 'ca', label: 'Counter After (Install)', children: fmtNum(changeDetail.productionCounterAfter) },
-                { key: 'life', label: 'Pieces Produced', children: <strong style={{ color: '#4f46e5' }}>{fmtNum(changeDetail.productionSincePrevious)} PCS</strong> },
+                {
+                  key: 'life',
+                  label: 'Production Output',
+                  children: (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                      <strong style={{ color: '#4f46e5' }}>
+                        {fmtNum(changeDetail.currentLifeQty ?? changeDetail.productionSincePrevious)}{' '}
+                        {PRODUCTION_UOM}
+                      </strong>
+                      {(changeDetail.isLiveActive ??
+                        (!changeDetail.closedAt && changeDetail.lifecycleStatus !== 'STANDBY' && changeDetail.lifecycleStatus !== 'CLOSED')) &&
+                        renderLiveBadge()}
+                    </span>
+                  ),
+                },
                 { key: 'jobcard', label: 'Job Card', children: changeDetail.jobCard?.jobCardNo || changeDetail.jobCard?.code || '—' },
                 { key: 'reason', label: 'Reason for Change', children: changeDetail.reason || '—' },
                 { key: 'changedBy', label: 'Recorded At', children: changeDetail.changedAt ? dayjs(changeDetail.changedAt).format('YYYY-MM-DD HH:mm') : (changeDetail.changeDate || '—') },
@@ -3864,7 +5986,7 @@ const MachineToolingManagement: React.FC = () => {
                   showSearch optionFilterProp="label" placeholder="Select component"
                   options={installableComponents.map((c) => ({
                     value: c.id,
-                    label: `${c.componentCode} — ${c.componentName} (${c.componentType})`,
+                    label: `${c.componentCode} — ${c.componentName} (${formatComponentTypeLabel(c.componentType)})`,
                   }))}
                   onChange={(compId) => {
                     const comp = installableComponents.find((c) => c.id === compId);
@@ -3907,8 +6029,8 @@ const MachineToolingManagement: React.FC = () => {
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="storeIssueId" label="Store Issue (posted)" tooltip="Optional — links this install to the existing store issue that supplied the tool (reuses stock, no duplicate balances)">
-                <Select showSearch optionFilterProp="label" allowClear placeholder="Select posted store issue" options={storeIssueOptions} />
+              <Form.Item name="storeIssueId" label="Store Issue Note (SIN)" tooltip="Optional — links this install to the posted Store Issue Note (SIN) that supplied the tool (reuses stock, no duplicate balances)">
+                <Select showSearch optionFilterProp="label" allowClear placeholder="Select posted Store Issue Note (SIN)" options={storeIssueOptions} />
               </Form.Item>
             </Col>
             <Col span={12}>
@@ -3957,7 +6079,7 @@ const MachineToolingManagement: React.FC = () => {
               { key: 'installed', label: 'Installed', children: `${removeTarget.installDate}${removeTarget.installTime ? ` ${removeTarget.installTime}` : ''}` },
               { key: 'counter', label: 'Counter at Install (derived)', children: fmtNum(removeTarget.installCounter) },
               { key: 'used', label: 'Used so far (derived)', children: fmtNum(removeTarget.usedByInstalled) },
-              { key: 'storeIssue', label: 'Store Issue', children: removeTarget.storeIssueNumber || '—' },
+              { key: 'storeIssue', label: 'Store Issue Note (SIN)', children: removeTarget.storeIssueNumber || '—' },
               { key: 'jobCard', label: 'Job Card', children: removeTarget.jobCardNo || '—' },
             ]}
           />
@@ -4299,6 +6421,138 @@ const MachineToolingManagement: React.FC = () => {
           void fetchChanges(chgPage);
         }}
       />
+
+      {/* View Tool Run & Session Details Modal */}
+      <DraggableResizableModal
+        open={sessionDetailOpen}
+        onCancel={() => {
+          setSessionDetailOpen(false);
+          setSessionDetailRow(null);
+        }}
+        width={780}
+        height={640}
+        minWidth={560}
+        minHeight={460}
+        footer={[
+          <Button
+            key="close"
+            type="primary"
+            onClick={() => {
+              setSessionDetailOpen(false);
+              setSessionDetailRow(null);
+            }}
+          >
+            Close
+          </Button>,
+        ]}
+        title={
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <HistoryOutlined style={{ color: 'var(--theme-primary)' }} />
+            <span>Tool Run & Session Details</span>
+          </span>
+        }
+        subtitle={
+          sessionDetailRow
+            ? `${sessionDetailRow.machine?.machineCode ?? 'Machine'} · ${sessionDetailRow.toolCode}`
+            : 'Session history and cumulative life details'
+        }
+        styles={{ body: { overflow: 'auto' } }}
+      >
+        {sessionDetailRow && (() => {
+          const uom = ` ${PRODUCTION_UOM}`;
+          const expected = num(sessionDetailRow.component?.expectedLifeQuantity);
+          const pct =
+            sessionDetailRow.lifeProgressPct ??
+            (expected && expected > 0 && sessionDetailRow.productionLife != null
+              ? Number(((sessionDetailRow.productionLife / expected) * 100).toFixed(1))
+              : null);
+          const sessions = Array.isArray(sessionDetailRow.mountingSessions)
+            ? sessionDetailRow.mountingSessions
+            : [];
+          return (
+            <div>
+              <Descriptions
+                column={2}
+                size="small"
+                bordered
+                style={{ marginBottom: 16 }}
+                items={[
+                  {
+                    key: 'machine',
+                    label: 'Machine',
+                    children: `${sessionDetailRow.machine?.machineCode ?? '—'}${sessionDetailRow.machine?.name ? ` — ${sessionDetailRow.machine.name}` : ''}`,
+                  },
+                  {
+                    key: 'component',
+                    label: 'Component',
+                    children: `${sessionDetailRow.component?.componentCode ?? '—'} — ${sessionDetailRow.component?.componentName ?? ''}`,
+                  },
+                  { key: 'tool', label: 'Tool Run', children: <code>{sessionDetailRow.toolCode}</code> },
+                  { key: 'status', label: 'Status', children: <StatusBadge status={sessionDetailRow.status} /> },
+                  {
+                    key: 'life',
+                    label: 'Production Life',
+                    children: (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                        <strong style={{ color: 'var(--theme-primary)' }}>
+                          {fmtNum(sessionDetailRow.productionLife)}{uom}
+                        </strong>
+                        {sessionDetailRow.status === 'ACTIVE' && renderLiveBadge()}
+                      </span>
+                    ),
+                  },
+                  {
+                    key: 'expected',
+                    label: 'Expected Life / Progress',
+                    children: expected != null
+                      ? `${fmtNum(expected)}${uom}${pct != null ? ` (${pct}% used)` : ''}`
+                      : 'Not configured',
+                  },
+                  { key: 'issued', label: 'Issued Date', children: renderDateValue(sessionDetailRow.installDate) },
+                  { key: 'closed', label: 'Closed Date', children: sessionDetailRow.removeDate ? renderDateValue(sessionDetailRow.removeDate) : 'Running' },
+                  { key: 'voucher', label: 'Store Issue Note (SIN)', children: sessionDetailRow.storeIssueNumber || '—' },
+                  { key: 'operator', label: 'Operator / Incharge', children: [sessionDetailRow.operatorName, sessionDetailRow.shiftInchargeName].filter(Boolean).join(' · ') || '—' },
+                  {
+                    key: 'endReason',
+                    label: 'End / Unmount Reason',
+                    children: sessionDetailRow.status === 'ACTIVE' ? 'In Service (Running)' : (sessionDetailRow.reason || '—'),
+                    span: 2,
+                  },
+                ]}
+              />
+
+              <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8, color: token.colorText }}>
+                Mounting Sessions ({sessions.length || 1})
+              </div>
+              {sessions.length > 0 ? (
+                <ERPTable
+                  size="small"
+                  rowKey={(s) => String(s.sessionNo)}
+                  pagination={false}
+                  containerStyle={{ border: `1px solid ${token.colorBorderSecondary}`, borderRadius: 6, boxShadow: 'none' }}
+                  dataSource={sessions}
+                  columns={[
+                    { title: 'Session #', dataIndex: 'sessionNo', key: 'sessionNo', width: 85, align: 'center' },
+                    { title: 'Machine', dataIndex: 'machineCode', key: 'machineCode', width: 100 },
+                    { title: 'Action', dataIndex: 'action', key: 'action', width: 105 },
+                    { title: 'Mounted At', dataIndex: 'mountedAt', key: 'mountedAt', width: 150 },
+                    { title: 'Unmounted At', key: 'unmountedAt', width: 150, render: (_, s) => s.unmountedAt || 'Active' },
+                    { title: 'Session Output', key: 'sessionProduction', width: 130, align: 'right', render: (_, s) => `${fmtNum(s.sessionProduction)}${uom}` },
+                    { title: 'Reason / Operator', key: 'reason', render: (_, s) => [s.reason, s.operatorName].filter(Boolean).join(' · ') || '—' },
+                  ]}
+                />
+              ) : (
+                <Alert
+                  type="info"
+                  showIcon
+                  message="Single active mounting session"
+                  description={`Mounted on ${sessionDetailRow.installDate} with starting counter ${fmtNum(sessionDetailRow.installCounter)}.`}
+                />
+              )}
+            </div>
+          );
+        })()}
+      </DraggableResizableModal>
     </div>
     </TabKeepAlive>
   );

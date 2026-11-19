@@ -44,7 +44,7 @@ export class OpeningStockController {
   async updateLine(
     @Req() req: any,
     @Param('ledgerId') ledgerId: string,
-    @Body() body: { quantity: number; notes?: string },
+    @Body() body: { quantity: number; unitCost?: number; notes?: string },
   ) {
     const companyId = req.user?.defaultCompanyId || req.user?.companyId || '7725aa04-a270-4314-9e82-90949cbe7791';
     const data = await this.openingStockService.updateLine(companyId, ledgerId, body);

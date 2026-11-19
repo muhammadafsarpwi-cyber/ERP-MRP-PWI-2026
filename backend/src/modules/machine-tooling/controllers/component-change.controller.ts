@@ -61,7 +61,12 @@ export class ComponentChangeController {
   @RequirePermission('manufacturing.tool_consumption.report')
   @ApiOperation({ summary: 'Monthly tool / component consumption report' })
   async monthlyReport(@Query() query: MonthlyConsumptionQueryDto, @Req() req: any) {
-    return this.service.monthlyReport(this.getCompanyId(req), query.month, query.machineId);
+    return this.service.monthlyReport(
+      this.getCompanyId(req),
+      query.month,
+      query.machineId,
+      query.divisionId,
+    );
   }
 
   @Get()

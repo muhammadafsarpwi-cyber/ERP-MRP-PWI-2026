@@ -197,4 +197,8 @@ export class ComponentChange extends BaseEntity {
 
   @Column({ name: 'last_shift_incharge_name', type: 'varchar', length: 150, nullable: true })
   lastShiftInchargeName: string | null;
+
+  /** Snapshot of the tool's unit cost (PKR) at the time of issue / changeover so historical costing never mutates. */
+  @Column({ name: 'unit_cost', type: 'numeric', precision: 19, scale: 4, nullable: true })
+  unitCost?: string | null;
 }

@@ -57,7 +57,7 @@ export const DOC_META: Record<DocTypeKey, DocMeta> = {
     color: 'green',
   },
   ISSUE: {
-    label: 'Material Issue',
+    label: 'Store Issue Note (SIN)',
     endpoint: (id) => `/store/material-issues/${id}`,
     numberField: 'issue_number',
     dateField: 'issue_date',

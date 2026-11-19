@@ -402,9 +402,29 @@
   }
 
   /* Mobile-first touch enhancements */
+  .erp-mobile-modal .ant-modal {
+    width: 100% !important;
+    max-width: 100vw !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-sizing: border-box !important;
+    overflow-x: hidden !important;
+  }
+
   .erp-mobile-modal .ant-modal-content {
+    width: 100% !important;
+    max-width: 100% !important;
     border-radius: 0 !important;
     padding: 0 !important;
+    box-sizing: border-box !important;
+    overflow-x: hidden !important;
+  }
+
+  .erp-mobile-modal .ant-modal-body {
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+    overflow-x: hidden !important;
   }
   
   .erp-mobile-modal .ant-modal-header {

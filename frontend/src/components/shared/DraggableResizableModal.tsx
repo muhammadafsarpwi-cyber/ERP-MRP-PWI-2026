@@ -100,8 +100,8 @@ const DraggableResizableModal: React.FC<DraggableResizableModalProps> = ({
   const dragRef = useRef<{ active: boolean; startX: number; startY: number; baseX: number; baseY: number }>({
     active: false, startX: 0, startY: 0, baseX: 0, baseY: 0,
   });
-  const resizeRef = useRef<{ active: boolean; startX: number; startY: number; baseW: number; baseH: number }>({
-    active: false, startX: 0, startY: 0, baseW: parseDim(width, 880), baseH: parseDim(height, 560),
+  const resizeRef = useRef<{ active: boolean; axis: 'both' | 'x' | 'y'; startX: number; startY: number; baseW: number; baseH: number }>({
+    active: false, axis: 'both', startX: 0, startY: 0, baseW: parseDim(width, 880), baseH: parseDim(height, 560),
   });
 
   useEffect(() => {
@@ -151,7 +151,7 @@ const DraggableResizableModal: React.FC<DraggableResizableModalProps> = ({
       prevSizeAndPos.current = { size: { ...size }, pos: { ...pos } };
       const vw = typeof window !== 'undefined' ? window.innerWidth : 1280;
       const vh = typeof window !== 'undefined' ? window.innerHeight : 768;
-      setSize({ w: vw - 24, h: vh - 24 });
+      setSize({ w: vw, h: vh });
       setPos({ x: 0, y: 0 });
       setIsMaximized(true);
     }
@@ -179,8 +179,8 @@ const DraggableResizableModal: React.FC<DraggableResizableModalProps> = ({
           y: clamp(dragRef.current.baseY + dy, -(size.h - VISIBLE_EDGE), vh - VISIBLE_EDGE),
         });
       } else if (resizeRef.current.active) {
-        const dw = e.clientX - resizeRef.current.startX;
-        const dh = e.clientY - resizeRef.current.startY;
+        const dw = resizeRef.current.axis === 'y' ? 0 : e.clientX - resizeRef.current.startX;
+        const dh = resizeRef.current.axis === 'x' ? 0 : e.clientY - resizeRef.current.startY;
         setSize({
           w: clamp(resizeRef.current.baseW + dw, minWidth, vw - EDGE_MARGIN),
           h: clamp(resizeRef.current.baseH + dh, minHeight, vh - EDGE_MARGIN),
@@ -216,7 +216,7 @@ const DraggableResizableModal: React.FC<DraggableResizableModalProps> = ({
     dragRef.current = { active: true, startX: e.clientX, startY: e.clientY, baseX: pos.x, baseY: pos.y };
   };
 
-  const onResizeMouseDown = (e: React.MouseEvent) => {
+  const onResizeMouseDown = (e: React.MouseEvent, axis: 'both' | 'x' | 'y' = 'both') => {
     if (typeof window !== 'undefined' && window.innerWidth <= 768) return;
     if (isMaximized) return;
     if (e.button !== 0) return;
@@ -224,6 +224,7 @@ const DraggableResizableModal: React.FC<DraggableResizableModalProps> = ({
     e.stopPropagation();
     resizeRef.current = {
       active: true,
+      axis,
       startX: e.clientX,
       startY: e.clientY,
       baseW: size.w,
@@ -286,14 +287,18 @@ const DraggableResizableModal: React.FC<DraggableResizableModalProps> = ({
         <div
           className="erp-draggable-modal-inner"
           style={{
-            height: isMobile ? '100dvh' : (isMaximized ? 'calc(100vh - 24px)' : size.h),
-            maxHeight: isMobile ? '100dvh' : (isMaximized ? 'calc(100vh - 24px)' : size.h),
+            height: isMobile ? '100dvh' : (isMaximized ? '100vh' : size.h),
+            maxHeight: isMobile ? '100dvh' : (isMaximized ? '100vh' : size.h),
           }}
         >
           {modalNode}
         </div>
         {!isMobile && !isMaximized && (
-          <div className="erp-draggable-modal-resize-handle" onMouseDown={onResizeMouseDown} aria-hidden="true" title="Drag to resize" />
+          <>
+            <div className="erp-draggable-modal-resize-edge-r" onMouseDown={(e) => onResizeMouseDown(e, 'x')} aria-hidden="true" title="Drag right edge to resize width" />
+            <div className="erp-draggable-modal-resize-edge-b" onMouseDown={(e) => onResizeMouseDown(e, 'y')} aria-hidden="true" title="Drag bottom edge to resize height" />
+            <div className="erp-draggable-modal-resize-handle" onMouseDown={(e) => onResizeMouseDown(e, 'both')} aria-hidden="true" title="Drag corner to resize" />
+          </>
         )}
       </div>
     );

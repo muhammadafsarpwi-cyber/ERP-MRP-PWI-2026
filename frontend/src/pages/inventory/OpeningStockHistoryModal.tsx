@@ -14,7 +14,6 @@ import {
   theme,
 } from 'antd';
 import {
-  HistoryOutlined,
   SearchOutlined,
   ReloadOutlined,
   EditOutlined,
@@ -26,6 +25,7 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import apiService from '../../services/api';
+import { DraggableResizableModal } from '../../components/shared';
 
 const { Text } = Typography;
 
@@ -38,6 +38,8 @@ export interface OpeningStockHistoryLine {
   uomId: string;
   uomCode: string;
   quantity: number;
+  unitCost?: number;
+  totalCost?: number;
   batchNumber: string | null;
   serialNumber: string | null;
   notes: string | null;
@@ -55,6 +57,7 @@ export interface OpeningStockHistoryBatch {
   createdByName: string;
   lineCount: number;
   totalQuantity: number;
+  totalValue?: number;
   lines: OpeningStockHistoryLine[];
 }
 
@@ -83,6 +86,7 @@ export const OpeningStockHistoryModal: React.FC<OpeningStockHistoryModalProps> =
   // Inline line edit state
   const [editingLedgerId, setEditingLedgerId] = useState<string | null>(null);
   const [editQty, setEditQty] = useState<number>(0);
+  const [editUnitCost, setEditUnitCost] = useState<number>(0);
   const [editNotes, setEditNotes] = useState<string>('');
   const [savingLine, setSavingLine] = useState(false);
 
@@ -125,9 +129,10 @@ export const OpeningStockHistoryModal: React.FC<OpeningStockHistoryModalProps> =
     try {
       await apiService.put(`/inventory/opening-stock/lines/${ledgerId}`, {
         quantity: editQty,
+        unitCost: editUnitCost,
         notes: editNotes,
       });
-      message.success('Opening stock line updated and stock balance synced');
+      message.success('Opening stock line updated and stock balance & cost synced');
       setEditingLedgerId(null);
       await fetchHistory();
       onHistoryChanged?.();
@@ -212,6 +217,46 @@ export const OpeningStockHistoryModal: React.FC<OpeningStockHistoryModalProps> =
       },
     },
     {
+      title: 'Unit Cost (PKR)',
+      dataIndex: 'unitCost',
+      key: 'unitCost',
+      width: 140,
+      align: 'right',
+      render: (v: number | undefined, r) => {
+        if (editingLedgerId === r.ledgerId) {
+          return (
+            <InputNumber
+              size="small"
+              min={0}
+              controls={false}
+              value={editUnitCost}
+              onChange={(val) => setEditUnitCost(Number(val ?? 0))}
+              style={{ width: 105 }}
+            />
+          );
+        }
+        const cost = Number(v || 0);
+        return cost > 0 ? (
+          <Text strong style={{ color: '#1D4ED8' }}>Rs. {cost.toLocaleString()}</Text>
+        ) : (
+          <Text type="secondary">Rs. 0</Text>
+        );
+      },
+    },
+    {
+      title: 'Total Cost (PKR)',
+      key: 'totalCost',
+      width: 135,
+      align: 'right',
+      render: (_: any, r) => {
+        const val =
+          editingLedgerId === r.ledgerId
+            ? Number(editQty || 0) * Number(editUnitCost || 0)
+            : Number(r.quantity || 0) * Number(r.unitCost || 0);
+        return val > 0 ? <Text strong>Rs. {val.toLocaleString()}</Text> : <Text type="secondary">—</Text>;
+      },
+    },
+    {
       title: 'Batch #',
       dataIndex: 'batchNumber',
       key: 'batchNumber',
@@ -263,7 +308,7 @@ export const OpeningStockHistoryModal: React.FC<OpeningStockHistoryModalProps> =
         }
         return (
           <Space size={4}>
-            <Tooltip title="Edit Quantity / Notes">
+            <Tooltip title="Edit Quantity / Unit Cost / Notes">
               <Button
                 type="text"
                 size="small"
@@ -271,6 +316,7 @@ export const OpeningStockHistoryModal: React.FC<OpeningStockHistoryModalProps> =
                 onClick={() => {
                   setEditingLedgerId(r.ledgerId);
                   setEditQty(Number(r.quantity || 0));
+                  setEditUnitCost(Number(r.unitCost || 0));
                   setEditNotes(r.notes || '');
                 }}
               />
@@ -353,6 +399,28 @@ export const OpeningStockHistoryModal: React.FC<OpeningStockHistoryModalProps> =
       render: (v: number) => <Text strong>{Number(v || 0).toLocaleString()}</Text>,
     },
     {
+      title: 'Total Cost (PKR)',
+      key: 'totalValue',
+      width: 150,
+      align: 'right',
+      render: (_: any, r) => {
+        const val =
+          r.totalValue != null
+            ? Number(r.totalValue)
+            : (r.lines || []).reduce(
+                (sum, line) => sum + Number(line.quantity || 0) * Number(line.unitCost || 0),
+                0,
+              );
+        return val > 0 ? (
+          <Text strong style={{ color: '#1D4ED8' }}>
+            Rs. {val.toLocaleString()}
+          </Text>
+        ) : (
+          <Text type="secondary">Rs. 0</Text>
+        );
+      },
+    },
+    {
       title: 'Posted By',
       dataIndex: 'createdByName',
       key: 'createdByName',
@@ -397,129 +465,77 @@ export const OpeningStockHistoryModal: React.FC<OpeningStockHistoryModalProps> =
 
   return (
     <>
-      <Modal
+      <DraggableResizableModal
         open={open}
         onCancel={onClose}
+        title="Opening Stock History"
+        subtitle="Inspect, edit unit cost/quantity, or reverse posted opening stock vouchers"
+        infoTooltip="Drag header to move, drag edges or corner to resize, or click Minimize to collapse to a floating dock."
         footer={null}
-        centered
-        width={1100}
-        closable={false}
+        width={1140}
+        height={660}
+        minWidth={720}
+        minHeight={420}
+        allowMinimize
+        allowMaximize
         destroyOnHidden
-        styles={{
-          content: {
-            padding: 7,
-            borderRadius: 20,
-            background: token.colorFillSecondary,
-            border: `1px solid ${token.colorBorder}`,
-            boxShadow: '0 24px 64px rgba(0, 0, 0, 0.28)',
-            backdropFilter: 'blur(12px)',
-          },
-          body: { padding: 0 },
-        }}
       >
-        <div
-          style={{
-            borderRadius: 14,
-            background: token.colorBgContainer,
-            border: `1px solid ${token.colorBorderSecondary}`,
-            overflow: 'hidden',
-          }}
-        >
-          {/* Header */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: '14px 20px',
-              background: `linear-gradient(135deg, ${token.colorPrimaryBg} 0%, ${token.colorBgElevated} 100%)`,
-              borderBottom: `1px solid ${token.colorBorderSecondary}`,
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div
-                style={{
-                  width: 38,
-                  height: 38,
-                  borderRadius: 11,
-                  background: `linear-gradient(135deg, ${token.colorPrimary} 0%, #2563eb 100%)`,
-                  color: '#fff',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: 17,
-                }}
-              >
-                <HistoryOutlined />
-              </div>
-              <div>
-                <Text strong style={{ fontSize: 16 }}>
-                  Opening Stock History
-                </Text>
-                <div style={{ fontSize: 12, color: token.colorTextSecondary }}>
-                  Inspect, edit, or reverse posted opening stock vouchers and line items
-                </div>
-              </div>
-            </div>
-            <Button type="text" icon={<CloseOutlined />} onClick={onClose} />
-          </div>
-
-          {/* Body */}
-          <div style={{ padding: '16px 20px', maxHeight: '76vh', overflowY: 'auto' }}>
-            <Space style={{ marginBottom: 14, width: '100%', justifyContent: 'space-between' }} wrap>
-              <Space wrap>
-                <Input
-                  placeholder="Search Reference #, Item Code, or Item Name..."
-                  prefix={<SearchOutlined style={{ color: token.colorTextTertiary }} />}
-                  value={searchText}
-                  onChange={(e) => setSearchText(e.target.value)}
-                  onPressEnter={fetchHistory}
-                  style={{ width: 290 }}
-                  allowClear
-                />
-                <Select
-                  allowClear
-                  placeholder="All Warehouses"
-                  value={warehouseFilter}
-                  onChange={setWarehouseFilter}
-                  style={{ width: 240 }}
-                  showSearch
-                  optionFilterProp="label"
-                  options={warehouses.map((w) => ({
-                    value: w.id,
-                    label: `${w.code ? `${w.code} — ` : ''}${w.name}`,
-                  }))}
-                />
-              </Space>
-              <Button icon={<ReloadOutlined />} onClick={fetchHistory} loading={loading}>
-                Refresh
-              </Button>
+        <div>
+          <Space style={{ marginBottom: 14, width: '100%', justifyContent: 'space-between' }} wrap>
+            <Space wrap>
+              <Input
+                placeholder="Search Reference #, Item Code, or Item Name..."
+                prefix={<SearchOutlined style={{ color: token.colorTextTertiary }} />}
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
+                onPressEnter={fetchHistory}
+                style={{ width: 290 }}
+                allowClear
+              />
+              <Select
+                allowClear
+                placeholder="All Warehouses"
+                value={warehouseFilter}
+                onChange={setWarehouseFilter}
+                style={{ width: 240 }}
+                showSearch
+                optionFilterProp="label"
+                options={warehouses.map((w) => ({
+                  value: w.id,
+                  label: `${w.code ? `${w.code} — ` : ''}${w.name}`,
+                }))}
+              />
             </Space>
+            <Button icon={<ReloadOutlined />} onClick={fetchHistory} loading={loading}>
+              Refresh
+            </Button>
+          </Space>
 
-            <Table
-              columns={batchColumns}
-              dataSource={batches}
-              rowKey="key"
-              loading={loading}
-              size="middle"
-              pagination={{ pageSize: 10, showTotal: (t) => `${t} vouchers` }}
-              expandable={{
-                expandedRowKeys: expandedKeys,
-                onExpandedRowsChange: (keys) => setExpandedKeys([...keys]),
-                expandedRowRender: (batch) => (
-                  <Table
-                    columns={lineColumns}
-                    dataSource={batch.lines}
-                    rowKey="ledgerId"
-                    pagination={false}
-                    size="small"
-                  />
-                ),
-              }}
-            />
-          </div>
+          <Table
+            columns={batchColumns}
+            dataSource={batches}
+            rowKey="key"
+            loading={loading}
+            size="middle"
+            scroll={{ x: 'max-content' }}
+            pagination={{ pageSize: 10, showTotal: (t) => `${t} vouchers` }}
+            expandable={{
+              expandedRowKeys: expandedKeys,
+              onExpandedRowsChange: (keys) => setExpandedKeys([...keys]),
+              expandedRowRender: (batch) => (
+                <Table
+                  columns={lineColumns}
+                  dataSource={batch.lines}
+                  rowKey="ledgerId"
+                  pagination={false}
+                  size="small"
+                  scroll={{ x: 'max-content' }}
+                />
+              ),
+            }}
+          />
         </div>
-      </Modal>
+      </DraggableResizableModal>
 
       {/* Centered Reverse/Delete Confirmation Modal */}
       <Modal

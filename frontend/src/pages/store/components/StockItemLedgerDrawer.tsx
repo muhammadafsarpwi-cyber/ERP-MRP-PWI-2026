@@ -92,7 +92,7 @@ const getMovementTypeTag = (type?: string) => {
     return <Tag color="magenta">PRODUCTION SCRAP</Tag>;
   }
   if (t === 'MATERIAL_ISSUE' || t === 'ISSUE') {
-    return <Tag color="red">MATERIAL ISSUE</Tag>;
+    return <Tag color="red">STORE ISSUE NOTE</Tag>;
   }
   if (t === 'TRANSFER_IN' || t === 'STOCK_TRANSFER') {
     return <Tag color="blue">TRANSFER IN</Tag>;

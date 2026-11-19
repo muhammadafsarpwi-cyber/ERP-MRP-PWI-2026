@@ -66,6 +66,12 @@ export class InventoryBalance extends BaseEntity {
   @Column({ name: 'quarantine_qty', type: 'decimal', precision: 15, scale: 4, default: 0 })
   quarantineQty: number;
 
+  @Column({ name: 'unit_cost', type: 'decimal', precision: 19, scale: 4, nullable: true })
+  unitCost?: number | null;
+
+  @Column({ name: 'average_cost', type: 'decimal', precision: 19, scale: 4, nullable: true })
+  averageCost?: number | null;
+
   @Column({ type: 'varchar', length: 20, default: 'ACTIVE' })
   status: string;
 }

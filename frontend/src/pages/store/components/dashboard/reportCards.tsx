@@ -28,7 +28,7 @@ const REPORTS: ReportCard[] = [
   { title: 'Replenishment Queue', description: 'Low stock items to reorder', icon: <BarChartOutlined />, path: '/store/low-stock', color: '#fa541c', critical: true },
   { title: 'Stock Balance', description: 'Current stock levels per store', icon: <InboxOutlined />, path: '/store/stock-balance', color: '#52c41a' },
   { title: 'Material Requests', description: 'All requests and fulfillment', icon: <FileTextOutlined />, path: '/store/material-requests', color: '#1890ff' },
-  { title: 'Material Issues', description: 'Issued from store', icon: <ArrowUpOutlined />, path: '/store/material-issues', color: '#f5222d' },
+  { title: 'Store Issue Notes (SIN)', description: 'Issued from store', icon: <ArrowUpOutlined />, path: '/store/material-issues', color: '#f5222d' },
   { title: 'Material Receipts', description: 'Received into store', icon: <ArrowDownOutlined />, path: '/store/material-receipts', color: '#52c41a' },
   { title: 'GRN Report', description: 'Goods receipt notes', icon: <InboxOutlined />, path: '/store/material-receipts', color: '#faad14' },
   { title: 'Transfers (MTN)', description: 'Stock between stores', icon: <SwapOutlined />, path: '/store/transfers', color: '#722ed1' },

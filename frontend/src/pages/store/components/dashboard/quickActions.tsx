@@ -29,7 +29,7 @@ const ACTIONS: QuickActionDef[] = [
   { key: 'grn', label: 'Receive Goods (GRN)', desc: 'Confirm inbound material receipt', icon: <ImportOutlined />, path: '/store/material-receipts', permission: 'store.receive.create', color: '#52c41a' },
   { key: 'transfer', label: 'Material Transfer (MTN)', desc: 'Move stock between stores', icon: <SwapOutlined />, path: '/store/transfers', permission: 'store.issue.create', color: '#13c2c2' },
   { key: 'adjust', label: 'Stock Adjustment', desc: 'Correct stock levels', icon: <EditOutlined />, path: '/inventory/adjustments', permission: 'inventory.adjustment.create', color: '#eb2f96' },
-  { key: 'issue', label: 'Material Issue', desc: 'Issue material from store', icon: <ExportOutlined />, path: '/store/material-issues', permission: 'store.issue.create', color: '#ff4d4f' },
+  { key: 'issue', label: 'Store Issue Note (SIN)', desc: 'Create SIN to issue items from store', icon: <ExportOutlined />, path: '/store/material-issues', permission: 'store.issue.create', color: '#ff4d4f' },
   { key: 'return', label: 'Material Return', desc: 'Return material to store', icon: <RollbackOutlined />, path: '/store/material-returns', permission: 'store.return.create', color: '#faad14' },
 ];
 

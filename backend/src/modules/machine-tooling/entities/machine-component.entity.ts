@@ -7,6 +7,9 @@ import { Uom } from '../../item/entities/uom.entity';
 
 /** Tool / component classification stored on tool & component master records. */
 export enum ComponentType {
+  TOOLING = 'TOOLING',
+  SPARE_CONSUMABLE = 'SPARE_CONSUMABLE',
+  // Legacy values retained strictly for backward API / test compatibility
   DIE = 'DIE',
   MOULD = 'MOULD',
   CHAIN = 'CHAIN',
@@ -40,6 +43,10 @@ export class MachineComponent extends BaseEntity {
   @JoinColumn({ name: 'machine_id' })
   machine: Machine;
 
+  /** All machines sharing this tool/component setup (supports multi-machine assignment in one row). */
+  @Column({ name: 'machine_ids', type: 'jsonb', default: () => "'[]'::jsonb" })
+  machineIds: string[];
+
   /** Optional Item Master link — components/tools reference the Item Master wherever appropriate. */
   @Column({ name: 'item_id', type: 'uuid', nullable: true })
   itemId: string | null;
@@ -52,7 +59,7 @@ export class MachineComponent extends BaseEntity {
     name: 'component_type',
     type: 'varchar',
     length: 40,
-    default: ComponentType.COMPONENT,
+    default: ComponentType.TOOLING,
   })
   componentType: ComponentType;
 
@@ -82,6 +89,10 @@ export class MachineComponent extends BaseEntity {
   /** Replacement planning window — upper bound. */
   @Column({ name: 'max_threshold', type: 'numeric', precision: 19, scale: 4, nullable: true })
   maxThreshold: string | null;
+
+  /** Optional tool unit rate in PKR (overrides Item Master / GRN rate when entered manually). */
+  @Column({ name: 'unit_cost', type: 'numeric', precision: 19, scale: 4, nullable: true })
+  unitCost?: string | null;
 
   @Column({ type: 'text', nullable: true })
   description: string | null;

@@ -369,7 +369,7 @@ export const NAV_ENTRIES: NavEntry[] = [
       { key: '/store/stock-balance', label: 'Store Stock Balance', icon: DatabaseOutlined, color: 'info', permissions: ['store.item.view'] },
       { key: '/store/opening-stock', label: 'Opening Stock', icon: PlusOutlined, color: 'success', permissions: ['store.view'] },
       { key: '/store/material-receipts', label: 'Material Receipts', icon: ArrowDownOutlined, color: 'success', permissions: ['store.receive.view'] },
-      { key: '/store/material-issues', label: 'Material Issues', icon: ArrowUpOutlined, color: 'warning', permissions: ['store.issue.view'] },
+      { key: '/store/material-issues', label: 'Store Issue Notes (SIN)', icon: ArrowUpOutlined, color: 'warning', permissions: ['store.issue.view'] },
       { key: '/store/material-returns', label: 'Material Returns', icon: RollbackOutlined, color: 'info', permissions: ['store.return.view'] },
       { key: '/store/ledger', label: 'Store Item Ledger', icon: DatabaseOutlined, color: 'cyan', permissions: ['store.view'] },
       { key: '/store/low-stock', label: 'Low Stock / Reorder', icon: WarningOutlined, color: 'orange', permissions: ['store.view'] },

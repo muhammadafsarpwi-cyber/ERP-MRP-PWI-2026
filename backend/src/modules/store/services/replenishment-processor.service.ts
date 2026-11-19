@@ -15,8 +15,8 @@ import { ReplenishmentService } from './replenishment.service';
 @Injectable()
 export class ReplenishmentProcessorService implements OnApplicationBootstrap, OnApplicationShutdown {
   private readonly logger = new Logger(ReplenishmentProcessorService.name);
-  private readonly POLL_INTERVAL_MS = 60_000;
-  private readonly MIN_RUN_INTERVAL_MS = 60_000;
+  private readonly POLL_INTERVAL_MS = 300_000;
+  private readonly MIN_RUN_INTERVAL_MS = 300_000;
   private timer: ReturnType<typeof setInterval> | null = null;
   private running = false;
   private lastRunAt = 0;

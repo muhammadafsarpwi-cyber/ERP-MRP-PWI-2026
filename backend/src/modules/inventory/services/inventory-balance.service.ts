@@ -722,4 +722,116 @@ export class InventoryBalanceService {
     balance.available = Number(balance.available) + quantity;
     return this.repo.save(balance);
   }
+
+  /**
+   * Update warehouse weighted average cost and latest unit cost when stock is received
+   * via Opening Stock or Material Receipt (GRN).
+   * Formula: ((prevQty * prevAvgCost) + (incomingQty * incomingUnitCost)) / (prevQty + incomingQty)
+   */
+  async updateWeightedAverageCost(
+    companyId: string,
+    itemId: string,
+    warehouseId: string,
+    incomingQty: number,
+    incomingUnitCost: number,
+    prevOnHandBeforeReceipt?: number,
+    manager?: EntityManager,
+  ): Promise<{ unitCost: number; averageCost: number }> {
+    const qtyIn = Number(incomingQty || 0);
+    const rateIn = Number(incomingUnitCost || 0);
+    if (rateIn <= 0) {
+      return { unitCost: 0, averageCost: 0 };
+    }
+
+    const repo = manager ? manager.getRepository(InventoryBalance) : this.repo;
+    const rows = await repo.find({
+      where: { companyId, itemId, warehouseId, status: 'ACTIVE' },
+    });
+
+    const currentTotalOnHand = rows.reduce((s, r) => s + Number(r.onHand || 0), 0);
+    const prevQty =
+      prevOnHandBeforeReceipt !== undefined
+        ? Math.max(0, Number(prevOnHandBeforeReceipt))
+        : Math.max(0, currentTotalOnHand - qtyIn);
+
+    const existingAvgRow = rows.find((r) => Number(r.averageCost || r.unitCost || 0) > 0);
+    const prevAvg = existingAvgRow
+      ? Number(existingAvgRow.averageCost || existingAvgRow.unitCost || 0)
+      : 0;
+
+    let nextAvg = rateIn;
+    if (prevQty > 0 && prevAvg > 0 && qtyIn > 0) {
+      nextAvg = Number(
+        (((prevQty * prevAvg) + (qtyIn * rateIn)) / (prevQty + qtyIn)).toFixed(4),
+      );
+    }
+
+    for (const r of rows) {
+      r.unitCost = rateIn;
+      r.averageCost = nextAvg;
+    }
+    if (rows.length > 0) {
+      await repo.save(rows);
+    }
+
+    return { unitCost: rateIn, averageCost: nextAvg };
+  }
+
+  /**
+   * Resolve the best current unit cost (PKR) for an item in a warehouse:
+   * 1. inventory_balances.average_cost / unit_cost (> 0)
+   * 2. items.cost_price (> 0)
+   * 3. machine_components.unit_cost (> 0)
+   * 4. Latest active GRN unit_price (> 0)
+   */
+  async getEffectiveUnitCost(
+    companyId: string,
+    itemId: string,
+    warehouseId?: string,
+    manager?: EntityManager,
+  ): Promise<number> {
+    const mgr = manager ?? this.repo.manager;
+    if (!itemId || typeof mgr?.query !== 'function') return 0;
+
+    if (warehouseId) {
+      const balRows: Array<{ average_cost: string | number | null; unit_cost: string | number | null }> =
+        await mgr.query(
+          `SELECT average_cost, unit_cost
+             FROM inventory_balances
+            WHERE company_id = $1 AND item_id = $2 AND warehouse_id = $3 AND is_active = true
+              AND (COALESCE(average_cost, 0) > 0 OR COALESCE(unit_cost, 0) > 0)
+            ORDER BY on_hand DESC LIMIT 1`,
+          [companyId, itemId, warehouseId],
+        );
+      const balCost = Number(balRows?.[0]?.average_cost || balRows?.[0]?.unit_cost || 0);
+      if (balCost > 0) return balCost;
+    }
+
+    const itemRows: Array<{ cost_price: string | number | null }> = await mgr.query(
+      `SELECT cost_price FROM items WHERE id = $1 AND company_id = $2 LIMIT 1`,
+      [itemId, companyId],
+    );
+    const itemCost = Number(itemRows?.[0]?.cost_price || 0);
+    if (itemCost > 0) return itemCost;
+
+    const mcRows: Array<{ unit_cost: string | number | null }> = await mgr.query(
+      `SELECT unit_cost FROM machine_components
+        WHERE item_id = $1 AND company_id = $2 AND is_active = true AND COALESCE(unit_cost, 0) > 0
+        LIMIT 1`,
+      [itemId, companyId],
+    );
+    const mcCost = Number(mcRows?.[0]?.unit_cost || 0);
+    if (mcCost > 0) return mcCost;
+
+    const grnRows: Array<{ unit_price: string | number | null }> = await mgr.query(
+      `SELECT grl.unit_price
+         FROM goods_receipt_lines grl
+         INNER JOIN goods_receipts gr ON gr.id = grl.receipt_id
+        WHERE gr.company_id = $1 AND grl.item_id = $2 AND gr.is_active = true AND grl.is_active = true AND grl.unit_price > 0
+        ORDER BY COALESCE(gr.receipt_date, gr.created_at) DESC, grl.created_at DESC
+        LIMIT 1`,
+      [companyId, itemId],
+    );
+    return Number(grnRows?.[0]?.unit_price || 0);
+  }
 }

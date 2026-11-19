@@ -13,6 +13,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ComponentConditionStatus } from '../entities/component-change.entity';
 import { ComponentType } from '../entities/machine-component.entity';
 import { IsUUID } from '../../../common/uuid-loose.validator';
+import { UUID_LOOSE } from './machine-component.dto';
 
 export class CreateComponentChangeDto {
   @ApiProperty({ description: 'Machine UUID (from Machine Master)' })
@@ -140,6 +141,11 @@ export class MonthlyConsumptionQueryDto {
 
   @ApiPropertyOptional({ description: 'Machine UUID to narrow the report to one machine' })
   @IsOptional()
-  @IsUUID()
+  @Matches(UUID_LOOSE, { message: 'machineId must be a UUID' })
   machineId?: string;
+
+  @ApiPropertyOptional({ description: 'Division UUID to narrow the report to one division' })
+  @IsOptional()
+  @Matches(UUID_LOOSE, { message: 'divisionId must be a UUID' })
+  divisionId?: string;
 }

@@ -5142,16 +5142,21 @@ const SpecRow: React.FC<{ label: string; value: React.ReactNode; isLast?: boolea
   <div
     style={{
       display: 'flex',
-      alignItems: 'center',
+      alignItems: 'flex-start',
       justifyContent: 'space-between',
+      flexWrap: 'wrap',
       padding: '5px 0',
       borderBottom: isLast ? 'none' : '1px solid var(--theme-border-secondary, rgba(148, 163, 184, 0.15))',
       fontSize: 12,
-      gap: 12,
+      gap: 8,
+      width: '100%',
+      maxWidth: '100%',
+      minWidth: 0,
+      boxSizing: 'border-box',
     }}
   >
-    <span style={{ color: 'var(--theme-text-secondary, #64748b)', fontWeight: 500, minWidth: 100 }}>{label}</span>
-    <span style={{ color: 'var(--theme-text, #0f172a)', fontWeight: 700, textAlign: 'right', wordBreak: 'break-word' }}>{value}</span>
+    <span style={{ color: 'var(--theme-text-secondary, #64748b)', fontWeight: 500, minWidth: 0, flexShrink: 0 }}>{label}</span>
+    <span style={{ color: 'var(--theme-text, #0f172a)', fontWeight: 700, textAlign: 'right', wordBreak: 'break-word', overflowWrap: 'anywhere', minWidth: 0, flex: '1 1 120px' }}>{value}</span>
   </div>
 );
 
@@ -5226,7 +5231,7 @@ const ItemDetailsStrip: React.FC<{
   })();
 
   return (
-    <div data-testid="item-details-strip" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+    <div data-testid="item-details-strip" style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box' }}>
       {/* ── Section 1: Item Core Specifications ── */}
       <div
         style={{
@@ -5234,14 +5239,19 @@ const ItemDetailsStrip: React.FC<{
           borderRadius: 8,
           padding: '8px 12px',
           border: '1px solid var(--theme-border, rgba(148, 163, 184, 0.15))',
+          width: '100%',
+          maxWidth: '100%',
+          minWidth: 0,
+          boxSizing: 'border-box',
+          overflow: 'hidden',
         }}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginBottom: 4, minWidth: 0 }}>
           <span style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--theme-primary, #ea580c)', letterSpacing: 0.5 }}>
             Product Details
           </span>
           {item.itemCode && (
-            <Tag color="orange" style={{ margin: 0, fontWeight: 700, borderRadius: 10 }}>
+            <Tag color="orange" style={{ margin: 0, fontWeight: 700, borderRadius: 10, maxWidth: '100%', whiteSpace: 'normal', wordBreak: 'break-word' }}>
               {item.itemCode}
             </Tag>
           )}
@@ -6389,7 +6399,7 @@ const RawMaterialAvailability: React.FC<{
             {info.lines.length > 0 && (
               <div style={{
                 marginTop: 12,
-                padding: '12px 14px',
+                padding: '10px 12px',
                 background: 'var(--theme-surface, #ffffff)',
                 borderRadius: 10,
                 border: '1px solid var(--theme-border, rgba(148, 163, 184, 0.2))',
@@ -6397,14 +6407,19 @@ const RawMaterialAvailability: React.FC<{
                 display: 'flex',
                 flexDirection: 'column',
                 gap: 12,
+                width: '100%',
+                maxWidth: '100%',
+                minWidth: 0,
+                boxSizing: 'border-box',
+                overflow: 'hidden',
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 6, borderBottom: '1px solid var(--theme-border-secondary, rgba(148, 163, 184, 0.15))' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, paddingBottom: 6, borderBottom: '1px solid var(--theme-border-secondary, rgba(148, 163, 184, 0.15))', minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
                     <span style={{ fontSize: 12, fontWeight: 800, color: 'var(--theme-text, #0f172a)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
                       Stock Movement & Balance Impact
                     </span>
                   </div>
-                  <Tag color="blue" style={{ margin: 0, fontSize: 10, fontWeight: 700 }}>
+                  <Tag color="blue" style={{ margin: 0, fontSize: 10, fontWeight: 700, maxWidth: '100%', whiteSpace: 'normal' }}>
                     Opening → Movement → Balance
                   </Tag>
                 </div>
@@ -6427,53 +6442,58 @@ const RawMaterialAvailability: React.FC<{
                       border: '1px solid var(--theme-border-secondary, rgba(148, 163, 184, 0.2))',
                       borderLeft: '4px solid #ef4444',
                       borderRadius: 8,
-                      padding: '10px 12px',
+                      padding: '10px 10px',
+                      width: '100%',
+                      maxWidth: '100%',
+                      minWidth: 0,
+                      boxSizing: 'border-box',
+                      overflow: 'hidden',
                     }}>
                       {/* Row 1: Badge on Left, Item Code on Right (Zero Overlap) */}
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, marginBottom: 3, minWidth: 0 }}>
                         <Tag color="error" style={{ margin: 0, fontWeight: 800, fontSize: 10, padding: '0 8px' }}>
                           RAW INPUT
                         </Tag>
-                        <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--theme-text)' }}>
+                        <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--theme-text)', wordBreak: 'break-word' }}>
                           {rawLine.itemCode}
                         </span>
                       </div>
                       {/* Row 2: Full Item Name on its own dedicated line */}
                       {rawLine.itemName && (
-                        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--theme-text)', marginBottom: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--theme-text)', marginBottom: 3, wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
                           {rawLine.itemName}
                         </div>
                       )}
                       {/* Row 3: Source Store Location on its own dedicated line */}
-                      <div style={{ fontSize: 11, color: 'var(--theme-text-muted)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <div style={{ fontSize: 11, color: 'var(--theme-text-muted)', marginBottom: 8, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 4, minWidth: 0 }}>
                         <ShopOutlined style={{ fontSize: 11, color: 'var(--theme-text-secondary)' }} />
                         <span>Source:</span>
-                        <strong style={{ color: 'var(--theme-text)' }}>{sourceStoreLabel || rawLine.rawDepartmentName || 'Source Store'}</strong>
+                        <strong style={{ color: 'var(--theme-text)', wordBreak: 'break-word' }}>{sourceStoreLabel || rawLine.rawDepartmentName || 'Source Store'}</strong>
                       </div>
 
                       {/* 3 Metric Pills: Available -> Consumed (-) -> Balance */}
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8, textAlign: 'center' }}>
-                        <div style={{ background: 'var(--theme-surface)', border: '1px solid var(--theme-border-secondary)', borderRadius: 6, padding: '6px 4px' }}>
-                          <span style={{ fontSize: 10, textTransform: 'uppercase', color: 'var(--theme-text-muted)', fontWeight: 600, display: 'block' }}>Opening</span>
-                          <span style={{ fontSize: 12.5, fontWeight: 800, color: 'var(--theme-text)', whiteSpace: 'nowrap', display: 'block' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 6, textAlign: 'center', width: '100%', maxWidth: '100%', boxSizing: 'border-box' }}>
+                        <div style={{ background: 'var(--theme-surface)', border: '1px solid var(--theme-border-secondary)', borderRadius: 6, padding: '6px 4px', minWidth: 0, overflow: 'hidden' }}>
+                          <span style={{ fontSize: 9.5, textTransform: 'uppercase', color: 'var(--theme-text-muted)', fontWeight: 600, display: 'block' }}>Opening</span>
+                          <span style={{ fontSize: 11.5, fontWeight: 800, color: 'var(--theme-text)', wordBreak: 'break-word', display: 'block' }}>
                             {formatNumber(rawBefore, 2)} {rawUom}
                           </span>
                         </div>
-                        <div style={{ background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: 6, padding: '6px 4px' }}>
-                          <span style={{ fontSize: 10, textTransform: 'uppercase', color: '#ef4444', fontWeight: 600, display: 'block' }}>Consumed (−)</span>
-                          <span style={{ fontSize: 12.5, fontWeight: 800, color: '#ef4444', whiteSpace: 'nowrap', display: 'block' }}>
+                        <div style={{ background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: 6, padding: '6px 4px', minWidth: 0, overflow: 'hidden' }}>
+                          <span style={{ fontSize: 9.5, textTransform: 'uppercase', color: '#ef4444', fontWeight: 600, display: 'block' }}>Consumed (−)</span>
+                          <span style={{ fontSize: 11.5, fontWeight: 800, color: '#ef4444', wordBreak: 'break-word', display: 'block' }}>
                             −{formatNumber(rawConsumed, 2)} {rawUom}
                           </span>
                         </div>
                         <div style={{
                           background: hasShortage ? 'rgba(239, 68, 68, 0.12)' : 'rgba(16, 185, 129, 0.08)',
                           border: `1px solid ${hasShortage ? '#ef4444' : 'rgba(16, 185, 129, 0.3)'}`,
-                          borderRadius: 6, padding: '6px 4px'
+                          borderRadius: 6, padding: '6px 4px', minWidth: 0, overflow: 'hidden'
                         }}>
-                          <span style={{ fontSize: 10, textTransform: 'uppercase', color: hasShortage ? '#ef4444' : '#10b981', fontWeight: 700, display: 'block' }}>
+                          <span style={{ fontSize: 9.5, textTransform: 'uppercase', color: hasShortage ? '#ef4444' : '#10b981', fontWeight: 700, display: 'block' }}>
                             {hasShortage ? 'SHORTAGE' : 'BALANCE'}
                           </span>
-                          <span style={{ fontSize: 12.5, fontWeight: 800, color: hasShortage ? '#ef4444' : '#10b981', whiteSpace: 'nowrap', display: 'block' }}>
+                          <span style={{ fontSize: 11.5, fontWeight: 800, color: hasShortage ? '#ef4444' : '#10b981', wordBreak: 'break-word', display: 'block' }}>
                             {hasShortage ? '−' : '+'}{formatNumber(Math.abs(rawAfter), 2)} {rawUom}
                           </span>
                         </div>
@@ -6497,47 +6517,52 @@ const RawMaterialAvailability: React.FC<{
                       border: '1px solid var(--theme-border-secondary, rgba(148, 163, 184, 0.2))',
                       borderLeft: '4px solid #10b981',
                       borderRadius: 8,
-                      padding: '10px 12px',
+                      padding: '10px 10px',
+                      width: '100%',
+                      maxWidth: '100%',
+                      minWidth: 0,
+                      boxSizing: 'border-box',
+                      overflow: 'hidden',
                     }}>
                       {/* Row 1: Badge on Left, Item Code on Right (Zero Overlap) */}
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, marginBottom: 3, minWidth: 0 }}>
                         <Tag color="success" style={{ margin: 0, fontWeight: 800, fontSize: 10, padding: '0 8px' }}>
                           FG OUTPUT
                         </Tag>
-                        <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--theme-text)' }}>
+                        <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--theme-text)', wordBreak: 'break-word' }}>
                           {info.itemCode}
                         </span>
                       </div>
                       {/* Row 2: Full Item Name on its own dedicated line */}
                       {info.itemName && (
-                        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--theme-text)', marginBottom: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--theme-text)', marginBottom: 3, wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
                           {info.itemName}
                         </div>
                       )}
                       {/* Row 3: Receipt Store Location on its own dedicated line */}
-                      <div style={{ fontSize: 11, color: 'var(--theme-text-muted)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <div style={{ fontSize: 11, color: 'var(--theme-text-muted)', marginBottom: 8, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 4, minWidth: 0 }}>
                         <ShopOutlined style={{ fontSize: 11, color: 'var(--theme-text-secondary)' }} />
                         <span>Receipt:</span>
-                        <strong style={{ color: 'var(--theme-text)' }}>{receiptStoreLabel || 'Receipt Warehouse'}</strong>
+                        <strong style={{ color: 'var(--theme-text)', wordBreak: 'break-word' }}>{receiptStoreLabel || 'Receipt Warehouse'}</strong>
                       </div>
 
                       {/* 3 Metric Pills: Opening -> Produced (+) -> Closing */}
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8, textAlign: 'center' }}>
-                        <div style={{ background: 'var(--theme-surface)', border: '1px solid var(--theme-border-secondary)', borderRadius: 6, padding: '6px 4px' }}>
-                          <span style={{ fontSize: 10, textTransform: 'uppercase', color: 'var(--theme-text-muted)', fontWeight: 600, display: 'block' }}>Opening</span>
-                          <span style={{ fontSize: 12.5, fontWeight: 800, color: 'var(--theme-text)', whiteSpace: 'nowrap', display: 'block' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 6, textAlign: 'center', width: '100%', maxWidth: '100%', boxSizing: 'border-box' }}>
+                        <div style={{ background: 'var(--theme-surface)', border: '1px solid var(--theme-border-secondary)', borderRadius: 6, padding: '6px 4px', minWidth: 0, overflow: 'hidden' }}>
+                          <span style={{ fontSize: 9.5, textTransform: 'uppercase', color: 'var(--theme-text-muted)', fontWeight: 600, display: 'block' }}>Opening</span>
+                          <span style={{ fontSize: 11.5, fontWeight: 800, color: 'var(--theme-text)', wordBreak: 'break-word', display: 'block' }}>
                             {formatNumber(outBefore, 2)} {outUom}
                           </span>
                         </div>
-                        <div style={{ background: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.3)', borderRadius: 6, padding: '6px 4px' }}>
-                          <span style={{ fontSize: 10, textTransform: 'uppercase', color: '#10b981', fontWeight: 600, display: 'block' }}>Produced (+)</span>
-                          <span style={{ fontSize: 12.5, fontWeight: 800, color: '#10b981', whiteSpace: 'nowrap', display: 'block' }}>
+                        <div style={{ background: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.3)', borderRadius: 6, padding: '6px 4px', minWidth: 0, overflow: 'hidden' }}>
+                          <span style={{ fontSize: 9.5, textTransform: 'uppercase', color: '#10b981', fontWeight: 600, display: 'block' }}>Produced (+)</span>
+                          <span style={{ fontSize: 11.5, fontWeight: 800, color: '#10b981', wordBreak: 'break-word', display: 'block' }}>
                             +{formatNumber(outProduced, 2)} {outUom}
                           </span>
                         </div>
-                        <div style={{ background: 'rgba(6, 182, 212, 0.08)', border: '1px solid rgba(6, 182, 212, 0.35)', borderRadius: 6, padding: '6px 4px' }}>
-                          <span style={{ fontSize: 10, textTransform: 'uppercase', color: '#06b6d4', fontWeight: 700, display: 'block' }}>Closing</span>
-                          <span style={{ fontSize: 12.5, fontWeight: 800, color: '#06b6d4', whiteSpace: 'nowrap', display: 'block' }}>
+                        <div style={{ background: 'rgba(6, 182, 212, 0.08)', border: '1px solid rgba(6, 182, 212, 0.35)', borderRadius: 6, padding: '6px 4px', minWidth: 0, overflow: 'hidden' }}>
+                          <span style={{ fontSize: 9.5, textTransform: 'uppercase', color: '#06b6d4', fontWeight: 700, display: 'block' }}>Closing</span>
+                          <span style={{ fontSize: 11.5, fontWeight: 800, color: '#06b6d4', wordBreak: 'break-word', display: 'block' }}>
                             {formatNumber(outAfter, 2)} {outUom}
                           </span>
                         </div>

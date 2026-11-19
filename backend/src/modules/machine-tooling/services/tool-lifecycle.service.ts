@@ -30,7 +30,13 @@ import {
   ToolChangeoverDto,
   RemountToolDto,
 } from '../dto';
-import { numOrNull } from './machine-component.service';
+import { componentSupportsMachine, normalizeComponentType, numOrNull } from './machine-component.service';
+import {
+  computeChangeCumulativeLife,
+  fetchComponentLifeSpecs,
+  fetchLiveMachineCounters,
+  resolveComponentLifeSpec,
+} from './tool-life-calc.helper';
 
 /**
  * TASK26 — Machine Tool & Component LIFECYCLE engine.
@@ -73,19 +79,24 @@ export class ToolLifecycleService implements OnModuleInit {
 
   async onModuleInit() {
     try {
-      await this.changeRepo.manager.query(`
-        ALTER TABLE component_changes
-          ADD COLUMN IF NOT EXISTS lifecycle_status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
-          ADD COLUMN IF NOT EXISTS accumulated_life_before_current_session NUMERIC(19,4) NOT NULL DEFAULT 0,
-          ADD COLUMN IF NOT EXISTS mounting_sessions JSONB NOT NULL DEFAULT '[]'::jsonb,
-          ADD COLUMN IF NOT EXISTS last_operator_name VARCHAR(150),
-          ADD COLUMN IF NOT EXISTS last_shift_incharge_name VARCHAR(150)
-      `);
-      await this.changeRepo.manager.query(`
-        UPDATE component_changes
-           SET lifecycle_status = 'CLOSED'
-         WHERE lifecycle_status = 'ACTIVE' AND closed_at IS NOT NULL
-      `);
+      const colRows = await this.changeRepo.manager.query(
+        `SELECT column_name FROM information_schema.columns WHERE table_name = 'component_changes' AND column_name IN ('lifecycle_status', 'accumulated_life_before_current_session', 'mounting_sessions', 'last_operator_name', 'last_shift_incharge_name')`,
+      );
+      if ((colRows?.length || 0) < 5) {
+        await this.changeRepo.manager.query(`
+          ALTER TABLE component_changes
+            ADD COLUMN IF NOT EXISTS lifecycle_status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+            ADD COLUMN IF NOT EXISTS accumulated_life_before_current_session NUMERIC(19,4) NOT NULL DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS mounting_sessions JSONB NOT NULL DEFAULT '[]'::jsonb,
+            ADD COLUMN IF NOT EXISTS last_operator_name VARCHAR(150),
+            ADD COLUMN IF NOT EXISTS last_shift_incharge_name VARCHAR(150)
+        `);
+        await this.changeRepo.manager.query(`
+          UPDATE component_changes
+             SET lifecycle_status = 'CLOSED'
+           WHERE lifecycle_status = 'ACTIVE' AND closed_at IS NOT NULL
+        `);
+      }
       this.logger.log('Verified component_changes lifecycle changeover & standby schema.');
     } catch (err: any) {
       this.logger.warn(`Tool lifecycle schema verification skipped: ${err?.message || err}`);
@@ -133,21 +144,32 @@ export class ToolLifecycleService implements OnModuleInit {
 
   private inferComponentType(nameOrCode: string): ComponentType {
     const upper = String(nameOrCode || '').toUpperCase();
-    if (upper.includes('DIE')) return ComponentType.DIE;
-    if (upper.includes('MOULD') || upper.includes('MOLD')) return ComponentType.MOULD;
-    if (upper.includes('CHAIN')) return ComponentType.CHAIN;
-    if (upper.includes('FIXTURE')) return ComponentType.FIXTURE;
     if (
+      upper.includes('DIE') ||
+      upper.includes('MOULD') ||
+      upper.includes('MOLD') ||
+      upper.includes('FIXTURE') ||
       upper.includes('PUNCH') ||
       upper.includes('TOOL') ||
       upper.includes('BLADE') ||
       upper.includes('ROLLER') ||
       upper.includes('CUTTER') ||
-      upper.includes('DRILL')
+      upper.includes('DRILL') ||
+      upper.includes('GUIDE')
     ) {
-      return ComponentType.TOOL;
+      return ComponentType.TOOLING;
     }
-    return ComponentType.COMPONENT;
+    if (
+      upper.includes('CHAIN') ||
+      upper.includes('BEARING') ||
+      upper.includes('BELT') ||
+      upper.includes('SENSOR') ||
+      upper.includes('SPARE') ||
+      upper.includes('CONSUMABLE')
+    ) {
+      return ComponentType.SPARE_CONSUMABLE;
+    }
+    return ComponentType.TOOLING;
   }
 
   /**
@@ -164,6 +186,7 @@ export class ToolLifecycleService implements OnModuleInit {
       itemId: string;
       quantity: number;
       oldItemReturnedQty?: number;
+      unitCost?: number | null;
       uomId?: string | null;
       remarks?: string | null;
     }>;
@@ -212,27 +235,41 @@ export class ToolLifecycleService implements OnModuleInit {
       const item = await this.itemRepo.findOne({ where: { id: line.itemId, companyId } });
       if (!item) continue;
 
-      // 1. Find or auto-register MachineComponent for this machine + item
+      // 1. Find existing unified MachineComponent across company (by itemId or code) and ensure machine.id is assigned
       let component = await this.componentRepo.findOne({
-        where: { companyId, machineId: machine.id, itemId: item.id, isActive: true },
+        where: { companyId, itemId: item.id, isActive: true },
       });
       if (!component) {
         component = await this.componentRepo.findOne({
-          where: { companyId, machineId: machine.id, componentCode: item.itemCode, isActive: true },
+          where: { companyId, componentCode: item.itemCode, isActive: true },
         });
       }
-      if (!component) {
+      if (component) {
+        const existingIds = Array.isArray(component.machineIds) && component.machineIds.length > 0
+          ? [...component.machineIds]
+          : component.machineId
+            ? [component.machineId]
+            : [];
+        if (!existingIds.includes(machine.id)) {
+          existingIds.push(machine.id);
+          component.machineIds = existingIds;
+          component = await this.componentRepo.save(component);
+        }
+      } else {
         const inferredType = this.inferComponentType(`${item.name || ''} ${item.itemCode}`);
         component = this.componentRepo.create({
           companyId,
           machineId: machine.id,
+          machineIds: [machine.id],
           itemId: item.id,
-          componentType: inferredType,
+          componentType: normalizeComponentType(inferredType),
           componentName: item.name || item.itemCode,
           componentCode: item.itemCode,
           uomId: line.uomId || item.baseUomId || null,
-          expectedLifeQuantity: null,
-          description: `Auto-registered from Material Issue ${issueNumber}`,
+          expectedLifeQuantity: '600000',
+          minThreshold: '300000',
+          maxThreshold: '600000',
+          description: `Auto-registered from Store Issue Note ${issueNumber}`,
           createdBy: userId ?? null,
           updatedBy: userId ?? null,
         });
@@ -240,9 +277,9 @@ export class ToolLifecycleService implements OnModuleInit {
         component = await this.componentRepo.save(component);
       }
 
-      // 2. Auto-Close previous ACTIVE tool run on this machine/component
+      // 2. Auto-Close previous ACTIVE tool run on this specific machine + component
       const previousActive = await this.changeRepo.findOne({
-        where: { companyId, componentId: component.id, isActive: true, closedAt: IsNull() },
+        where: { companyId, machineId: machine.id, componentId: component.id, isActive: true, closedAt: IsNull() },
       });
 
       const hasOldReturn = Number(line.oldItemReturnedQty || 0) > 0;
@@ -297,9 +334,9 @@ export class ToolLifecycleService implements OnModuleInit {
         closedCount++;
       }
 
-      // 3. Auto-Start new ACTIVE tool run with sequential Run # and Starting Production = 0
+      // 3. Auto-Start new ACTIVE tool run with sequential Run # per machine+component and Starting Production = 0
       const priorRuns = await this.changeRepo.count({
-        where: { companyId, componentId: component.id, isActive: true },
+        where: { companyId, machineId: machine.id, componentId: component.id, isActive: true },
       });
       const runNumber = priorRuns + 1;
       const newToolCode = `${item.itemCode} · Run #${runNumber}`;
@@ -315,6 +352,13 @@ export class ToolLifecycleService implements OnModuleInit {
         action: 'MOUNTED',
         reason: `Issued via ${issueNumber}`,
       };
+
+      const snapUnitCost = await this.resolveToolSnapshotCost(
+        companyId,
+        item.id,
+        component,
+        line.unitCost ?? null,
+      );
 
       const nextRun = this.changeRepo.create({
         companyId,
@@ -335,9 +379,10 @@ export class ToolLifecycleService implements OnModuleInit {
         mountingSessions: [initialSession],
         reason: `Issued via ${issueNumber}`,
         conditionStatus: 'NEW',
-        remarks: line.remarks?.trim() || `Auto-started from Material Issue ${issueNumber}`,
+        remarks: line.remarks?.trim() || `Auto-started from Store Issue Note ${issueNumber}`,
         dispositionType: null,
         dispositionNote: null,
+        unitCost: snapUnitCost > 0 ? String(snapUnitCost) : null,
         closedAt: null,
         changedAt: new Date(),
         changedBy: userId ?? null,
@@ -586,44 +631,24 @@ export class ToolLifecycleService implements OnModuleInit {
 
     const targetMachine = await this.assertMachineActive(companyId, dto.machineId);
 
-    // Resolve target MachineComponent on targetMachine (same component if same machine, else find/create for targetMachine)
+    // Ensure target machine is linked onto the unified MachineComponent and no ACTIVE tool is running on (targetMachine, targetComponent)
     let targetComponentId = change.componentId;
-    if (change.machineId !== targetMachine.id) {
-      const srcComp = change.component;
-      let match: MachineComponent | null = null;
-      if (srcComp?.itemId) {
-        match = await this.componentRepo.findOne({
-          where: { companyId, machineId: targetMachine.id, itemId: srcComp.itemId, isActive: true },
-        });
+    if (change.component && !componentSupportsMachine(change.component, targetMachine.id)) {
+      const existingIds = Array.isArray(change.component.machineIds) && change.component.machineIds.length > 0
+        ? [...change.component.machineIds]
+        : change.component.machineId
+          ? [change.component.machineId]
+          : [];
+      if (!existingIds.includes(targetMachine.id)) {
+        existingIds.push(targetMachine.id);
+        change.component.machineIds = existingIds;
+        await this.componentRepo.save(change.component);
       }
-      if (!match && srcComp?.componentCode) {
-        match = await this.componentRepo.findOne({
-          where: { companyId, machineId: targetMachine.id, componentCode: srcComp.componentCode, isActive: true },
-        });
-      }
-      if (!match) {
-        const created = this.componentRepo.create({
-          companyId,
-          machineId: targetMachine.id,
-          itemId: srcComp?.itemId ?? null,
-          componentType: srcComp?.componentType ?? ComponentType.TOOL,
-          componentName: srcComp?.componentName ?? change.newToolDescription ?? change.newToolCode,
-          componentCode: srcComp?.componentCode ?? change.newToolCode.split(' · ')[0],
-          uomId: srcComp?.uomId ?? null,
-          expectedLifeQuantity: srcComp?.expectedLifeQuantity ?? null,
-          description: `Auto-linked when re-mounting standby tool ${change.newToolCode}`,
-          createdBy: userId ?? null,
-          updatedBy: userId ?? null,
-        });
-        created.isActive = true;
-        match = await this.componentRepo.save(created);
-      }
-      targetComponentId = match.id;
     }
 
     // Ensure target machine+component does not already have an ACTIVE tool mounted
     const existingActive = await this.changeRepo.findOne({
-      where: { companyId, componentId: targetComponentId, isActive: true, closedAt: IsNull() },
+      where: { companyId, machineId: targetMachine.id, componentId: targetComponentId, isActive: true, closedAt: IsNull() },
     });
     if (existingActive) {
       throw new ConflictException(
@@ -720,18 +745,14 @@ export class ToolLifecycleService implements OnModuleInit {
     const changes = await qb.getMany();
 
     // One derived counter per machine (all-time SUM of active non-deleted production entries)
-    const machineIds = [...new Set(changes.map((c) => c.machineId))];
-    const counters = new Map<string, number>();
-    if (machineIds.length) {
-      const rows = await this.changeRepo.manager.query(
-        `SELECT machine_id, COALESCE(SUM(actual_quantity), 0)::numeric(19,4) AS counter_value
-           FROM production_entries
-          WHERE company_id = $1 AND machine_id = ANY($2) AND is_active = TRUE AND deleted_at IS NULL
-          GROUP BY machine_id`,
-        [companyId, machineIds],
-      );
-      for (const r of rows) counters.set(r.machine_id, numOrNull(r.counter_value) ?? 0);
-    }
+    const [counters, lifeSpecs] = await Promise.all([
+      fetchLiveMachineCounters(
+        this.changeRepo.manager,
+        companyId,
+        changes.map((c) => c.machineId),
+      ),
+      fetchComponentLifeSpecs(this.changeRepo.manager, companyId),
+    ]);
 
     // Also compute live Weight (Kg) produced on each machine since each active tool's installDate
     const weightMap = new Map<string, number>();
@@ -757,11 +778,14 @@ export class ToolLifecycleService implements OnModuleInit {
     const data = changes.map((c) => {
       const installCounter = numOrNull(c.productionCounterAfter);
       const derived = counters.get(c.machineId) ?? 0;
-      const expected = numOrNull((c.component as any)?.expectedLifeQuantity);
+      const lifeSpec = resolveComponentLifeSpec(c, lifeSpecs);
+      const expected = lifeSpec.expectedLifeQuantity;
       const priorAccumulated = numOrNull(c.accumulatedLifeBeforeCurrentSession) ?? 0;
       const currentSessionUsed =
         installCounter !== null ? Math.max(0, Number((derived - installCounter).toFixed(4))) : derived;
-      const used = Number((priorAccumulated + currentSessionUsed).toFixed(4));
+      const used = computeChangeCumulativeLife(c, counters);
+      const lifeProgressPct =
+        expected !== null && expected > 0 ? Number(((used / expected) * 100).toFixed(1)) : null;
       const sessions = Array.isArray(c.mountingSessions) ? c.mountingSessions : [];
       return {
         id: c.id,
@@ -777,6 +801,8 @@ export class ToolLifecycleService implements OnModuleInit {
               componentName: c.component.componentName,
               componentType: c.component.componentType,
               expectedLifeQuantity: expected,
+              minThreshold: lifeSpec.minThreshold,
+              maxThreshold: lifeSpec.maxThreshold,
               uomCode: (c.component as any).uom?.code ?? null,
             }
           : null,
@@ -789,10 +815,11 @@ export class ToolLifecycleService implements OnModuleInit {
         accumulatedLifeBeforeCurrentSession: priorAccumulated,
         currentSessionProduction: currentSessionUsed,
         usedByInstalled: used,
+        lifeProgressPct,
         sessionCount: sessions.length || 1,
         mountingSessions: sessions,
         liveWeightKg: weightMap.get(c.id) ?? 0,
-        remainingByInstalled: expected !== null ? Math.max(0, expected - used) : null,
+        remainingByInstalled: expected !== null ? Math.max(0, Number((expected - used).toFixed(4))) : null,
         storeIssueId: c.storeIssueId,
         storeIssueNumber: (c.storeIssue as any)?.issueNumber ?? null,
         operatorName: c.lastOperatorName || (c.storeIssue as any)?.operatorName || null,
@@ -820,7 +847,7 @@ export class ToolLifecycleService implements OnModuleInit {
     const component = await this.assertComponentOnMachine(companyId, dto.machineId, dto.componentId);
 
     const open = await this.changeRepo.findOne({
-      where: { companyId, componentId: dto.componentId, isActive: true, closedAt: null as unknown as Date },
+      where: { companyId, machineId: dto.machineId, componentId: dto.componentId, isActive: true, closedAt: null as unknown as Date },
     });
     if (open) {
       throw new ConflictException(
@@ -833,6 +860,13 @@ export class ToolLifecycleService implements OnModuleInit {
     const counterAfter = dto.productionCounterAfter !== undefined && dto.productionCounterAfter !== null
       ? String(dto.productionCounterAfter)
       : String(await this.deriveCounterAt(companyId, dto.machineId, dto.changeDate));
+
+    const snapUnitCost = await this.resolveToolSnapshotCost(
+      companyId,
+      component.itemId,
+      component,
+      null,
+    );
 
     let change = this.changeRepo.create({
       companyId,
@@ -853,6 +887,7 @@ export class ToolLifecycleService implements OnModuleInit {
       remarks: dto.remarks?.trim() || null,
       dispositionType: null,
       dispositionNote: null,
+      unitCost: snapUnitCost > 0 ? String(snapUnitCost) : null,
       closedAt: null,
       changedAt: new Date(),
       changedBy: userId ?? null,
@@ -1057,23 +1092,17 @@ export class ToolLifecycleService implements OnModuleInit {
     const changes = await qb.getMany();
 
     // Derive live counters for any ACTIVE rows included in the report so current life is always live
-    const activeMachineIds = [...new Set(changes.filter((c) => c.closedAt === null).map((c) => c.machineId))];
-    const liveCounters = new Map<string, number>();
-    if (activeMachineIds.length) {
-      const cRows = await this.changeRepo.manager.query(
-        `SELECT machine_id, COALESCE(SUM(actual_quantity), 0)::numeric(19,4) AS counter_value
-           FROM production_entries
-          WHERE company_id = $1 AND machine_id = ANY($2) AND is_active = TRUE AND deleted_at IS NULL
-          GROUP BY machine_id`,
-        [companyId, activeMachineIds],
-      );
-      for (const r of cRows) liveCounters.set(r.machine_id, numOrNull(r.counter_value) ?? 0);
-    }
+    const activeMachineIds = changes.filter((c) => c.closedAt === null).map((c) => c.machineId);
+    const [liveCounters, lifeSpecs] = await Promise.all([
+      fetchLiveMachineCounters(this.changeRepo.manager, companyId, activeMachineIds),
+      fetchComponentLifeSpecs(this.changeRepo.manager, companyId),
+    ]);
 
     const data = changes.map((c) => {
       const installCounter = numOrNull(c.productionCounterAfter);
       const removalCounter = numOrNull(c.productionCounterBefore);
-      const expected = numOrNull((c.component as any)?.expectedLifeQuantity);
+      const lifeSpec = resolveComponentLifeSpec(c, lifeSpecs);
+      const expected = lifeSpec.expectedLifeQuantity;
       const priorAccumulated = numOrNull(c.accumulatedLifeBeforeCurrentSession) ?? 0;
       const effectiveStatus =
         c.closedAt === null
@@ -1081,14 +1110,9 @@ export class ToolLifecycleService implements OnModuleInit {
           : c.lifecycleStatus === ToolLifecycleStatus.STANDBY
             ? ToolLifecycleStatus.STANDBY
             : ToolLifecycleStatus.CLOSED;
-      const isActive = effectiveStatus === ToolLifecycleStatus.ACTIVE;
-      const liveSession =
-        isActive && installCounter !== null
-          ? Math.max(0, Number(((liveCounters.get(c.machineId) ?? 0) - installCounter).toFixed(4)))
-          : null;
-      const productionLife = isActive
-        ? Number((priorAccumulated + (liveSession ?? 0)).toFixed(4))
-        : (numOrNull(c.productionSincePrevious) ?? priorAccumulated);
+      const productionLife = computeChangeCumulativeLife(c, liveCounters);
+      const lifeProgressPct =
+        expected !== null && expected > 0 ? Number(((productionLife / expected) * 100).toFixed(1)) : null;
       const sessions = Array.isArray(c.mountingSessions) ? c.mountingSessions : [];
 
       return {
@@ -1105,6 +1129,8 @@ export class ToolLifecycleService implements OnModuleInit {
               componentName: c.component.componentName,
               componentType: c.component.componentType,
               expectedLifeQuantity: expected,
+              minThreshold: lifeSpec.minThreshold,
+              maxThreshold: lifeSpec.maxThreshold,
               uomCode: (c.component as any)?.uom?.code ?? null,
             }
           : null,
@@ -1117,6 +1143,7 @@ export class ToolLifecycleService implements OnModuleInit {
         installCounter,
         removalCounter,
         productionLife,
+        lifeProgressPct,
         accumulatedLifeBeforeCurrentSession: priorAccumulated,
         sessionCount: sessions.length || 1,
         mountingSessions: sessions,
@@ -1265,9 +1292,9 @@ export class ToolLifecycleService implements OnModuleInit {
       relations: ['machine'],
     });
     if (!component) throw new NotFoundException(`Component '${componentId}' not found in this company`);
-    if (component.machineId !== machineId) {
+    if (!componentSupportsMachine(component, machineId)) {
       throw new BadRequestException(
-        `Component '${component.componentCode}' is tracked on machine '${component.machine?.machineCode ?? component.machineId}' — choose that machine.`,
+        `Component '${component.componentCode}' is not assigned to the selected machine. Assign the machine in Tool & Component Setup first.`,
       );
     }
     return component;
@@ -1311,5 +1338,43 @@ export class ToolLifecycleService implements OnModuleInit {
       where: { companyId, machineId, isActive: true },
       order: { changeDate: 'ASC' as const },
     });
+  }
+
+  /**
+   * Resolve a tool's unit cost (PKR) to snapshot on a newly mounted/issued run:
+   * 1. Explicit Store Issue line unitCost (> 0)
+   * 2. Component setup unitCost (> 0)
+   * 3. Inventory Balance weighted average_cost / unit_cost (> 0)
+   * 4. Item Master cost_price (> 0)
+   * 5. Latest active GRN unit_price (> 0)
+   */
+  private async resolveToolSnapshotCost(
+    companyId: string,
+    itemId: string | null | undefined,
+    component: Partial<MachineComponent> | null | undefined,
+    preferredUnitCost: number | null | undefined,
+  ): Promise<number> {
+    if (preferredUnitCost !== null && preferredUnitCost !== undefined && Number(preferredUnitCost) > 0) {
+      return Number(preferredUnitCost);
+    }
+    const compCost = numOrNull((component as any)?.unitCost);
+    if (compCost !== null && compCost > 0) return compCost;
+    if (!itemId || typeof this.changeRepo.manager?.query !== 'function') return 0;
+
+    try {
+      const rows: Array<{ cost: string | number | null }> = await this.changeRepo.manager.query(
+        `SELECT COALESCE(
+            (SELECT NULLIF(ib.average_cost, 0) FROM inventory_balances ib WHERE ib.company_id = $1 AND ib.item_id = $2 AND ib.status = 'ACTIVE' AND COALESCE(ib.average_cost, 0) > 0 ORDER BY ib.on_hand DESC LIMIT 1),
+            (SELECT NULLIF(ib.unit_cost, 0) FROM inventory_balances ib WHERE ib.company_id = $1 AND ib.item_id = $2 AND ib.status = 'ACTIVE' AND COALESCE(ib.unit_cost, 0) > 0 ORDER BY ib.on_hand DESC LIMIT 1),
+            (SELECT NULLIF(i.cost_price, 0) FROM items i WHERE i.id = $2 AND i.company_id = $1 LIMIT 1),
+            (SELECT NULLIF(grl.unit_price, 0) FROM goods_receipt_lines grl JOIN goods_receipts gr ON gr.id = grl.receipt_id WHERE gr.company_id = $1 AND grl.item_id = $2 AND gr.is_active = true AND grl.is_active = true AND grl.unit_price > 0 ORDER BY COALESCE(gr.receipt_date, gr.created_at) DESC, grl.created_at DESC LIMIT 1),
+            0
+          ) AS cost`,
+        [companyId, itemId],
+      );
+      return Number(rows?.[0]?.cost || 0);
+    } catch {
+      return 0;
+    }
   }
 }

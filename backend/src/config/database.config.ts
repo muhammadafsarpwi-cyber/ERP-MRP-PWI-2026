@@ -30,8 +30,8 @@ export const databaseConfig = (
     keepConnectionAlive: true,
     extra: {
       ssl: sslConfig,
-      max: Number(configService.get<string>('DB_POOL_MAX', '5')),
-      idleTimeoutMillis: 10000,
+      max: Number(configService.get<string>('DB_POOL_MAX', '3')),
+      idleTimeoutMillis: 5000,
       connectionTimeoutMillis: 30000,
       keepAlive: true,
       keepAliveInitialDelayMillis: 10000,

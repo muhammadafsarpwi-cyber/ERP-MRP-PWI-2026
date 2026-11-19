@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, NotFoundException, Logger } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { StockLedgerService } from './stock-ledger.service';
@@ -7,7 +7,7 @@ import { BatchService } from './batch.service';
 import { PostOpeningStockDto } from '../dto';
 
 @Injectable()
-export class OpeningStockService {
+export class OpeningStockService implements OnModuleInit {
   private readonly logger = new Logger(OpeningStockService.name);
 
   constructor(
@@ -16,6 +16,95 @@ export class OpeningStockService {
     private readonly balanceService: InventoryBalanceService,
     private readonly batchService: BatchService,
   ) {}
+
+  async onModuleInit(): Promise<void> {
+    try {
+      if (typeof this.dataSource?.query !== 'function') return;
+
+      await this.dataSource.query(`
+        ALTER TABLE stock_ledger
+          ADD COLUMN IF NOT EXISTS unit_cost NUMERIC(19, 4) NULL,
+          ADD COLUMN IF NOT EXISTS total_cost NUMERIC(19, 4) NULL
+      `);
+      await this.dataSource.query(`
+        ALTER TABLE inventory_balances
+          ADD COLUMN IF NOT EXISTS unit_cost NUMERIC(19, 4) NULL,
+          ADD COLUMN IF NOT EXISTS average_cost NUMERIC(19, 4) NULL
+      `);
+      await this.dataSource.query(`
+        ALTER TABLE material_issue_lines
+          ADD COLUMN IF NOT EXISTS unit_cost NUMERIC(19, 4) NULL,
+          ADD COLUMN IF NOT EXISTS total_cost NUMERIC(19, 4) NULL
+      `);
+      await this.dataSource.query(`
+        ALTER TABLE component_changes
+          ADD COLUMN IF NOT EXISTS unit_cost NUMERIC(19, 4) NULL
+      `);
+
+      // Recover & sync existing costs across items, inventory_balances, stock_ledger (OPENING/RECEIPT), and uncosted component_changes
+      await this.dataSource.query(`
+        UPDATE items i
+           SET cost_price = mc.unit_cost
+          FROM (
+            SELECT DISTINCT ON (item_id) item_id, unit_cost
+              FROM machine_components
+             WHERE item_id IS NOT NULL AND is_active = true AND COALESCE(unit_cost, 0) > 0
+             ORDER BY item_id, updated_at DESC
+          ) mc
+         WHERE i.id = mc.item_id
+           AND (i.cost_price IS NULL OR i.cost_price = 0)
+      `);
+
+      await this.dataSource.query(`
+        UPDATE items i
+           SET cost_price = grn.unit_price
+          FROM (
+            SELECT DISTINCT ON (grl.item_id) grl.item_id, grl.unit_price
+              FROM goods_receipt_lines grl
+              INNER JOIN goods_receipts gr ON gr.id = grl.receipt_id
+             WHERE gr.is_active = true AND grl.is_active = true AND grl.unit_price > 0
+             ORDER BY grl.item_id, COALESCE(gr.receipt_date, gr.created_at) DESC, grl.created_at DESC
+          ) grn
+         WHERE i.id = grn.item_id
+           AND (i.cost_price IS NULL OR i.cost_price = 0)
+      `);
+
+      await this.dataSource.query(`
+        UPDATE inventory_balances ib
+           SET unit_cost = COALESCE(NULLIF(ib.unit_cost, 0), i.cost_price),
+               average_cost = COALESCE(NULLIF(ib.average_cost, 0), i.cost_price)
+          FROM items i
+         WHERE i.id = ib.item_id
+           AND COALESCE(i.cost_price, 0) > 0
+           AND (ib.unit_cost IS NULL OR ib.unit_cost = 0 OR ib.average_cost IS NULL OR ib.average_cost = 0)
+      `);
+
+      await this.dataSource.query(`
+        UPDATE stock_ledger sl
+           SET unit_cost = i.cost_price,
+               total_cost = ROUND((sl.quantity * i.cost_price)::numeric, 4)
+          FROM items i
+         WHERE i.id = sl.item_id
+           AND UPPER(sl.transaction_type) = 'OPENING'
+           AND (sl.unit_cost IS NULL OR sl.unit_cost = 0)
+           AND COALESCE(i.cost_price, 0) > 0
+      `);
+
+      await this.dataSource.query(`
+        UPDATE component_changes cc
+           SET unit_cost = COALESCE(NULLIF(mc.unit_cost, 0), NULLIF(i.cost_price, 0))
+          FROM machine_components mc
+          LEFT JOIN items i ON i.id = mc.item_id
+         WHERE cc.component_id = mc.id
+           AND cc.unit_cost IS NULL
+           AND COALESCE(NULLIF(mc.unit_cost, 0), NULLIF(i.cost_price, 0), 0) > 0
+      `);
+
+      this.logger.log('Verified inventory costing columns and backfilled recoverable unit costs.');
+    } catch (err: any) {
+      this.logger.warn(`Cost schema init/backfill skipped: ${err?.message || err}`);
+    }
+  }
 
   async postOpeningStock(
     dto: PostOpeningStockDto,
@@ -42,6 +131,19 @@ export class OpeningStockService {
         batchId = batch.id;
       }
 
+      const prevBalRows: Array<{ prev_qty: string | number }> = await this.dataSource.query(
+        `SELECT COALESCE(SUM(on_hand), 0) AS prev_qty
+           FROM inventory_balances
+          WHERE company_id = $1 AND item_id = $2 AND warehouse_id = $3 AND status = 'ACTIVE'`,
+        [companyId, line.itemId, dto.warehouseId],
+      );
+      const prevOnHand = Number(prevBalRows?.[0]?.prev_qty || 0);
+
+      const enteredCost =
+        line.unitCost !== undefined && line.unitCost !== null && Number(line.unitCost) > 0
+          ? Number(line.unitCost)
+          : null;
+
       const ledgerEntry = await this.ledgerService.create({
         companyId,
         transactionType: 'OPENING',
@@ -50,6 +152,8 @@ export class OpeningStockService {
         warehouseId: dto.warehouseId,
         locationId: line.locationId,
         quantity: line.quantity,
+        unitCost: enteredCost,
+        totalCost: enteredCost !== null ? Number((Number(line.quantity) * enteredCost).toFixed(4)) : null,
         uomId: line.uomId,
         direction: 'IN',
         referenceType: 'OPENING_STOCK',
@@ -71,15 +175,39 @@ export class OpeningStockService {
         'IN',
       );
 
+      if (enteredCost !== null && enteredCost > 0) {
+        await this.balanceService.updateWeightedAverageCost(
+          companyId,
+          line.itemId,
+          dto.warehouseId,
+          line.quantity,
+          enteredCost,
+          prevOnHand,
+        );
+        await this.dataSource.query(
+          `UPDATE items
+              SET cost_price = $1
+            WHERE id = $2 AND company_id = $3 AND (cost_price IS NULL OR cost_price = 0)`,
+          [enteredCost, line.itemId, companyId],
+        );
+        await this.dataSource.query(
+          `UPDATE machine_components
+              SET unit_cost = $1
+            WHERE item_id = $2 AND company_id = $3 AND is_active = true AND (unit_cost IS NULL OR unit_cost = 0)`,
+          [enteredCost, line.itemId, companyId],
+        );
+      }
+
       results.push({
         ledgerId: ledgerEntry.id,
         itemId: line.itemId,
         quantity: line.quantity,
+        unitCost: enteredCost,
         batchId: batchId || null,
       });
 
       this.logger.log(
-        `Opening stock posted: ${line.quantity} of item ${line.itemId} in warehouse ${dto.warehouseId}`,
+        `Opening stock posted: ${line.quantity} of item ${line.itemId} (unitCost=${enteredCost ?? 'none'}) in warehouse ${dto.warehouseId}`,
       );
     }
 
@@ -116,6 +244,7 @@ export class OpeningStockService {
          sl.item_id,
          sl.uom_id,
          sl.quantity,
+         COALESCE(NULLIF(sl.unit_cost, 0), NULLIF(i.cost_price, 0), 0) AS unit_cost,
          sl.serial_number,
          sl.notes,
          sl.created_at,
@@ -157,13 +286,16 @@ export class OpeningStockService {
           createdByName: r.created_by_name || 'System',
           lineCount: 0,
           totalQuantity: 0,
+          totalValue: 0,
           lines: [],
         });
       }
       const batch = batches.get(key)!;
       const qty = Number(r.quantity || 0);
+      const unitCost = Number(r.unit_cost || 0);
       batch.lineCount += 1;
       batch.totalQuantity += qty;
+      batch.totalValue = Number((batch.totalValue + qty * unitCost).toFixed(2));
       batch.lines.push({
         ledgerId: r.ledger_id,
         itemId: r.item_id,
@@ -173,6 +305,8 @@ export class OpeningStockService {
         uomId: r.uom_id,
         uomCode: r.uom_code || '',
         quantity: qty,
+        unitCost,
+        totalCost: Number((qty * unitCost).toFixed(2)),
         batchNumber: r.batch_number || null,
         serialNumber: r.serial_number || null,
         notes: r.notes || null,
@@ -186,7 +320,7 @@ export class OpeningStockService {
   async updateLine(
     companyId: string,
     ledgerId: string,
-    body: { quantity: number; notes?: string },
+    body: { quantity: number; unitCost?: number; notes?: string },
   ) {
     const newQty = Number(body.quantity);
     if (!Number.isFinite(newQty) || newQty < 0) {
@@ -219,15 +353,65 @@ export class OpeningStockService {
       );
     }
 
+    const nextUnitCost =
+      body.unitCost !== undefined && body.unitCost !== null && Number.isFinite(Number(body.unitCost))
+        ? Math.max(0, Number(body.unitCost))
+        : existing.unit_cost !== null && existing.unit_cost !== undefined
+          ? Number(existing.unit_cost)
+          : null;
+    const nextTotalCost =
+      nextUnitCost !== null ? Number((newQty * nextUnitCost).toFixed(4)) : null;
+
     await this.dataSource.query(
       `UPDATE stock_ledger
        SET quantity = $1,
-           notes = COALESCE($2, notes)
-       WHERE id = $3 AND company_id = $4`,
-      [newQty, body.notes !== undefined ? body.notes : null, ledgerId, companyId],
+           unit_cost = COALESCE($2, unit_cost),
+           total_cost = COALESCE($3, total_cost),
+           notes = COALESCE($4, notes)
+       WHERE id = $5 AND company_id = $6`,
+      [
+        newQty,
+        nextUnitCost,
+        nextTotalCost,
+        body.notes !== undefined ? body.notes : null,
+        ledgerId,
+        companyId,
+      ],
     );
 
-    return { ledgerId, quantity: newQty, delta };
+    if (nextUnitCost !== null && nextUnitCost > 0) {
+      await this.dataSource.query(
+        `UPDATE inventory_balances
+            SET unit_cost = $1,
+                average_cost = COALESCE(NULLIF(average_cost, 0), $1)
+          WHERE company_id = $2 AND item_id = $3 AND warehouse_id = $4 AND status = 'ACTIVE'`,
+        [nextUnitCost, companyId, existing.item_id, existing.warehouse_id],
+      );
+      await this.dataSource.query(
+        `UPDATE items
+            SET cost_price = $1
+          WHERE id = $2 AND company_id = $3`,
+        [nextUnitCost, existing.item_id, companyId],
+      );
+      await this.dataSource.query(
+        `UPDATE machine_components
+            SET unit_cost = $1
+          WHERE item_id = $2 AND company_id = $3 AND is_active = true AND (unit_cost IS NULL OR unit_cost = 0)`,
+        [nextUnitCost, existing.item_id, companyId],
+      );
+      await this.dataSource.query(
+        `UPDATE component_changes cc
+            SET unit_cost = $1
+           FROM machine_components mc
+          WHERE cc.component_id = mc.id
+            AND mc.item_id = $2
+            AND cc.company_id = $3
+            AND (cc.unit_cost IS NULL OR cc.unit_cost = 0)`,
+        [nextUnitCost, existing.item_id, companyId],
+      );
+    }
+
+    return { ledgerId, quantity: newQty, unitCost: nextUnitCost, delta };
   }
 
   async deleteLine(companyId: string, ledgerId: string) {

@@ -244,7 +244,7 @@ const StoreIssues: React.FC = () => {
       const response = await apiService.get<MaterialIssue[]>('/store/material-issues');
       setData(Array.isArray(response) ? response : []);
     } catch {
-      message.error('Failed to load material issues');
+      message.error('Failed to load store issue notes');
     } finally {
       setLoading(false);
     }
@@ -341,7 +341,7 @@ const StoreIssues: React.FC = () => {
   const handleCreate = () => {
     setEditingIssueId(null);
     form.resetFields();
-    const autoIssueNum = `MI-${dayjs().format('YYYYMMDD')}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const autoIssueNum = `SIN-${dayjs().format('YYYYMMDD')}-${Math.floor(1000 + Math.random() * 9000)}`;
     form.setFieldsValue({
       issueNumber: autoIssueNum,
       issueDate: dayjs(),
@@ -432,7 +432,7 @@ const StoreIssues: React.FC = () => {
       );
       setModalOpen(true);
     } catch {
-      message.error('Failed to load draft material issue for editing');
+      message.error('Failed to load draft store issue note for editing');
     }
   };
 
@@ -615,7 +615,7 @@ const StoreIssues: React.FC = () => {
       const msg: any =
         err?.response?.data?.message ||
         err?.message ||
-        (editingIssueId ? 'Failed to update draft material issue' : 'Failed to create material issue');
+        (editingIssueId ? 'Failed to update draft Store Issue Note' : 'Failed to create Store Issue Note');
       setIssueFeedbackMeta((prev) => ({
         ...prev,
         errorMessage: Array.isArray(msg) ? msg[0] : String(msg),
@@ -652,7 +652,7 @@ const StoreIssues: React.FC = () => {
       setRowActionState((prev) => ({ ...prev, phase: 'success' }));
       fetchData();
     } catch (err: any) {
-      const msg: any = err?.response?.data?.message || err?.message || `Failed to ${action} material issue`;
+      const msg: any = err?.response?.data?.message || err?.message || `Failed to ${action} Store Issue Note`;
       setRowActionState((prev) => ({
         ...prev,
         phase: 'error',
@@ -708,11 +708,11 @@ const StoreIssues: React.FC = () => {
   const handleDelete = async (id: string) => {
     try {
       await apiService.delete(`/store/material-issues/${id}`);
-      message.success('Material issue deleted successfully');
+      message.success('Store Issue Note deleted successfully');
       fetchData();
     } catch (err: any) {
       const msg: any = err?.response?.data?.message;
-      message.error(Array.isArray(msg) ? msg[0] : 'Failed to delete material issue');
+      message.error(Array.isArray(msg) ? msg[0] : 'Failed to delete Store Issue Note');
     }
   };
 
@@ -750,7 +750,7 @@ const StoreIssues: React.FC = () => {
 
   const columns: ColumnsType<MaterialIssue> = [
     {
-      title: 'Issue #',
+      title: 'SIN #',
       dataIndex: 'issueNumber',
       key: 'issueNumber',
       width: 170,
@@ -917,12 +917,12 @@ const StoreIssues: React.FC = () => {
     <div>
       <PageHeader
         icon={<ExportOutlined />}
-        title="Material Issues"
+        title="Store Issue Notes (SIN)"
         subtitle="Issue spare parts, tools, and consumables to factory departments and machines"
         extra={
           canCreate ? (
             <Button type="primary" size="middle" icon={<PlusOutlined />} onClick={handleCreate}>
-              New Material Issue
+              Create Store Issue Note
             </Button>
           ) : undefined
         }
@@ -933,7 +933,7 @@ const StoreIssues: React.FC = () => {
         <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
           <Col xs={12} sm={6}>
             <Card size="small" styles={{ body: { padding: '12px 16px' } }}>
-              <Typography.Text type="secondary" style={{ fontSize: '12px' }}>Total Issues</Typography.Text>
+              <Typography.Text type="secondary" style={{ fontSize: '12px' }}>Total SIN Vouchers</Typography.Text>
               <Typography.Title level={4} style={{ margin: '4px 0 0' }}>{data.length}</Typography.Title>
             </Card>
           </Col>
@@ -962,7 +962,7 @@ const StoreIssues: React.FC = () => {
             <Tabs activeKey={activeTab} onChange={setActiveTab} items={tabItems} style={{ marginBottom: 0 }} />
             <Space wrap>
               <Input
-                placeholder="Search Issue #, Machine, Purpose..."
+                placeholder="Search SIN #, Machine, Purpose..."
                 prefix={<SearchOutlined />}
                 allowClear
                 value={searchQuery}
@@ -974,7 +974,7 @@ const StoreIssues: React.FC = () => {
               </Button>
               {canCreate && (
                 <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
-                  New Material Issue
+                  Create Store Issue Note
                 </Button>
               )}
             </Space>
@@ -1082,10 +1082,10 @@ const StoreIssues: React.FC = () => {
                       color: '#ea580c',
                     }}
                   >
-                    STORE DEPARTMENT · MATERIAL ISSUE VOUCHER
+                    STORE DEPARTMENT · STORE ISSUE NOTE (SIN)
                   </div>
                   <div style={{ fontSize: 18, fontWeight: 800, color: token.colorText }}>
-                    {editingIssueId ? 'Edit Draft Material Issue' : 'Create Material Issue'}
+                    {editingIssueId ? 'Edit Draft Store Issue Note' : 'Create Store Issue Note'}
                   </div>
                 </div>
               </div>
@@ -1130,7 +1130,7 @@ const StoreIssues: React.FC = () => {
                 type="info"
                 showIcon
                 icon={<InfoCircleOutlined />}
-                message="Factory Material & Spare Parts Issue Voucher"
+                message="Factory Store Issue Note (SIN) Voucher"
                 description="Select the source store, destination department/machine, operator, and shift incharge. Item selection and live machine lifecycle tracking are strictly scoped to the chosen division."
                 style={{ marginBottom: 16 }}
               />
@@ -1194,13 +1194,13 @@ const StoreIssues: React.FC = () => {
                     <Col xs={24} sm={12} md={6}>
                       <Form.Item
                         name="issueNumber"
-                        label="Issue Number"
-                        rules={[{ required: true, message: 'Issue # is required' }]}
+                        label="SIN Number"
+                        rules={[{ required: true, message: 'SIN # is required' }]}
                         style={{ marginBottom: 4 }}
                       >
                         <Input
                           prefix={<FileTextOutlined style={{ color: token.colorTextTertiary }} />}
-                          placeholder="MI-2026-0001"
+                          placeholder="SIN-2026-0001"
                           disabled={Boolean(editingIssueId)}
                         />
                       </Form.Item>
@@ -1208,7 +1208,7 @@ const StoreIssues: React.FC = () => {
                     <Col xs={24} sm={12} md={6}>
                       <Form.Item
                         name="issueDate"
-                        label="Issue Date"
+                        label="SIN Date"
                         rules={[{ required: true, message: 'Date is required' }]}
                         style={{ marginBottom: 4 }}
                       >
@@ -1456,7 +1456,7 @@ const StoreIssues: React.FC = () => {
                     paddingInline: 20,
                   }}
                 >
-                  {editingIssueId ? 'Save Draft Changes' : 'Create Material Issue'}
+                  {editingIssueId ? 'Save Draft Changes' : 'Create Store Issue Note'}
                 </Button>
               </Space>
             </div>
@@ -1482,20 +1482,20 @@ const StoreIssues: React.FC = () => {
       <ConfirmAndSuccessModal
         open={issueConfirmPhase !== 'idle'}
         phase={issueConfirmPhase}
-        confirmTitle={editingIssueId ? 'Confirm Draft Update' : 'Confirm Material Issue'}
+        confirmTitle={editingIssueId ? 'Confirm Draft Update' : 'Confirm Store Issue Note (SIN)'}
         confirmDescription={
           editingIssueId
             ? 'Please verify the updated header details and line items before saving draft changes.'
-            : 'Please verify the store, personnel, and line items before issuing material.'
+            : 'Please verify the store, personnel, and line items before creating this Store Issue Note.'
         }
-        confirmText={editingIssueId ? 'Confirm & Update Draft' : 'Confirm & Issue'}
+        confirmText={editingIssueId ? 'Confirm & Update Draft' : 'Confirm & Create SIN'}
         savingText="Saving..."
-        savingSubtext={editingIssueId ? 'Updating draft material issue voucher' : 'Creating material issue voucher'}
+        savingSubtext={editingIssueId ? 'Updating draft Store Issue Note' : 'Creating Store Issue Note (SIN)'}
         referenceNumber={issueFeedbackMeta.refNum}
-        successMessage={`Material issue voucher saved (${issueFeedbackMeta.lineCount} ${issueFeedbackMeta.lineCount === 1 ? 'item' : 'items'}).`}
+        successMessage={`Store Issue Note saved (${issueFeedbackMeta.lineCount} ${issueFeedbackMeta.lineCount === 1 ? 'item' : 'items'}).`}
         errorMessage={issueFeedbackMeta.errorMessage}
         summaryRows={[
-          { label: 'Voucher #', value: issueFeedbackMeta.refNum || 'Auto' },
+          { label: 'SIN #', value: issueFeedbackMeta.refNum || 'Auto' },
           { label: 'Source Store', value: issueFeedbackMeta.storeName },
           { label: 'Line Items', value: issueFeedbackMeta.lineCount, highlight: true },
         ]}
@@ -1508,17 +1508,17 @@ const StoreIssues: React.FC = () => {
         phase={rowActionState.phase}
         confirmTitle={
           rowActionState.action === 'post'
-            ? 'Confirm Post Material Issue'
+            ? 'Confirm Post Store Issue Note'
             : rowActionState.action === 'cancel'
-            ? 'Confirm Cancel Material Issue'
-            : 'Confirm Delete Material Issue'
+            ? 'Confirm Cancel Store Issue Note'
+            : 'Confirm Delete Store Issue Note'
         }
         confirmDescription={
           rowActionState.action === 'post'
-            ? 'Posting will finalize this issue and deduct inventory stock immediately.'
+            ? 'Posting will finalize this Store Issue Note and deduct inventory stock immediately.'
             : rowActionState.action === 'cancel'
-            ? 'Are you sure you want to cancel this draft material issue?'
-            : 'This will permanently delete the selected material issue record.'
+            ? 'Are you sure you want to cancel this draft Store Issue Note?'
+            : 'This will permanently delete the selected Store Issue Note record.'
         }
         confirmText={
           rowActionState.action === 'post'
@@ -1528,20 +1528,20 @@ const StoreIssues: React.FC = () => {
             : 'Confirm Delete'
         }
         savingText={rowActionState.action === 'post' ? 'Posting...' : 'Processing...'}
-        savingSubtext={rowActionState.action === 'post' ? 'Deducting store stock & recording ledger' : 'Updating material issue'}
+        savingSubtext={rowActionState.action === 'post' ? 'Deducting store stock & recording ledger' : 'Updating Store Issue Note'}
         referenceNumber={rowActionState.record?.issueNumber}
         successMessage={
           rowActionState.action === 'post'
-            ? 'Material issue posted and stock deducted successfully.'
+            ? 'Store Issue Note posted and stock deducted successfully.'
             : rowActionState.action === 'cancel'
-            ? 'Material issue cancelled successfully.'
-            : 'Material issue deleted successfully.'
+            ? 'Store Issue Note cancelled successfully.'
+            : 'Store Issue Note deleted successfully.'
         }
         errorMessage={rowActionState.errorMessage}
         summaryRows={
           rowActionState.record
             ? [
-                { label: 'Issue #', value: rowActionState.record.issueNumber },
+                { label: 'SIN #', value: rowActionState.record.issueNumber },
                 { label: 'Store', value: rowActionState.record.storeName || storeMap[rowActionState.record.storeId] || '—' },
                 { label: 'Status', value: rowActionState.record.status, highlight: true },
               ]

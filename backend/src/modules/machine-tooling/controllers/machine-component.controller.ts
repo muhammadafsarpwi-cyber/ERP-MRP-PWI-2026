@@ -25,6 +25,7 @@ import {
   UpdateMachineComponentDto,
   MachineComponentQueryDto,
   ChangeComponentStatusDto,
+  UpdateComponentUnitCostDto,
 } from '../dto';
 
 @ApiTags('Machine Tool & Component Master')
@@ -68,19 +69,17 @@ export class MachineComponentController {
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
   @RequirePermission('manufacturing.component_change.view')
-  @ApiOperation({ summary: 'Replacement history + life stats for a tool / component' })
+  @ApiOperation({ summary: 'Replacement history + life stats for a tool / component across assigned machines' })
   async history(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Query('counter') counter: string | undefined,
+    @Query('machineId') machineId: string | undefined,
     @Req() req: any,
   ) {
     const companyId = this.getCompanyId(req);
-    const component = await this.service.findOne(id, companyId);
-    let counterValue: number | null = null;
-    if (counter === 'derive' || counter === 'true') {
-      counterValue = await this.service.deriveMachineCounter(companyId, component.machineId);
-    }
-    return this.service.getHistory(companyId, id, counterValue);
+    const derive = counter === 'derive' || counter === 'true';
+    const cleanMachineId = machineId && machineId !== 'ALL' ? machineId : undefined;
+    return this.service.getHistory(companyId, id, null, { derive, machineId: cleanMachineId });
   }
 
   @Post()
@@ -117,6 +116,19 @@ export class MachineComponentController {
     @Req() req: any,
   ) {
     return this.service.changeStatus(id, dto.status, this.getCompanyId(req), this.getUserId(req));
+  }
+
+  @Patch(':id/unit-cost')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.tool_component.update')
+  @ApiOperation({ summary: 'Update a tool / component unit cost rate (PKR)' })
+  async updateUnitCost(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: UpdateComponentUnitCostDto,
+    @Req() req: any,
+  ) {
+    return this.service.updateUnitCost(id, dto.unitCost, this.getCompanyId(req), this.getUserId(req));
   }
 
   @Delete(':id')

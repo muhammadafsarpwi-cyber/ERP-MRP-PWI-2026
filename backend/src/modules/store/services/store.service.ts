@@ -64,25 +64,61 @@ export class StoreService implements OnModuleInit {
 
   async onModuleInit() {
     try {
-      // Ensure stock_ledger_transaction_type_check allows Store transaction types
+      // Read-only check first so we NEVER acquire an ACCESS EXCLUSIVE lock on stock_ledger at startup when already updated
+      const defRows = await this.materialIssueRepo.manager.query(
+        `SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conrelid = 'stock_ledger'::regclass AND conname = 'stock_ledger_transaction_type_check'`,
+      );
+      const currentDef = String(defRows?.[0]?.def || '');
+      if (!currentDef.includes('MATERIAL_ISSUE') || !currentDef.includes('SCRAP_DISPOSAL')) {
+        await this.materialIssueRepo.manager.query(
+          `ALTER TABLE stock_ledger DROP CONSTRAINT IF EXISTS stock_ledger_transaction_type_check`,
+        );
+        await this.materialIssueRepo.manager.query(
+          `ALTER TABLE stock_ledger ADD CONSTRAINT stock_ledger_transaction_type_check CHECK (transaction_type IN (
+            'RECEIPT','GOODS_RECEIPT','ISSUE','MATERIAL_ISSUE','MATERIAL_RETURN','MATERIAL_RETURN_SCRAP','SCRAP_DISPOSAL',
+            'TRANSFER_OUT','TRANSFER_IN','ADJUSTMENT_IN','ADJUSTMENT_OUT','OPENING','RETURN_IN','RETURN_OUT',
+            'SALES_DELIVERY','SALES_RETURN','PRODUCTION_RECEIPT','PRODUCTION_ISSUE','PRODUCTION_SCRAP',
+            'PRODUCTION_CONSUMPTION','PRODUCTION_REVERSAL'
+          ))`,
+        );
+      }
+
+      const colRows = await this.materialIssueRepo.manager.query(
+        `SELECT column_name FROM information_schema.columns WHERE table_name = 'material_issues' AND column_name IN ('issued_by_name', 'operator_name', 'shift_incharge_name')`,
+      );
+      if ((colRows?.length || 0) < 3) {
+        await this.materialIssueRepo.manager.query(
+          `ALTER TABLE material_issues
+             ADD COLUMN IF NOT EXISTS issued_by_name VARCHAR(150),
+             ADD COLUMN IF NOT EXISTS operator_name VARCHAR(150),
+             ADD COLUMN IF NOT EXISTS shift_incharge_name VARCHAR(150)`,
+        );
+      }
+      // Standardize legacy MI- Store Issue prefixes to SIN- across material_issues, stock_ledger, and component_changes
       await this.materialIssueRepo.manager.query(
-        `ALTER TABLE stock_ledger DROP CONSTRAINT IF EXISTS stock_ledger_transaction_type_check`,
+        `UPDATE material_issues mi
+            SET issue_number = REGEXP_REPLACE(mi.issue_number, '^MI-', 'SIN-')
+          WHERE mi.issue_number LIKE 'MI-%'
+            AND NOT EXISTS (
+              SELECT 1 FROM material_issues m2
+               WHERE m2.company_id = mi.company_id
+                 AND m2.issue_number = REGEXP_REPLACE(mi.issue_number, '^MI-', 'SIN-')
+            )`,
       );
       await this.materialIssueRepo.manager.query(
-        `ALTER TABLE stock_ledger ADD CONSTRAINT stock_ledger_transaction_type_check CHECK (transaction_type IN (
-          'RECEIPT','GOODS_RECEIPT','ISSUE','MATERIAL_ISSUE','MATERIAL_RETURN','MATERIAL_RETURN_SCRAP','SCRAP_DISPOSAL',
-          'TRANSFER_OUT','TRANSFER_IN','ADJUSTMENT_IN','ADJUSTMENT_OUT','OPENING','RETURN_IN','RETURN_OUT',
-          'SALES_DELIVERY','SALES_RETURN','PRODUCTION_RECEIPT','PRODUCTION_ISSUE','PRODUCTION_SCRAP',
-          'PRODUCTION_CONSUMPTION','PRODUCTION_REVERSAL'
-        ))`,
+        `UPDATE stock_ledger
+            SET reference_number = CASE WHEN reference_number LIKE 'MI-%' THEN REGEXP_REPLACE(reference_number, '^MI-', 'SIN-') ELSE reference_number END,
+                notes = CASE WHEN notes LIKE '%MI-%' THEN REGEXP_REPLACE(notes, 'MI-(\\d{8}-\\d+)', 'SIN-\\1', 'g') ELSE notes END
+          WHERE reference_number LIKE 'MI-%' OR notes ~ 'MI-\\d{8}-\\d+'`,
       );
-      // Ensure material_issues personnel columns exist in every environment
       await this.materialIssueRepo.manager.query(
-        `ALTER TABLE material_issues
-           ADD COLUMN IF NOT EXISTS issued_by_name VARCHAR(150),
-           ADD COLUMN IF NOT EXISTS operator_name VARCHAR(150),
-           ADD COLUMN IF NOT EXISTS shift_incharge_name VARCHAR(150)`,
+        `UPDATE component_changes
+            SET reason = CASE WHEN reason ~ 'MI-\\d{8}-\\d+' THEN REGEXP_REPLACE(reason, 'MI-(\\d{8}-\\d+)', 'SIN-\\1', 'g') ELSE reason END,
+                remarks = CASE WHEN remarks ~ 'MI-\\d{8}-\\d+' THEN REGEXP_REPLACE(remarks, 'MI-(\\d{8}-\\d+)', 'SIN-\\1', 'g') ELSE remarks END,
+                mounting_sessions = CASE WHEN mounting_sessions::text ~ 'MI-\\d{8}-\\d+' THEN REGEXP_REPLACE(mounting_sessions::text, 'MI-(\\d{8}-\\d+)', 'SIN-\\1', 'g')::jsonb ELSE mounting_sessions END
+          WHERE reason ~ 'MI-\\d{8}-\\d+' OR remarks ~ 'MI-\\d{8}-\\d+' OR mounting_sessions::text ~ 'MI-\\d{8}-\\d+'`,
       );
+
       this.logger.log('Verified stock_ledger transaction_type constraint and material_issues schema.');
     } catch (err: any) {
       this.logger.warn(`Store schema verification skipped: ${err?.message || err}`);
@@ -1339,8 +1375,10 @@ export class StoreService implements OnModuleInit {
   }
 
   async createMaterialIssue(dto: CreateMaterialIssueDto, userId: string) {
+    const generatedSin = `SIN-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`;
     const issue = this.materialIssueRepo.create({
       ...dto,
+      issueNumber: dto.issueNumber?.trim() || generatedSin,
       issuedBy: userId || null,
       lines: undefined,
       createdBy: userId,
@@ -1560,6 +1598,33 @@ export class StoreService implements OnModuleInit {
             );
           }
 
+          // Resolve current warehouse weighted average / latest cost for this issue line
+          const balCostRow = balRows.find((r) => Number(r.averageCost || r.unitCost || 0) > 0);
+          const baseUnitCost =
+            Number(balCostRow?.averageCost || balCostRow?.unitCost || 0) ||
+            (await this.inventoryBalanceService.getEffectiveUnitCost?.(
+              locked.companyId,
+              line.itemId,
+              store.warehouseId!,
+              manager,
+            )) ||
+            0;
+          const lineUnitCost =
+            baseUnitCost > 0 && qty > 0
+              ? Number(((baseUnitCost * postQty) / qty).toFixed(4))
+              : 0;
+          const lineTotalCost =
+            lineUnitCost > 0 ? Number((qty * lineUnitCost).toFixed(4)) : null;
+
+          if (lineUnitCost > 0) {
+            await manager.getRepository(MaterialIssueLine).update(line.id, {
+              unitCost: lineUnitCost,
+              totalCost: lineTotalCost,
+            });
+            (line as any).unitCost = lineUnitCost;
+            (line as any).totalCost = lineTotalCost;
+          }
+
           await this.stockLedgerService.create({
             companyId: locked.companyId,
             transactionType: 'MATERIAL_ISSUE',
@@ -1568,12 +1633,14 @@ export class StoreService implements OnModuleInit {
             warehouseId: store.warehouseId!,
             batchId: line.batchId || undefined,
             quantity: postQty,
+            unitCost: baseUnitCost > 0 ? baseUnitCost : null,
+            totalCost: baseUnitCost > 0 ? Number((postQty * baseUnitCost).toFixed(4)) : null,
             uomId: postUomId,
             direction: 'OUT',
             referenceType: 'MATERIAL_ISSUE',
             referenceId: locked.id,
             referenceNumber: locked.issueNumber,
-            notes: `Material issue ${locked.issueNumber}${postQty !== qty ? ` (${qty} converted to ${postQty})` : ''}`,
+            notes: `Store Issue Note ${locked.issueNumber}${postQty !== qty ? ` (${qty} converted to ${postQty})` : ''}`,
             createdBy: userId,
             divisionId: locked.divisionId,
             sectionId: locked.sectionId,
@@ -1614,9 +1681,9 @@ export class StoreService implements OnModuleInit {
       });
     } catch (err: any) {
       if (err instanceof HttpException) throw err;
-      const detail = err?.driverError?.message || err?.message || 'Unexpected database error while posting material issue';
-      this.logger.error(`Failed to post material issue ${issue.issueNumber} (${id}): ${detail}`, err?.stack);
-      throw new InternalServerErrorException(`Failed to post material issue ${issue.issueNumber}: ${detail}`);
+      const detail = err?.driverError?.message || err?.message || 'Unexpected database error while posting Store Issue Note';
+      this.logger.error(`Failed to post Store Issue Note ${issue.issueNumber} (${id}): ${detail}`, err?.stack);
+      throw new InternalServerErrorException(`Failed to post Store Issue Note ${issue.issueNumber}: ${detail}`);
     }
 
     const postedIssue = await this.findMaterialIssueById(id);
@@ -1636,6 +1703,7 @@ export class StoreService implements OnModuleInit {
             itemId: l.itemId,
             quantity: Number(l.quantity || 0),
             oldItemReturnedQty: Number(l.oldItemReturnedQty || 0),
+            unitCost: Number(l.unitCost || 0) > 0 ? Number(l.unitCost) : null,
             uomId: l.uomId,
             remarks: l.remarks,
           })),

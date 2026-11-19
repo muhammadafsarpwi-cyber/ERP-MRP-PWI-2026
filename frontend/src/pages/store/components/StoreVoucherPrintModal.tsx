@@ -52,8 +52,8 @@ interface StoreVoucherPrintModalProps {
 
 const VOUCHER_TITLES: Record<StoreVoucherType, string> = {
   GRN: 'GOODS RECEIPT NOTE (GRN)',
-  MIR: 'MATERIAL ISSUE VOUCHER (MIV)',
-  MIV: 'MATERIAL ISSUE VOUCHER (MIV)',
+  MIR: 'STORE ISSUE NOTE (SIN)',
+  MIV: 'STORE ISSUE NOTE (SIN)',
   MTN: 'MATERIAL TRANSFER NOTE (MTN)',
   RGP: 'RETURNABLE GATE PASS (RGP)',
   NRGP: 'NON-RETURNABLE GATE PASS (NRGP)',
@@ -76,7 +76,7 @@ export const StoreVoucherPrintModal: React.FC<StoreVoucherPrintModalProps> = ({
   if (!voucher) return null;
 
   const isIssueVoucher = voucher.type === 'MIR' || voucher.type === 'MIV';
-  const titleText = VOUCHER_TITLES[voucher.type] || 'MATERIAL ISSUE VOUCHER (MIV)';
+  const titleText = VOUCHER_TITLES[voucher.type] || 'STORE ISSUE NOTE (SIN)';
   const formattedDate = voucher.date ? dayjs(voucher.date).format('DD-MMM-YYYY') : '—';
 
   const handlePrint = () => {
@@ -291,7 +291,7 @@ export const StoreVoucherPrintModal: React.FC<StoreVoucherPrintModalProps> = ({
       }
     });
 
-    doc.save(`MIV_${voucher.documentNumber || 'Voucher'}.pdf`);
+    doc.save(`${isIssueVoucher ? 'SIN' : voucher.type}_${voucher.documentNumber || 'Voucher'}.pdf`);
   };
 
   return (

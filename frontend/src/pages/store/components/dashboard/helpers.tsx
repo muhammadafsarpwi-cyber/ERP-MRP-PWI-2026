@@ -52,7 +52,7 @@ export interface ActivityTypeMeta {
 
 export const ACTIVITY_TYPE_META: Record<string, ActivityTypeMeta> = {
   MR: { key: 'MR', label: 'Material Request', icon: <FileTextOutlined />, color: 'blue' },
-  ISSUE: { key: 'ISSUE', label: 'Material Issue', icon: <ArrowUpOutlined />, color: 'red' },
+  ISSUE: { key: 'ISSUE', label: 'Store Issue Note (SIN)', icon: <ArrowUpOutlined />, color: 'red' },
   RETURN: { key: 'RETURN', label: 'Material Return', icon: <ArrowDownOutlined />, color: 'orange' },
   GRN: { key: 'GRN', label: 'Goods Receipt', icon: <InboxOutlined />, color: 'green' },
   PR: { key: 'PR', label: 'Purchase Requisition', icon: <FileTextOutlined />, color: 'purple' },

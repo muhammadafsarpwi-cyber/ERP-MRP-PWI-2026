@@ -264,9 +264,9 @@ const MaterialIssueManagement: React.FC = () => {
     <div>
       <PageHeader
         icon={<ExportOutlined />}
-        title="Material Issues"
+        title="Store Issue Notes (SIN)"
         subtitle="Issue material from stores to departments (stock deducted on posting)"
-        extra={canCreate ? <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>New Issue</Button> : undefined}
+        extra={canCreate ? <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>Create Store Issue Note</Button> : undefined}
       />
       <div style={{ padding: '0 24px' }}>
         <Card>
@@ -286,7 +286,7 @@ const MaterialIssueManagement: React.FC = () => {
       </div>
 
       <Modal
-        title={modalState.edit ? `Edit Issue ${modalState.edit.issueNumber}` : 'New Material Issue'}
+        title={modalState.edit ? `Edit Store Issue Note ${modalState.edit.issueNumber}` : 'Create Store Issue Note (SIN)'}
         open={modalState.open}
         onOk={handleSave}
         onCancel={() => setModalState({ open: false, edit: null })}
@@ -296,12 +296,12 @@ const MaterialIssueManagement: React.FC = () => {
         <Form form={form} layout="vertical">
           <Row gutter={16}>
             <Col span={6}>
-              <Form.Item name="issueNumber" label="Issue Number" rules={[{ required: true }]}>
-                <Input placeholder="MI-2026-0001" disabled={!!modalState.edit} />
+              <Form.Item name="issueNumber" label="SIN Number" rules={[{ required: true }]}>
+                <Input placeholder="SIN-2026-0001" disabled={!!modalState.edit} />
               </Form.Item>
             </Col>
             <Col span={6}>
-              <Form.Item name="issueDate" label="Issue Date" rules={[{ required: true }]}>
+              <Form.Item name="issueDate" label="SIN Date" rules={[{ required: true }]}>
                 <DatePicker style={{ width: '100%' }} />
               </Form.Item>
             </Col>
@@ -329,7 +329,7 @@ const MaterialIssueManagement: React.FC = () => {
       </Modal>
 
       <Drawer
-        title={detail ? `Material Issue ${detail.issueNumber}` : 'Material Issue'}
+        title={detail ? `Store Issue Note ${detail.issueNumber}` : 'Store Issue Note (SIN)'}
         open={detailOpen}
         onClose={() => setDetailOpen(false)}
         width={900}
