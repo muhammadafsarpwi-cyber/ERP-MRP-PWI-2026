@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Card, Table, Select, Tag, Spin, Empty, Row, Col, Statistic, Button, Space, Tooltip, Input } from 'antd';
+import { Card, Table, Select, Tag, Spin, Row, Col, Statistic, Button, Space, Tooltip, Input } from 'antd';
 import { DatabaseOutlined, WarningOutlined, HistoryOutlined, BookOutlined, SearchOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { useNavigate } from 'react-router-dom';
@@ -106,6 +106,13 @@ const StoreStockBalance: React.FC = () => {
 
       const items: StockItem[] = rawItems
         .filter((b: any) => {
+          if (cascadeFilter.divisionId && !targetWhId) {
+            const whDivId =
+              b.warehouse?.divisionId ||
+              stores.find((s) => s.warehouseId === (b.warehouseId || b.warehouse_id))?.divisionId ||
+              b.item?.divisionId;
+            if (whDivId && whDivId !== cascadeFilter.divisionId) return false;
+          }
           if (isSpecificNonGeneralStore) return true;
           const t = String(b.item?.itemType || b.item?.item_type || '').toUpperCase();
           return !excludedTypes.has(t);
@@ -142,7 +149,7 @@ const StoreStockBalance: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [stores]);
+  }, [stores, cascadeFilter.divisionId]);
 
   useEffect(() => {
     loadStock(cascadeFilter.warehouseId, selectedStoreId);
@@ -336,34 +343,28 @@ const StoreStockBalance: React.FC = () => {
           </Row>
         </Card>
 
-        {Boolean(selectedStoreId || cascadeFilter.warehouseId) && (
-          <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-            <Col xs={24} sm={8}>
-              <Card><Statistic title="Total Items" value={totalItems} prefix={<DatabaseOutlined />} /></Card>
-            </Col>
-            <Col xs={24} sm={8}>
-              <Card><Statistic title="Low Stock" value={lowStockItems} prefix={<WarningOutlined />} valueStyle={{ color: lowStockItems > 0 ? '#faad14' : undefined }} /></Card>
-            </Col>
-            <Col xs={24} sm={8}>
-              <Card><Statistic title="Out of Stock" value={outOfStockItems} prefix={<WarningOutlined />} valueStyle={{ color: outOfStockItems > 0 ? '#ff4d4f' : undefined }} /></Card>
-            </Col>
-          </Row>
-        )}
+        <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+          <Col xs={24} sm={8}>
+            <Card><Statistic title="Total Items" value={totalItems} prefix={<DatabaseOutlined />} /></Card>
+          </Col>
+          <Col xs={24} sm={8}>
+            <Card><Statistic title="Low Stock" value={lowStockItems} prefix={<WarningOutlined />} valueStyle={{ color: lowStockItems > 0 ? '#faad14' : undefined }} /></Card>
+          </Col>
+          <Col xs={24} sm={8}>
+            <Card><Statistic title="Out of Stock" value={outOfStockItems} prefix={<WarningOutlined />} valueStyle={{ color: outOfStockItems > 0 ? '#ff4d4f' : undefined }} /></Card>
+          </Col>
+        </Row>
 
         <Card>
-          {!selectedStoreId && !cascadeFilter.warehouseId ? (
-            <Empty description="Select a Division, Store or Warehouse to view stock balance" />
-          ) : (
-            <Table
-              columns={columns}
-              dataSource={filteredStockData}
-              rowKey="itemId"
-              loading={loading}
-              pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (t) => `${t} items` }}
-              scroll={{ x: 'max-content' }}
-              size="middle"
-            />
-          )}
+          <Table
+            columns={columns}
+            dataSource={filteredStockData}
+            rowKey={(r, idx) => `${r.itemId}-${idx ?? 0}`}
+            loading={loading}
+            pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (t) => `${t} items` }}
+            scroll={{ x: 'max-content' }}
+            size="middle"
+          />
         </Card>
 
         <StockItemLedgerDrawer

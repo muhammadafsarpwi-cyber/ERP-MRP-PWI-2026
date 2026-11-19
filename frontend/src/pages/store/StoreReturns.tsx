@@ -48,7 +48,8 @@ const StoreReturns: React.FC = () => {
   const [lineItems, setLineItems] = useState<StoreLineItem[]>([]);
   const [stores, setStores] = useState<StoreOption[]>([]);
   const [storeMap, setStoreMap] = useState<Record<string, string>>({});
-  const [departments, setDepartments] = useState<Array<{ id: string; name: string }>>([]);
+  const [departments, setDepartments] = useState<Array<{ id: string; name: string; departmentCode?: string; divisionId?: string | null }>>([]);
+  const [selectedReturnStoreId, setSelectedReturnStoreId] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     (async () => {
@@ -88,16 +89,28 @@ const StoreReturns: React.FC = () => {
   const handleCreate = () => {
     form.resetFields();
     form.setFieldsValue({ returnDate: dayjs(), conditionCode: 'GOOD' });
+    setSelectedReturnStoreId(undefined);
     setLineItems([]);
     setModalOpen(true);
   };
 
   const handleStoreChange = (storeId?: string) => {
-    const selected = stores.find((s) => s.id === storeId);
-    if (selected?.departmentId && isValidUUID(selected.departmentId)) {
-      form.setFieldsValue({ departmentId: selected.departmentId });
-    }
+    setSelectedReturnStoreId(storeId);
+    form.setFieldsValue({ departmentId: undefined });
   };
+
+  const filteredReturnDepartments = React.useMemo(() => {
+    const selectedStore = stores.find((s) => s.id === selectedReturnStoreId);
+    const storeDeptIds = new Set(stores.map((st) => st.departmentId).filter(Boolean));
+    return departments.filter((d) => {
+      if (selectedStore?.divisionId && d.divisionId !== selectedStore.divisionId) return false;
+      const dName = String(d.name || '').toLowerCase();
+      if (storeDeptIds.has(d.id) || dName.includes('store') || dName.includes('raw material')) {
+        return false;
+      }
+      return true;
+    });
+  }, [departments, stores, selectedReturnStoreId]);
 
   const [returnConfirmPhase, setReturnConfirmPhase] = useState<ConfirmAndSuccessPhase>('idle');
   const [pendingReturnPayload, setPendingReturnPayload] = useState<any>(null);
@@ -318,8 +331,11 @@ const StoreReturns: React.FC = () => {
                   showSearch
                   optionFilterProp="label"
                   allowClear
-                  placeholder="Select department"
-                  options={departments.map((d) => ({ value: d.id, label: d.name }))}
+                  placeholder="Select production department"
+                  options={filteredReturnDepartments.map((d) => ({
+                    value: d.id,
+                    label: `${d.departmentCode ? `${d.departmentCode} — ` : ''}${d.name}`,
+                  }))}
                 />
               </Form.Item>
             </Col>

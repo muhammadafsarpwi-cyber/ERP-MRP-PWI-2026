@@ -1,6 +1,6 @@
-import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException, InternalServerErrorException, HttpException, Inject, Optional, forwardRef, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, EntityManager } from 'typeorm';
+import { Repository, EntityManager, IsNull } from 'typeorm';
 import { Store } from '../entities/store.entity';
 import { StoreItem } from '../entities/store-item.entity';
 import { MaterialRequest } from '../entities/material-request.entity';
@@ -29,9 +29,12 @@ import {
 import { Department } from '../../organization/entities/department.entity';
 import { Item, UomConversion } from '../../item/entities';
 import { InventoryBalance, InventoryPolicy } from '../../inventory/entities';
+import { ToolLifecycleService } from '../../machine-tooling/services/tool-lifecycle.service';
 
 @Injectable()
 export class StoreService {
+  private readonly logger = new Logger(StoreService.name);
+
   constructor(
     @InjectRepository(Store)
     private readonly storeRepo: Repository<Store>,
@@ -54,6 +57,9 @@ export class StoreService {
     private readonly stockLedgerService: StockLedgerService,
     private readonly inventoryBalanceService: InventoryBalanceService,
     private readonly prService: PurchaseRequisitionService,
+    @Optional()
+    @Inject(forwardRef(() => ToolLifecycleService))
+    private readonly toolLifecycleService?: ToolLifecycleService,
   ) {}
 
   // ==================== STORE MASTER ====================
@@ -1033,6 +1039,207 @@ export class StoreService {
 
   // ==================== MATERIAL ISSUES ====================
 
+  async getPartMachineHistory(
+    companyId: string,
+    machineId: string,
+    itemId: string,
+    asOfDate?: string,
+  ) {
+    if (!machineId || !itemId || machineId === 'OTHER_GENERAL') {
+      return { hasPreviousIssue: false };
+    }
+
+    const [machineRows, itemRows] = await Promise.all([
+      this.storeRepo.manager.query(
+        `SELECT id, machine_code, name FROM machines WHERE id = $1 LIMIT 1`,
+        [machineId],
+      ),
+      this.storeRepo.manager.query(
+        `SELECT i.id, i.item_code, i.name, u.code AS uom_code
+         FROM items i
+         LEFT JOIN uoms u ON u.id = i.base_uom_id
+         WHERE i.id = $1 LIMIT 1`,
+        [itemId],
+      ),
+    ]);
+
+    const machine = machineRows[0];
+    const item = itemRows[0];
+    if (!machine || !item) {
+      return { hasPreviousIssue: false };
+    }
+
+    const machineCode = String(machine.machine_code || '').trim();
+    const issueRows = await this.storeRepo.manager.query(
+      `SELECT mi.id,
+              mi.issue_number,
+              mi.issue_date::date::text AS issue_date,
+              mi.status,
+              mil.quantity,
+              COALESCE(u.code, $4, 'PCS') AS uom_code
+       FROM material_issue_lines mil
+       INNER JOIN material_issues mi ON mi.id = mil.issue_id
+       LEFT JOIN uoms u ON u.id = mil.uom_id
+       WHERE mil.item_id = $1
+         AND mi.company_id = $2
+         AND mi.deleted_at IS NULL
+         AND COALESCE(UPPER(mi.status), '') <> 'CANCELLED'
+         AND (
+           mi.reference_document ILIKE '%' || $3 || '%'
+           OR mi.remarks ILIKE '%' || $3 || '%'
+         )
+       ORDER BY mi.issue_date DESC, mi.created_at DESC`,
+      [itemId, companyId, machineCode, item.uom_code || 'PCS'],
+    );
+
+    if (!issueRows.length) {
+      return {
+        hasPreviousIssue: false,
+        machineId: machine.id,
+        machineCode,
+        machineName: machine.name,
+        itemId: item.id,
+        itemCode: item.item_code,
+        itemName: item.name,
+        totalIssuesToMachine: 0,
+      };
+    }
+
+    const latest = issueRows[0];
+    const lastIssueDate: string = latest.issue_date;
+    const refDate = asOfDate ? new Date(asOfDate) : new Date();
+    const prevDate = new Date(lastIssueDate);
+    const diffMs = Math.max(0, refDate.getTime() - prevDate.getTime());
+    const daysSinceLastIssue = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+    // Sum total Good Production Qty & Weight (Kg) on this machine since lastIssueDate
+    const prodRows = await this.storeRepo.manager.query(
+      `WITH entry_lines AS (
+         SELECT
+           pe.id AS entry_id,
+           pe.running_hours,
+           COALESCE(pei.actual_quantity, pe.actual_quantity, 0)::numeric AS actual_qty,
+           COALESCE(u_line.code, u_hdr.code, 'PCS') AS uom_code,
+           COALESCE(it_line.weight_per_piece, it_hdr.weight_per_piece, 0)::numeric AS w_piece,
+           COALESCE(it_line.weight_per_meter, it_hdr.weight_per_meter, 0)::numeric AS w_meter,
+           COALESCE(it_line.pieces_per_kg, it_hdr.pieces_per_kg, 0)::numeric AS pcs_per_kg
+         FROM production_entries pe
+         LEFT JOIN production_entry_items pei
+           ON pei.production_entry_id = pe.id AND pei.deleted_at IS NULL AND pei.is_active = true
+         LEFT JOIN items it_line ON it_line.id = pei.item_id
+         LEFT JOIN items it_hdr ON it_hdr.id = pe.item_id
+         LEFT JOIN uoms u_line ON u_line.id = pei.uom_id
+         LEFT JOIN uoms u_hdr ON u_hdr.id = pe.uom_id
+         WHERE pe.company_id = $1
+           AND pe.deleted_at IS NULL
+           AND pe.is_active = true
+           AND (pe.machine_id = $2 OR UPPER(COALESCE(pe.machine_no, '')) = UPPER($3))
+           AND pe.entry_date >= $4::date
+           AND ($5::date IS NULL OR pe.entry_date <= $5::date)
+       )
+       SELECT
+         COUNT(DISTINCT entry_id)::int AS entry_count,
+         COALESCE(SUM(actual_qty), 0)::numeric AS total_qty,
+         MAX(uom_code) AS primary_uom,
+         COALESCE(SUM(
+           CASE
+             WHEN UPPER(uom_code) IN ('KG', 'KGS') THEN actual_qty
+             WHEN w_piece > 0 THEN actual_qty * w_piece
+             WHEN pcs_per_kg > 0 THEN actual_qty / pcs_per_kg
+             WHEN w_meter > 0 THEN actual_qty * w_meter
+             ELSE 0
+           END
+         ), 0)::numeric AS total_weight_kg
+       FROM entry_lines`,
+      [companyId, machineId, machineCode, lastIssueDate, asOfDate || null],
+    );
+
+    const prod = prodRows[0] || {};
+
+    return {
+      hasPreviousIssue: true,
+      machineId: machine.id,
+      machineCode,
+      machineName: machine.name,
+      itemId: item.id,
+      itemCode: item.item_code,
+      itemName: item.name,
+      lastIssueId: latest.id,
+      lastIssueVoucherNo: latest.issue_number,
+      lastIssueDate,
+      lastIssueQty: Number(latest.quantity || 0),
+      lastIssueUom: latest.uom_code || item.uom_code || 'PCS',
+      daysSinceLastIssue,
+      totalIssuesToMachine: issueRows.length,
+      productionSinceLastIssue: {
+        entryCount: Number(prod.entry_count || 0),
+        totalQty: Number(prod.total_qty || 0),
+        uomCode: prod.primary_uom || 'PCS',
+        totalWeightKg: Number(Number(prod.total_weight_kg || 0).toFixed(2)),
+      },
+    };
+  }
+
+  async getIssuePersonnelSuggestions(
+    companyId: string,
+    departmentId?: string,
+    machineId?: string,
+  ) {
+    try {
+      const [opRows, supRows, userRows] = await Promise.all([
+        this.storeRepo.manager.query(
+          `SELECT DISTINCT TRIM(operator_name) AS name
+           FROM production_entries
+           WHERE company_id = $1
+             AND deleted_at IS NULL
+             AND operator_name IS NOT NULL
+             AND TRIM(operator_name) <> ''
+             AND ($2::uuid IS NULL OR department_id = $2::uuid)
+             AND ($3::uuid IS NULL OR machine_id = $3::uuid)
+           ORDER BY name ASC
+           LIMIT 100`,
+          [companyId, departmentId || null, machineId && machineId !== 'OTHER_GENERAL' ? machineId : null],
+        ),
+        this.storeRepo.manager.query(
+          `SELECT DISTINCT TRIM(supervisor_name) AS name
+           FROM production_entries
+           WHERE company_id = $1
+             AND deleted_at IS NULL
+             AND supervisor_name IS NOT NULL
+             AND TRIM(supervisor_name) <> ''
+             AND ($2::uuid IS NULL OR department_id = $2::uuid)
+           ORDER BY name ASC
+           LIMIT 100`,
+          [companyId, departmentId || null],
+        ),
+        this.storeRepo.manager.query(
+          `SELECT DISTINCT COALESCE(NULLIF(TRIM(CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, ''))), ''), display_name, username) AS name
+           FROM erp_users
+           WHERE is_active = true
+           ORDER BY name ASC
+           LIMIT 100`,
+        ),
+      ]);
+
+      const operators = Array.from(
+        new Set([
+          ...opRows.map((r: any) => r.name).filter(Boolean),
+          ...userRows.map((r: any) => r.name).filter(Boolean),
+        ]),
+      );
+      const shiftIncharges = Array.from(
+        new Set([
+          ...supRows.map((r: any) => r.name).filter(Boolean),
+          ...userRows.map((r: any) => r.name).filter(Boolean),
+        ]),
+      );
+
+      return { operators, shiftIncharges };
+    } catch {
+      return { operators: [], shiftIncharges: [] };
+    }
+  }
+
   async findAllMaterialIssues(
     companyId: string,
     query?: { status?: string; storeId?: string },
@@ -1066,12 +1273,48 @@ export class StoreService {
     if (!issue) throw new NotFoundException(`Material issue ${id} not found`);
     this.assertCompanyOwned(issue, companyId, 'Material issue');
     this.assertDivisionOwned(issue, allowedDivisionIds);
+
+    // Enrich line items with itemCode, itemName, and uomCode for Print/PDF & Edit modals
+    if (issue.lines && issue.lines.length > 0) {
+      try {
+        const lineDetails = await this.storeRepo.manager.query(
+          `SELECT mil.id AS line_id,
+                  i.item_code,
+                  i.name AS item_name,
+                  i.item_type,
+                  COALESCE(u.code, bu.code) AS uom_code
+           FROM material_issue_lines mil
+           LEFT JOIN items i ON i.id = mil.item_id
+           LEFT JOIN uoms u ON u.id = mil.uom_id
+           LEFT JOIN uoms bu ON bu.id = i.base_uom_id
+           WHERE mil.issue_id = $1`,
+          [issue.id],
+        );
+        const detailByLineId = new Map<string, any>(
+          lineDetails.map((d: any) => [d.line_id, d]),
+        );
+        issue.lines = issue.lines.map((l: any) => {
+          const d = detailByLineId.get(l.id);
+          return {
+            ...l,
+            itemCode: d?.item_code || l.itemCode || '',
+            itemName: d?.item_name || l.itemName || '',
+            itemType: d?.item_type || l.itemType || '',
+            uomCode: d?.uom_code || l.uomCode || '',
+          };
+        });
+      } catch {
+        // Fallback gracefully if enrichment fails
+      }
+    }
+
     return issue;
   }
 
   async createMaterialIssue(dto: CreateMaterialIssueDto, userId: string) {
     const issue = this.materialIssueRepo.create({
       ...dto,
+      issuedBy: userId || null,
       lines: undefined,
       createdBy: userId,
     });
@@ -1100,9 +1343,33 @@ export class StoreService {
     return this.findMaterialIssueById(saved.id);
   }
 
-  async updateMaterialIssue(id: string, lines: CreateMaterialIssueDto['lines'], userId: string, companyId?: string, allowedDivisionIds?: DivisionAccess) {
+  async updateMaterialIssue(
+    id: string,
+    payload: CreateMaterialIssueDto['lines'] | Partial<CreateMaterialIssueDto>,
+    userId: string,
+    companyId?: string,
+    allowedDivisionIds?: DivisionAccess,
+  ) {
     const issue = await this.findMaterialIssueById(id, companyId, allowedDivisionIds);
     if (issue.status !== 'DRAFT') throw new BadRequestException('Only DRAFT issues can be edited');
+
+    const lines = Array.isArray(payload) ? payload : payload.lines;
+    const headerUpdates: Partial<MaterialIssue> = { updatedBy: userId };
+
+    if (!Array.isArray(payload)) {
+      if (payload.issueDate !== undefined) headerUpdates.issueDate = payload.issueDate;
+      if (payload.storeId !== undefined) headerUpdates.storeId = payload.storeId;
+      if (payload.divisionId !== undefined) headerUpdates.divisionId = payload.divisionId || null;
+      if (payload.sectionId !== undefined) headerUpdates.sectionId = payload.sectionId || null;
+      if (payload.departmentId !== undefined) headerUpdates.departmentId = payload.departmentId || null;
+      if (payload.issuedToDepartmentId !== undefined) headerUpdates.issuedToDepartmentId = payload.issuedToDepartmentId || null;
+      if (payload.purpose !== undefined) headerUpdates.purpose = payload.purpose || null;
+      if (payload.referenceDocument !== undefined) headerUpdates.referenceDocument = payload.referenceDocument || null;
+      if (payload.remarks !== undefined) headerUpdates.remarks = payload.remarks || null;
+      if (payload.operatorName !== undefined) headerUpdates.operatorName = payload.operatorName || null;
+      if (payload.shiftInchargeName !== undefined) headerUpdates.shiftInchargeName = payload.shiftInchargeName || null;
+      if (payload.issuedByName !== undefined) headerUpdates.issuedByName = payload.issuedByName || null;
+    }
 
     if (lines && lines.length > 0) {
       await this.materialIssueLineRepo.delete({ issueId: id });
@@ -1125,7 +1392,7 @@ export class StoreService {
       }
     }
 
-    await this.materialIssueRepo.update(id, { updatedBy: userId });
+    await this.materialIssueRepo.update(id, headerUpdates);
     return this.findMaterialIssueById(id);
   }
 
@@ -1167,7 +1434,7 @@ export class StoreService {
     if (qty <= 0) return;
     const balRepo = manager.getRepository(InventoryBalance);
     let balance = await balRepo.findOne({
-      where: { companyId, itemId, warehouseId, locationId: null as any, batchId: null as any },
+      where: { companyId, itemId, warehouseId, locationId: IsNull(), batchId: IsNull() },
       lock: { mode: 'pessimistic_write' },
     });
     if (!balance) {
@@ -1211,106 +1478,150 @@ export class StoreService {
       throw new BadRequestException('Issue store has no linked warehouse; cannot post inventory');
     }
 
-    await this.materialIssueRepo.manager.transaction(async (manager) => {
-      const repo = manager.getRepository(MaterialIssue);
-      const locked = await repo
-        .createQueryBuilder('mi')
-        .setLock('pessimistic_write')
-        .where('mi.id = :id', { id })
-        .leftJoinAndSelect('mi.lines', 'lines')
-        .getOne();
-      if (!locked) throw new NotFoundException(`Material issue ${id} not found`);
-      if (locked.status !== 'DRAFT') throw new BadRequestException('Issue has already been posted');
-
-      const policy = await manager.getRepository(InventoryPolicy).findOne({
-        where: { companyId: locked.companyId },
-      });
-      const allowNegative = Boolean(policy?.allowNegativeStock);
-
-      for (const line of locked.lines || []) {
-        const qty = Number(line.quantity || 0);
-        if (qty <= 0) continue;
-
-        const { postQty, postUomId, itemName } = await this.convertToBaseUom(
-          manager,
-          line.itemId,
-          line.uomId,
-          qty,
-        );
-
-        // Lock inventory balance rows for this item+warehouse to prevent concurrent negative stock race
-        const balRows = await manager
-          .getRepository(InventoryBalance)
-          .createQueryBuilder('ib')
+    try {
+      await this.materialIssueRepo.manager.transaction(async (manager) => {
+        const repo = manager.getRepository(MaterialIssue);
+        // Lock ONLY the material_issues header row (PostgreSQL forbids FOR UPDATE on the nullable side of a LEFT JOIN)
+        const locked = await repo
+          .createQueryBuilder('mi')
           .setLock('pessimistic_write')
-          .where('ib.company_id = :companyId AND ib.item_id = :itemId AND ib.warehouse_id = :warehouseId', {
+          .where('mi.id = :id', { id })
+          .getOne();
+        if (!locked) throw new NotFoundException(`Material issue ${id} not found`);
+        if (locked.status !== 'DRAFT') throw new BadRequestException('Issue has already been posted');
+
+        const lockedLines = await manager.getRepository(MaterialIssueLine).find({
+          where: { issueId: locked.id },
+          order: { lineNumber: 'ASC' },
+        });
+        if (lockedLines.length === 0) {
+          throw new BadRequestException('Cannot post an issue with no line items');
+        }
+
+        const policy = await manager.getRepository(InventoryPolicy).findOne({
+          where: { companyId: locked.companyId },
+        });
+        const allowNegative = Boolean(policy?.allowNegativeStock);
+
+        for (const line of lockedLines) {
+          const qty = Number(line.quantity || 0);
+          if (qty <= 0) continue;
+
+          const { postQty, postUomId, itemName } = await this.convertToBaseUom(
+            manager,
+            line.itemId,
+            line.uomId,
+            qty,
+          );
+
+          // Lock inventory balance rows for this item+warehouse to prevent concurrent negative stock race
+          const balRows = await manager
+            .getRepository(InventoryBalance)
+            .createQueryBuilder('ib')
+            .setLock('pessimistic_write')
+            .where('ib.company_id = :companyId AND ib.item_id = :itemId AND ib.warehouse_id = :warehouseId', {
+              companyId: locked.companyId,
+              itemId: line.itemId,
+              warehouseId: store.warehouseId!,
+            })
+            .getMany();
+
+          const availableBaseQty = balRows.reduce((sum, r) => sum + Number(r.available || 0), 0);
+          if (!allowNegative && availableBaseQty < postQty) {
+            throw new BadRequestException(
+              `Insufficient stock for ${itemName}: available ${availableBaseQty}, requested ${postQty}`,
+            );
+          }
+
+          await this.stockLedgerService.create({
             companyId: locked.companyId,
+            transactionType: 'MATERIAL_ISSUE',
+            transactionDate: new Date(),
             itemId: line.itemId,
             warehouseId: store.warehouseId!,
-          })
-          .getMany();
+            batchId: line.batchId || undefined,
+            quantity: postQty,
+            uomId: postUomId,
+            direction: 'OUT',
+            referenceType: 'MATERIAL_ISSUE',
+            referenceId: locked.id,
+            referenceNumber: locked.issueNumber,
+            notes: `Material issue ${locked.issueNumber}${postQty !== qty ? ` (${qty} converted to ${postQty})` : ''}`,
+            createdBy: userId,
+            divisionId: locked.divisionId,
+            sectionId: locked.sectionId,
+            departmentId: locked.departmentId || locked.issuedToDepartmentId,
+          }, manager);
 
-        const availableBaseQty = balRows.reduce((sum, r) => sum + Number(r.available || 0), 0);
-        if (!allowNegative && availableBaseQty < postQty) {
-          throw new BadRequestException(
-            `Insufficient stock for ${itemName}: available ${availableBaseQty}, requested ${postQty}`,
+          await this.inventoryBalanceService.updateBalance(
+            locked.companyId, line.itemId, store.warehouseId!,
+            null, line.batchId, postUomId, postQty, 'OUT', manager,
           );
+
+          // Old consumable / tool exchange: log returned old item into Scrap Drum pool
+          const oldReturned = Number(line.oldItemReturnedQty || 0);
+          if (oldReturned > 0) {
+            const oldConv = await this.convertToBaseUom(manager, line.itemId, line.uomId, oldReturned);
+            await this.addToScrapOrQuarantinePool(
+              manager,
+              locked.companyId,
+              line.itemId,
+              store.warehouseId!,
+              oldConv.postUomId,
+              oldConv.postQty,
+              'scrap',
+            );
+          }
         }
 
-        await this.stockLedgerService.create({
-          companyId: locked.companyId,
-          transactionType: 'MATERIAL_ISSUE',
-          transactionDate: new Date(),
-          itemId: line.itemId,
-          warehouseId: store.warehouseId!,
-          batchId: line.batchId || undefined,
-          quantity: postQty,
-          uomId: postUomId,
-          direction: 'OUT',
-          referenceType: 'MATERIAL_ISSUE',
-          referenceId: locked.id,
-          referenceNumber: locked.issueNumber,
-          notes: `Material issue ${locked.issueNumber}${postQty !== qty ? ` (${qty} converted to ${postQty})` : ''}`,
-          createdBy: userId,
-          divisionId: locked.divisionId,
-          sectionId: locked.sectionId,
-          departmentId: locked.departmentId || locked.issuedToDepartmentId,
-        }, manager);
-
-        await this.inventoryBalanceService.updateBalance(
-          locked.companyId, line.itemId, store.warehouseId!,
-          null, line.batchId, postUomId, postQty, 'OUT', manager,
-        );
-
-        // Old consumable / tool exchange: log returned old item into Scrap Drum pool
-        const oldReturned = Number(line.oldItemReturnedQty || 0);
-        if (oldReturned > 0) {
-          const oldConv = await this.convertToBaseUom(manager, line.itemId, line.uomId, oldReturned);
-          await this.addToScrapOrQuarantinePool(
-            manager,
-            locked.companyId,
-            line.itemId,
-            store.warehouseId!,
-            oldConv.postUomId,
-            oldConv.postQty,
-            'scrap',
-          );
+        if (locked.requestId) {
+          await this.updateRequestIssuedQuantity(locked.requestId, lockedLines, manager);
         }
-      }
 
-      if (locked.requestId) {
-        await this.updateRequestIssuedQuantity(locked.requestId, locked.lines || [], manager);
-      }
-
-      await repo.update(locked.id, {
-        status: 'POSTED',
-        postedBy: userId,
-        postedAt: new Date(),
-        updatedBy: userId,
+        await repo.update(locked.id, {
+          status: 'POSTED',
+          postedBy: userId,
+          postedAt: new Date(),
+          updatedBy: userId,
+        });
       });
-    });
+    } catch (err: any) {
+      if (err instanceof HttpException) throw err;
+      const detail = err?.driverError?.message || err?.message || 'Unexpected database error while posting material issue';
+      this.logger.error(`Failed to post material issue ${issue.issueNumber} (${id}): ${detail}`, err?.stack);
+      throw new InternalServerErrorException(`Failed to post material issue ${issue.issueNumber}: ${detail}`);
+    }
 
-    return this.findMaterialIssueById(id);
+    const postedIssue = await this.findMaterialIssueById(id);
+
+    // Closed-Loop Tool Life Tracker: Auto-close previous active tool run & start new run on the target machine
+    if (this.toolLifecycleService && postedIssue?.referenceDocument) {
+      try {
+        await this.toolLifecycleService.handlePostedMaterialIssue({
+          companyId: postedIssue.companyId,
+          issueId: postedIssue.id,
+          issueNumber: postedIssue.issueNumber,
+          issueDate: postedIssue.issueDate
+            ? String(postedIssue.issueDate).slice(0, 10)
+            : new Date().toISOString().slice(0, 10),
+          referenceDocument: postedIssue.referenceDocument,
+          lines: (postedIssue.lines || []).map((l: any) => ({
+            itemId: l.itemId,
+            quantity: Number(l.quantity || 0),
+            oldItemReturnedQty: Number(l.oldItemReturnedQty || 0),
+            uomId: l.uomId,
+            remarks: l.remarks,
+          })),
+          userId,
+        });
+      } catch (err: any) {
+        this.logger.warn(
+          `Closed-loop tool lifecycle sync skipped for issue ${postedIssue.issueNumber}: ${err?.message || err}`,
+        );
+      }
+    }
+
+    return postedIssue;
   }
 
   private async updateRequestIssuedQuantity(requestId: string, lines: MaterialIssueLine[], manager: EntityManager) {
@@ -1463,18 +1774,26 @@ export class StoreService {
       throw new BadRequestException('Return store has no linked warehouse; cannot post inventory');
     }
 
-    await this.materialReturnRepo.manager.transaction(async (manager) => {
-      const repo = manager.getRepository(MaterialReturn);
-      const locked = await repo
-        .createQueryBuilder('mr')
-        .setLock('pessimistic_write')
-        .where('mr.id = :id', { id })
-        .leftJoinAndSelect('mr.lines', 'lines')
-        .getOne();
-      if (!locked) throw new NotFoundException(`Material return ${id} not found`);
-      if (locked.status !== 'DRAFT') throw new BadRequestException('Return has already been posted');
+    try {
+      await this.materialReturnRepo.manager.transaction(async (manager) => {
+        const repo = manager.getRepository(MaterialReturn);
+        const locked = await repo
+          .createQueryBuilder('mr')
+          .setLock('pessimistic_write')
+          .where('mr.id = :id', { id })
+          .getOne();
+        if (!locked) throw new NotFoundException(`Material return ${id} not found`);
+        if (locked.status !== 'DRAFT') throw new BadRequestException('Return has already been posted');
 
-      for (const line of locked.lines || []) {
+        const lockedLines = await manager.getRepository(MaterialReturnLine).find({
+          where: { returnId: locked.id },
+          order: { lineNumber: 'ASC' },
+        });
+        if (lockedLines.length === 0) {
+          throw new BadRequestException('Cannot post a return with no line items');
+        }
+
+        for (const line of lockedLines) {
         const qty = Number(line.quantity || 0);
         if (qty <= 0) continue;
 
@@ -1549,13 +1868,19 @@ export class StoreService {
         }
       }
 
-      await repo.update(locked.id, {
-        status: 'POSTED',
-        postedBy: userId,
-        postedAt: new Date(),
-        updatedBy: userId,
+        await repo.update(locked.id, {
+          status: 'POSTED',
+          postedBy: userId,
+          postedAt: new Date(),
+          updatedBy: userId,
+        });
       });
-    });
+    } catch (err: any) {
+      if (err instanceof HttpException) throw err;
+      const detail = err?.driverError?.message || err?.message || 'Unexpected database error while posting material return';
+      this.logger.error(`Failed to post material return ${returnRecord.returnNumber} (${id}): ${detail}`, err?.stack);
+      throw new InternalServerErrorException(`Failed to post material return ${returnRecord.returnNumber}: ${detail}`);
+    }
 
     return this.findMaterialReturnById(id);
   }

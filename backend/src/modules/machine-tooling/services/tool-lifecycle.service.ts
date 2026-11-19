@@ -3,11 +3,12 @@ import {
   NotFoundException,
   BadRequestException,
   ConflictException,
+  Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 import { ComponentChange, TOOL_DISPOSITION_TYPES } from '../entities/component-change.entity';
-import { MachineComponent } from '../entities/machine-component.entity';
+import { ComponentType, MachineComponent } from '../entities/machine-component.entity';
 import { MachineComponentItem } from '../entities/machine-component-item.entity';
 import { Machine } from '../../production/entities/machine.entity';
 import { Item } from '../../item/entities/item.entity';
@@ -41,6 +42,8 @@ import { numOrNull } from './machine-component.service';
  */
 @Injectable()
 export class ToolLifecycleService {
+  private readonly logger = new Logger(ToolLifecycleService.name);
+
   constructor(
     @InjectRepository(ComponentChange)
     private readonly changeRepo: Repository<ComponentChange>,
@@ -74,14 +77,9 @@ export class ToolLifecycleService {
       throw new NotFoundException(`Machine '${machineId}' not found in this company`);
     }
     const rows = await this.changeRepo.manager.query(
-      // Deliberately NOT filtered by `deleted_at`. This derives the machine's
-      // LIFETIME production counter, and the parts were physically made whether
-      // or not the entry document is later recycled — dropping trashed rows
-      // would make the counter rewind and push tool replacement decisions the
-      // wrong way. Recycle Bin governs document grids, not physical totals.
       `SELECT COALESCE(SUM(actual_quantity), 0)::numeric(19,4) AS counter_value
          FROM production_entries
-        WHERE company_id = $1 AND machine_id = $2 AND is_active = TRUE AND entry_date <= $3`,
+        WHERE company_id = $1 AND machine_id = $2 AND is_active = TRUE AND deleted_at IS NULL AND entry_date <= $3`,
       [companyId, machineId, date],
     );
     return numOrNull(rows[0]?.counter_value) ?? 0;
@@ -96,10 +94,217 @@ export class ToolLifecycleService {
     const rows = await this.changeRepo.manager.query(
       `SELECT COALESCE(SUM(actual_quantity), 0)::numeric(19,4) AS counter_value
          FROM production_entries
-        WHERE company_id = $1 AND machine_id = $2 AND is_active = TRUE`,
+        WHERE company_id = $1 AND machine_id = $2 AND is_active = TRUE AND deleted_at IS NULL`,
       [companyId, machineId],
     );
     return numOrNull(rows[0]?.counter_value) ?? 0;
+  }
+
+  // ─── Closed-Loop Automation: Store Material Issue → Active Tools ───────────
+
+  private inferComponentType(nameOrCode: string): ComponentType {
+    const upper = String(nameOrCode || '').toUpperCase();
+    if (upper.includes('DIE')) return ComponentType.DIE;
+    if (upper.includes('MOULD') || upper.includes('MOLD')) return ComponentType.MOULD;
+    if (upper.includes('CHAIN')) return ComponentType.CHAIN;
+    if (upper.includes('FIXTURE')) return ComponentType.FIXTURE;
+    if (
+      upper.includes('PUNCH') ||
+      upper.includes('TOOL') ||
+      upper.includes('BLADE') ||
+      upper.includes('ROLLER') ||
+      upper.includes('CUTTER') ||
+      upper.includes('DRILL')
+    ) {
+      return ComponentType.TOOL;
+    }
+    return ComponentType.COMPONENT;
+  }
+
+  /**
+   * Automated "Issue -> Close Previous Run -> Start New Counter" workflow.
+   * Called automatically when a Store Material Issue is POSTED against a machine.
+   */
+  async handlePostedMaterialIssue(params: {
+    companyId: string;
+    issueId: string;
+    issueNumber: string;
+    issueDate: string;
+    referenceDocument?: string | null;
+    lines: Array<{
+      itemId: string;
+      quantity: number;
+      oldItemReturnedQty?: number;
+      uomId?: string | null;
+      remarks?: string | null;
+    }>;
+    userId?: string;
+  }): Promise<{ closedCount: number; startedCount: number; machineCode: string | null }> {
+    const { companyId, issueId, issueNumber, issueDate, referenceDocument, lines, userId } = params;
+    const refDoc = String(referenceDocument || '').trim();
+    if (!refDoc || !/^Machine:\s*/i.test(refDoc)) {
+      return { closedCount: 0, startedCount: 0, machineCode: null };
+    }
+
+    // Parse machine code from "Machine: SPK-01 — Spoke Machine SPK-01" or "Machine: SPK-01"
+    const rawMachinePart = refDoc.replace(/^Machine:\s*/i, '').trim();
+    const machineCodeCandidate = rawMachinePart.split(/\s+[—–-]\s+/)[0]?.trim() || rawMachinePart;
+    if (!machineCodeCandidate) {
+      return { closedCount: 0, startedCount: 0, machineCode: null };
+    }
+
+    const machine = await this.machineRepo
+      .createQueryBuilder('m')
+      .where('m.companyId = :companyId', { companyId })
+      .andWhere('m.isActive = true')
+      .andWhere('(LOWER(m.machineCode) = LOWER(:code) OR LOWER(m.machineNumber) = LOWER(:code))', {
+        code: machineCodeCandidate,
+      })
+      .getOne();
+
+    if (!machine) {
+      this.logger.warn(
+        `Material Issue ${issueNumber}: machine '${machineCodeCandidate}' not found for closed-loop tool tracking.`,
+      );
+      return { closedCount: 0, startedCount: 0, machineCode: null };
+    }
+
+    const normalizedDate = String(issueDate || new Date().toISOString().slice(0, 10)).slice(0, 10);
+    const nowTime = new Date().toTimeString().slice(0, 5);
+    const currentCounter = await this.deriveCounterAt(companyId, machine.id, normalizedDate);
+
+    let closedCount = 0;
+    let startedCount = 0;
+
+    for (const line of lines || []) {
+      const qty = Number(line.quantity || 0);
+      if (qty <= 0 || !line.itemId) continue;
+
+      const item = await this.itemRepo.findOne({ where: { id: line.itemId, companyId } });
+      if (!item) continue;
+
+      // 1. Find or auto-register MachineComponent for this machine + item
+      let component = await this.componentRepo.findOne({
+        where: { companyId, machineId: machine.id, itemId: item.id, isActive: true },
+      });
+      if (!component) {
+        component = await this.componentRepo.findOne({
+          where: { companyId, machineId: machine.id, componentCode: item.itemCode, isActive: true },
+        });
+      }
+      if (!component) {
+        const inferredType = this.inferComponentType(`${item.name || ''} ${item.itemCode}`);
+        component = this.componentRepo.create({
+          companyId,
+          machineId: machine.id,
+          itemId: item.id,
+          componentType: inferredType,
+          componentName: item.name || item.itemCode,
+          componentCode: item.itemCode,
+          uomId: line.uomId || item.baseUomId || null,
+          expectedLifeQuantity: null,
+          description: `Auto-registered from Material Issue ${issueNumber}`,
+          createdBy: userId ?? null,
+          updatedBy: userId ?? null,
+        });
+        component.isActive = true;
+        component = await this.componentRepo.save(component);
+      }
+
+      // 2. Auto-Close previous ACTIVE tool run on this machine/component
+      const previousActive = await this.changeRepo.findOne({
+        where: { companyId, componentId: component.id, isActive: true, closedAt: IsNull() },
+      });
+
+      const hasOldReturn = Number(line.oldItemReturnedQty || 0) > 0;
+      if (previousActive) {
+        const installCounter = numOrNull(previousActive.productionCounterAfter) ?? 0;
+        const closingCounter = Math.max(installCounter, currentCounter);
+        const accumulatedLife = Number(Math.max(0, closingCounter - installCounter).toFixed(4));
+
+        previousActive.productionCounterBefore = String(closingCounter);
+        previousActive.productionSincePrevious = String(accumulatedLife);
+        previousActive.closedAt = new Date();
+        previousActive.conditionStatus = hasOldReturn ? 'USED' : (previousActive.conditionStatus || 'USED');
+        previousActive.dispositionType = hasOldReturn
+          ? 'SCRAPPED'
+          : (previousActive.dispositionType || 'RETURN_TO_STORE');
+        previousActive.reason = hasOldReturn
+          ? `Replaced by new issue ${issueNumber} (Old Returned Scrap)`
+          : `Replaced by new issue ${issueNumber}`;
+        previousActive.updatedBy = userId ?? null;
+        await this.changeRepo.save(previousActive);
+        closedCount++;
+      }
+
+      // 3. Auto-Start new ACTIVE tool run with sequential Run # and Starting Production = 0
+      const priorRuns = await this.changeRepo.count({
+        where: { companyId, componentId: component.id, isActive: true },
+      });
+      const runNumber = priorRuns + 1;
+      const newToolCode = `${item.itemCode} · Run #${runNumber}`;
+
+      const nextRun = this.changeRepo.create({
+        companyId,
+        machineId: machine.id,
+        componentId: component.id,
+        jobCardId: null,
+        storeIssueId: issueId,
+        oldToolCode: previousActive?.newToolCode ?? null,
+        newToolCode,
+        newToolDescription: item.name || item.itemCode,
+        changeDate: normalizedDate,
+        changeTime: nowTime,
+        productionCounterBefore: null,
+        productionCounterAfter: String(currentCounter),
+        productionSincePrevious: '0',
+        reason: `Issued via ${issueNumber}`,
+        conditionStatus: 'NEW',
+        remarks: line.remarks?.trim() || `Auto-started from Material Issue ${issueNumber}`,
+        dispositionType: null,
+        dispositionNote: null,
+        closedAt: null,
+        changedAt: new Date(),
+        changedBy: userId ?? null,
+        createdBy: userId ?? null,
+        updatedBy: userId ?? null,
+      });
+      nextRun.isActive = true;
+      await this.changeRepo.save(nextRun);
+      startedCount++;
+    }
+
+    return { closedCount, startedCount, machineCode: machine.machineCode };
+  }
+
+  /**
+   * Live Daily Production Accumulation:
+   * Called automatically when a Daily Production Entry is created/updated/deleted.
+   * Recomputes and persists Current Life (Production Qty) on every ACTIVE tool
+   * currently mounted on `machineId`.
+   */
+  async syncActiveToolsForMachine(companyId: string, machineId: string): Promise<number> {
+    if (!companyId || !machineId) return 0;
+    const activeRuns = await this.changeRepo.find({
+      where: { companyId, machineId, isActive: true, closedAt: IsNull() },
+    });
+    if (activeRuns.length === 0) return 0;
+
+    const rows = await this.changeRepo.manager.query(
+      `SELECT COALESCE(SUM(actual_quantity), 0)::numeric(19,4) AS counter_value
+         FROM production_entries
+        WHERE company_id = $1 AND machine_id = $2 AND is_active = TRUE AND deleted_at IS NULL`,
+      [companyId, machineId],
+    );
+    const derived = numOrNull(rows[0]?.counter_value) ?? 0;
+
+    for (const run of activeRuns) {
+      const installCounter = numOrNull(run.productionCounterAfter) ?? 0;
+      const liveUsed = Number(Math.max(0, derived - installCounter).toFixed(4));
+      run.productionSincePrevious = String(liveUsed);
+      await this.changeRepo.save(run);
+    }
+    return activeRuns.length;
   }
 
   // ─── Active tools (currently installed) ────────────────────────────────────
@@ -135,26 +340,46 @@ export class ToolLifecycleService {
     qb.skip((page - 1) * limit).take(limit);
     const changes = await qb.getMany();
 
-    // One derived counter per machine (all-time SUM), then used/remaining vs
-    // the expected life for the currently installed tool.
+    // One derived counter per machine (all-time SUM of active non-deleted production entries)
     const machineIds = [...new Set(changes.map((c) => c.machineId))];
     const counters = new Map<string, number>();
     if (machineIds.length) {
       const rows = await this.changeRepo.manager.query(
         `SELECT machine_id, COALESCE(SUM(actual_quantity), 0)::numeric(19,4) AS counter_value
            FROM production_entries
-          WHERE company_id = $1 AND machine_id = ANY($2) AND is_active = TRUE
+          WHERE company_id = $1 AND machine_id = ANY($2) AND is_active = TRUE AND deleted_at IS NULL
           GROUP BY machine_id`,
         [companyId, machineIds],
       );
       for (const r of rows) counters.set(r.machine_id, numOrNull(r.counter_value) ?? 0);
     }
 
+    // Also compute live Weight (Kg) produced on each machine since each active tool's installDate
+    const weightMap = new Map<string, number>();
+    for (const c of changes) {
+      try {
+        const wRows = await this.changeRepo.manager.query(
+          `SELECT COALESCE(SUM(pe.actual_quantity * COALESCE(i.weight_per_piece, 0)), 0)::numeric(19,4) AS weight_kg
+             FROM production_entries pe
+             LEFT JOIN items i ON i.id = pe.item_id
+            WHERE pe.company_id = $1
+              AND pe.machine_id = $2
+              AND pe.is_active = TRUE
+              AND pe.deleted_at IS NULL
+              AND pe.entry_date >= $3`,
+          [companyId, c.machineId, c.changeDate],
+        );
+        weightMap.set(c.id, Number((numOrNull(wRows[0]?.weight_kg) ?? 0).toFixed(2)));
+      } catch {
+        weightMap.set(c.id, 0);
+      }
+    }
+
     const data = changes.map((c) => {
       const installCounter = numOrNull(c.productionCounterAfter);
       const derived = counters.get(c.machineId) ?? 0;
       const expected = numOrNull((c.component as any)?.expectedLifeQuantity);
-      const used = installCounter !== null ? derived - installCounter : derived;
+      const used = installCounter !== null ? Math.max(0, Number((derived - installCounter).toFixed(4))) : derived;
       return {
         id: c.id,
         machineId: c.machineId,
@@ -179,9 +404,13 @@ export class ToolLifecycleService {
         installCounter,
         derivedCounter: derived,
         usedByInstalled: used,
+        liveWeightKg: weightMap.get(c.id) ?? 0,
         remainingByInstalled: expected !== null ? Math.max(0, expected - used) : null,
         storeIssueId: c.storeIssueId,
         storeIssueNumber: (c.storeIssue as any)?.issueNumber ?? null,
+        operatorName: (c.storeIssue as any)?.operatorName ?? null,
+        shiftInchargeName: (c.storeIssue as any)?.shiftInchargeName ?? null,
+        issuedByName: (c.storeIssue as any)?.issuedByName ?? null,
         jobCardNo: (c.jobCard as any)?.jobCardNo ?? (c.jobCard as any)?.code ?? null,
         changeDate: c.changeDate,
         closedAt: c.closedAt,
@@ -438,10 +667,31 @@ export class ToolLifecycleService {
     qb.skip((page - 1) * limit).take(limit);
     const changes = await qb.getMany();
 
+    // Derive live counters for any ACTIVE rows included in the report so current life is always live
+    const activeMachineIds = [...new Set(changes.filter((c) => c.closedAt === null).map((c) => c.machineId))];
+    const liveCounters = new Map<string, number>();
+    if (activeMachineIds.length) {
+      const cRows = await this.changeRepo.manager.query(
+        `SELECT machine_id, COALESCE(SUM(actual_quantity), 0)::numeric(19,4) AS counter_value
+           FROM production_entries
+          WHERE company_id = $1 AND machine_id = ANY($2) AND is_active = TRUE AND deleted_at IS NULL
+          GROUP BY machine_id`,
+        [companyId, activeMachineIds],
+      );
+      for (const r of cRows) liveCounters.set(r.machine_id, numOrNull(r.counter_value) ?? 0);
+    }
+
     const data = changes.map((c) => {
       const installCounter = numOrNull(c.productionCounterAfter);
       const removalCounter = numOrNull(c.productionCounterBefore);
       const expected = numOrNull((c.component as any)?.expectedLifeQuantity);
+      const isClosed = c.closedAt !== null;
+      const liveUsed =
+        !isClosed && installCounter !== null
+          ? Math.max(0, Number(((liveCounters.get(c.machineId) ?? 0) - installCounter).toFixed(4)))
+          : null;
+      const productionLife = isClosed ? numOrNull(c.productionSincePrevious) : (liveUsed ?? numOrNull(c.productionSincePrevious));
+
       return {
         id: c.id,
         machineId: c.machineId,
@@ -467,17 +717,20 @@ export class ToolLifecycleService {
         removeDate: c.closedAt ? new Date(c.closedAt).toISOString().slice(0, 10) : null,
         installCounter,
         removalCounter,
-        productionLife: numOrNull(c.productionSincePrevious),
+        productionLife,
         conditionStatus: c.conditionStatus,
         dispositionType: c.dispositionType,
         dispositionNote: c.dispositionNote,
         reason: c.reason,
         remarks: c.remarks,
-        status: c.closedAt === null ? 'ACTIVE' : 'CLOSED',
+        status: isClosed ? 'CLOSED' : 'ACTIVE',
         closedAt: c.closedAt,
         jobCardNo: (c.jobCard as any)?.jobCardNo ?? (c.jobCard as any)?.code ?? null,
         storeIssueNumber: (c.storeIssue as any)?.issueNumber ?? null,
         storeIssueId: c.storeIssueId,
+        operatorName: (c.storeIssue as any)?.operatorName ?? null,
+        shiftInchargeName: (c.storeIssue as any)?.shiftInchargeName ?? null,
+        issuedByName: (c.storeIssue as any)?.issuedByName ?? null,
         changedAt: c.changedAt,
         changedBy: c.changedBy,
         componentType: (c.component as any)?.componentType,

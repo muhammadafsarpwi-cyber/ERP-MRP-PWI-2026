@@ -47,6 +47,15 @@ export class MaterialIssue {
   @Column({ name: 'issued_by', type: 'uuid', nullable: true })
   issuedBy!: string | null;
 
+  @Column({ name: 'issued_by_name', type: 'varchar', length: 150, nullable: true })
+  issuedByName!: string | null;
+
+  @Column({ name: 'operator_name', type: 'varchar', length: 150, nullable: true })
+  operatorName!: string | null;
+
+  @Column({ name: 'shift_incharge_name', type: 'varchar', length: 150, nullable: true })
+  shiftInchargeName!: string | null;
+
   @Column({ type: 'text', nullable: true })
   purpose!: string | null;
 

@@ -357,6 +357,21 @@ export class CreateMaterialIssueDto {
   @IsString()
   remarks?: string;
 
+  @IsOptional()
+  @IsString()
+  @MaxLength(150)
+  operatorName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(150)
+  shiftInchargeName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(150)
+  issuedByName?: string;
+
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => CreateMaterialIssueLineDto)
@@ -578,6 +593,57 @@ export class CancelReplenishmentDto {
 }
 
 export class UpdateMaterialIssuelinesDto {
+  @IsOptional()
+  @IsDateString()
+  issueDate?: string;
+
+  @IsOptional()
+  @IsUUID()
+  storeId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  divisionId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  sectionId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  departmentId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  issuedToDepartmentId?: string;
+
+  @IsOptional()
+  @IsString()
+  purpose?: string;
+
+  @IsOptional()
+  @IsString()
+  referenceDocument?: string;
+
+  @IsOptional()
+  @IsString()
+  remarks?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(150)
+  operatorName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(150)
+  shiftInchargeName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(150)
+  issuedByName?: string;
+
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => CreateMaterialIssueLineDto)
@@ -636,6 +702,21 @@ export class CreateMaterialReturnDto {
   @IsOptional()
   @IsString()
   remarks?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(150)
+  operatorName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(150)
+  shiftInchargeName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(150)
+  issuedByName?: string;
 
   @IsArray()
   @ValidateNested({ each: true })

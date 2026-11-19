@@ -224,6 +224,36 @@ export class StoreController {
 
   // ==================== MATERIAL ISSUES ====================
 
+  @Get('issues/part-machine-history')
+  @RequirePermission('store.issue.view')
+  async getPartMachineHistory(
+    @Req() req: any,
+    @Query('machineId') machineId: string,
+    @Query('itemId') itemId: string,
+    @Query('asOfDate') asOfDate?: string,
+  ) {
+    return this.storeService.getPartMachineHistory(
+      this.getCompanyId(req),
+      machineId,
+      itemId,
+      asOfDate,
+    );
+  }
+
+  @Get('issues/personnel-suggestions')
+  @RequirePermission('store.issue.view')
+  async getIssuePersonnelSuggestions(
+    @Req() req: any,
+    @Query('departmentId') departmentId?: string,
+    @Query('machineId') machineId?: string,
+  ) {
+    return this.storeService.getIssuePersonnelSuggestions(
+      this.getCompanyId(req),
+      departmentId,
+      machineId,
+    );
+  }
+
   @Get('material-issues')
   @RequirePermission('store.issue.view')
   async findAllMaterialIssues(@Req() req: any, @Query() query: any) {
@@ -245,7 +275,7 @@ export class StoreController {
   @Put('material-issues/:id')
   @RequirePermission('store.issue.create')
   async updateMaterialIssue(@Param('id') id: string, @Body() body: UpdateMaterialIssuelinesDto, @Req() req: any) {
-    return this.storeService.updateMaterialIssue(id, body.lines, this.getUserId(req), this.getCompanyId(req), this.divisionScope(req));
+    return this.storeService.updateMaterialIssue(id, body, this.getUserId(req), this.getCompanyId(req), this.divisionScope(req));
   }
 
   @Post('material-issues/:id/post')

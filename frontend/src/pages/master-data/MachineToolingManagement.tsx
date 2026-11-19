@@ -150,8 +150,9 @@ interface ActiveToolRec {
   installedToolCode: string; newToolDescription?: string | null;
   installDate: string; installTime?: string | null;
   installCounter?: number | null; derivedCounter?: number | null;
-  usedByInstalled?: number | null; remainingByInstalled?: number | null;
+  usedByInstalled?: number | null; liveWeightKg?: number | null; remainingByInstalled?: number | null;
   storeIssueId?: string | null; storeIssueNumber?: string | null;
+  operatorName?: string | null; shiftInchargeName?: string | null; issuedByName?: string | null;
   jobCardNo?: string | null; changeDate: string; closedAt?: string | null;
 }
 
@@ -169,6 +170,7 @@ interface LifeRowRec {
   conditionStatus?: string | null; dispositionType?: string | null; dispositionNote?: string | null;
   reason?: string | null; remarks?: string | null; status: string; closedAt?: string | null;
   jobCardNo?: string | null; storeIssueNumber?: string | null; storeIssueId?: string | null;
+  operatorName?: string | null; shiftInchargeName?: string | null; issuedByName?: string | null;
   changedAt?: string | null; changedBy?: string | null; componentType?: string;
 }
 
@@ -1873,18 +1875,18 @@ const MachineToolingManagement: React.FC = () => {
 
   const activeToolColumns: ColumnsType<ActiveToolRec> = [
     {
-      title: 'Machine', key: 'machine', width: 170,
+      title: 'Machine', key: 'machine', width: 165,
       render: (_, r) => (
         <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.3 }}>
-          <span style={{ fontWeight: 500 }}>{r.machine?.machineCode ?? '—'}</span>
-          {r.machine?.machineNumber && (
-            <span style={{ fontSize: 11, color: 'var(--theme-text-muted)' }}>{r.machine.machineNumber}</span>
+          <span style={{ fontWeight: 600 }}>{r.machine?.machineCode ?? '—'}</span>
+          {r.machine?.name && (
+            <span style={{ fontSize: 11, color: 'var(--theme-text-muted)' }}>{r.machine.name}</span>
           )}
         </div>
       ),
     },
     {
-      title: 'Component', key: 'component', width: 210,
+      title: 'Component', key: 'component', width: 215,
       render: (_, r) => (
         <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.3 }}>
           <span style={{ fontWeight: 500 }}>{r.component?.componentName ?? r.componentId}</span>
@@ -1893,10 +1895,10 @@ const MachineToolingManagement: React.FC = () => {
       ),
     },
     {
-      title: 'Installed Tool', key: 'tool', width: 220,
+      title: 'Active Tool / Run #', key: 'tool', width: 220,
       render: (_, r) => (
         <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.3 }}>
-          <code style={{ fontWeight: 600, color: 'var(--theme-accent)' }}>{r.installedToolCode}</code>
+          <code style={{ fontWeight: 700, color: 'var(--theme-accent)' }}>{r.installedToolCode}</code>
           {r.newToolDescription && (
             <span style={{ fontSize: 11, color: 'var(--theme-text-muted)' }}>{r.newToolDescription}</span>
           )}
@@ -1904,42 +1906,66 @@ const MachineToolingManagement: React.FC = () => {
       ),
     },
     {
-      title: 'Install Date', key: 'installDate', width: 130,
+      title: 'Issued / Mounted Date', key: 'installDate', width: 140,
       render: (_, r) => (
         <div style={{ lineHeight: 1.3 }}>
-          <span>{r.installDate}</span>
-          {r.installTime && <span style={{ fontSize: 11, color: 'var(--theme-text-muted)' }}> {r.installTime}</span>}
+          <div style={{ fontWeight: 500 }}>{r.installDate}</div>
+          {r.installTime && <div style={{ fontSize: 11, color: 'var(--theme-text-muted)' }}>{r.installTime}</div>}
         </div>
       ),
     },
-    { title: 'Install Counter', key: 'installCounter', width: 120, render: (_, r) => fmtNum(r.installCounter) },
-    { title: 'Used', key: 'used', width: 110, render: (_, r) => fmtNum(r.usedByInstalled) },
     {
-      title: 'Remaining', key: 'remaining', width: 130,
-      render: (_, r) =>
-        r.remainingByInstalled != null
-          ? `${fmtNum(r.remainingByInstalled)}${r.component?.uomCode ? ` ${r.component.uomCode}` : ''}`
-          : EMPTY,
+      title: 'Current Life (Production Qty)', key: 'used', width: 175,
+      render: (_, r) => (
+        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.3 }}>
+          <span style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--theme-primary)' }}>
+            {fmtNum(r.usedByInstalled)}{r.component?.uomCode ? ` ${r.component.uomCode}` : ''}
+          </span>
+          {r.liveWeightKg != null && r.liveWeightKg > 0 && (
+            <span style={{ fontSize: 11, color: 'var(--theme-text-muted)' }}>
+              {fmtNum(r.liveWeightKg)} Kg produced
+            </span>
+          )}
+        </div>
+      ),
     },
     {
-      title: 'Store Issue', key: 'storeIssue', width: 130,
-      render: (_, r) => (r.storeIssueNumber ? <code>{r.storeIssueNumber}</code> : EMPTY),
+      title: 'Remaining Life', key: 'remaining', width: 140,
+      render: (_, r) =>
+        r.remainingByInstalled != null ? (
+          <span style={{ fontWeight: 600 }}>
+            {fmtNum(r.remainingByInstalled)}{r.component?.uomCode ? ` ${r.component.uomCode}` : ''}
+          </span>
+        ) : (
+          <Tag color="blue" style={{ margin: 0 }}>Live Tracking</Tag>
+        ),
+    },
+    {
+      title: 'Voucher # & Operator', key: 'storeIssue', width: 175,
+      render: (_, r) => (
+        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.3 }}>
+          {r.storeIssueNumber ? <code style={{ fontWeight: 600 }}>{r.storeIssueNumber}</code> : EMPTY}
+          {r.operatorName && (
+            <span style={{ fontSize: 11, color: 'var(--theme-text-muted)' }}>Op: {r.operatorName}</span>
+          )}
+        </div>
+      ),
     },
     {
       title: 'Status', key: 'status', width: 100,
       render: () => <StatusBadge status="ACTIVE" />,
     },
     {
-      title: 'Actions', key: 'actions', fixed: 'right', width: 110,
+      title: 'Actions', key: 'actions', fixed: 'right', width: 125,
       render: (_, r) => (
         <Space size={4}>
-          <Tooltip title={`Remove tool ${r.installedToolCode} — ${r.machine?.machineCode ?? ''}`}>
+          <Tooltip title={`Close / retire tool run ${r.installedToolCode} — ${r.machine?.machineCode ?? ''}`}>
             <Button
               type="link" danger size="small" icon={<SwapRightOutlined />}
               onClick={() => openRemove(r)}
-              aria-label={`Remove tool ${r.installedToolCode}`}
+              aria-label={`Close tool ${r.installedToolCode}`}
             >
-              Remove
+              Close / Retire
             </Button>
           </Tooltip>
         </Space>
@@ -1952,8 +1978,8 @@ const MachineToolingManagement: React.FC = () => {
       title: 'Machine', key: 'machine', width: 150,
       render: (_, r) => (
         <div style={{ lineHeight: 1.3 }}>
-          <span style={{ fontWeight: 500 }}>{r.machine?.machineCode ?? '—'}</span>
-          {r.machine?.machineNumber && <div style={{ fontSize: 11, color: 'var(--theme-text-muted)' }}>{r.machine.machineNumber}</div>}
+          <span style={{ fontWeight: 600 }}>{r.machine?.machineCode ?? '—'}</span>
+          {r.machine?.name && <div style={{ fontSize: 11, color: 'var(--theme-text-muted)' }}>{r.machine.name}</div>}
         </div>
       ),
     },
@@ -1967,37 +1993,56 @@ const MachineToolingManagement: React.FC = () => {
       ),
     },
     {
-      title: 'Tool', key: 'tool', width: 180,
+      title: 'Tool Run', key: 'tool', width: 200,
       render: (_, r) => (
         <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.3 }}>
-          <Space size={4}>
-            {r.oldToolCode ? <code style={{ fontSize: 11 }}>{r.oldToolCode}</code> : <span style={{ color: 'var(--theme-text-muted)' }}>—</span>}
-            <SwapRightOutlined style={{ color: 'var(--theme-text-muted)' }} />
-            <code style={{ fontWeight: 600, color: 'var(--theme-accent)' }}>{r.toolCode}</code>
-          </Space>
-          {r.newToolDescription && <span style={{ fontSize: 11, color: 'var(--theme-text-muted)' }}>{r.newToolDescription}</span>}
+          <code style={{ fontWeight: 700, color: 'var(--theme-accent)' }}>{r.toolCode}</code>
+          {r.oldToolCode && (
+            <span style={{ fontSize: 11, color: 'var(--theme-text-muted)' }}>Prev: {r.oldToolCode}</span>
+          )}
         </div>
       ),
     },
     {
-      title: 'Installed', key: 'installed', width: 120,
-      render: (_, r) => `${r.installDate}${r.installTime ? ` ${r.installTime}` : ''}`,
+      title: 'Issued Date', key: 'installed', width: 120,
+      render: (_, r) => (
+        <div style={{ lineHeight: 1.3 }}>
+          <div>{r.installDate}</div>
+          {r.installTime && <div style={{ fontSize: 11, color: 'var(--theme-text-muted)' }}>{r.installTime}</div>}
+        </div>
+      ),
     },
     {
-      title: 'Removed', key: 'removed', width: 110,
+      title: 'Closed Date', key: 'removed', width: 110,
       render: (_, r) => r.removeDate || EMPTY,
     },
     {
-      title: 'Production Life', key: 'life', width: 130, sorter: true,
+      title: 'Production Life', key: 'life', width: 150, sorter: true,
       render: (_, r) =>
-        r.productionLife != null ? `${fmtNum(r.productionLife)}${r.component?.uomCode ? ` ${r.component.uomCode}` : ''}` : EMPTY,
+        r.productionLife != null ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontWeight: 700, color: r.status === 'ACTIVE' ? 'var(--theme-primary)' : 'var(--theme-text)' }}>
+              {fmtNum(r.productionLife)}{r.component?.uomCode ? ` ${r.component.uomCode}` : ''}
+            </span>
+            {r.status === 'ACTIVE' && <Tag color="processing" style={{ margin: 0, fontSize: 10 }}>Live</Tag>}
+          </div>
+        ) : EMPTY,
+    },
+    {
+      title: 'End Reason', key: 'reason', width: 210, ellipsis: true,
+      render: (_, r) =>
+        r.reason ? (
+          <Tooltip title={r.reason}>
+            <span>{r.reason}</span>
+          </Tooltip>
+        ) : EMPTY,
     },
     {
       title: 'Condition', key: 'condition', width: 110,
       render: (_, r) => (r.conditionStatus ? <Tag color={CONDITION_COLORS[r.conditionStatus] ?? 'default'}>{r.conditionStatus}</Tag> : EMPTY),
     },
     {
-      title: 'Disposition', key: 'disposition', width: 150,
+      title: 'Disposition', key: 'disposition', width: 145,
       render: (_, r) =>
         r.dispositionType ? (
           <Tooltip title={r.dispositionNote || `Disposition of tool ${r.toolCode}`}>
@@ -2006,12 +2051,8 @@ const MachineToolingManagement: React.FC = () => {
         ) : EMPTY,
     },
     {
-      title: 'Store Issue', key: 'storeIssue', width: 120,
+      title: 'Voucher #', key: 'storeIssue', width: 135,
       render: (_, r) => (r.storeIssueNumber ? <code>{r.storeIssueNumber}</code> : EMPTY),
-    },
-    {
-      title: 'Job Card', key: 'jobCard', width: 110,
-      render: (_, r) => (r.jobCardNo ? <code>{r.jobCardNo}</code> : EMPTY),
     },
     {
       title: 'Status', key: 'status', width: 100,
@@ -2643,8 +2684,8 @@ const MachineToolingManagement: React.FC = () => {
               style={{ margin: '10px 14px' }}
               type="info"
               showIcon
-              message="Derived production counters"
-              description="Machines have no native counter in the ERP. Used / remaining production life per installed tool is DERIVED from SUM(production_entries.actual_quantity) up to the current date, compared against the install counter and the component's expected life."
+              message="Automated Closed-Loop Tool Life Tracking"
+              description="Posting a Store Material Issue against a machine automatically closes the previous active tool run (archiving its final production count into Tool Life History) and starts a new sequential Run # at 0. Every Daily Production Entry saved for that machine automatically updates the live Current Life (Production Qty & Weight Kg) below."
             />
             <div style={{ width: '100%', overflowX: 'auto' }}>
               <ERPTable

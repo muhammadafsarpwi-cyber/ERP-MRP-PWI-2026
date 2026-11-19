@@ -30,6 +30,7 @@ import { PermissionModule } from '../permission/permission.module';
 import { UserModule } from '../user/user.module';
 import { InventoryModule } from '../inventory/inventory.module';
 import { ProcurementModule } from '../procurement/procurement.module';
+import { MachineToolingModule } from '../machine-tooling/machine-tooling.module';
 
 @Module({
   imports: [
@@ -55,6 +56,7 @@ import { ProcurementModule } from '../procurement/procurement.module';
     forwardRef(() => UserModule),
     forwardRef(() => InventoryModule),
     forwardRef(() => ProcurementModule),
+    forwardRef(() => MachineToolingModule),
   ],
   controllers: [StoreController, StoreLogisticsController, ReplenishmentController, StoreReceiptController],
   providers: [StoreService, StoreLogisticsService, ReplenishmentService, ReplenishmentProcessorService, StoreDashboardService, StoreMaterialTraceService],

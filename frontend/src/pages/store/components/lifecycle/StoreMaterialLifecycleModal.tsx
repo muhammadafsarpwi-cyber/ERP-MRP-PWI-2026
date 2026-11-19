@@ -47,6 +47,7 @@ export const StoreMaterialLifecycleModal: React.FC<StoreMaterialLifecycleModalPr
       footer={null}
       centered
       width={1100}
+      zIndex={2600}
       closable={false}
       destroyOnHidden
       styles={{

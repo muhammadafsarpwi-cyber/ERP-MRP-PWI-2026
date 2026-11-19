@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, ConflictException, ForbiddenException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ConflictException, ForbiddenException, Logger, Inject, Optional, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, EntityManager, DeepPartial, In, DataSource, ILike } from 'typeorm';
 import {
@@ -33,6 +33,7 @@ import {
 } from '../../item/services/uom-conversion.calculator';
 import { BarcodeService } from '../../barcode/services/barcode.service';
 import { BarcodeEntityType } from '../../barcode/entities/barcode.entity';
+import { ToolLifecycleService } from '../../machine-tooling/services/tool-lifecycle.service';
 import { applyDivisionScopeFilter, isUnrestricted } from '../../../common/division-scope.util';
 import { classifyLedgerMovement, REVERSAL_ORIGIN_PATTERN } from '../../../common/stock-movement.classifier';
 
@@ -312,6 +313,9 @@ export class ProductionEntryService {
     private readonly machineTargetService: MachineTargetService,
     private readonly productionRoutingService: ProductionRoutingService,
     private readonly barcodeService: BarcodeService,
+    @Optional()
+    @Inject(forwardRef(() => ToolLifecycleService))
+    private readonly toolLifecycleService?: ToolLifecycleService,
   ) {}
 
   // ─── Division scope helpers (Prompt #16 §16/§18/§19) ──────────────────────
@@ -2027,6 +2031,15 @@ addToDept(org, {
       this.logger.warn(`Failed to create centralized barcode for production entry ${saved.id}: ${err}`);
     }
 
+    // Live Closed-Loop Tool Life Accumulation: update Current Life on active tools for this machine
+    if (this.toolLifecycleService && saved.machineId) {
+      try {
+        await this.toolLifecycleService.syncActiveToolsForMachine(companyId, saved.machineId);
+      } catch (err) {
+        this.logger.warn(`Active tool life sync skipped for machine ${saved.machineId}: ${err}`);
+      }
+    }
+
     return saved;
   }
 
@@ -2272,6 +2285,15 @@ addToDept(org, {
       }
       return updated;
     });
+
+    // Live Closed-Loop Tool Life Accumulation: update Current Life on active tools for this machine
+    if (this.toolLifecycleService && saved.machineId) {
+      try {
+        await this.toolLifecycleService.syncActiveToolsForMachine(companyId, saved.machineId);
+      } catch (err) {
+        this.logger.warn(`Active tool life sync skipped for machine ${saved.machineId}: ${err}`);
+      }
+    }
 
     return saved;
   }
@@ -2886,6 +2908,14 @@ addToDept(org, {
         .where('production_entry_id = :id', { id: entry.id })
         .execute();
     });
+
+    if (this.toolLifecycleService && entry.machineId) {
+      try {
+        await this.toolLifecycleService.syncActiveToolsForMachine(companyId, entry.machineId);
+      } catch (err) {
+        this.logger.warn(`Active tool life sync skipped on delete for machine ${entry.machineId}: ${err}`);
+      }
+    }
   }
 
   // ─── Validation & resolution ────────────────────────────────────────────────

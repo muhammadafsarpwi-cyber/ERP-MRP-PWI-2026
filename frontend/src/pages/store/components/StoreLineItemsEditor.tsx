@@ -1,8 +1,25 @@
 import React, { useState, useEffect } from 'react';
 import { Table, Button, Select, InputNumber, Space, Typography, Tooltip, Tag, Alert, Card, Row, Col, theme } from 'antd';
-import { PlusOutlined, DeleteOutlined, InfoCircleOutlined, AppstoreOutlined, WarningOutlined, CheckCircleOutlined } from '@ant-design/icons';
+import { PlusOutlined, DeleteOutlined, InfoCircleOutlined, AppstoreOutlined, WarningOutlined, CheckCircleOutlined, HistoryOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
+import dayjs from 'dayjs';
 import apiService from '../../../services/api';
+
+export interface PartMachineHistoryInfo {
+  hasPreviousIssue: boolean;
+  lastIssueVoucherNo?: string;
+  lastIssueDate?: string;
+  lastIssueQty?: number;
+  lastIssueUom?: string;
+  daysSinceLastIssue?: number;
+  totalIssuesToMachine?: number;
+  productionSinceLastIssue?: {
+    entryCount: number;
+    totalQty: number;
+    uomCode: string;
+    totalWeightKg: number;
+  };
+}
 
 export interface StoreLineItem {
   key: string;
@@ -22,6 +39,7 @@ export interface StoreLineItem {
   requiredDate?: string;
   conditionCode?: string;
   remarks?: string;
+  partUsageSnapshot?: string;
   poLineId?: string;
   unitPrice?: number;
   oldItemReturnedQty?: number;
@@ -60,7 +78,31 @@ export interface StoreLineItemsEditorProps {
   divisionId?: string;
   divisionName?: string;
   excludeFinishedGoods?: boolean;
+  machineId?: string;
+  issueDate?: string;
+  onInspectLifecycle?: (item: { itemId: string; itemCode?: string; itemName?: string }) => void;
 }
+
+export const formatPartHistorySummary = (h?: PartMachineHistoryInfo): string => {
+  if (!h) return '';
+  if (!h.hasPreviousIssue) {
+    return 'First time issuing this part to this machine';
+  }
+  const formattedDate = h.lastIssueDate ? dayjs(h.lastIssueDate).format('DD MMM YYYY') : '—';
+  const daysLabel =
+    h.daysSinceLastIssue === 0
+      ? 'today'
+      : h.daysSinceLastIssue === 1
+      ? '1 day ago'
+      : `${h.daysSinceLastIssue ?? 0} days ago`;
+  const qtyLabel = `${Number(h.lastIssueQty || 0).toLocaleString()} ${h.lastIssueUom || 'PCS'}`;
+  const prod = h.productionSinceLastIssue;
+  const prodQty = Number(prod?.totalQty || 0).toLocaleString();
+  const prodUom = prod?.uomCode || 'PCS';
+  const prodKg = Number(prod?.totalWeightKg || 0);
+  const kgPart = prodKg > 0 ? ` (${prodKg.toLocaleString()} KG)` : '';
+  return `Last Issued: ${formattedDate} (${daysLabel} · Qty: ${qtyLabel}) | Machine Production Since Then: ${prodQty} ${prodUom}${kgPart}`;
+};
 
 let lineIdCounter = 0;
 const nextKey = () => `sl-${++lineIdCounter}-${Date.now()}`;
@@ -101,12 +143,70 @@ const StoreLineItemsEditor: React.FC<StoreLineItemsEditorProps> = ({
   divisionId,
   divisionName,
   excludeFinishedGoods = true,
+  machineId,
+  issueDate,
+  onInspectLifecycle,
 }) => {
   const { token } = theme.useToken();
   const [itemOptions, setItemOptions] = useState<ItemOption[]>([]);
   const [uomOptions, setUomOptions] = useState<UomOption[]>([]);
   const [loadingItems, setLoadingItems] = useState(false);
+  const [partHistoryMap, setPartHistoryMap] = useState<Record<string, PartMachineHistoryInfo>>({});
   const [isMobile, setIsMobile] = useState<boolean>(() => typeof window !== 'undefined' && window.innerWidth <= 768);
+
+  const selectedItemIdsKey = value.map((l) => l.itemId || '').filter(Boolean).join(',');
+
+  useEffect(() => {
+    if (mode !== 'issue' || !machineId || machineId === 'OTHER_GENERAL' || !selectedItemIdsKey) {
+      setPartHistoryMap({});
+      return;
+    }
+    let cancelled = false;
+    const uniqueItemIds = Array.from(new Set(selectedItemIdsKey.split(',').filter(Boolean)));
+    (async () => {
+      const entries = await Promise.all(
+        uniqueItemIds.map(async (itemId) => {
+          try {
+            const res = await apiService.get<any>('/store/issues/part-machine-history', {
+              machineId,
+              itemId,
+              ...(issueDate ? { asOfDate: issueDate } : {}),
+            });
+            const data: PartMachineHistoryInfo = res?.data || res;
+            return [itemId, data] as const;
+          } catch {
+            return [itemId, { hasPreviousIssue: false } as PartMachineHistoryInfo] as const;
+          }
+        }),
+      );
+      if (!cancelled) {
+        const nextMap = Object.fromEntries(entries);
+        setPartHistoryMap(nextMap);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, machineId, issueDate, selectedItemIdsKey]);
+
+  useEffect(() => {
+    if (mode !== 'issue') return;
+    let changed = false;
+    const nextLines = value.map((l) => {
+      const snap =
+        l.itemId && machineId && machineId !== 'OTHER_GENERAL' && partHistoryMap[l.itemId]
+          ? formatPartHistorySummary(partHistoryMap[l.itemId])
+          : undefined;
+      if (l.partUsageSnapshot !== snap) {
+        changed = true;
+        return { ...l, partUsageSnapshot: snap };
+      }
+      return l;
+    });
+    if (changed) {
+      onChange(nextLines);
+    }
+  }, [mode, machineId, partHistoryMap, value, onChange]);
 
   // Monitor window resize for responsive layout
   useEffect(() => {
@@ -362,8 +462,50 @@ const StoreLineItemsEditor: React.FC<StoreLineItemsEditorProps> = ({
           }
         />
         {record.itemId && record.itemName && (
-          <div style={{ fontSize: 12, color: token.colorTextSecondary, marginTop: 4, lineHeight: 1.3 }}>
-            {record.itemName}
+          <div style={{ fontSize: 12, color: token.colorTextSecondary, marginTop: 4, lineHeight: 1.3, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+            <span>{record.itemName}</span>
+            {onInspectLifecycle && (
+              <Button
+                type="link"
+                size="small"
+                icon={<HistoryOutlined />}
+                style={{ padding: 0, height: 'auto', fontSize: 11.5 }}
+                onClick={() =>
+                  onInspectLifecycle({
+                    itemId: record.itemId!,
+                    itemCode: record.itemCode,
+                    itemName: record.itemName,
+                  })
+                }
+              >
+                Lifecycle
+              </Button>
+            )}
+          </div>
+        )}
+        {mode === 'issue' && record.itemId && machineId && machineId !== 'OTHER_GENERAL' && partHistoryMap[record.itemId] && (
+          <div
+            style={{
+              marginTop: 6,
+              padding: '5px 8px',
+              borderRadius: 6,
+              fontSize: 11.5,
+              lineHeight: 1.35,
+              background: partHistoryMap[record.itemId].hasPreviousIssue
+                ? token.colorInfoBg
+                : token.colorFillAlter,
+              border: `1px solid ${
+                partHistoryMap[record.itemId].hasPreviousIssue
+                  ? token.colorInfoBorder
+                  : token.colorBorderSecondary
+              }`,
+              color: token.colorText,
+            }}
+          >
+            <HistoryOutlined style={{ marginRight: 6, color: token.colorPrimary }} />
+            <span style={{ fontWeight: 600 }}>
+              {formatPartHistorySummary(partHistoryMap[record.itemId])}
+            </span>
           </div>
         )}
       </div>

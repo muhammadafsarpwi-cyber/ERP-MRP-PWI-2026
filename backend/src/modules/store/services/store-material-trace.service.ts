@@ -527,9 +527,10 @@ SUP.name AS supplier_name, w.name AS warehouse_name,
     const scope = this.scopedDivision(allowedDivisionIds, params, 'AND mi.');
     return this.dataSource.query(
       `SELECT mi.id, mi.issue_number, mi.issue_date::text AS issue_date, mi.status, mi.purpose,
-              mi.remarks, mi.posted_by, mi.posted_at, mi.cancelled_at, mi.request_id,
+              mi.reference_document, mi.remarks, mi.posted_by, mi.posted_at, mi.cancelled_at, mi.request_id,
               s.store_code, s.store_name, dep.name AS issued_to_department_name,
               mil.id AS line_id, mil.line_number, mil.quantity, mil.serial_number, mil.bin, mil.rack,
+              mil.remarks AS line_remarks,
               u.code AS uom_code
        FROM material_issue_lines mil
        JOIN material_issues mi ON mi.id = mil.issue_id

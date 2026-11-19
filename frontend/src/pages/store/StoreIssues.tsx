@@ -19,6 +19,7 @@ import {
   Divider,
   Alert,
   Tooltip,
+  AutoComplete,
   theme,
 } from 'antd';
 import {
@@ -38,16 +39,21 @@ import {
   FullscreenOutlined,
   FullscreenExitOutlined,
   PrinterOutlined,
+  EditOutlined,
+  UserOutlined,
+  CloseOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import apiService from '../../services/api';
 import { isValidUUID } from '../../utils/uuid';
 import { usePermission } from '../../hooks/usePermission';
+import { useUserStore } from '../../store/userStore';
 import PageHeader from '../../components/shared/PageHeader';
 import { ConfirmAndSuccessModal, type ConfirmAndSuccessPhase } from '../../components/shared';
 import StoreLineItemsEditor, { StoreLineItem } from './components/StoreLineItemsEditor';
 import StoreVoucherPrintModal, { StoreVoucherData } from './components/StoreVoucherPrintModal';
+import StoreMaterialLifecycleModal from './components/lifecycle/StoreMaterialLifecycleModal';
 
 interface MaterialIssue {
   id: string;
@@ -63,6 +69,9 @@ interface MaterialIssue {
   purpose?: string;
   referenceDocument?: string;
   remarks?: string;
+  operatorName?: string;
+  shiftInchargeName?: string;
+  issuedByName?: string;
   status: string;
   createdAt?: string;
   lines?: any[];
@@ -119,6 +128,12 @@ const StoreIssues: React.FC = () => {
   const { token } = theme.useToken();
   const { message } = App.useApp();
   const { can } = usePermission();
+  const currentUser = useUserStore((s) => s.user);
+  const currentUserDisplayName = useMemo(() => {
+    if (!currentUser) return 'Store Keeper';
+    const full = `${currentUser.firstName || ''} ${currentUser.lastName || ''}`.trim();
+    return full || (currentUser as any).displayName || currentUser.username || currentUser.email || 'Store Keeper';
+  }, [currentUser]);
   const canCreate = can('store.issue.create');
   const canPost = can('store.issue.post');
 
@@ -130,9 +145,15 @@ const StoreIssues: React.FC = () => {
 
   // Dialog & Form states
   const [modalOpen, setModalOpen] = useState(false);
+  const [editingIssueId, setEditingIssueId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm();
+  const watchedMachineSelection = Form.useWatch('machineSelection', form);
+  const watchedIssueDate = Form.useWatch('issueDate', form);
   const [lineItems, setLineItems] = useState<StoreLineItem[]>([]);
+  const [lifecycleModalItem, setLifecycleModalItem] = useState<{ itemId: string; itemCode?: string; itemName?: string } | null>(null);
+  const [operatorSuggestions, setOperatorSuggestions] = useState<string[]>([]);
+  const [shiftInchargeSuggestions, setShiftInchargeSuggestions] = useState<string[]>([]);
 
   // Selected store and active division for scoping items
   const [selectedSourceStoreId, setSelectedSourceStoreId] = useState<string | undefined>(undefined);
@@ -255,20 +276,34 @@ const StoreIssues: React.FC = () => {
     }
   }, []);
 
-  // Cascaded sections based on destination division
+  // Cascaded operational sections based on destination division (excluding Store sections)
   const filteredSections = useMemo(() => {
-    if (!destDivisionId) return sections;
-    return sections.filter((s) => s.divisionId === destDivisionId);
-  }, [sections, destDivisionId]);
-
-  // Cascaded departments based on destination section & division
-  const filteredDepartments = useMemo(() => {
-    return departments.filter((d) => {
-      if (destDivisionId && d.divisionId && d.divisionId !== destDivisionId) return false;
-      if (destSectionId && d.sectionId && d.sectionId !== destSectionId) return false;
+    const storeSecIds = new Set(stores.map((st) => st.sectionId).filter(Boolean));
+    return sections.filter((s) => {
+      if (destDivisionId && s.divisionId !== destDivisionId) return false;
+      const sName = String(s.name || s.sectionName || '').toLowerCase();
+      if (storeSecIds.has(s.id) || sName.includes('store')) return false;
       return true;
     });
-  }, [departments, destDivisionId, destSectionId]);
+  }, [sections, destDivisionId, stores]);
+
+  // Cascaded operational/production departments based on destination division & section (excluding Store & unrelated office departments)
+  const filteredDepartments = useMemo(() => {
+    const storeDeptIds = new Set(stores.map((st) => st.departmentId).filter(Boolean));
+    return departments.filter((d) => {
+      if (destDivisionId && d.divisionId !== destDivisionId) return false;
+      if (destSectionId && d.sectionId !== destSectionId) return false;
+      const dName = String(d.name || d.departmentName || '').toLowerCase();
+      if (
+        storeDeptIds.has(d.id) ||
+        dName.includes('store') ||
+        dName.includes('raw material')
+      ) {
+        return false;
+      }
+      return true;
+    });
+  }, [departments, destDivisionId, destSectionId, stores]);
 
   // Filtered stores strictly based on active division
   const filteredStores = useMemo(() => {
@@ -276,14 +311,42 @@ const StoreIssues: React.FC = () => {
     return stores.filter((s) => !s.divisionId || s.divisionId === activeDivisionId);
   }, [stores, activeDivisionId]);
 
+  // Load operator & shift incharge suggestions for the selected department / machine
+  useEffect(() => {
+    if (!modalOpen) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await apiService.get<any>('/store/issues/personnel-suggestions', {
+          ...(destDepartmentId ? { departmentId: destDepartmentId } : {}),
+          ...(watchedMachineSelection && watchedMachineSelection !== 'OTHER_GENERAL'
+            ? { machineId: watchedMachineSelection }
+            : {}),
+        });
+        const d = res?.data || res || {};
+        if (!cancelled) {
+          setOperatorSuggestions(Array.isArray(d.operators) ? d.operators : []);
+          setShiftInchargeSuggestions(Array.isArray(d.shiftIncharges) ? d.shiftIncharges : []);
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [modalOpen, destDepartmentId, watchedMachineSelection]);
+
   // Open Create Dialog
   const handleCreate = () => {
+    setEditingIssueId(null);
     form.resetFields();
     const autoIssueNum = `MI-${dayjs().format('YYYYMMDD')}-${Math.floor(1000 + Math.random() * 9000)}`;
     form.setFieldsValue({
       issueNumber: autoIssueNum,
       issueDate: dayjs(),
       machineSelection: 'OTHER_GENERAL',
+      issuedByName: currentUserDisplayName,
     });
     setDestDivisionId(undefined);
     setDestSectionId(undefined);
@@ -293,6 +356,84 @@ const StoreIssues: React.FC = () => {
     setMachines([]);
     setLineItems([]);
     setModalOpen(true);
+  };
+
+  // Open Edit Dialog for DRAFT issue
+  const handleEditDraft = async (record: MaterialIssue) => {
+    try {
+      const detail = await apiService.get<any>(`/store/material-issues/${record.id}`);
+      const d: MaterialIssue = detail?.data || detail || record;
+      setEditingIssueId(record.id);
+      const deptId = d.issuedToDepartmentId || d.departmentId || undefined;
+      setActiveDivisionId(d.divisionId || undefined);
+      setDestDivisionId(d.divisionId || undefined);
+      setDestSectionId(d.sectionId || undefined);
+      setDestDepartmentId(deptId);
+      setSelectedSourceStoreId(d.storeId || undefined);
+
+      let loadedMachines: MachineOption[] = [];
+      if (deptId && isValidUUID(deptId)) {
+        try {
+          const mRes = await apiService.get<any>('/machines', {
+            departmentId: deptId,
+            limit: 100,
+            status: 'ACTIVE',
+          });
+          loadedMachines = Array.isArray(mRes) ? mRes : mRes?.data || [];
+          setMachines(loadedMachines);
+        } catch {
+          setMachines([]);
+        }
+      } else {
+        setMachines([]);
+      }
+
+      let matchedMachineId = 'OTHER_GENERAL';
+      if (d.referenceDocument && d.referenceDocument.toLowerCase().includes('machine:')) {
+        const refText = d.referenceDocument.replace(/^Machine:\s*/i, '').trim();
+        const codePart = refText.split('—')[0].trim().toLowerCase();
+        const foundMachine = loadedMachines.find(
+          (m) => m.machineCode?.toLowerCase() === codePart || refText.toLowerCase().includes(m.machineCode?.toLowerCase() || ''),
+        );
+        if (foundMachine) {
+          matchedMachineId = foundMachine.id;
+        }
+      }
+
+      form.setFieldsValue({
+        divisionId: d.divisionId || undefined,
+        storeId: d.storeId,
+        issueNumber: d.issueNumber,
+        issueDate: d.issueDate ? dayjs(d.issueDate) : dayjs(),
+        sectionId: d.sectionId || undefined,
+        departmentId: deptId,
+        machineSelection: matchedMachineId,
+        operatorName: d.operatorName || undefined,
+        shiftInchargeName: d.shiftInchargeName || undefined,
+        issuedByName: d.issuedByName || currentUserDisplayName,
+        purpose: d.purpose || undefined,
+        remarks: d.remarks || undefined,
+      });
+
+      const rawLines = Array.isArray(d.lines) ? d.lines : [];
+      setLineItems(
+        rawLines.map((l: any, idx: number) => ({
+          key: l.id || `edit-${idx}-${Date.now()}`,
+          itemId: l.itemId,
+          itemCode: l.itemCode || '',
+          itemName: l.itemName || '',
+          itemType: l.itemType || '',
+          uomId: l.uomId,
+          uomCode: l.uomCode || '',
+          quantity: Number(l.quantity || 1),
+          oldItemReturnedQty: Number(l.oldItemReturnedQty || 0),
+          remarks: l.remarks || undefined,
+        })),
+      );
+      setModalOpen(true);
+    } catch {
+      message.error('Failed to load draft material issue for editing');
+    }
   };
 
   // When Primary Division changes
@@ -333,7 +474,13 @@ const StoreIssues: React.FC = () => {
 
   const handleDepartmentChange = (deptId?: string) => {
     setDestDepartmentId(deptId);
-    form.setFieldsValue({ machineSelection: 'OTHER_GENERAL' });
+    const deptObj = departments.find((d) => d.id === deptId);
+    if (deptObj?.sectionId && !destSectionId) {
+      setDestSectionId(deptObj.sectionId);
+      form.setFieldsValue({ sectionId: deptObj.sectionId, machineSelection: 'OTHER_GENERAL' });
+    } else {
+      form.setFieldsValue({ machineSelection: 'OTHER_GENERAL' });
+    }
     if (deptId) {
       loadMachinesForDepartment(deptId);
     } else {
@@ -420,13 +567,19 @@ const StoreIssues: React.FC = () => {
         issuedToDepartmentId: values.departmentId || undefined,
         purpose: values.purpose || undefined,
         referenceDocument: machineRef,
-        remarks: values.remarks ? `${values.remarks} [${machineRef}]` : machineRef,
+        remarks: values.remarks || undefined,
+        operatorName: values.operatorName ? String(values.operatorName).trim() : undefined,
+        shiftInchargeName: values.shiftInchargeName ? String(values.shiftInchargeName).trim() : undefined,
+        issuedByName: values.issuedByName ? String(values.issuedByName).trim() : currentUserDisplayName,
         lines: lineItems.map((l) => ({
           itemId: l.itemId,
           quantity: Number(l.quantity || 0),
           oldItemReturnedQty: Number(l.oldItemReturnedQty || 0),
           uomId: l.uomId,
-          remarks: l.remarks || undefined,
+          remarks:
+            l.remarks && l.partUsageSnapshot && !String(l.remarks).includes(l.partUsageSnapshot)
+              ? `${l.remarks} | ${l.partUsageSnapshot}`
+              : l.partUsageSnapshot || l.remarks || undefined,
         })),
       };
 
@@ -448,15 +601,21 @@ const StoreIssues: React.FC = () => {
     setIssueConfirmPhase('saving');
     setSubmitting(true);
     try {
-      const res = await apiService.post<any>('/store/material-issues', pendingIssuePayload);
+      const res = editingIssueId
+        ? await apiService.put<any>(`/store/material-issues/${editingIssueId}`, pendingIssuePayload)
+        : await apiService.post<any>('/store/material-issues', pendingIssuePayload);
       const savedRef = res?.issueNumber || res?.data?.issueNumber || issueFeedbackMeta.refNum;
       setIssueFeedbackMeta((prev) => ({ ...prev, refNum: savedRef }));
       setIssueConfirmPhase('success');
       setModalOpen(false);
+      setEditingIssueId(null);
       setPendingIssuePayload(null);
       fetchData();
     } catch (err: any) {
-      const msg: any = err?.response?.data?.message || err?.message || 'Failed to create material issue';
+      const msg: any =
+        err?.response?.data?.message ||
+        err?.message ||
+        (editingIssueId ? 'Failed to update draft material issue' : 'Failed to create material issue');
       setIssueFeedbackMeta((prev) => ({
         ...prev,
         errorMessage: Array.isArray(msg) ? msg[0] : String(msg),
@@ -509,20 +668,26 @@ const StoreIssues: React.FC = () => {
       const detail = await apiService.get<any>(`/store/material-issues/${record.id}`);
       const d = detail?.data || detail || record;
       const lines = Array.isArray(d.lines) ? d.lines : [];
+      const refDoc = d.referenceDocument || record.referenceDocument || '';
+      const machineName = refDoc.replace(/^Machine:\s*/i, '') || 'General / Plant Allocation';
       setPrintVoucher({
-        type: 'MIR',
-        documentNumber: record.issueNumber,
-        date: record.issueDate ? String(record.issueDate).slice(0, 10) : undefined,
-        status: record.status,
-        divisionName: record.divisionId ? divisionMap[record.divisionId] : undefined,
-        storeName: record.storeName || (record.storeId ? storeMap[record.storeId] : undefined),
-        departmentName: record.issuedToDepartmentId
-          ? deptMap[record.issuedToDepartmentId]
-          : record.departmentId
-            ? deptMap[record.departmentId]
+        type: 'MIV',
+        documentNumber: d.issueNumber || record.issueNumber,
+        date: (d.issueDate || record.issueDate) ? String(d.issueDate || record.issueDate).slice(0, 10) : undefined,
+        status: d.status || record.status,
+        divisionName: (d.divisionId || record.divisionId) ? divisionMap[d.divisionId || record.divisionId!] : undefined,
+        storeName: record.storeName || ((d.storeId || record.storeId) ? storeMap[d.storeId || record.storeId] : undefined),
+        departmentName: (d.issuedToDepartmentId || record.issuedToDepartmentId)
+          ? deptMap[d.issuedToDepartmentId || record.issuedToDepartmentId!]
+          : (d.departmentId || record.departmentId)
+            ? deptMap[d.departmentId || record.departmentId!]
             : undefined,
-        purpose: record.purpose || undefined,
-        remarks: d.remarks || undefined,
+        machineName,
+        operatorName: d.operatorName || record.operatorName || undefined,
+        shiftInchargeName: d.shiftInchargeName || record.shiftInchargeName || undefined,
+        issuedByName: d.issuedByName || record.issuedByName || currentUserDisplayName,
+        purpose: d.purpose || record.purpose || undefined,
+        remarks: d.remarks || record.remarks || undefined,
         lines: lines.map((l: any, idx: number) => ({
           key: l.id || idx,
           lineNumber: idx + 1,
@@ -562,7 +727,19 @@ const StoreIssues: React.FC = () => {
       const matchRef = item.referenceDocument?.toLowerCase().includes(q);
       const matchStore = storeMap[item.storeId]?.toLowerCase().includes(q);
       const matchRemarks = item.remarks?.toLowerCase().includes(q);
-      return matchNum || matchPurpose || matchRef || matchStore || matchRemarks;
+      const matchOperator = item.operatorName?.toLowerCase().includes(q);
+      const matchIncharge = item.shiftInchargeName?.toLowerCase().includes(q);
+      const matchIssuedBy = item.issuedByName?.toLowerCase().includes(q);
+      return (
+        matchNum ||
+        matchPurpose ||
+        matchRef ||
+        matchStore ||
+        matchRemarks ||
+        matchOperator ||
+        matchIncharge ||
+        matchIssuedBy
+      );
     });
   }, [data, activeTab, searchQuery, storeMap]);
 
@@ -585,15 +762,14 @@ const StoreIssues: React.FC = () => {
           <Typography.Text type="secondary" style={{ fontSize: '11px' }}>
             {r.issueDate ? dayjs(r.issueDate).format('YYYY-MM-DD') : '—'}
           </Typography.Text>
-    
-    </div>
+        </div>
       ),
     },
     {
       title: 'Source Store',
       dataIndex: 'storeId',
       key: 'storeId',
-      width: 220,
+      width: 210,
       render: (id: string, r) => {
         const name = storeMap[id] || r.storeName || id;
         const isGeneral = name.toLowerCase().includes('general') || name.toLowerCase().includes('gs');
@@ -612,7 +788,7 @@ const StoreIssues: React.FC = () => {
     {
       title: 'Destination Dept & Machine',
       key: 'destination',
-      width: 260,
+      width: 250,
       render: (_: any, r: MaterialIssue) => {
         const deptId = r.issuedToDepartmentId || r.departmentId;
         const deptName = deptId ? deptMap[deptId] || 'Department' : 'Factory Dept';
@@ -641,10 +817,37 @@ const StoreIssues: React.FC = () => {
       },
     },
     {
+      title: 'Personnel (Operator / Shift Incharge)',
+      key: 'personnel',
+      width: 230,
+      render: (_: any, r: MaterialIssue) => (
+        <Space direction="vertical" size={2}>
+          <div style={{ fontSize: '12px' }}>
+            <Typography.Text type="secondary" style={{ fontSize: '11px' }}>Operator: </Typography.Text>
+            <Typography.Text strong style={{ fontSize: '12px' }}>
+              {r.operatorName || '—'}
+            </Typography.Text>
+          </div>
+          <div style={{ fontSize: '12px' }}>
+            <Typography.Text type="secondary" style={{ fontSize: '11px' }}>Shift Incharge: </Typography.Text>
+            <Typography.Text style={{ fontSize: '12px' }}>
+              {r.shiftInchargeName || '—'}
+            </Typography.Text>
+          </div>
+          <div style={{ fontSize: '11px' }}>
+            <Typography.Text type="secondary" style={{ fontSize: '11px' }}>Issued By: </Typography.Text>
+            <Tag color="orange" style={{ fontSize: '10px', margin: 0, lineHeight: '16px', padding: '0 6px' }}>
+              {r.issuedByName || currentUserDisplayName}
+            </Tag>
+          </div>
+        </Space>
+      ),
+    },
+    {
       title: 'Purpose / Remarks',
       dataIndex: 'purpose',
       key: 'purpose',
-      width: 200,
+      width: 190,
       ellipsis: true,
       render: (v: string, r) => (
         <Tooltip title={r.remarks ? `${v || 'No purpose'} | Remarks: ${r.remarks}` : v}>
@@ -656,7 +859,7 @@ const StoreIssues: React.FC = () => {
       title: 'Status',
       dataIndex: 'status',
       key: 'status',
-      width: 120,
+      width: 110,
       render: (v: string) => {
         const colors: Record<string, string> = { DRAFT: 'blue', POSTED: 'success', CANCELLED: 'volcano' };
         return <Tag color={colors[v] || 'default'}>{v}</Tag>;
@@ -665,12 +868,22 @@ const StoreIssues: React.FC = () => {
     {
       title: 'Actions',
       key: 'actions',
-      width: 260,
+      width: 300,
       render: (_: any, record: MaterialIssue) => (
         <Space size="small" wrap>
           <Button size="small" icon={<PrinterOutlined />} onClick={() => openPrintModal(record)}>
-            Print Slip
+            Print / PDF
           </Button>
+          {record.status === 'DRAFT' && (
+            <Button
+              size="small"
+              icon={<EditOutlined />}
+              onClick={() => handleEditDraft(record)}
+              style={{ borderColor: '#f97316', color: '#ea580c', fontWeight: 600 }}
+            >
+              Edit
+            </Button>
+          )}
           {record.status === 'DRAFT' && canPost && (
             <Button type="primary" size="small" icon={<CheckOutlined />} onClick={() => openRowActionConfirm('post', record)}>
               Post
@@ -781,251 +994,484 @@ const StoreIssues: React.FC = () => {
   
     </div>
 
-      {/* CREATE MATERIAL ISSUE MODAL */}
+      {/* CREATE / EDIT MATERIAL ISSUE MODAL — SIGNATURE DOUBLE-BORDER ORANGE WIZARD */}
       <Modal
-        title={
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', paddingRight: 28 }}>
-            <Space>
-              <ExportOutlined style={{ color: token.colorPrimary }} />
-              <span style={{ fontWeight: 600, fontSize: 16 }}>Create Material Issue</span>
-            </Space>
-            <Tooltip title={isMaximized ? "Restore Default Size" : "Maximize / Fullscreen"}>
-              <Button
-                type="text"
-                size="small"
-                icon={isMaximized ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
-                onClick={() => setIsMaximized(!isMaximized)}
-                style={{ color: token.colorTextSecondary }}
-              />
-            </Tooltip>
-      
-    </div>
-        }
+        title={null}
+        footer={null}
+        closable={false}
         open={modalOpen}
         zIndex={1050}
-        onOk={handleSave}
-        confirmLoading={submitting}
-        onCancel={() => setModalOpen(false)}
-        width={isMaximized ? '98vw' : isMobile ? '100%' : 1060}
+        onCancel={() => {
+          setModalOpen(false);
+          setEditingIssueId(null);
+        }}
+        width={isMaximized ? '98vw' : isMobile ? '100%' : 1080}
         style={
           isMaximized
             ? { top: 10, margin: '0 auto', maxWidth: '98vw', padding: 0 }
             : isMobile
               ? { top: 10, margin: '0 auto', maxWidth: '100vw' }
-              : { top: 24, maxWidth: 1100 }
+              : { top: 20, maxWidth: 1120 }
         }
         styles={{
+          content: {
+            padding: 0,
+            background: 'transparent',
+            boxShadow: 'none',
+          },
           body: {
-            maxHeight: isMaximized ? 'calc(94vh - 110px)' : 'calc(85vh - 110px)',
-            overflowY: 'auto',
-            paddingRight: 8,
+            padding: 0,
           },
         }}
         destroyOnHidden
-        okText="Create Material Issue"
-        cancelText="Cancel"
       >
-        <Alert
-          type="info"
-          showIcon
-          icon={<InfoCircleOutlined />}
-          message="Factory Material & Spare Parts Issue"
-          description="Select the source store and destination department/machine. Item selection is strictly scoped to the chosen division to prevent catalog clutter."
-          style={{ marginBottom: 16 }}
-        />
-
-        <Form form={form} layout="vertical">
-          {/* SECTION 1: DIVISION & SOURCE STORE HEADER */}
+        <div
+          style={{
+            padding: 7,
+            borderRadius: 20,
+            background: 'linear-gradient(135deg, rgba(249, 115, 22, 0.22), rgba(148, 163, 184, 0.20))',
+            border: '1px solid rgba(249, 115, 22, 0.35)',
+            boxShadow: '0 24px 60px rgba(0, 0, 0, 0.28)',
+          }}
+        >
           <div
             style={{
-              padding: '14px 16px',
-              borderRadius: 8,
+              borderRadius: 14,
+              background: token.colorBgContainer,
               border: `1px solid ${token.colorBorderSecondary}`,
-              background: token.colorFillAlter,
-              marginBottom: 16,
+              overflow: 'hidden',
             }}
           >
-            <Typography.Text strong style={{ display: 'block', marginBottom: 12, color: token.colorPrimary }}>
-              <ShopOutlined style={{ marginRight: 6 }} />
-              1. Division & Source Store Header
-            </Typography.Text>
-            <Row gutter={[16, 12]}>
-              <Col xs={24} sm={12} md={6}>
-                <Form.Item
-                  name="divisionId"
-                  label="Division"
-                  rules={[{ required: true, message: 'Please select division' }]}
+            {/* WIZARD HEADER */}
+            <div
+              style={{
+                padding: '16px 22px',
+                borderBottom: `1px solid ${token.colorBorderSecondary}`,
+                background: token.colorFillAlter,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+                flexWrap: 'wrap',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                <div
+                  style={{
+                    width: 42,
+                    height: 42,
+                    borderRadius: 11,
+                    background: 'linear-gradient(135deg, #ea580c 0%, #f97316 100%)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#fff',
+                    fontSize: 20,
+                    boxShadow: '0 6px 16px rgba(234, 88, 12, 0.28)',
+                  }}
                 >
-                  <Select
-                    showSearch
-                    allowClear
-                    optionFilterProp="label"
-                    placeholder="Select Division"
-                    onChange={handleDivisionChange}
-                    options={divisions.map((d) => ({
-                      value: d.id,
-                      label: `${d.code || d.divisionCode || 'DIV'} — ${d.name || d.divisionName}`,
-                    }))}
+                  {editingIssueId ? <EditOutlined /> : <ExportOutlined />}
+                </div>
+                <div>
+                  <div
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 700,
+                      letterSpacing: '0.07em',
+                      textTransform: 'uppercase',
+                      color: '#ea580c',
+                    }}
+                  >
+                    STORE DEPARTMENT · MATERIAL ISSUE VOUCHER
+                  </div>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: token.colorText }}>
+                    {editingIssueId ? 'Edit Draft Material Issue' : 'Create Material Issue'}
+                  </div>
+                </div>
+              </div>
+
+              <Space size={8}>
+                {editingIssueId && (
+                  <Tag color="orange" style={{ fontWeight: 700, margin: 0 }}>
+                    EDITING DRAFT
+                  </Tag>
+                )}
+                <Tooltip title={isMaximized ? 'Restore Default Size' : 'Maximize / Fullscreen'}>
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={isMaximized ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
+                    onClick={() => setIsMaximized(!isMaximized)}
+                    style={{ color: token.colorTextSecondary }}
                   />
-                </Form.Item>
-              </Col>
-              <Col xs={24} sm={12} md={6}>
-                <Form.Item
-                  name="storeId"
-                  label="Source Store"
-                  rules={[{ required: true, message: 'Select source store' }]}
+                </Tooltip>
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<CloseOutlined />}
+                  onClick={() => {
+                    setModalOpen(false);
+                    setEditingIssueId(null);
+                  }}
+                  style={{ color: token.colorTextSecondary }}
+                />
+              </Space>
+            </div>
+
+            {/* WIZARD BODY */}
+            <div
+              style={{
+                padding: '18px 22px',
+                maxHeight: isMaximized ? 'calc(92vh - 148px)' : 'calc(82vh - 148px)',
+                overflowY: 'auto',
+              }}
+            >
+              <Alert
+                type="info"
+                showIcon
+                icon={<InfoCircleOutlined />}
+                message="Factory Material & Spare Parts Issue Voucher"
+                description="Select the source store, destination department/machine, operator, and shift incharge. Item selection and live machine lifecycle tracking are strictly scoped to the chosen division."
+                style={{ marginBottom: 16 }}
+              />
+
+              <Form form={form} layout="vertical">
+                {/* SECTION 1: DIVISION & SOURCE STORE HEADER */}
+                <div
+                  style={{
+                    padding: '14px 16px',
+                    borderRadius: 10,
+                    border: `1px solid ${token.colorBorderSecondary}`,
+                    background: token.colorFillAlter,
+                    marginBottom: 16,
+                  }}
                 >
-                  <Select
-                    showSearch
-                    optionFilterProp="label"
-                    placeholder={activeDivisionId ? "Select Store" : "Select Division first"}
-                    onChange={handleSourceStoreChange}
-                    disabled={!activeDivisionId && stores.length > 0}
-                    options={filteredStores.map((s) => ({
-                      value: s.id,
-                      label: `${s.storeCode} — ${s.storeName}`,
-                    }))}
-                  />
-                </Form.Item>
-              </Col>
-              <Col xs={24} sm={12} md={6}>
-                <Form.Item name="issueNumber" label="Issue Number" rules={[{ required: true, message: 'Issue # is required' }]}>
-                  <Input prefix={<FileTextOutlined style={{ color: token.colorTextTertiary }} />} placeholder="MI-2026-0001" />
-                </Form.Item>
-              </Col>
-              <Col xs={24} sm={12} md={6}>
-                <Form.Item name="issueDate" label="Issue Date" rules={[{ required: true, message: 'Date is required' }]}>
-                  <DatePicker prefix={<CalendarOutlined style={{ color: token.colorTextTertiary }} />} style={{ width: '100%' }} format="YYYY-MM-DD" />
-                </Form.Item>
-              </Col>
-            </Row>
-      
-    </div>
+                  <Typography.Text strong style={{ display: 'block', marginBottom: 12, color: '#ea580c' }}>
+                    <ShopOutlined style={{ marginRight: 6 }} />
+                    1. Division & Source Store Header
+                  </Typography.Text>
+                  <Row gutter={[16, 12]}>
+                    <Col xs={24} sm={12} md={6}>
+                      <Form.Item
+                        name="divisionId"
+                        label="Division"
+                        rules={[{ required: true, message: 'Please select division' }]}
+                        style={{ marginBottom: 4 }}
+                      >
+                        <Select
+                          showSearch
+                          allowClear
+                          optionFilterProp="label"
+                          placeholder="Select Division"
+                          onChange={handleDivisionChange}
+                          options={divisions.map((d) => ({
+                            value: d.id,
+                            label: `${d.code || d.divisionCode || 'DIV'} — ${d.name || d.divisionName}`,
+                          }))}
+                        />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} sm={12} md={6}>
+                      <Form.Item
+                        name="storeId"
+                        label="Source Store"
+                        rules={[{ required: true, message: 'Select source store' }]}
+                        style={{ marginBottom: 4 }}
+                      >
+                        <Select
+                          showSearch
+                          optionFilterProp="label"
+                          placeholder={activeDivisionId ? 'Select Store' : 'Select Division first'}
+                          onChange={handleSourceStoreChange}
+                          disabled={!activeDivisionId && stores.length > 0}
+                          options={filteredStores.map((s) => ({
+                            value: s.id,
+                            label: `${s.storeCode} — ${s.storeName}`,
+                          }))}
+                        />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} sm={12} md={6}>
+                      <Form.Item
+                        name="issueNumber"
+                        label="Issue Number"
+                        rules={[{ required: true, message: 'Issue # is required' }]}
+                        style={{ marginBottom: 4 }}
+                      >
+                        <Input
+                          prefix={<FileTextOutlined style={{ color: token.colorTextTertiary }} />}
+                          placeholder="MI-2026-0001"
+                          disabled={Boolean(editingIssueId)}
+                        />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} sm={12} md={6}>
+                      <Form.Item
+                        name="issueDate"
+                        label="Issue Date"
+                        rules={[{ required: true, message: 'Date is required' }]}
+                        style={{ marginBottom: 4 }}
+                      >
+                        <DatePicker
+                          prefix={<CalendarOutlined style={{ color: token.colorTextTertiary }} />}
+                          style={{ width: '100%' }}
+                          format="YYYY-MM-DD"
+                        />
+                      </Form.Item>
+                    </Col>
+                  </Row>
+                </div>
 
-          {/* SECTION 2: DESTINATION HIERARCHY & MACHINE */}
-          <div
-            style={{
-              padding: '14px 16px',
-              borderRadius: 8,
-              border: `1px solid ${token.colorBorderSecondary}`,
-              background: token.colorFillAlter,
-              marginBottom: 16,
-            }}
-          >
-            <Typography.Text strong style={{ display: 'block', marginBottom: 12, color: token.colorPrimary }}>
-              <ApartmentOutlined style={{ marginRight: 6 }} />
-              2. Destination Department & Machine Allocation
-            </Typography.Text>
-            <Row gutter={[16, 12]}>
-              <Col xs={24} sm={12}>
-                <Form.Item name="sectionId" label="Destination Section">
-                  <Select
-                    showSearch
-                    allowClear
-                    optionFilterProp="label"
-                    placeholder="Select Section"
-                    onChange={handleSectionChange}
-                    disabled={!activeDivisionId && filteredSections.length === 0}
-                    options={filteredSections.map((s) => ({
-                      value: s.id,
-                      label: `${s.code || s.sectionCode || 'SEC'} — ${s.name || s.sectionName}`,
-                    }))}
-                  />
-                </Form.Item>
-              </Col>
-              <Col xs={24} sm={12}>
-                <Form.Item
-                  name="departmentId"
-                  label="Issued To Department"
-                  rules={[{ required: true, message: 'Please select destination department' }]}
+                {/* SECTION 2: DESTINATION HIERARCHY, MACHINE & RECEIVING PERSONNEL */}
+                <div
+                  style={{
+                    padding: '14px 16px',
+                    borderRadius: 10,
+                    border: `1px solid ${token.colorBorderSecondary}`,
+                    background: token.colorFillAlter,
+                    marginBottom: 16,
+                  }}
                 >
-                  <Select
-                    showSearch
-                    optionFilterProp="label"
-                    placeholder="Select Department"
-                    onChange={handleDepartmentChange}
-                    disabled={!activeDivisionId && filteredDepartments.length === 0}
-                    options={filteredDepartments.map((d) => ({
-                      value: d.id,
-                      label: `${d.code || d.departmentCode || 'DEPT'} — ${d.name || d.departmentName}`,
-                    }))}
-                  />
-                </Form.Item>
-              </Col>
-            </Row>
+                  <Typography.Text strong style={{ display: 'block', marginBottom: 12, color: '#ea580c' }}>
+                    <ApartmentOutlined style={{ marginRight: 6 }} />
+                    2. Destination Department, Machine & Receiving Personnel
+                  </Typography.Text>
+                  <Row gutter={[16, 12]}>
+                    <Col xs={24} sm={12}>
+                      <Form.Item name="sectionId" label="Destination Section" style={{ marginBottom: 8 }}>
+                        <Select
+                          showSearch
+                          allowClear
+                          optionFilterProp="label"
+                          placeholder="Select Section"
+                          onChange={handleSectionChange}
+                          disabled={!activeDivisionId && filteredSections.length === 0}
+                          options={filteredSections.map((s) => ({
+                            value: s.id,
+                            label: `${s.code || s.sectionCode || 'SEC'} — ${s.name || s.sectionName}`,
+                          }))}
+                        />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} sm={12}>
+                      <Form.Item
+                        name="departmentId"
+                        label="Issued To Department"
+                        rules={[{ required: true, message: 'Please select destination department' }]}
+                        style={{ marginBottom: 8 }}
+                      >
+                        <Select
+                          showSearch
+                          optionFilterProp="label"
+                          placeholder="Select Department"
+                          onChange={handleDepartmentChange}
+                          disabled={!activeDivisionId && filteredDepartments.length === 0}
+                          options={filteredDepartments.map((d) => ({
+                            value: d.id,
+                            label: `${d.code || d.departmentCode || 'DEPT'} — ${d.name || d.departmentName}`,
+                          }))}
+                        />
+                      </Form.Item>
+                    </Col>
+                  </Row>
 
-            {/* DYNAMIC MACHINE SELECTION */}
-            <Row gutter={[16, 12]}>
-              <Col xs={24}>
-                <Form.Item
-                  name="machineSelection"
-                  label={
-                    <Space size={6}>
-                      <SettingOutlined style={{ color: token.colorPrimary }} />
-                      <span>Machine / Equipment Selection</span>
-                      <Typography.Text type="secondary" style={{ fontSize: '11px' }}>
-                        (Allocated to specific factory machine, or General Allocation if non-machine)
-                      </Typography.Text>
-                    </Space>
-                  }
-                  rules={[{ required: true, message: 'Please select a machine or General' }]}
+                  {/* DYNAMIC MACHINE SELECTION */}
+                  <Row gutter={[16, 12]}>
+                    <Col xs={24}>
+                      <Form.Item
+                        name="machineSelection"
+                        style={{ marginBottom: 12 }}
+                        label={
+                          <Space size={6}>
+                            <SettingOutlined style={{ color: '#ea580c' }} />
+                            <span>Machine / Equipment Selection</span>
+                            <Typography.Text type="secondary" style={{ fontSize: '11px' }}>
+                              (Allocated to specific factory machine, or General Allocation if non-machine)
+                            </Typography.Text>
+                          </Space>
+                        }
+                        rules={[{ required: true, message: 'Please select a machine or General' }]}
+                      >
+                        <Select
+                          showSearch
+                          loading={loadingMachines}
+                          placeholder="Select machine (e.g. SPK-01, FT-01) or General Allocation"
+                          optionFilterProp="label"
+                          options={[
+                            {
+                              value: 'OTHER_GENERAL',
+                              label: '⚙️ General / Plant Allocation (No Specific Machine)',
+                            },
+                            ...machines.map((m) => {
+                              const mName = (m as any).machineName || (m as any).name || '';
+                              return {
+                                value: m.id,
+                                label: mName
+                                  ? `⚙️ ${m.machineCode} — ${mName} (${m.machineType || 'Machine'})`
+                                  : `⚙️ ${m.machineCode} (${m.machineType || 'Machine'})`,
+                              };
+                            }),
+                          ]}
+                        />
+                      </Form.Item>
+                    </Col>
+                  </Row>
+
+                  {/* OPERATOR, SHIFT INCHARGE & ISSUED BY */}
+                  <Row gutter={[16, 12]}>
+                    <Col xs={24} sm={8}>
+                      <Form.Item
+                        name="operatorName"
+                        style={{ marginBottom: 4 }}
+                        label={
+                          <Space size={5}>
+                            <UserOutlined style={{ color: '#ea580c' }} />
+                            <span>Operator Name (Receiver)</span>
+                          </Space>
+                        }
+                      >
+                        <AutoComplete
+                          allowClear
+                          placeholder="Select or type Operator Name"
+                          options={operatorSuggestions.map((name) => ({ value: name, label: name }))}
+                          filterOption={(inputValue, option) =>
+                            String(option?.value || '')
+                              .toLowerCase()
+                              .includes(inputValue.toLowerCase())
+                          }
+                        />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} sm={8}>
+                      <Form.Item
+                        name="shiftInchargeName"
+                        style={{ marginBottom: 4 }}
+                        label={
+                          <Space size={5}>
+                            <UserOutlined style={{ color: token.colorPrimary }} />
+                            <span>Shift Incharge / Dept. Head</span>
+                          </Space>
+                        }
+                      >
+                        <AutoComplete
+                          allowClear
+                          placeholder="Select or type Shift Incharge"
+                          options={shiftInchargeSuggestions.map((name) => ({ value: name, label: name }))}
+                          filterOption={(inputValue, option) =>
+                            String(option?.value || '')
+                              .toLowerCase()
+                              .includes(inputValue.toLowerCase())
+                          }
+                        />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} sm={8}>
+                      <Form.Item
+                        name="issuedByName"
+                        style={{ marginBottom: 4 }}
+                        label={
+                          <Space size={5}>
+                            <UserOutlined style={{ color: token.colorSuccess }} />
+                            <span>Issued By (Store Incharge)</span>
+                          </Space>
+                        }
+                      >
+                        <Input
+                          prefix={<UserOutlined style={{ color: token.colorTextTertiary }} />}
+                          placeholder="Issued By (Store Incharge)"
+                        />
+                      </Form.Item>
+                    </Col>
+                  </Row>
+                </div>
+
+                {/* SECTION 3: PURPOSE & REMARKS */}
+                <Row gutter={[16, 12]}>
+                  <Col xs={24} sm={12}>
+                    <Form.Item name="purpose" label="Purpose / Reason for Issue">
+                      <Input placeholder="e.g. Preventive maintenance, Bearing replacement, Tool changeover" />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} sm={12}>
+                    <Form.Item name="remarks" label="Remarks / Special Instructions">
+                      <Input placeholder="Optional additional remarks" />
+                    </Form.Item>
+                  </Col>
+                </Row>
+
+                <Divider style={{ margin: '10px 0 16px' }} />
+
+                {/* SECTION 4: ISSUED ITEMS STRICTLY FILTERED BY DIVISION */}
+                <StoreLineItemsEditor
+                  mode="issue"
+                  value={lineItems}
+                  onChange={setLineItems}
+                  storeId={selectedSourceStoreId}
+                  divisionId={activeDivisionId}
+                  divisionName={activeDivisionName}
+                  excludeFinishedGoods={true}
+                  label="Issued Store Items"
+                  machineId={watchedMachineSelection}
+                  issueDate={watchedIssueDate ? watchedIssueDate.format('YYYY-MM-DD') : undefined}
+                  onInspectLifecycle={setLifecycleModalItem}
+                />
+              </Form>
+            </div>
+
+            {/* WIZARD FOOTER */}
+            <div
+              style={{
+                padding: '14px 22px',
+                borderTop: `1px solid ${token.colorBorderSecondary}`,
+                background: token.colorFillAlter,
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: 12,
+                flexWrap: 'wrap',
+              }}
+            >
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                Issued By: <strong style={{ color: token.colorText }}>{currentUserDisplayName}</strong> · Line Items:{' '}
+                <strong style={{ color: '#ea580c' }}>{lineItems.length}</strong>
+              </Typography.Text>
+              <Space size={10}>
+                <Button
+                  onClick={() => {
+                    setModalOpen(false);
+                    setEditingIssueId(null);
+                  }}
                 >
-                  <Select
-                    showSearch
-                    loading={loadingMachines}
-                    placeholder="Select machine (e.g. SPK-01, FT-01) or General Allocation"
-                    optionFilterProp="label"
-                    options={[
-                      {
-                        value: 'OTHER_GENERAL',
-                        label: '⚙️ General / Plant Allocation (No Specific Machine)',
-                      },
-                      ...machines.map((m) => {
-                        const mName = (m as any).machineName || (m as any).name || '';
-                        return {
-                          value: m.id,
-                          label: mName
-                            ? `⚙️ ${m.machineCode} — ${mName} (${m.machineType || 'Machine'})`
-                            : `⚙️ ${m.machineCode} (${m.machineType || 'Machine'})`,
-                        };
-                      }),
-                    ]}
-                  />
-                </Form.Item>
-              </Col>
-            </Row>
-      
-    </div>
-
-          {/* SECTION 3: PURPOSE & REMARKS */}
-          <Row gutter={[16, 12]}>
-            <Col xs={24} sm={12}>
-              <Form.Item name="purpose" label="Purpose / Reason for Issue">
-                <Input placeholder="e.g. Preventive maintenance, Bearing replacement, Tool changeover" />
-              </Form.Item>
-            </Col>
-            <Col xs={24} sm={12}>
-              <Form.Item name="remarks" label="Remarks / Special Instructions">
-                <Input placeholder="Optional additional remarks" />
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <Divider style={{ margin: '14px 0 16px' }} />
-
-          {/* SECTION 4: ISSUED ITEMS STRICTLY FILTERED BY DIVISION */}
-          <StoreLineItemsEditor
-            mode="issue"
-            value={lineItems}
-            onChange={setLineItems}
-            storeId={selectedSourceStoreId}
-            divisionId={activeDivisionId}
-            divisionName={activeDivisionName}
-            excludeFinishedGoods={true}
-            label="Issued Store Items"
-          />
-        </Form>
+                  Cancel
+                </Button>
+                <Button
+                  type="primary"
+                  loading={submitting}
+                  onClick={handleSave}
+                  icon={editingIssueId ? <EditOutlined /> : <CheckOutlined />}
+                  style={{
+                    background: 'linear-gradient(135deg, #ea580c 0%, #f97316 100%)',
+                    borderColor: '#ea580c',
+                    fontWeight: 700,
+                    paddingInline: 20,
+                  }}
+                >
+                  {editingIssueId ? 'Save Draft Changes' : 'Create Material Issue'}
+                </Button>
+              </Space>
+            </div>
+          </div>
+        </div>
       </Modal>
+
+      <StoreMaterialLifecycleModal
+        open={Boolean(lifecycleModalItem)}
+        itemId={lifecycleModalItem?.itemId}
+        initialItemCode={lifecycleModalItem?.itemCode}
+        initialItemName={lifecycleModalItem?.itemName}
+        initialStoreId={selectedSourceStoreId}
+        onClose={() => setLifecycleModalItem(null)}
+      />
 
       <StoreVoucherPrintModal
         open={!!printVoucher}
@@ -1036,13 +1482,17 @@ const StoreIssues: React.FC = () => {
       <ConfirmAndSuccessModal
         open={issueConfirmPhase !== 'idle'}
         phase={issueConfirmPhase}
-        confirmTitle="Confirm Material Issue"
-        confirmDescription="Please verify the store and line items before issuing material."
-        confirmText="Confirm & Issue"
+        confirmTitle={editingIssueId ? 'Confirm Draft Update' : 'Confirm Material Issue'}
+        confirmDescription={
+          editingIssueId
+            ? 'Please verify the updated header details and line items before saving draft changes.'
+            : 'Please verify the store, personnel, and line items before issuing material.'
+        }
+        confirmText={editingIssueId ? 'Confirm & Update Draft' : 'Confirm & Issue'}
         savingText="Saving..."
-        savingSubtext="Creating material issue voucher"
+        savingSubtext={editingIssueId ? 'Updating draft material issue voucher' : 'Creating material issue voucher'}
         referenceNumber={issueFeedbackMeta.refNum}
-        successMessage={`Material issue recorded (${issueFeedbackMeta.lineCount} ${issueFeedbackMeta.lineCount === 1 ? 'item' : 'items'}).`}
+        successMessage={`Material issue voucher saved (${issueFeedbackMeta.lineCount} ${issueFeedbackMeta.lineCount === 1 ? 'item' : 'items'}).`}
         errorMessage={issueFeedbackMeta.errorMessage}
         summaryRows={[
           { label: 'Voucher #', value: issueFeedbackMeta.refNum || 'Auto' },

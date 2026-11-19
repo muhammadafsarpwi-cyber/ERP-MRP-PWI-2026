@@ -52,6 +52,7 @@ import { AuthModule } from '../auth/auth.module';
 import { PermissionModule } from '../permission/permission.module';
 import { UserModule } from '../user/user.module';
 import { BarcodeModule } from '../barcode/barcode.module';
+import { MachineToolingModule } from '../machine-tooling/machine-tooling.module';
 
 @Module({
   imports: [
@@ -98,6 +99,7 @@ import { BarcodeModule } from '../barcode/barcode.module';
     forwardRef(() => PermissionModule),
     forwardRef(() => UserModule),
     forwardRef(() => BarcodeModule),
+    forwardRef(() => MachineToolingModule),
   ],
   controllers: [
     ProductionOrderController,

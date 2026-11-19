@@ -197,11 +197,10 @@ export function ERPTable<T extends object = any>({
             flexDirection: 'column',
             alignItems: 'center',
             justifyContent: 'center',
-            padding: '24px 32px',
-            background: 'var(--theme-surface, rgba(255, 255, 255, 0.96))',
-            borderRadius: 16,
-            boxShadow: '0 16px 40px rgba(0, 0, 0, 0.14)',
-            border: '1px solid var(--theme-border, #e2e8f0)',
+            padding: '16px 24px',
+            background: 'transparent',
+            border: 'none',
+            boxShadow: 'none',
             zIndex: 999,
           }}
         >

@@ -36,6 +36,7 @@ import {
   ShopOutlined,
   CalendarOutlined,
   NumberOutlined,
+  HistoryOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -43,6 +44,7 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import apiService from '../../services/api';
 import dashboardService, { FilterOption } from '../../services/dashboardService';
+import OpeningStockHistoryModal from './OpeningStockHistoryModal';
 import { usePermission } from '../../hooks/usePermission';
 import { useHeaderActions } from '../../components/layout/headerActionsStore';
 import { ConfirmAndSuccessModal, type ConfirmAndSuccessPhase } from '../../components/shared';
@@ -113,6 +115,8 @@ const OpeningStock: React.FC = () => {
   ]);
   const [submitting, setSubmitting] = useState(false);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [balanceRefreshTick, setBalanceRefreshTick] = useState(0);
   const [feedbackPhase, setFeedbackPhase] = useState<ConfirmAndSuccessPhase>('idle');
   const [postedSummary, setPostedSummary] = useState<{
     lineCount: number;
@@ -207,27 +211,53 @@ const OpeningStock: React.FC = () => {
     return warehouses.filter((w) => (w.divisionId || w.division_id) === selectedDivisionId);
   }, [warehouses, selectedDivisionId]);
 
-  // Auto-select the warehouse when the division has exactly one
+  // Auto-select the Division's General/Main Store warehouse (or the sole warehouse)
   useEffect(() => {
-    if (!selectedDivisionId) return;
+    if (!selectedDivisionId || filteredWarehouses.length === 0) return;
+    const currentWh = form.getFieldValue('warehouseId');
+    if (currentWh && filteredWarehouses.some((w) => w.id === currentWh)) return;
+
     if (filteredWarehouses.length === 1) {
       form.setFieldValue('warehouseId', filteredWarehouses[0].id);
+      return;
+    }
+
+    const preferredGeneral = filteredWarehouses.find((w) => {
+      const wType = String((w as any).warehouseType || (w as any).warehouse_type || '').toUpperCase();
+      const wCode = String(w.code || (w as any).warehouseCode || '').toUpperCase();
+      const wName = String(w.name || '').toLowerCase();
+      return (
+        wType === 'GENERAL' ||
+        wType === 'MAIN' ||
+        wCode.includes('MWH') ||
+        wName.includes('main warehouse') ||
+        wName.includes('general store')
+      );
+    });
+    if (preferredGeneral) {
+      form.setFieldValue('warehouseId', preferredGeneral.id);
     }
   }, [filteredWarehouses, selectedDivisionId, form]);
 
-  // Fetch live stock balances for the selected warehouse so users can see Current Stock (In Hand)
+  // Fetch live stock balances for the selected warehouse (or division's warehouses) so Current Stock (In Hand) is always accurate
   useEffect(() => {
-    if (!selectedWarehouseId) {
+    if (!selectedWarehouseId && (!selectedDivisionId || filteredWarehouses.length === 0)) {
       setWarehouseBalances(new Map());
       return;
     }
     let cancelled = false;
     (async () => {
       try {
-        const res = await apiService.get<any>(`/inventory/balances?warehouseId=${selectedWarehouseId}&limit=5000`);
+        const url = selectedWarehouseId
+          ? `/inventory/balances?warehouseId=${selectedWarehouseId}&limit=5000`
+          : `/inventory/balances?limit=5000`;
+        const res = await apiService.get<any>(url);
         const raw: any[] = Array.isArray(res) ? res : res?.data || [];
+        const divWhIds = new Set(filteredWarehouses.map((w) => w.id));
         const map = new Map<string, number>();
         raw.forEach((b: any) => {
+          const whId = b.warehouseId || b.warehouse_id;
+          if (!selectedWarehouseId && whId && !divWhIds.has(whId)) return;
           const itemId = b.itemId || b.item_id;
           if (!itemId) return;
           const prev = map.get(itemId) || 0;
@@ -241,7 +271,7 @@ const OpeningStock: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [selectedWarehouseId]);
+  }, [selectedWarehouseId, selectedDivisionId, filteredWarehouses, balanceRefreshTick]);
 
   const duplicateStockLines = useMemo(() => {
     return lines.filter((l) => l.itemId && (warehouseBalances.get(l.itemId) || 0) > 0);
@@ -1322,6 +1352,13 @@ const OpeningStock: React.FC = () => {
         }
         extra={
           <Space size={8} wrap>
+            <Button
+              size="small"
+              icon={<HistoryOutlined />}
+              onClick={() => setHistoryOpen(true)}
+            >
+              Opening Stock History
+            </Button>
             {lines.length > 0 && (
               <Button size="small" danger icon={<ClearOutlined />} onClick={() => setClearConfirmOpen(true)}>
                 Clear All
@@ -1432,6 +1469,13 @@ const OpeningStock: React.FC = () => {
         onConfirm={handleSubmit}
         onCancel={() => setFeedbackPhase('idle')}
         onOk={() => setFeedbackPhase('idle')}
+      />
+
+      <OpeningStockHistoryModal
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        warehouses={warehouses}
+        onHistoryChanged={() => setBalanceRefreshTick((t) => t + 1)}
       />
     </div>
   );

@@ -673,7 +673,14 @@ const ItemsTableLoadingIndicator: React.FC = () => (
       title={ITEMS_LOADING_TITLE}
       subtitle={ITEMS_LOADING_SUBTITLE}
       badgeText={ITEMS_LOADING_BADGE}
-      style={{ maxWidth: 460 }}
+      minHeight="auto"
+      style={{
+        maxWidth: 460,
+        background: 'transparent',
+        border: 'none',
+        boxShadow: 'none',
+        padding: '16px 24px',
+      }}
     />
   </div>
 );
@@ -3502,6 +3509,7 @@ const ItemManagement: React.FC = () => {
       dataIndex: 'itemCode',
       key: 'itemCode',
       width: 125,
+      align: 'center',
       fixed: screens.md ? 'left' : undefined,
       sorter: true,
       render: (v: string, r: Item) => {
@@ -3517,7 +3525,7 @@ const ItemManagement: React.FC = () => {
             style={{
               padding: 0,
               height: 'auto',
-              textAlign: 'left',
+              textAlign: 'center',
               display: 'inline-block',
               lineHeight: 1.25,
             }}
@@ -3525,7 +3533,7 @@ const ItemManagement: React.FC = () => {
             aria-label={`View item ${v}`}
           >
             {prefix ? (
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                 <span
                   style={{
                     fontSize: 9.5,
@@ -4781,7 +4789,7 @@ const ItemManagement: React.FC = () => {
             title={ITEMS_LOADING_TITLE}
             subtitle={ITEMS_LOADING_SUBTITLE}
             badgeText={ITEMS_LOADING_BADGE}
-            minHeight={450}
+            minHeight={200}
           />
         ) : (
           <ERPTable

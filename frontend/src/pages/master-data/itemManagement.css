@@ -797,13 +797,11 @@
 
    Loading card, orbital icon, title, subtitle and badge untouched. */
 .erp-table-container.items-loading-surface .erp-table .ant-spin-nested-loading > div > .ant-spin {
-  /* Solid token-based surface (light #f7f8fd / dark #181c33 via html[data-theme]) */
-  background: var(--theme-surface) !important;
-  /* Kill the blur of the table behind the card */
+  /* Keep spinner visible in the top viewport band without covering the whole page in a blank box */
+  background: transparent !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
-  /* Cover the whole table area instead of the shared 480px translucent band */
-  max-height: none !important;
+  max-height: 360px !important;
 }
 
 /* Keep antd's interaction block — drop only its visual fade + wash */
