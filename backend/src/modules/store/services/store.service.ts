@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, ForbiddenException, InternalServerErrorException, HttpException, Inject, Optional, forwardRef, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException, InternalServerErrorException, HttpException, Inject, Optional, forwardRef, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, EntityManager, IsNull } from 'typeorm';
 import { Store } from '../entities/store.entity';
@@ -32,7 +32,7 @@ import { InventoryBalance, InventoryPolicy } from '../../inventory/entities';
 import { ToolLifecycleService } from '../../machine-tooling/services/tool-lifecycle.service';
 
 @Injectable()
-export class StoreService {
+export class StoreService implements OnModuleInit {
   private readonly logger = new Logger(StoreService.name);
 
   constructor(
@@ -61,6 +61,33 @@ export class StoreService {
     @Inject(forwardRef(() => ToolLifecycleService))
     private readonly toolLifecycleService?: ToolLifecycleService,
   ) {}
+
+  async onModuleInit() {
+    try {
+      // Ensure stock_ledger_transaction_type_check allows Store transaction types
+      await this.materialIssueRepo.manager.query(
+        `ALTER TABLE stock_ledger DROP CONSTRAINT IF EXISTS stock_ledger_transaction_type_check`,
+      );
+      await this.materialIssueRepo.manager.query(
+        `ALTER TABLE stock_ledger ADD CONSTRAINT stock_ledger_transaction_type_check CHECK (transaction_type IN (
+          'RECEIPT','GOODS_RECEIPT','ISSUE','MATERIAL_ISSUE','MATERIAL_RETURN','MATERIAL_RETURN_SCRAP','SCRAP_DISPOSAL',
+          'TRANSFER_OUT','TRANSFER_IN','ADJUSTMENT_IN','ADJUSTMENT_OUT','OPENING','RETURN_IN','RETURN_OUT',
+          'SALES_DELIVERY','SALES_RETURN','PRODUCTION_RECEIPT','PRODUCTION_ISSUE','PRODUCTION_SCRAP',
+          'PRODUCTION_CONSUMPTION','PRODUCTION_REVERSAL'
+        ))`,
+      );
+      // Ensure material_issues personnel columns exist in every environment
+      await this.materialIssueRepo.manager.query(
+        `ALTER TABLE material_issues
+           ADD COLUMN IF NOT EXISTS issued_by_name VARCHAR(150),
+           ADD COLUMN IF NOT EXISTS operator_name VARCHAR(150),
+           ADD COLUMN IF NOT EXISTS shift_incharge_name VARCHAR(150)`,
+      );
+      this.logger.log('Verified stock_ledger transaction_type constraint and material_issues schema.');
+    } catch (err: any) {
+      this.logger.warn(`Store schema verification skipped: ${err?.message || err}`);
+    }
+  }
 
   // ==================== STORE MASTER ====================
 
