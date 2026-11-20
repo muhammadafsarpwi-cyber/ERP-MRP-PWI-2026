@@ -1,11 +1,17 @@
 import dayjs from 'dayjs';
 import { formatNumber, toNum } from '../../../utils/numberFormat';
-import { calcActualKg, perUnitWeightLabel } from '../../../utils/productionWeight';
+import {
+  calcActualKg,
+  parsePartRejectionKgFromRemarks,
+  parseWeightKgFromRemarks,
+  perUnitWeightLabel,
+} from '../../../utils/productionWeight';
 /* Both are pure (no React, no antd, no EntryList), so importing them keeps
  * this module unit-testable while guaranteeing the printed OT / running hours
  * are EXACTLY the figures the on-screen grid and its KPIs render. */
 import { effectiveDowntime, effectiveRunning } from './downtimeHours';
 import { entryOvertimeHours } from './overtimeHours';
+import { renderWhatsAppTemplate, resolveWhatsAppTemplate, WHATSAPP_SETTINGS_STORAGE_KEY } from '../../../utils/whatsappSettingsStore';
 
 /**
  * PHASE 7 — DAILY PRODUCTION REPORT model (Print / PDF / Excel-CSV).
@@ -1105,10 +1111,14 @@ export function buildDailyProductionReport(
      * parent keeps the entry figure and Excel carries it on the block's first
      * row — see `csvSubLineRow`. */
     const rolledUp = nested.length >= MULTI_ITEM_THRESHOLD;
-    const actualKg = rolledUp
-      ? sumNestedKg(nested)
-      : calcActualKg(uom, actual, row.item?.weightPerPiece, row.item?.weightPerMeter);
-    const rejectionKg = calcActualKg(uom, rejection, row.item?.weightPerPiece, row.item?.weightPerMeter);
+    const actualKg =
+      (rolledUp
+        ? sumNestedKg(nested)
+        : calcActualKg(uom, actual, row.item?.weightPerPiece, row.item?.weightPerMeter)) ??
+      parseWeightKgFromRemarks(row.remarks);
+    const rejectionKg =
+      calcActualKg(uom, rejection, row.item?.weightPerPiece, row.item?.weightPerMeter) ??
+      parsePartRejectionKgFromRemarks(row.remarks);
     const itemCode = blank(row.item?.itemCode);
     const itemName = blank(row.item?.name);
     const actualKgRounded = actualKg == null ? null : round4(actualKg);
@@ -2590,5 +2600,187 @@ export function buildDailyProductionWhatsApp(
   out.push('━━━━━━━━━━━━━━━━━━━━');
   out.push(`_Report generated via PWI ERP System • ${model.generatedLabel}_`);
 
+  const customTemplate = resolveWhatsAppTemplate('dailyProductionReport', '');
+  if (customTemplate) {
+    const bodyLines = out.slice(5, -2).join('\n');
+    return renderWhatsAppTemplate(customTemplate, {
+      '{company}': 'Pakistan Wire Industries (Pvt.) LTD',
+      '{division}': model.divisionName.toUpperCase(),
+      '{date}': model.dateLabel,
+      '{shift_suffix}': model.shiftLabel ? ` | *Shift:* ${model.shiftLabel}` : '',
+      '{audited}': `${model.grand.machines} Machines · ${model.grand.entries} Entries · ${model.sections.length} Depts`,
+      '{report_body}': bodyLines,
+      '{generated_label}': model.generatedLabel,
+    });
+  }
+
   return out.join('\n');
+}
+
+
+function formatDirectorSummaryDate(dateLabel: string): string {
+  const clean = dateLabel.replace(/^Date:\s*/i, '').trim();
+  if (!clean || clean.toLowerCase() === 'all dates') return 'All dates';
+  const fmtOne = (raw: string) => {
+    const parsed = dayjs(raw.trim(), 'YYYY-MM-DD', true);
+    return parsed.isValid() ? parsed.format('DD-MMM-YYYY') : raw.trim();
+  };
+  if (clean.includes(' to ')) {
+    const [from, to] = clean.split(' to ');
+    return `${fmtOne(from)} to ${fmtOne(to)}`;
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) {
+    return fmtOne(clean);
+  }
+  return clean.replace(/\d{4}-\d{2}-\d{2}/g, (iso) => fmtOne(iso));
+}
+
+function resolveSectionPrimaryUom(section: ReportSection): string {
+  const counts = new Map<string, number>();
+  for (const line of section.lines) {
+    const u = (line.uom || '').trim().toUpperCase();
+    if (u) counts.set(u, (counts.get(u) ?? 0) + 1);
+  }
+  const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  return sorted[0]?.[0] || 'PCS';
+}
+
+function buildSectionItemUomMap(section: ReportSection, fallbackUom: string): Map<string, string> {
+  const uomByCode = new Map<string, string>();
+  for (const line of section.lines) {
+    if (isMultiItemLine(line)) {
+      for (const sub of nestedLinesOf(line)) {
+        const code = sub.itemCode || sub.item;
+        const u = (sub.uom || line.uom || fallbackUom).trim().toUpperCase();
+        if (code && u && !uomByCode.has(code)) uomByCode.set(code, u);
+      }
+      continue;
+    }
+    const code = line.itemCode || line.item;
+    const u = (line.uom || fallbackUom).trim().toUpperCase();
+    if (code && u && !uomByCode.has(code)) uomByCode.set(code, u);
+  }
+  return uomByCode;
+}
+
+export const PROD_DIR_SUMMARY_STORAGE_KEY = WHATSAPP_SETTINGS_STORAGE_KEY;
+
+export const DEFAULT_DAILY_PRODUCTION_REPORT_TEMPLATE = `🏭 *{company}*
+📊 *DAILY PRODUCTION REPORT — {division}*
+📅 *{date}*{shift_suffix}
+⚡ *Audited:* {audited}
+━━━━━━━━━━━━━━━━━━━━
+{report_body}
+━━━━━━━━━━━━━━━━━━━━
+_Report generated via PWI ERP System • {generated_label}_`;
+
+export const DEFAULT_DIRECTOR_SUMMARY_TEMPLATE = `📊 *DAILY PRODUCTION SUMMARY*
+🏭 *Division:* {division}
+📅 *Date:* {date}
+
+{department_blocks}
+
+✅ *Generated via PWI ERP System*`;
+
+export const DEFAULT_DIRECTOR_SUMMARY_DEPT_TEMPLATE = `🔹 *{index}. {department}*
+Target: {target}
+Actual: {actual} ({achievement})
+Part Rejection: {part_rejection}
+Process Scrap: {process_scrap}
+*Item Breakdown:*
+{item_rows}`;
+
+export interface DirectorSummaryTemplateOptions {
+  mainTemplate?: string;
+  deptTemplate?: string;
+}
+
+/**
+ * Retrieves saved Director Executive Summary WhatsApp templates configured in
+ * Settings -> WhatsApp Messages, falling back cleanly to defaults.
+ */
+export function getStoredDirectorSummaryTemplates(): {
+  mainTemplate: string;
+  deptTemplate: string;
+} {
+  return {
+    mainTemplate: resolveWhatsAppTemplate(
+      'dailyProductionDirectorSummary',
+      DEFAULT_DIRECTOR_SUMMARY_TEMPLATE,
+    ),
+    deptTemplate: resolveWhatsAppTemplate(
+      'dailyProductionDirectorDeptBlock',
+      DEFAULT_DIRECTOR_SUMMARY_DEPT_TEMPLATE,
+    ),
+  };
+}
+
+function applyTemplateTokens(template: string, replacements: Record<string, string>): string {
+  let result = template;
+  for (const [token, value] of Object.entries(replacements)) {
+    result = result.split(token).join(value);
+  }
+  return result;
+}
+
+/**
+ * Builds the concise Executive Department Summary WhatsApp message for Directors
+ * from the filtered DailyProductionReport model using Settings -> WhatsApp Messages templates.
+ */
+export function buildDirectorSummaryWhatsApp(
+  model: DailyProductionReport,
+  customTemplates?: DirectorSummaryTemplateOptions,
+): string {
+  const stored = getStoredDirectorSummaryTemplates();
+  const mainTemplate = customTemplates?.mainTemplate?.trim() || stored.mainTemplate;
+  const deptTemplate = customTemplates?.deptTemplate?.trim() || stored.deptTemplate;
+
+  const kpis = executiveKpis(model);
+  const deptBlocks: string[] = [];
+
+  model.sections.forEach((section, idx) => {
+    const kpi = kpis[idx];
+    if (!kpi) return;
+    const deptUom = resolveSectionPrimaryUom(section);
+    const itemUomMap = buildSectionItemUomMap(section, deptUom);
+    const totals = section.totals;
+    const isCount =
+      deptUom === 'PCS' || deptUom === 'PC' || deptUom === 'PIECES' || deptUom === 'GRS' || deptUom === 'CTN';
+    const rejQtyText = isCount ? kpi.partRejectPcs : formatNumber(totals.rejection, 2);
+    const rejKgText = formatNumber(totals.rejectionKg, 2);
+
+    const achText =
+      totals.achievement != null
+        ? `${totals.achievement >= ACHIEVEMENT_THRESHOLD ? '▲' : '▼'} ${totals.achievement.toFixed(1)}%`
+        : '—';
+
+    const itemRowLines: string[] = [];
+    for (const item of kpi.items) {
+      const itemUom = itemUomMap.get(item.code) || deptUom;
+      const itemLabel =
+        item.name && item.name !== item.code
+          ? `${item.code} (${item.name})`
+          : item.code;
+      itemRowLines.push(`  ▪ ${itemLabel}: *${item.actualPcs} ${itemUom}*`);
+    }
+
+    const block = applyTemplateTokens(deptTemplate, {
+      '{index}': String(idx + 1),
+      '{department}': kpi.name,
+      '{target}': `${kpi.target} ${deptUom}`,
+      '{actual}': `${kpi.actual} ${deptUom}`,
+      '{achievement}': achText,
+      '{part_rejection}': `${rejQtyText} ${deptUom} (${rejKgText} KG)`,
+      '{process_scrap}': `${kpi.processScrapKg} (${kpi.rejectionPct})`,
+      '{item_rows}': itemRowLines.length > 0 ? itemRowLines.join('\n') : '  ▪ —',
+    });
+
+    deptBlocks.push(block);
+  });
+
+  return applyTemplateTokens(mainTemplate, {
+    '{division}': model.divisionName,
+    '{date}': formatDirectorSummaryDate(model.dateLabel),
+    '{department_blocks}': deptBlocks.join('\n\n'),
+  });
 }

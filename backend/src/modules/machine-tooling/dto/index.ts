@@ -11,6 +11,7 @@ export {
   ComponentChangeQueryDto,
   ComponentCounterQueryDto,
   MonthlyConsumptionQueryDto,
+  LiveMachineCostingQueryDto,
 } from './component-change.dto';
 export {
   CreateComponentItemDto,

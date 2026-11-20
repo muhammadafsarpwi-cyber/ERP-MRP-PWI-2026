@@ -852,4 +852,49 @@ describe('ItemWiseProductionLedger — Inner-Only / Outer-Only Packing Split & M
       expect(grid.summary.balanced).toBe(true);
     });
   });
+
+  describe('Control Cable Division (Meter UOM & kg/m conversion)', () => {
+    it('resolves kg/m for M items, converts FL (KG) issuance from SP Meters, and preserves RM -> FL 1:1 KG', () => {
+      const ccdChain = {
+        key: 'CCD-FGR-001',
+        label: '5 MM PVC 2P Outer Casing — CCD-FGR-001',
+        fgItemCode: 'CCD-FGR-001',
+        rows: [
+          { order: 1, stage: 'RM', stageLabel: 'RM Stage', itemCode: 'RM-WIRE-001' },
+          { order: 2, stage: 'FL', stageLabel: 'Flattening Stage', itemCode: 'FLAT-STRIP-001' },
+          { order: 3, stage: 'SP', stageLabel: 'Spiral Stage', itemCode: 'WIP-CS-001' },
+          { order: 4, stage: 'PV', stageLabel: 'PVC Stage', itemCode: 'WIP-PVC-001' },
+          { order: 5, stage: 'FG', stageLabel: 'FG / Packing', itemCode: 'CCD-FGR-001' },
+        ],
+      };
+
+      const rows = [
+        reportRow('RM-WIRE-001', 'KG', 1000, 0),
+        reportRow('FLAT-STRIP-001', 'KG', 429, 0),
+        { ...reportRow('WIP-CS-001', 'M', 30171 - 800.37, 800.37), scrapOut: 0 },
+        reportRow('WIP-PVC-001', 'M', 5000, 0),
+        reportRow('CCD-FGR-001', 'M', 0, 0),
+      ];
+
+      const weights = {
+        'WIP-CS-001': 0.033,
+        'WIP-PVC-001': 0.0344,
+        'CCD-FGR-001': 0.0445,
+      };
+
+      const grid = buildChainGrid(ccdChain, rows as any, {}, weights);
+      const at = (code: string) => grid.rows.find((r) => r.itemCode === code)!;
+
+      // 1. FL (KG) deducts SP (800.37 M * 0.033 kg/m = 26.4122 KG), NOT raw 800.37!
+      expect(at('FLAT-STRIP-001').issuance).toBeCloseTo(26.4122, 4);
+      expect(at('FLAT-STRIP-001').closingPieces).toBeCloseTo(429 - 26.4122, 4);
+
+      // 2. WIP-CS-001 (M) Total Weight uses 0.0330 kg/m (30,171 * 0.033 = 995.643 KG), NOT 1.0000!
+      expect(at('WIP-CS-001').perPieceWeight).toBeCloseTo(0.033, 6);
+      expect(at('WIP-CS-001').closingPieces).toBeCloseTo(30171, 4);
+      expect(at('WIP-CS-001').totalWeight).toBeCloseTo(30171 * 0.033, 2);
+      expect(grid.summary.packedUom).toBe('M');
+      expect(grid.summary.balanced).toBe(true);
+    });
+  });
 });

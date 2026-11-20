@@ -3,6 +3,25 @@
  * Formats rich industrial maintenance ticket summaries for WhatsApp groups and technician dispatch.
  */
 
+import {
+  formatWhatsAppPhoneWithCountryCode,
+  renderWhatsAppTemplate,
+  resolveWhatsAppTemplate,
+} from './whatsappSettingsStore';
+
+export const DEFAULT_JOB_CARD_WHATSAPP_TEMPLATE = `🏭 *Pakistan Wire Industries (Pvt.) LTD*
+🔧 *MAINTENANCE JOB CARD SUMMARY*
+━━━━━━━━━━━━━━━━━━━━━━━━━
+🎫 *Job Card #:* *{job_card_no}*
+📊 *Status:* *{status}*
+{priority_line}━━━━━━━━━━━━━━━━━━━━━━━━━
+⚙️ *Machine / Asset:* *{machine}*
+{hierarchy_line}{location_line}{team_line}━━━━━━━━━━━━━━━━━━━━━━━━━
+⚠️ *Reported Fault / Complaint:*
+"{complaint}"
+{reported_by_line}{timings_section}{technicians_section}{parts_section}{actions_section}━━━━━━━━━━━━━━━━━━━━━━━━━
+📅 *Generated via PWI ERP System* • {generated_at}`;
+
 export interface JobCardShareData {
   jobCardNo: string;
   currentStatus: string;
@@ -57,99 +76,76 @@ function formatDuration(minutes?: number): string {
 }
 
 export function buildJobCardWhatsAppMessage(card: JobCardShareData): string {
-  const lines: string[] = [];
-
-  lines.push('🏭 *Pakistan Wire Industries (Pvt.) LTD*');
-  lines.push('🔧 *MAINTENANCE JOB CARD SUMMARY*');
-  lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━');
-  lines.push(`🎫 *Job Card #:* *${card.jobCardNo}*`);
-
   const statusLabel = (card.currentStatus || 'OPEN').replace(/_/g, ' ').toUpperCase();
-  lines.push(`📊 *Status:* *${statusLabel}*`);
-
-  if (card.priority) {
-    lines.push(`⚡ *Priority:* ${card.priority}`);
-  }
-
-  lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━');
-
   const mName = card.machine?.name || card.machine?.machineName || 'Machine Asset';
   const mCode = card.machine?.code || card.machine?.machineCode ? ` [${card.machine?.code || card.machine?.machineCode}]` : '';
-  lines.push(`⚙️ *Machine / Asset:* *${mName}${mCode}*`);
 
   const hierarchyParts: string[] = [];
   if (card.division?.name) hierarchyParts.push(card.division.name);
   if (card.section?.name) hierarchyParts.push(card.section.name);
   if (card.department?.name) hierarchyParts.push(card.department.name);
-  if (hierarchyParts.length > 0) {
-    lines.push(`🏢 *Hierarchy:* ${hierarchyParts.join(' • ')}`);
-  }
 
-  if (card.machine?.location) {
-    lines.push(`📍 *Location:* ${card.machine.location}`);
-  }
-
-  if (card.team?.name) {
-    lines.push(`👥 *Team:* ${card.team.name}`);
-  }
-
-  lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━');
-  lines.push(`⚠️ *Reported Fault / Complaint:*`);
-  lines.push(`"${card.complaint || 'No complaint notes logged.'}"`);
-
-  if (card.reportedByName) {
-    lines.push(`👤 *Reported By:* ${card.reportedByName}`);
-  }
-
-  // Timings
+  let timingsSection = '';
   if (card.timings) {
-    lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━');
-    lines.push('⏱️ *LIFECYCLE TIMINGS:*');
-    lines.push(`• ⏳ *Response Wait:* ${formatDuration(card.timings.waitMinutes)} (Open → Start)`);
-    lines.push(`• 🕒 *Gross Repair:* ${formatDuration(card.timings.grossRepairMinutes)}`);
+    const tLines = [
+      '━━━━━━━━━━━━━━━━━━━━━━━━━',
+      '⏱️ *LIFECYCLE TIMINGS:*',
+      `• ⏳ *Response Wait:* ${formatDuration(card.timings.waitMinutes)} (Open → Start)`,
+      `• 🕒 *Gross Repair:* ${formatDuration(card.timings.grossRepairMinutes)}`,
+    ];
     if (card.timings.partsHoldMinutes && card.timings.partsHoldMinutes > 0) {
-      lines.push(`• ⏸️ *Parts Delay:* ${formatDuration(card.timings.partsHoldMinutes)} (Hold)`);
+      tLines.push(`• ⏸️ *Parts Delay:* ${formatDuration(card.timings.partsHoldMinutes)} (Hold)`);
     }
-    lines.push(`• ✅ *Net Active Labor:* ${formatDuration(card.timings.netRepairMinutes)}`);
+    tLines.push(`• ✅ *Net Active Labor:* ${formatDuration(card.timings.netRepairMinutes)}`);
+    timingsSection = `${tLines.join('\n')}\n`;
   }
 
-  // Assigned Technicians
+  let techniciansSection = '';
   if (card.technicians && card.technicians.length > 0) {
-    const techNames = card.technicians
-      .map((t) => t.name || t.technician?.name)
-      .filter(Boolean)
-      .join(', ');
+    const techNames = card.technicians.map((t) => t.name || t.technician?.name).filter(Boolean).join(', ');
     if (techNames) {
-      lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━');
-      lines.push(`👷 *Assigned Technicians:* ${techNames}`);
+      techniciansSection = `━━━━━━━━━━━━━━━━━━━━━━━━━\n👷 *Assigned Technicians:* ${techNames}\n`;
     }
   }
 
-  // Replaced Spare Parts
+  let partsSection = '';
   if (card.parts && card.parts.length > 0) {
-    lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━');
-    lines.push(`🔩 *REPLACED SPARE PARTS (${card.parts.length}):*`);
+    const pLines = ['━━━━━━━━━━━━━━━━━━━━━━━━━', `🔩 *REPLACED SPARE PARTS (${card.parts.length}):*`];
     card.parts.forEach((p, idx) => {
       const pName = p.partName || p.name || 'Spare Part';
       const pCode = p.partCode ? ` [${p.partCode}]` : '';
       const qtyStr = p.quantity !== undefined ? ` • Qty: ${p.quantity} ${p.uom || 'Pcs'}` : '';
-      lines.push(`${idx + 1}. ${pName}${pCode}${qtyStr}`);
+      pLines.push(`${idx + 1}. ${pName}${pCode}${qtyStr}`);
     });
+    partsSection = `${pLines.join('\n')}\n`;
   }
 
-  // Technical Diagnosis & Actions
+  let actionsSection = '';
   if (card.diagnosis || card.correctiveAction || card.preventiveAction) {
-    lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━');
-    lines.push('📋 *TECHNICAL ACTIONS TAKEN:*');
-    if (card.diagnosis) lines.push(`• *Diagnosis:* ${card.diagnosis}`);
-    if (card.correctiveAction) lines.push(`• *Corrective:* ${card.correctiveAction}`);
-    if (card.preventiveAction) lines.push(`• *Preventive:* ${card.preventiveAction}`);
+    const aLines = ['━━━━━━━━━━━━━━━━━━━━━━━━━', '📋 *TECHNICAL ACTIONS TAKEN:*'];
+    if (card.diagnosis) aLines.push(`• *Diagnosis:* ${card.diagnosis}`);
+    if (card.correctiveAction) aLines.push(`• *Corrective:* ${card.correctiveAction}`);
+    if (card.preventiveAction) aLines.push(`• *Preventive:* ${card.preventiveAction}`);
+    actionsSection = `${aLines.join('\n')}\n`;
   }
 
-  lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━');
-  lines.push(`📅 *Generated via PWI ERP System* • ${new Date().toLocaleString()}`);
-
-  return lines.join('\n');
+  const template = resolveWhatsAppTemplate('maintenanceJobCard', DEFAULT_JOB_CARD_WHATSAPP_TEMPLATE);
+  return renderWhatsAppTemplate(template, {
+    '{job_card_no}': card.jobCardNo || '',
+    '{status}': statusLabel,
+    '{priority_line}': card.priority ? `⚡ *Priority:* ${card.priority}\n` : '',
+    '{machine}': `${mName}${mCode}`,
+    '{hierarchy_line}': hierarchyParts.length > 0 ? `🏢 *Hierarchy:* ${hierarchyParts.join(' • ')}\n` : '',
+    '{location_line}': card.machine?.location ? `📍 *Location:* ${card.machine.location}\n` : '',
+    '{team_line}': card.team?.name ? `👥 *Team:* ${card.team.name}\n` : '',
+    '{complaint}': card.complaint || 'No complaint notes logged.',
+    '{reported_by_line}': card.reportedByName ? `👤 *Reported By:* ${card.reportedByName}\n` : '',
+    '{timings_section}': timingsSection,
+    '{technicians_section}': techniciansSection,
+    '{parts_section}': partsSection,
+    '{actions_section}': actionsSection,
+    '{generated_at}': new Date().toLocaleString(),
+  });
 }
 
 /**
@@ -157,19 +153,12 @@ export function buildJobCardWhatsAppMessage(card: JobCardShareData): string {
  * If phone is provided, sends direct message. If not, allows picking any group or contact.
  */
 export function openWhatsAppShare(text: string, phone?: string): void {
-  const cleanPhone = phone ? phone.replace(/[^0-9]/g, '') : '';
+  const formattedPhone = formatWhatsAppPhoneWithCountryCode(phone);
   const encodedText = encodeURIComponent(text);
 
-  let url: string;
-  if (cleanPhone) {
-    // If local Pakistani 03xx number, convert to 923xx
-    const formattedPhone = cleanPhone.startsWith('0')
-      ? `92${cleanPhone.slice(1)}`
-      : cleanPhone;
-    url = `https://api.whatsapp.com/send?phone=${formattedPhone}&text=${encodedText}`;
-  } else {
-    url = `https://api.whatsapp.com/send?text=${encodedText}`;
-  }
+  const url = formattedPhone
+    ? `https://api.whatsapp.com/send?phone=${formattedPhone}&text=${encodedText}`
+    : `https://api.whatsapp.com/send?text=${encodedText}`;
 
   window.open(url, '_blank', 'noopener,noreferrer');
 }

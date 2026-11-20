@@ -28,6 +28,11 @@ import isSameOrBefore from 'dayjs/plugin/isSameOrBefore';
 import isSameOrAfter from 'dayjs/plugin/isSameOrAfter';
 import './SalesInvoiceManagement.css';
 import { printInvoiceDocument, printTableList } from '../../utils/printTemplates';
+import {
+  formatWhatsAppPhoneWithCountryCode,
+  renderWhatsAppTemplate,
+  resolveWhatsAppTemplate,
+} from '../../utils/whatsappSettingsStore';
 
 dayjs.extend(isSameOrBefore);
 dayjs.extend(isSameOrAfter);
@@ -849,8 +854,27 @@ const SalesInvoiceManagement: React.FC = () => {
   // WhatsApp share
   const handleWhatsApp = (record: SalesInvoice) => {
     const custName = getCustomerDisplayName(record);
-    const text = `Invoice #${record.invoiceNo} for ${custName}\nTotal: Rs ${formatDecimal(record.totalAmount)}\nBalance: Rs ${formatDecimal(record.balance || record.totalAmount)}\nDue Date: ${record.dueDate || 'N/A'}`;
-    const url = `https://wa.me/?text=${encodeURIComponent(text)}`;
+    const isQuotation = record.documentType === 'quotation' || record.invoiceNo?.toUpperCase().startsWith('QUO');
+    const templateKey = isQuotation ? 'quotation' : 'invoice';
+    const defaultTpl = isQuotation
+      ? 'Dear {customer},\n\nHere is quotation {doc_no} for {amount}, valid until {due_date}.\n\nView, accept or decline: {link}'
+      : 'Dear {customer},\n\nInvoice {doc_no} for {amount} (balance: {balance}, due on {due_date}).\n\nView and download: {link}\n\nThank you,\n{company}';
+    const tpl = resolveWhatsAppTemplate(templateKey, defaultTpl);
+    const text = renderWhatsAppTemplate(tpl, {
+      '{customer}': custName,
+      '{company}': 'Pakistan Wire Industries (Pvt.) LTD',
+      '{doc_no}': record.invoiceNo || '',
+      '{amount}': `Rs ${formatDecimal(record.totalAmount)}`,
+      '{balance}': `Rs ${formatDecimal(record.balance ?? record.totalAmount)}`,
+      '{due_date}': record.dueDate || 'N/A',
+      '{date}': record.invoiceDate || dayjs().format('YYYY-MM-DD'),
+      '{link}': typeof window !== 'undefined' ? window.location.origin : '',
+    });
+    const rawPhone = (record as any)?.customer?.phone || (record as any)?.customerPhone || '';
+    const phone = formatWhatsAppPhoneWithCountryCode(rawPhone);
+    const url = phone
+      ? `https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(text)}`
+      : `https://wa.me/?text=${encodeURIComponent(text)}`;
     window.open(url, '_blank');
   };
 

@@ -24,6 +24,10 @@ import {
   WhatsAppReportMode,
   buildDailyProductionWhatsApp,
 } from './dailyProductionReport';
+import {
+  formatWhatsAppPhoneWithCountryCode,
+  useWhatsAppSettingsVersion,
+} from '../../../utils/whatsappSettingsStore';
 
 export interface DailyProductionWhatsAppModalProps {
   open: boolean;
@@ -36,6 +40,7 @@ export const DailyProductionWhatsAppModal: React.FC<DailyProductionWhatsAppModal
   onClose,
   reportModel,
 }) => {
+  const settingsVersion = useWhatsAppSettingsVersion();
   const [reportMode, setReportMode] = useState<WhatsAppReportMode>('full');
   const [phone, setPhone] = useState('');
   const [includeRuntime, setIncludeRuntime] = useState(true);
@@ -44,15 +49,15 @@ export const DailyProductionWhatsAppModal: React.FC<DailyProductionWhatsAppModal
 
   // Generate the formatted text in real-time
   const formattedText = useMemo(() => {
-    if (!reportModel) return '';
+    if (!reportModel || !open) return '';
     return buildDailyProductionWhatsApp(reportModel, {
       mode: reportMode,
       includeItems,
       includeRuntime,
     });
-  }, [reportModel, reportMode, includeItems, includeRuntime]);
+  }, [reportModel, reportMode, includeItems, includeRuntime, open, settingsVersion]);
 
-  const cleanPhone = phone.replace(/[^0-9]/g, '');
+  const cleanPhone = formatWhatsAppPhoneWithCountryCode(phone);
 
   const handleCopy = async () => {
     if (!formattedText) return;

@@ -78,7 +78,12 @@ import apiService from '../../../services/api';
 import { formatNumber, formatCompact, toNum } from '../../../utils/numberFormat';
 import { scrapTotals } from './analyticsModel';
 import { useAnalysisRows } from './analyticsData';
-import { calcActualKg, perUnitWeightLabel } from '../../../utils/productionWeight';
+import {
+  calcActualKg,
+  formatStandardUnitWeight,
+  parsePartRejectionKgFromRemarks,
+  parseWeightKgFromRemarks,
+} from '../../../utils/productionWeight';
 import { useLookups, Department, ShiftLk } from './lookups';
 import { entryOvertimeHours, sumOvertime } from './overtimeHours';
 import { effectiveRunning } from './downtimeHours';
@@ -104,10 +109,10 @@ import {
   PDF_MAIN_TEXT,
   PDF_SUB_TEXT,
   TONE_COLOR,
-  perUnitWeightValue,
 } from './dailyProductionReport';
 import type { ExecutiveKpi } from './dailyProductionReport';
 import DailyProductionWhatsAppModal from './DailyProductionWhatsAppModal';
+import DirectorSummaryWhatsAppModal from './DirectorSummaryWhatsAppModal';
 import DowntimeAnalytics from './DowntimeAnalytics';
 import RejectionScrapDetails from './RejectionScrapDetails';
 import OvertimeDetails from './OvertimeDetails';
@@ -1464,6 +1469,7 @@ const EntryList: React.FC = () => {
   const [importModalVisible, setImportModalVisible] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [whatsAppModalVisible, setWhatsAppModalVisible] = useState(false);
+  const [summaryModalVisible, setSummaryModalVisible] = useState(false);
 
   const activeFilterCount = useMemo(() => {
     let count = 0;
@@ -1529,9 +1535,15 @@ const EntryList: React.FC = () => {
   // department, machine-ascending row order and department totals all come
   // from this single builder (./dailyProductionReport.ts).
   // ------------------------------------------------------------------
-  const buildReportModel = useCallback(
-    () =>
-      buildDailyProductionReport(displayedRows, {
+  const buildReportModel = useCallback(() => {
+    const sourceRows =
+      analysis.loaded && analysis.rows.length > 0 ? analysis.rows : displayedRows;
+    const hydratedRows = sourceRows.map((row) => {
+      if (row.department?.name || !row.departmentId) return row;
+      const d = lookups.departments.find((x) => x.id === row.departmentId);
+      return d ? { ...row, department: { name: d.name, departmentCode: d.departmentCode } } : row;
+    });
+    return buildDailyProductionReport(hydratedRows, {
         divisionName: fDivision ? lookups.divisions.find((d) => d.id === fDivision)?.name ?? null : null,
         dateFrom: dateRange[0]?.format('YYYY-MM-DD') ?? null,
         dateTo: dateRange[1]?.format('YYYY-MM-DD') ?? null,
@@ -1561,9 +1573,8 @@ const EntryList: React.FC = () => {
           if (start && end) return `${start} - ${end}`;
           return start || end || '-';
         },
-      }),
-    [displayedRows, fDivision, fShift, dateRange, lookups],
-  );
+      });
+  }, [analysis.loaded, analysis.rows, displayedRows, fDivision, fShift, dateRange, lookups]);
 
   // Excel (CSV) export — mirrors the print/PDF layout exactly: report header
   // block (Division / Date), department sections, machine ordering, the same
@@ -2139,6 +2150,14 @@ const EntryList: React.FC = () => {
     setWhatsAppModalVisible(true);
   };
 
+  const handleOpenSummaryModal = () => {
+    if (!displayedRows || displayedRows.length === 0) {
+      message.warning('No production entries to summarize');
+      return;
+    }
+    setSummaryModalVisible(true);
+  };
+
   // Table Columns
   const columns: ColumnsType<ProductionEntryRow> = [
     {
@@ -2649,8 +2668,16 @@ const EntryList: React.FC = () => {
       ellipsis: true,
       responsive: ['lg'],
       render: (_t, r) => {
-        const perUnit = perUnitWeightValue(r.uom?.code || '', r.item?.weightPerPiece, r.item?.weightPerMeter);
-        const kg = calcActualKg(r.uom?.code || '', toNum(r.actualQuantity), r.item?.weightPerPiece, r.item?.weightPerMeter);
+        const uom = r.uom?.code || '';
+        const actual = toNum(r.actualQuantity);
+        const kg = calcActualKg(uom, actual, r.item?.weightPerPiece, r.item?.weightPerMeter) ?? parseWeightKgFromRemarks(r.remarks);
+        const unitWeightText = formatStandardUnitWeight(
+          uom,
+          actual,
+          kg,
+          r.item?.weightPerPiece,
+          r.item?.weightPerMeter,
+        );
         return (
           <div style={{ textAlign: 'right', lineHeight: 1.2, whiteSpace: 'nowrap' }}>
             {/* line 1 — Per Unit Weight: the small, muted context figure */}
@@ -2661,7 +2688,7 @@ const EntryList: React.FC = () => {
                 fontVariantNumeric: 'tabular-nums',
               }}
             >
-              {perUnit || '—'}
+              {unitWeightText || '—'}
             </div>
             {/* line 2 — Actual KG: the number people read */}
             <div
@@ -2710,17 +2737,24 @@ const EntryList: React.FC = () => {
         //          decimal string from the pg driver can never be mistaken
         //          for 0 (that is what made live rows print 0.00% while
         //          scrap existed). Zero total produced → 0.00%.
-        const actualKg = calcActualKg(uom, toNum(r.actualQuantity), r.item?.weightPerPiece, r.item?.weightPerMeter);
-        const scrapKg = calcActualKg(uom, scrap, r.item?.weightPerPiece, r.item?.weightPerMeter);
+        const actualKg =
+          calcActualKg(uom, toNum(r.actualQuantity), r.item?.weightPerPiece, r.item?.weightPerMeter) ??
+          parseWeightKgFromRemarks(r.remarks);
+        const scrapKg =
+          calcActualKg(uom, scrap, r.item?.weightPerPiece, r.item?.weightPerMeter) ??
+          parsePartRejectionKgFromRemarks(r.remarks);
         const producedKg = Number(actualKg || 0) + Number(scrapKg || 0);
         const rejPct = producedKg > 0 ? (Number(scrapKg || 0) / producedKg) * 100 : 0;
-        const hasScrap = scrap > 0;
-        // KG is the authority; fall back to the raw figure only when the UOM
-        // has no weight conversion at all (unknown UOM).
-        const scrapKgShown = scrapKg == null ? scrap : scrapKg;
+        const hasScrap = scrap > 0 || (scrapKg != null && scrapKg > 0);
+        // Strictly in KG (never slap KG onto piece count when item weight is absent).
+        const scrapKgShown = scrapKg ?? 0;
         const scrapPcs =
-          hasScrap && scrapKg != null && weightPerPiece != null && weightPerPiece > 0
-            ? scrapKg / weightPerPiece
+          hasScrap
+            ? weightPerPiece != null && weightPerPiece > 0 && scrapKg != null
+              ? scrapKg / weightPerPiece
+              : scrap > 0
+              ? scrap
+              : null
             : null;
         return (
           <div style={{ textAlign: 'right', lineHeight: 1.2, whiteSpace: 'nowrap' }}>
@@ -3046,10 +3080,10 @@ const EntryList: React.FC = () => {
                       <Text strong>{formatNumber(g.actualKg, 2)}</Text>
                     </span>
                   )}
-                  {perUnitWeightLabel(g.uomCode, g.weightPerPiece, g.weightPerMeter) && (
+                  {formatStandardUnitWeight(g.uomCode, g.actualQuantity, g.actualKg, g.weightPerPiece, g.weightPerMeter) && (
                     <span style={{ fontSize: 12 }}>
                       <Text type="secondary">Unit Wt </Text>
-                      <Text>{perUnitWeightLabel(g.uomCode, g.weightPerPiece, g.weightPerMeter)}</Text>
+                      <Text>{formatStandardUnitWeight(g.uomCode, g.actualQuantity, g.actualKg, g.weightPerPiece, g.weightPerMeter)}</Text>
                     </span>
                   )}
                   {g.achievementPercentage !== null && (
@@ -3199,6 +3233,22 @@ const EntryList: React.FC = () => {
         WhatsApp
       </Button>
 
+      {/* ── Director Executive Department Summary Button ─────────────── */}
+      <Button
+        icon={<WhatsAppOutlined style={{ color: 'var(--theme-success, #059669)', fontSize: 15 }} />}
+        onClick={handleOpenSummaryModal}
+        disabled={displayedRows.length === 0}
+        title="Open Executive Department Summary for Directors (WhatsApp)"
+        style={{
+          fontWeight: 700,
+          borderColor: 'var(--theme-success-border, #10b981)',
+          color: 'var(--theme-success, #059669)',
+          background: 'var(--theme-success-bg, rgba(16, 185, 129, 0.10))',
+        }}
+      >
+        Summary
+      </Button>
+
       {/* ── Manage Columns: instantly show/hide any grid column ───────── */}
       <Popover
         trigger="click"
@@ -3257,7 +3307,7 @@ const EntryList: React.FC = () => {
         Import
       </Button>
     </Space>
-  ), [navigate, handleRefresh, loading, exportToCsv, displayedRows.length, exportPdf, pdfLoading, handlePrint, handleOpenWhatsAppModal,
+  ), [navigate, handleRefresh, loading, exportToCsv, displayedRows.length, exportPdf, pdfLoading, handlePrint, handleOpenWhatsAppModal, handleOpenSummaryModal,
       hiddenColumnIdx, visibleColumns.length, toggleColumn, showAllColumns, columnLabel]);
 
   return (
@@ -3992,26 +4042,37 @@ const EntryList: React.FC = () => {
                               const actual = toNum(r.actualQuantity);
                               const ach = target > 0 ? Math.round((actual / target) * 10000) / 100 : null;
                               const diff = actual - target;
-                              const perUnit = perUnitWeightValue(uom, r.item?.weightPerPiece, r.item?.weightPerMeter);
-                              const kg = calcActualKg(uom, actual, r.item?.weightPerPiece, r.item?.weightPerMeter);
+                              const kg =
+                                calcActualKg(uom, actual, r.item?.weightPerPiece, r.item?.weightPerMeter) ??
+                                parseWeightKgFromRemarks(r.remarks);
+                              const unitWeightText = formatStandardUnitWeight(
+                                uom,
+                                actual,
+                                kg,
+                                r.item?.weightPerPiece,
+                                r.item?.weightPerMeter,
+                              );
 
-                              // Exact same 3-tier Scrap calculation as Table View
+                              // Strictly calculate card Scrap / Rej. in KG (Part Rejection KG + Process Scrap KG; never display piece count as KG)
                               const scrap = toNum(r.scrapQuantity);
                               const weightPerPiece = r.item?.weightPerPiece;
-                              const scrapKg = calcActualKg(uom, scrap, r.item?.weightPerPiece, r.item?.weightPerMeter);
-                              const producedKg = Number(kg || 0) + Number(scrapKg || 0);
-                              const rejPct = producedKg > 0 ? (Number(scrapKg || 0) / producedKg) * 100 : 0;
-                              const hasScrap = scrap > 0;
-                              const scrapKgShown = scrapKg == null ? scrap : scrapKg;
-                              const scrapPcs =
-                                hasScrap && scrapKg != null && weightPerPiece != null && weightPerPiece > 0
-                                  ? scrapKg / weightPerPiece
-                                  : null;
-
-                              // Process Rejection (standalone)
+                              const partRejectKg =
+                                calcActualKg(uom, scrap, r.item?.weightPerPiece, r.item?.weightPerMeter) ??
+                                parsePartRejectionKgFromRemarks(r.remarks) ??
+                                0;
                               const procRejKg = toNum(r.processScrapKg);
                               const procRejPct = kg != null && Number(kg) > 0 ? (procRejKg / Number(kg)) * 100 : 0;
                               const hasProcRej = procRejKg > 0;
+                              const scrapKgShown = partRejectKg + procRejKg;
+                              const producedKg = Number(kg || 0) + scrapKgShown;
+                              const rejPct = producedKg > 0 ? (scrapKgShown / producedKg) * 100 : 0;
+                              const hasScrap = scrap > 0 || scrapKgShown > 0;
+                              const scrapPcs =
+                                scrap > 0
+                                  ? scrap
+                                  : partRejectKg > 0 && weightPerPiece != null && weightPerPiece > 0
+                                  ? partRejectKg / weightPerPiece
+                                  : null;
 
                               // Run / Downtime & OT
                               const runH = displayRunningHours(r);
@@ -4229,7 +4290,7 @@ const EntryList: React.FC = () => {
                                             {kg == null ? '—' : `${formatNumber(kg, 2)} KG`}
                                           </div>
                                           <div style={{ fontSize: 10, color: token.colorTextTertiary }}>
-                                            {perUnit || '—'}
+                                            {unitWeightText || '—'}
                                           </div>
                                         </div>
 
@@ -4722,6 +4783,13 @@ const EntryList: React.FC = () => {
         open={whatsAppModalVisible}
         onClose={() => setWhatsAppModalVisible(false)}
         reportModel={whatsAppModalVisible ? buildReportModel() : null}
+      />
+
+      {/* ── Director WhatsApp Summary Preview Dialog ── */}
+      <DirectorSummaryWhatsAppModal
+        open={summaryModalVisible}
+        onClose={() => setSummaryModalVisible(false)}
+        reportModel={summaryModalVisible ? buildReportModel() : null}
       />
 
       {/* ── Enterprise Daily Production Entry Wizard In-Modal (Opens right here without navigating to another file/tab) ── */}

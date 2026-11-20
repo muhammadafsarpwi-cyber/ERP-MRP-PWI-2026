@@ -349,3 +349,88 @@ describe('ComponentChangeService — monthly consumption report', () => {
     expect(res.totals.avgCostPerGross).toBe(20.07);
   });
 });
+
+describe('ComponentChangeService — live machine costing report', () => {
+  it('combines active carryover tools across months and sums per-tool Cost / Gross per machine', async () => {
+    const qb = Object.assign(makeQb(), {
+      getMany: jest.fn().mockResolvedValue([
+        {
+          id: 'act-oct',
+          companyId: COMPANY,
+          machineId: MACHINE,
+          componentId: COMPONENT,
+          closedAt: null,
+          lifecycleStatus: 'ACTIVE',
+          productionCounterAfter: '300000',
+          accumulatedLifeBeforeCurrentSession: '0',
+          changeDate: '2026-10-15',
+          newToolCode: 'SP-216021',
+          unitCost: '1500.0000',
+          machine: {
+            id: MACHINE,
+            machineCode: 'SPK-01',
+            name: 'Spoke Heading Machine #01',
+            divisionId: 'div-spoke',
+            division: { id: 'div-spoke', name: 'Spoke Division' },
+          },
+          component: {
+            id: COMPONENT,
+            componentCode: 'SP-216021',
+            componentName: 'CARRYOVER PUNCH',
+            componentType: 'TOOLING',
+            uom: { code: 'PCS' },
+          },
+        },
+        {
+          id: 'act-nov',
+          companyId: COMPANY,
+          machineId: MACHINE,
+          componentId: 'comp-nov',
+          closedAt: null,
+          lifecycleStatus: 'ACTIVE',
+          productionCounterAfter: '500000',
+          accumulatedLifeBeforeCurrentSession: '0',
+          changeDate: '2026-11-10',
+          newToolCode: 'SP-216014',
+          unitCost: '8000.0000',
+          machine: {
+            id: MACHINE,
+            machineCode: 'SPK-01',
+            name: 'Spoke Heading Machine #01',
+            divisionId: 'div-spoke',
+            division: { id: 'div-spoke', name: 'Spoke Division' },
+          },
+          component: {
+            id: 'comp-nov',
+            componentCode: 'SP-216014',
+            componentName: 'CURRENT DIE',
+            componentType: 'TOOLING',
+            uom: { code: 'SET' },
+          },
+        },
+      ]),
+    });
+    // Machine live counter is 600,000 PCS:
+    // - act-oct covered 600,000 - 300,000 = 300,000 PCS -> (1500 / 300000) * 144 = 0.72 / Gross
+    // - act-nov covered 600,000 - 500,000 = 100,000 PCS -> (8000 / 100000) * 144 = 11.52 / Gross
+    // Combined Cost / Gross = 0.72 + 11.52 = 12.24 / Gross
+    changeRepo.manager.query.mockResolvedValueOnce([{ machine_id: MACHINE, counter_value: '600000.0000' }]);
+    changeRepo.createQueryBuilder.mockReturnValue(qb);
+
+    const res = await service.liveMachineCostingReport(COMPANY, undefined, 'div-spoke');
+    expect(qb.andWhere).toHaveBeenCalledWith('cc.closedAt IS NULL');
+    expect(qb.andWhere).toHaveBeenCalledWith('machine.divisionId = :divisionId', { divisionId: 'div-spoke' });
+    expect(res.rows).toHaveLength(2);
+    expect(res.machines).toHaveLength(1);
+    const spk01 = res.machines[0];
+    expect(spk01.activeToolsCount).toBe(2);
+    expect(spk01.totalCost).toBe(9500);
+    expect(spk01.productionCovered).toBe(300000);
+    expect(spk01.combinedCostPerGross).toBe(12.24);
+    expect(res.totals.machines).toBe(1);
+    expect(res.totals.activeTools).toBe(2);
+    expect(res.totals.totalCost).toBe(9500);
+    expect(res.totals.productionCovered).toBe(300000);
+    expect(res.totals.avgCombinedCostPerGross).toBe(12.24);
+  });
+});

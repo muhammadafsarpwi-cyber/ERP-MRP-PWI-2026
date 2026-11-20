@@ -240,18 +240,46 @@ export class ComponentChangeService {
     }
     if (dto.jobCardId !== undefined && dto.jobCardId) await this.assertJobCard(companyId, dto.jobCardId);
 
-    const changeDate = dto.changeDate ?? (existing.changeDate as string);
+    const targetMachineId = dto.machineId ?? (existing.machineId as string);
+    const changeDate = dto.changeDate ?? String(existing.changeDate).slice(0, 10);
     const changeTime = dto.changeTime !== undefined ? dto.changeTime : existing.changeTime;
+    const dateOrMachineChanged =
+      (dto.changeDate !== undefined && String(dto.changeDate).slice(0, 10) !== String(existing.changeDate).slice(0, 10)) ||
+      (dto.machineId !== undefined && dto.machineId !== existing.machineId);
+
+    let derivedCounterAtDate: number | null = null;
+    let derivedTotalCounter: number | null = null;
+    if ((dateOrMachineChanged || existing.closedAt === null) && typeof this.changeRepo.manager?.query === 'function') {
+      try {
+        const cRows: Array<{ counter_at_date: string | number; total_counter: string | number }> =
+          await this.changeRepo.manager.query(
+            `SELECT
+               COALESCE(SUM(CASE WHEN entry_date <= $3 THEN actual_quantity ELSE 0 END), 0)::numeric(19,4) AS counter_at_date,
+               COALESCE(SUM(actual_quantity), 0)::numeric(19,4) AS total_counter
+               FROM production_entries
+              WHERE company_id = $1 AND machine_id = $2 AND is_active = TRUE AND deleted_at IS NULL`,
+            [companyId, targetMachineId, changeDate],
+          );
+        if (cRows?.[0]) {
+          derivedCounterAtDate = Number(cRows[0].counter_at_date || 0);
+          derivedTotalCounter = Number(cRows[0].total_counter || 0);
+        }
+      } catch {
+        // Fallback silently in isolated unit tests without production_entries
+      }
+    }
+
     const counterBefore = dto.productionCounterBefore !== undefined
       ? dto.productionCounterBefore
       : numOrNull(existing.productionCounterBefore);
     const componentId = dto.componentId ?? (existing.componentId as string);
-    const productionSincePrevious = await this.computeLifeSincePrevious(
+    let productionSincePrevious = await this.computeLifeSincePrevious(
       companyId,
       componentId,
       changeDate,
       changeTime,
       counterBefore,
+      targetMachineId,
     );
 
     delete (existing as any).machine;
@@ -268,7 +296,41 @@ export class ComponentChangeService {
     if (dto.changeDate !== undefined) existing.changeDate = dto.changeDate;
     if (dto.changeTime !== undefined) existing.changeTime = dto.changeTime ?? null;
     if (dto.productionCounterBefore !== undefined) existing.productionCounterBefore = dto.productionCounterBefore != null ? String(dto.productionCounterBefore) : null;
-    if (dto.productionCounterAfter !== undefined) existing.productionCounterAfter = dto.productionCounterAfter != null ? String(dto.productionCounterAfter) : null;
+    if (dto.productionCounterAfter !== undefined) {
+      existing.productionCounterAfter = dto.productionCounterAfter != null ? String(dto.productionCounterAfter) : null;
+    } else if (dateOrMachineChanged && derivedCounterAtDate !== null) {
+      existing.productionCounterAfter = String(derivedCounterAtDate);
+    }
+
+    // Sync mounting_sessions[0] date/startCounter and active live production when mount date or machine changes
+    if ((dateOrMachineChanged || dto.productionCounterAfter !== undefined) && Array.isArray(existing.mountingSessions) && existing.mountingSessions.length > 0) {
+      const updatedAfterNum = numOrNull(existing.productionCounterAfter);
+      const first = existing.mountingSessions[0];
+      const existingTimePart = typeof first.mountedAt === 'string' && first.mountedAt.includes('T')
+        ? first.mountedAt.slice(10)
+        : `T${(changeTime || '00:00:00').slice(0, 8)}`;
+      const updatedSessions = [...existing.mountingSessions];
+      updatedSessions[0] = {
+        ...first,
+        machineId: existing.machineId,
+        mountedAt: `${changeDate}${existingTimePart}`,
+        ...(updatedAfterNum !== null ? { startCounter: updatedAfterNum } : {}),
+      };
+      existing.mountingSessions = updatedSessions;
+    }
+
+    if (existing.closedAt === null && existing.lifecycleStatus !== ToolLifecycleStatus.STANDBY && existing.lifecycleStatus !== ToolLifecycleStatus.CLOSED && derivedTotalCounter !== null) {
+      const installCounter = numOrNull(existing.productionCounterAfter) ?? 0;
+      const priorAccumulated = numOrNull(existing.accumulatedLifeBeforeCurrentSession) ?? 0;
+      const currentSessionUsed = Math.max(0, Number((derivedTotalCounter - installCounter).toFixed(4)));
+      productionSincePrevious = String(Number((priorAccumulated + currentSessionUsed).toFixed(4)));
+    } else if (dateOrMachineChanged && existing.closedAt !== null && counterBefore !== null) {
+      const afterNum = numOrNull(existing.productionCounterAfter);
+      if (afterNum !== null && counterBefore >= afterNum) {
+        productionSincePrevious = String(Number((counterBefore - afterNum).toFixed(4)));
+      }
+    }
+
     existing.productionSincePrevious = productionSincePrevious;
     if (dto.reason !== undefined) existing.reason = dto.reason?.trim() || null;
     if (dto.conditionStatus !== undefined) existing.conditionStatus = dto.conditionStatus ?? null;
@@ -377,54 +439,11 @@ export class ComponentChangeService {
     };
   }
 
-  /**
-   * Monthly consumption report.
-   * Returns:
-   *  - `rows`: flat per machine + component breakdown (including Unit Rate, Total Cost, Cost / Gross)
-   *  - `machines`: consolidated one-row-per-machine summary with nested `components` breakdown
-   *  - `totals`: aggregate KPI summary (machines, components, changes, qtyUsed, productionCovered, totalCost, avgCostPerGross)
-   */
-  async monthlyReport(
+  /** Shared cost lookup for inventory weighted average & latest GRN unit_price by linked Store Item. */
+  private async loadCostLookups(
     companyId: string,
-    month: string,
-    machineId?: string,
-    divisionId?: string,
-  ): Promise<any> {
-    const start = `${month}-01`;
-    const endDate = new Date(`${month}-01T00:00:00`);
-    endDate.setMonth(endDate.getMonth() + 1);
-    endDate.setDate(0);
-    const end = `${month}-${String(endDate.getDate()).padStart(2, '0')}`;
-
-    const qb = this.changeRepo
-      .createQueryBuilder('cc')
-      .leftJoinAndSelect('cc.machine', 'machine')
-      .leftJoinAndSelect('machine.division', 'machineDivision')
-      .leftJoinAndSelect('cc.component', 'component')
-      .leftJoinAndSelect('component.item', 'componentItem')
-      .leftJoinAndSelect('component.uom', 'componentUom')
-      .where('cc.companyId = :companyId', { companyId })
-      .andWhere('cc.isActive = true')
-      .andWhere('cc.changeDate >= :start', { start })
-      .andWhere('cc.changeDate <= :end', { end });
-    if (machineId) qb.andWhere('cc.machineId = :machineId', { machineId });
-    if (divisionId) qb.andWhere('machine.divisionId = :divisionId', { divisionId });
-    qb.orderBy('cc.changeDate', 'ASC');
-    qb.addOrderBy('machine.machineCode', 'ASC');
-    qb.addOrderBy('component.componentCode', 'ASC');
-
-    const changes = await qb.getMany();
-    const activeMachineIds = changes
-      .filter(
-        (c) =>
-          (c.closedAt === null || c.closedAt === undefined) &&
-          c.lifecycleStatus !== ToolLifecycleStatus.STANDBY &&
-          c.lifecycleStatus !== ToolLifecycleStatus.CLOSED,
-      )
-      .map((c) => c.machineId);
-    const liveCounters = await fetchLiveMachineCounters(this.changeRepo.manager, companyId, activeMachineIds);
-
-    // Resolve inventory weighted average cost & latest GRN unit_price for linked Store Items
+    changes: ComponentChange[],
+  ): Promise<{ invCostMap: Map<string, number>; latestGrnPriceMap: Map<string, number> }> {
     const itemIds = Array.from(
       new Set(
         changes
@@ -476,40 +495,101 @@ export class ComponentChangeService {
         // Fallback silently if procurement/inventory tables are unavailable in isolated unit tests
       }
     }
+    return { invCostMap, latestGrnPriceMap };
+  }
+
+  private resolveChangeUnitCost(
+    c: ComponentChange,
+    invCostMap: Map<string, number>,
+    latestGrnPriceMap: Map<string, number>,
+  ): {
+    resolvedUnitCost: number;
+    costSource: 'SNAPSHOT' | 'COMPONENT' | 'INVENTORY_AVG' | 'ITEM_MASTER' | 'LATEST_GRN' | 'NONE';
+    linkedItemId: string | null;
+  } {
+    const changeSnapCost = numOrNull(c.unitCost);
+    const compUnitCost = numOrNull(c.component?.unitCost);
+    const linkedItemId = c.component?.itemId || c.component?.item?.id || null;
+    const invAvgCost = linkedItemId ? (invCostMap.get(linkedItemId) ?? null) : null;
+    const itemCostPrice = numOrNull(c.component?.item?.costPrice);
+    const grnPrice = linkedItemId ? (latestGrnPriceMap.get(linkedItemId) ?? null) : null;
+
+    if (changeSnapCost !== null && changeSnapCost > 0) {
+      return { resolvedUnitCost: changeSnapCost, costSource: 'SNAPSHOT', linkedItemId };
+    }
+    if (compUnitCost !== null && compUnitCost > 0) {
+      return { resolvedUnitCost: compUnitCost, costSource: 'COMPONENT', linkedItemId };
+    }
+    if (invAvgCost !== null && invAvgCost > 0) {
+      return { resolvedUnitCost: invAvgCost, costSource: 'INVENTORY_AVG', linkedItemId };
+    }
+    if (itemCostPrice !== null && itemCostPrice > 0) {
+      return { resolvedUnitCost: itemCostPrice, costSource: 'ITEM_MASTER', linkedItemId };
+    }
+    if (grnPrice !== null && grnPrice > 0) {
+      return { resolvedUnitCost: grnPrice, costSource: 'LATEST_GRN', linkedItemId };
+    }
+    return { resolvedUnitCost: 0, costSource: 'NONE', linkedItemId };
+  }
+
+  /**
+   * Monthly consumption report.
+   * Returns:
+   *  - `rows`: flat per machine + component breakdown (including Unit Rate, Total Cost, Cost / Gross)
+   *  - `machines`: consolidated one-row-per-machine summary with nested `components` breakdown
+   *  - `totals`: aggregate KPI summary (machines, components, changes, qtyUsed, productionCovered, totalCost, avgCostPerGross)
+   */
+  async monthlyReport(
+    companyId: string,
+    month: string,
+    machineId?: string,
+    divisionId?: string,
+  ): Promise<any> {
+    const start = `${month}-01`;
+    const endDate = new Date(`${month}-01T00:00:00`);
+    endDate.setMonth(endDate.getMonth() + 1);
+    endDate.setDate(0);
+    const end = `${month}-${String(endDate.getDate()).padStart(2, '0')}`;
+
+    const qb = this.changeRepo
+      .createQueryBuilder('cc')
+      .leftJoinAndSelect('cc.machine', 'machine')
+      .leftJoinAndSelect('machine.division', 'machineDivision')
+      .leftJoinAndSelect('cc.component', 'component')
+      .leftJoinAndSelect('component.item', 'componentItem')
+      .leftJoinAndSelect('component.uom', 'componentUom')
+      .where('cc.companyId = :companyId', { companyId })
+      .andWhere('cc.isActive = true')
+      .andWhere('cc.changeDate >= :start', { start })
+      .andWhere('cc.changeDate <= :end', { end });
+    if (machineId) qb.andWhere('cc.machineId = :machineId', { machineId });
+    if (divisionId) qb.andWhere('machine.divisionId = :divisionId', { divisionId });
+    qb.orderBy('cc.changeDate', 'ASC');
+    qb.addOrderBy('machine.machineCode', 'ASC');
+    qb.addOrderBy('component.componentCode', 'ASC');
+
+    const changes = await qb.getMany();
+    const activeMachineIds = changes
+      .filter(
+        (c) =>
+          (c.closedAt === null || c.closedAt === undefined) &&
+          c.lifecycleStatus !== ToolLifecycleStatus.STANDBY &&
+          c.lifecycleStatus !== ToolLifecycleStatus.CLOSED,
+      )
+      .map((c) => c.machineId);
+    const liveCounters = await fetchLiveMachineCounters(this.changeRepo.manager, companyId, activeMachineIds);
+    const { invCostMap, latestGrnPriceMap } = await this.loadCostLookups(companyId, changes);
 
     const groups = new Map<string, any>();
 
     for (const c of changes) {
       const key = `${c.machineId}::${c.componentId}`;
       const life = computeChangeCumulativeLife(c, liveCounters);
-
-      // Snapshot cost on the change/issue takes top priority so historical months remain locked;
-      // otherwise resolve from component rate -> inventory weighted avg -> Item Master -> latest GRN.
-      const changeSnapCost = numOrNull(c.unitCost);
-      const compUnitCost = numOrNull(c.component?.unitCost);
-      const linkedItemId = c.component?.itemId || c.component?.item?.id || null;
-      const invAvgCost = linkedItemId ? (invCostMap.get(linkedItemId) ?? null) : null;
-      const itemCostPrice = numOrNull(c.component?.item?.costPrice);
-      const grnPrice = linkedItemId ? (latestGrnPriceMap.get(linkedItemId) ?? null) : null;
-
-      let resolvedUnitCost = 0;
-      let costSource: 'SNAPSHOT' | 'COMPONENT' | 'INVENTORY_AVG' | 'ITEM_MASTER' | 'LATEST_GRN' | 'NONE' = 'NONE';
-      if (changeSnapCost !== null && changeSnapCost > 0) {
-        resolvedUnitCost = changeSnapCost;
-        costSource = 'SNAPSHOT';
-      } else if (compUnitCost !== null && compUnitCost > 0) {
-        resolvedUnitCost = compUnitCost;
-        costSource = 'COMPONENT';
-      } else if (invAvgCost !== null && invAvgCost > 0) {
-        resolvedUnitCost = invAvgCost;
-        costSource = 'INVENTORY_AVG';
-      } else if (itemCostPrice !== null && itemCostPrice > 0) {
-        resolvedUnitCost = itemCostPrice;
-        costSource = 'ITEM_MASTER';
-      } else if (grnPrice !== null && grnPrice > 0) {
-        resolvedUnitCost = grnPrice;
-        costSource = 'LATEST_GRN';
-      }
+      const { resolvedUnitCost, costSource, linkedItemId } = this.resolveChangeUnitCost(
+        c,
+        invCostMap,
+        latestGrnPriceMap,
+      );
 
       const qtyDelta = c.newToolCode ? 1 : 0;
       const g = groups.get(key) ?? {
@@ -652,6 +732,181 @@ export class ComponentChangeService {
         productionCovered: totalProductionCovered,
         totalCost,
         avgCostPerGross,
+      },
+    };
+  }
+
+  /**
+   * Live Machine Costing report across ALL currently ACTIVE tools mounted on each machine
+   * with no month restriction (includes carryover tools installed in prior months).
+   * Combined Cost / Gross (144 PCS) per machine equals the sum of each active tool's Cost / Gross.
+   */
+  async liveMachineCostingReport(
+    companyId: string,
+    machineId?: string,
+    divisionId?: string,
+  ): Promise<any> {
+    const qb = this.changeRepo
+      .createQueryBuilder('cc')
+      .leftJoinAndSelect('cc.machine', 'machine')
+      .leftJoinAndSelect('machine.division', 'machineDivision')
+      .leftJoinAndSelect('cc.component', 'component')
+      .leftJoinAndSelect('component.item', 'componentItem')
+      .leftJoinAndSelect('component.uom', 'componentUom')
+      .leftJoinAndSelect('cc.storeIssue', 'storeIssue')
+      .where('cc.companyId = :companyId', { companyId })
+      .andWhere('cc.isActive = true')
+      .andWhere('cc.closedAt IS NULL')
+      .andWhere('cc.lifecycleStatus NOT IN (:...inactiveStatuses)', {
+        inactiveStatuses: [ToolLifecycleStatus.STANDBY, ToolLifecycleStatus.CLOSED],
+      });
+    if (machineId) qb.andWhere('cc.machineId = :machineId', { machineId });
+    if (divisionId) qb.andWhere('machine.divisionId = :divisionId', { divisionId });
+    qb.orderBy('machine.machineCode', 'ASC');
+    qb.addOrderBy('cc.changeDate', 'ASC');
+    qb.addOrderBy('component.componentCode', 'ASC');
+
+    const activeChanges = await qb.getMany();
+    const activeMachineIds = activeChanges.map((c) => c.machineId);
+    const liveCounters = await fetchLiveMachineCounters(this.changeRepo.manager, companyId, activeMachineIds);
+    const { invCostMap, latestGrnPriceMap } = await this.loadCostLookups(companyId, activeChanges);
+
+    const now = new Date();
+    const todayUtc = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+    const calcRunningDays = (installDate?: string | null): number => {
+      if (!installDate) return 0;
+      const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(installDate));
+      if (!m) return 0;
+      const installUtc = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+      return Math.max(0, Math.floor((todayUtc - installUtc) / 86_400_000));
+    };
+
+    const rows = activeChanges.map((c) => {
+      const productionCovered = computeChangeCumulativeLife(c, liveCounters);
+      const { resolvedUnitCost, costSource, linkedItemId } = this.resolveChangeUnitCost(
+        c,
+        invCostMap,
+        latestGrnPriceMap,
+      );
+      const qtyUsed = c.newToolCode ? 1 : 0;
+      const totalCost = Number((qtyUsed * resolvedUnitCost).toFixed(2));
+      const costPerGross =
+        productionCovered > 0
+          ? Number(((totalCost / productionCovered) * 144).toFixed(2))
+          : null;
+
+      return {
+        changeId: c.id,
+        installedToolCode: c.newToolCode,
+        installDate: c.changeDate,
+        runningDays: calcRunningDays(c.changeDate),
+        storeIssueNumber: c.storeIssue?.issueNumber ?? null,
+        machine: c.machine
+          ? {
+              id: c.machine.id,
+              machineCode: c.machine.machineCode,
+              machineName: c.machine.name,
+              divisionId: c.machine.divisionId ?? null,
+              divisionName: c.machine.division?.name ?? null,
+            }
+          : null,
+        component: c.component
+          ? {
+              id: c.component.id,
+              itemId: linkedItemId,
+              componentCode: c.component.componentCode,
+              componentName: c.component.componentName,
+              componentType: c.component.componentType,
+              uomCode: componentUomCode(c.component),
+            }
+          : null,
+        qtyUsed,
+        unitCost: Number(resolvedUnitCost.toFixed(2)),
+        costSource,
+        totalCost,
+        productionCovered,
+        costPerGross,
+      };
+    });
+
+    rows.sort((a, b) => {
+      const m = (a.machine?.machineCode ?? '').localeCompare(b.machine?.machineCode ?? '');
+      if (m !== 0) return m;
+      return (a.installDate ?? '').localeCompare(b.installDate ?? '') ||
+        (a.component?.componentCode ?? '').localeCompare(b.component?.componentCode ?? '');
+    });
+
+    const machineMap = new Map<string, any>();
+    for (const r of rows) {
+      const mId = r.machine?.id ?? 'unknown';
+      const mg = machineMap.get(mId) ?? {
+        machine: r.machine,
+        activeToolsCount: 0,
+        qtyUsed: 0,
+        totalCost: 0,
+        productionCovered: 0,
+        combinedCostPerGross: 0,
+        hasCostPerGross: false,
+        earliestInstallDate: null as string | null,
+        latestInstallDate: null as string | null,
+        components: [] as any[],
+      };
+      mg.activeToolsCount += 1;
+      mg.qtyUsed += r.qtyUsed;
+      mg.totalCost = Number((mg.totalCost + (r.totalCost || 0)).toFixed(2));
+      if ((r.productionCovered || 0) > mg.productionCovered) {
+        mg.productionCovered = Number((r.productionCovered || 0).toFixed(4));
+      }
+      if (r.costPerGross !== null && r.costPerGross !== undefined) {
+        mg.combinedCostPerGross = Number((mg.combinedCostPerGross + r.costPerGross).toFixed(2));
+        mg.hasCostPerGross = true;
+      }
+      if (r.installDate && (!mg.earliestInstallDate || r.installDate < mg.earliestInstallDate)) {
+        mg.earliestInstallDate = r.installDate;
+      }
+      if (r.installDate && (!mg.latestInstallDate || r.installDate > mg.latestInstallDate)) {
+        mg.latestInstallDate = r.installDate;
+      }
+      mg.components.push(r);
+      machineMap.set(mId, mg);
+    }
+
+    const machines = Array.from(machineMap.values())
+      .map(({ hasCostPerGross, combinedCostPerGross, ...mg }) => ({
+        ...mg,
+        combinedCostPerGross: hasCostPerGross ? combinedCostPerGross : null,
+      }))
+      .sort((a, b) =>
+        (a.machine?.machineCode ?? '').localeCompare(b.machine?.machineCode ?? ''),
+      );
+
+    const totalCost = Number(
+      machines.reduce((a, b) => a + (b.totalCost || 0), 0).toFixed(2),
+    );
+    const totalProductionCovered = Number(
+      machines.reduce((a, b) => a + (b.productionCovered || 0), 0).toFixed(4),
+    );
+    const machinesWithCpg = machines.filter((m) => m.combinedCostPerGross !== null);
+    const avgCombinedCostPerGross =
+      machinesWithCpg.length > 0
+        ? Number(
+            (
+              machinesWithCpg.reduce((a, b) => a + (b.combinedCostPerGross || 0), 0) /
+              machinesWithCpg.length
+            ).toFixed(2),
+          )
+        : null;
+
+    return {
+      rows,
+      machines,
+      totals: {
+        machines: machines.length,
+        activeTools: rows.length,
+        qtyUsed: rows.reduce((a, b) => a + b.qtyUsed, 0),
+        productionCovered: totalProductionCovered,
+        totalCost,
+        avgCombinedCostPerGross,
       },
     };
   }

@@ -77,6 +77,19 @@ export class ToolLifecycleController {
     return this.service.activeTools(this.getCompanyId(req), query);
   }
 
+  @Post('recalculate-life')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.component_change.update')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Recalculate mount counters & production life for Store Issue / Tool runs from exact install dates' })
+  async recalculateLife(@Query('storeIssueId') storeIssueId: string | undefined, @Req() req: any) {
+    return this.service.recalculateLinkedToolRuns({
+      companyId: this.getCompanyId(req),
+      storeIssueId: storeIssueId || undefined,
+    });
+  }
+
   @Get('standby-tools')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()

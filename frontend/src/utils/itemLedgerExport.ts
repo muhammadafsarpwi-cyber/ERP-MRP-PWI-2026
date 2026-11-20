@@ -5,6 +5,27 @@ import { message } from 'antd';
 import apiService from '../services/api';
 import { formatNumber } from './numberFormat';
 import type { ItemStockLedgerData, StockLedgerMovement } from '../components/shared/ItemStockLedgerModal';
+import { renderWhatsAppTemplate, resolveWhatsAppTemplate } from './whatsappSettingsStore';
+
+export const DEFAULT_ITEM_LEDGER_WHATSAPP_TEMPLATE = `*PAKISTAN WIRE INDUSTRIES (PVT.) LTD.*
+📦 *ITEM STOCK LEDGER & AUDIT TRAIL*
+────────────────────────────
+🏷 *Item:* {item_code}
+📝 *Description:* {item_name}
+📍 *Warehouse:* {warehouse}
+📏 *Base Unit:* {uom}
+📅 *Date:* {date}
+
+📊 *STOCK SUMMARY:*
+• Total Received (+IN): {total_in}
+• Total Issued (-OUT): {total_out}
+• *Current Live Balance:* {current_balance}
+• Total Audit Records: {movements_count} entries
+
+📋 *RECENT MOVEMENTS:*
+{recent_movements}
+────────────────────────────
+_PWI Enterprise ERP & MRP System_`;
 
 /**
  * Breakdown quantity into Cartons (CTN), Gross (GRS), and Pieces (PCS)
@@ -731,25 +752,22 @@ export function shareItemLedgerWhatsApp(data: ItemStockLedgerData, warehouseName
     return `${i + 1}. ${dt} | ${sign} ${qtyStr}${ref}${cust}`;
   }).join('\n');
 
-  const text = `*PAKISTAN WIRE INDUSTRIES (PVT.) LTD.*
-📦 *ITEM STOCK LEDGER & AUDIT TRAIL*
-────────────────────────────
-🏷 *Item:* ${itemCode}
-📝 *Description:* ${itemName}
-📍 *Warehouse:* ${whName}
-📏 *Base Unit:* ${uom}
-📅 *Date:* ${dayjs().format('DD-MMM-YYYY HH:mm')}
-
-📊 *STOCK SUMMARY:*
-• Total Received (+IN): ${inStr}
-• Total Issued (-OUT): ${outStr}
-• *Current Live Balance:* ${balStr}
-• Total Audit Records: ${movements.length} entries
-
-📋 *RECENT MOVEMENTS:*
-${recentMovements || 'No movement records.'}
-────────────────────────────
-_PWI Enterprise ERP & MRP System_`;
+  const template = resolveWhatsAppTemplate(
+    'itemStockLedger',
+    DEFAULT_ITEM_LEDGER_WHATSAPP_TEMPLATE,
+  );
+  const text = renderWhatsAppTemplate(template, {
+    '{item_code}': itemCode,
+    '{item_name}': itemName,
+    '{warehouse}': whName,
+    '{uom}': uom,
+    '{date}': dayjs().format('DD-MMM-YYYY HH:mm'),
+    '{total_in}': inStr,
+    '{total_out}': outStr,
+    '{current_balance}': balStr,
+    '{movements_count}': String(movements.length),
+    '{recent_movements}': recentMovements || 'No movement records.',
+  });
 
   try {
     if (navigator?.clipboard?.writeText) {

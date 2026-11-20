@@ -8,6 +8,10 @@ import {
   buildDailyProductionReport,
   buildDailyProductionCsv,
   buildDailyProductionWhatsApp,
+  buildDirectorSummaryWhatsApp,
+  DEFAULT_DIRECTOR_SUMMARY_TEMPLATE,
+  DEFAULT_DIRECTOR_SUMMARY_DEPT_TEMPLATE,
+  PROD_DIR_SUMMARY_STORAGE_KEY,
   buildPrintHtml,
   classifyShift,
   compareMachineNo,
@@ -1463,3 +1467,192 @@ describe('Daily Production Report — WhatsApp message export', () => {
   });
 });
 
+
+describe('buildDirectorSummaryWhatsApp', () => {
+  it('formats executive department summary cleanly for Directors', () => {
+    const rows = [
+      makeRow({
+        department: { name: 'Straightener' },
+        machineNo: 'ST-01',
+        item: { itemCode: 'WIP-ST-001', name: 'CD-250*17 Butted', weightPerPiece: 0.00967 },
+        uom: { code: 'PCS' },
+        targetQuantity: 1000,
+        actualQuantity: 950,
+        scrapQuantity: 10,
+        processScrapKg: 2.5,
+      }),
+      makeRow({
+        department: { name: 'Swaging' },
+        machineNo: 'SW-01',
+        item: { itemCode: 'WIP-SW-001', name: 'CD-250*17 Swagged', weightPerPiece: 0.0095 },
+        uom: { code: 'PCS' },
+        targetQuantity: 0,
+        actualQuantity: 1800,
+      }),
+    ];
+    const m = buildDailyProductionReport(rows, {
+      ...opts({ divisionName: 'Spoke Division' }),
+      dateFrom: '2026-11-19',
+      dateTo: '2026-11-19',
+    });
+    const text = buildDirectorSummaryWhatsApp(m);
+
+    expect(text).toContain('📊 *DAILY PRODUCTION SUMMARY*');
+    expect(text).toContain('🏭 *Division:* Spoke Division');
+    expect(text).toContain('📅 *Date:* 19-Nov-2026');
+    expect(text).not.toContain('━━━━━━━━━━━━━━━━━━━━');
+    expect(text).not.toContain('Machines ·');
+
+    expect(text).toContain('🔹 *1. STRAIGHTENER*');
+    expect(text).toContain('Target: 1,000 PCS');
+    expect(text).toContain('Actual: 950 PCS (▲ 95.0%)');
+    expect(text).toContain('Part Rejection: 10 PCS (0.1 KG)');
+    expect(text).toContain('Process Scrap: 2.5 KG (');
+    expect(text).toContain('*Item Breakdown:*');
+    expect(text).toContain('▪ WIP-ST-001 (CD-250*17 Butted): *950 PCS*');
+    expect(text).not.toContain('Scrap 10 Pcs');
+
+    expect(text).toContain('🔹 *2. SWAGING*');
+    expect(text).toContain('Actual: 1,800 PCS (—)');
+    expect(text).toContain('✅ *Generated via PWI ERP System*');
+  });
+
+  it('formats date ranges and non-count UOMs (Meters) accurately', () => {
+    const rows = [
+      makeRow({
+        department: { name: 'Spiral' },
+        machineNo: 'CC-01',
+        item: { itemCode: 'WIP-CS-001', name: 'Spiral Core 3.75mm', weightPerMeter: 0.033 },
+        uom: { code: 'M' },
+        targetQuantity: 1000,
+        actualQuantity: 904.66,
+      }),
+    ];
+    const m = buildDailyProductionReport(rows, {
+      ...opts({ divisionName: 'Control Cable Division' }),
+      dateFrom: '2026-11-10',
+      dateTo: '2026-11-19',
+    });
+    const text = buildDirectorSummaryWhatsApp(m);
+
+    expect(text).toContain('🏭 *Division:* Control Cable Division');
+    expect(text).toContain('📅 *Date:* 10-Nov-2026 to 19-Nov-2026');
+    expect(text).toContain('🔹 *1. SPIRAL*');
+    expect(text).toContain('▪ WIP-CS-001 (Spiral Core 3.75mm): *904.66 M*');
+  });
+});
+
+describe('buildDirectorSummaryWhatsApp settings template integration', () => {
+  afterEach(() => {
+    window.localStorage.removeItem(PROD_DIR_SUMMARY_STORAGE_KEY);
+  });
+
+  it('uses custom templates saved in WhatsApp Settings and restores defaults when cleared', () => {
+    const rows = [
+      makeRow({
+        department: { name: 'Straightener' },
+        machineNo: 'ST-01',
+        item: { itemCode: 'WIP-ST-001', name: 'CD-250*17 Butted', weightPerPiece: 0.00967 },
+        uom: { code: 'PCS' },
+        targetQuantity: 1000,
+        actualQuantity: 950,
+        scrapQuantity: 10,
+        processScrapKg: 2.5,
+      }),
+    ];
+    const m = buildDailyProductionReport(rows, {
+      ...opts({ divisionName: 'Spoke Division' }),
+      dateFrom: '2026-11-19',
+      dateTo: '2026-11-19',
+    });
+
+    window.localStorage.setItem(
+      PROD_DIR_SUMMARY_STORAGE_KEY,
+      JSON.stringify({
+        countryCode: '92',
+        templates: {
+          dailyProductionDirectorSummary: 'CUSTOM DIRECTOR HEADER\nDiv={division} | On={date}\n\n{department_blocks}\n\nCUSTOM FOOTER',
+          dailyProductionDirectorDeptBlock: '[{index}] {department} => {actual} / {target} ({achievement})\nREJ:{part_rejection} | SCRAP:{process_scrap}\n{item_rows}',
+        },
+      }),
+    );
+
+    const customized = buildDirectorSummaryWhatsApp(m);
+    expect(customized).toContain('CUSTOM DIRECTOR HEADER');
+    expect(customized).toContain('Div=Spoke Division | On=19-Nov-2026');
+    expect(customized).toContain('[1] STRAIGHTENER => 950 PCS / 1,000 PCS (▲ 95.0%)');
+    expect(customized).toContain('REJ:10 PCS (0.1 KG) | SCRAP:2.5 KG (');
+    expect(customized).toContain('▪ WIP-ST-001 (CD-250*17 Butted): *950 PCS*');
+    expect(customized).toContain('CUSTOM FOOTER');
+
+    // Restoring default templates brings back the exact built-in structure
+    window.localStorage.setItem(
+      PROD_DIR_SUMMARY_STORAGE_KEY,
+      JSON.stringify({
+        countryCode: '92',
+        templates: {
+          dailyProductionDirectorSummary: DEFAULT_DIRECTOR_SUMMARY_TEMPLATE,
+          dailyProductionDirectorDeptBlock: DEFAULT_DIRECTOR_SUMMARY_DEPT_TEMPLATE,
+        },
+      }),
+    );
+    const restored = buildDirectorSummaryWhatsApp(m);
+    expect(restored).toContain('📊 *DAILY PRODUCTION SUMMARY*');
+    expect(restored).toContain('🔹 *1. STRAIGHTENER*');
+    expect(restored).toContain('✅ *Generated via PWI ERP System*');
+  });
+});
+
+describe('buildDirectorSummaryWhatsApp — Spoke Packing vs Nipple Packing & remark KG fallback', () => {
+  it('keeps Spoke Packing Department separate from Nipple Packing and parses Part Rejection KG from remarks', () => {
+    const rows = [
+      makeRow({
+        department: { name: 'Spoke Packing Department' },
+        machineNo: '—',
+        item: {
+          itemCode: 'SPI-FG-SPK-011',
+          name: '300X17 S9 Inn / Out Spoke Straight (CS)__125-S9 Nipple',
+          weightPerPiece: null,
+        },
+        uom: { code: 'PCS' },
+        targetQuantity: 180000,
+        actualQuantity: 194560,
+        scrapQuantity: 200,
+        processScrapKg: 0,
+        remarks:
+          '[HAND PACKING] Batch: PKG-2026-0990 | Weight: 3118.2 KG | Part Rejection: 200 PCS (2.11 KG) | Reject Detail: WIP-SPL-013=100, WIP-SPL-014=100',
+      }),
+      makeRow({
+        department: { name: 'Nipple Packing' },
+        machineNo: '—',
+        item: {
+          itemCode: 'SPI-FG-SPK-010',
+          name: 'DS Front Inn / Out Spoke Straight__225X17 Nipple',
+          weightPerPiece: 0.01034,
+        },
+        uom: { code: 'PCS' },
+        targetQuantity: 180000,
+        actualQuantity: 21600,
+        scrapQuantity: 16,
+        processScrapKg: 0,
+      }),
+    ];
+
+    const m = buildDailyProductionReport(rows, {
+      ...opts({ divisionName: 'Spoke Division' }),
+      dateFrom: '2026-11-19',
+      dateTo: '2026-11-19',
+    });
+    const text = buildDirectorSummaryWhatsApp(m);
+
+    expect(text).toContain('NIPPLE PACKING*');
+    expect(text).toContain('SPOKE PACKING DEPARTMENT*');
+    const spkSection = text.slice(text.indexOf('SPOKE PACKING DEPARTMENT'));
+    expect(spkSection).toContain('Part Rejection: 200 PCS (2.11 KG)');
+    expect(spkSection).toContain('▪ SPI-FG-SPK-011');
+
+    const nipSection = text.slice(text.indexOf('NIPPLE PACKING'), text.indexOf('SPOKE PACKING DEPARTMENT'));
+    expect(nipSection).toContain('▪ SPI-FG-SPK-010');
+    expect(nipSection).not.toContain('SPI-FG-SPK-011');
+  });
+});

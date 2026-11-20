@@ -1324,7 +1324,94 @@ export class StoreService implements OnModuleInit {
     qb.loadRelationCountAndMap('mi.lineCount', 'mi.lines', 'lines')
       .orderBy('mi.created_at', 'DESC');
 
-    return qb.getMany();
+    const issues = await qb.getMany();
+    if (issues.length > 0) {
+      await this.attachEnrichedIssueLines(issues);
+    }
+    return issues;
+  }
+
+  private async attachEnrichedIssueLines(issues: MaterialIssue[]): Promise<void> {
+    const issueIds = issues.map((i) => i.id).filter(Boolean);
+    if (issueIds.length === 0) return;
+
+    try {
+      const rows: Array<{
+        id: string;
+        issue_id: string;
+        line_number: number;
+        item_id: string;
+        quantity: string | number;
+        unit_cost: string | number | null;
+        total_cost: string | number | null;
+        uom_id: string;
+        batch_id: string | null;
+        serial_number: string | null;
+        requires_old_item_return: boolean;
+        old_item_returned_qty: string | number;
+        remarks: string | null;
+        item_code: string | null;
+        item_name: string | null;
+        item_type: string | null;
+        uom_code: string | null;
+      }> = await this.storeRepo.manager.query(
+        `SELECT mil.id,
+                mil.issue_id,
+                mil.line_number,
+                mil.item_id,
+                mil.quantity,
+                mil.unit_cost,
+                mil.total_cost,
+                mil.uom_id,
+                mil.batch_id,
+                mil.serial_number,
+                mil.requires_old_item_return,
+                mil.old_item_returned_qty,
+                mil.remarks,
+                i.item_code,
+                i.name AS item_name,
+                i.item_type,
+                COALESCE(u.code, bu.code) AS uom_code
+           FROM material_issue_lines mil
+           LEFT JOIN items i ON i.id = mil.item_id
+           LEFT JOIN uoms u ON u.id = mil.uom_id
+           LEFT JOIN uoms bu ON bu.id = i.base_uom_id
+          WHERE mil.issue_id = ANY($1)
+          ORDER BY mil.line_number ASC, mil.created_at ASC`,
+        [issueIds],
+      );
+
+      const byIssueId = new Map<string, any[]>();
+      for (const r of rows || []) {
+        const list = byIssueId.get(r.issue_id) ?? [];
+        list.push({
+          id: r.id,
+          issueId: r.issue_id,
+          lineNumber: Number(r.line_number || 0),
+          itemId: r.item_id,
+          quantity: Number(r.quantity || 0),
+          unitCost: r.unit_cost != null ? Number(r.unit_cost) : null,
+          totalCost: r.total_cost != null ? Number(r.total_cost) : null,
+          uomId: r.uom_id,
+          batchId: r.batch_id,
+          serialNumber: r.serial_number,
+          requiresOldItemReturn: Boolean(r.requires_old_item_return),
+          oldItemReturnedQty: Number(r.old_item_returned_qty || 0),
+          remarks: r.remarks,
+          itemCode: r.item_code || '',
+          itemName: r.item_name || '',
+          itemType: r.item_type || '',
+          uomCode: r.uom_code || '',
+        });
+        byIssueId.set(r.issue_id, list);
+      }
+
+      for (const issue of issues) {
+        issue.lines = byIssueId.get(issue.id) ?? [];
+      }
+    } catch {
+      // Fallback gracefully if line enrichment fails
+    }
   }
 
   async findMaterialIssueById(id: string, companyId?: string, allowedDivisionIds?: DivisionAccess) {
@@ -1458,6 +1545,18 @@ export class StoreService implements OnModuleInit {
     }
 
     await this.materialIssueRepo.update(id, headerUpdates);
+    if (headerUpdates.issueDate !== undefined && this.toolLifecycleService) {
+      try {
+        await this.toolLifecycleService.recalculateLinkedToolRuns({
+          companyId: issue.companyId,
+          storeIssueId: id,
+        });
+      } catch (err: any) {
+        this.logger.warn(
+          `Tool run recalculation skipped after issue ${id} update: ${err?.message || err}`,
+        );
+      }
+    }
     return this.findMaterialIssueById(id);
   }
 

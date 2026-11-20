@@ -98,6 +98,7 @@ export class ToolLifecycleService implements OnModuleInit {
         `);
       }
       this.logger.log('Verified component_changes lifecycle changeover & standby schema.');
+      await this.recalculateLinkedToolRuns();
     } catch (err: any) {
       this.logger.warn(`Tool lifecycle schema verification skipped: ${err?.message || err}`);
     }
@@ -1338,6 +1339,249 @@ export class ToolLifecycleService implements OnModuleInit {
       where: { companyId, machineId, isActive: true },
       order: { changeDate: 'ASC' as const },
     });
+  }
+
+  /**
+   * Recalculates and persists install counters (`production_counter_after`), `change_date`,
+   * `mounting_sessions` window counters/production, and cumulative `production_since_previous`
+   * across Store-Issue-linked and active/standby/closed `component_changes` using explicit
+   * per-session date windows (`entry_date > startDate` and `entry_date <= endDate`).
+   */
+  async recalculateLinkedToolRuns(options?: {
+    companyId?: string;
+    storeIssueId?: string;
+  }): Promise<{ scanned: number; updated: number; details: Array<{ id: string; issueNumber: string | null; changeDate: string; oldAfter: number | null; newAfter: number; oldLife: number | null; newLife: number }> }> {
+    if (typeof this.changeRepo?.manager?.query !== 'function') {
+      return { scanned: 0, updated: 0, details: [] };
+    }
+
+    const clauses: string[] = [
+      'cc.is_active = TRUE',
+      "(cc.store_issue_id IS NOT NULL OR cc.closed_at IS NULL OR jsonb_array_length(COALESCE(cc.mounting_sessions, '[]'::jsonb)) > 0)",
+    ];
+    const params: any[] = [];
+    if (options?.companyId) {
+      params.push(options.companyId);
+      clauses.push(`cc.company_id = $${params.length}`);
+    }
+    if (options?.storeIssueId) {
+      params.push(options.storeIssueId);
+      clauses.push(`cc.store_issue_id = $${params.length}`);
+    }
+
+    const rows: Array<{
+      id: string;
+      company_id: string;
+      machine_id: string;
+      change_date: string;
+      store_issue_id: string | null;
+      sin_date: string | null;
+      issue_number: string | null;
+      closed_at: Date | null;
+      lifecycle_status: string;
+      production_counter_after: string | number | null;
+      production_counter_before: string | number | null;
+      accumulated_life_before_current_session: string | number | null;
+      production_since_previous: string | number | null;
+      mounting_sessions: any;
+    }> = await this.changeRepo.manager.query(
+      `SELECT cc.id,
+              cc.company_id,
+              cc.machine_id,
+              cc.change_date::text AS change_date,
+              cc.store_issue_id,
+              mi.issue_date::date::text AS sin_date,
+              mi.issue_number,
+              cc.closed_at,
+              cc.lifecycle_status,
+              cc.production_counter_after,
+              cc.production_counter_before,
+              cc.accumulated_life_before_current_session,
+              cc.production_since_previous,
+              cc.mounting_sessions
+         FROM component_changes cc
+         LEFT JOIN material_issues mi ON mi.id = cc.store_issue_id
+        WHERE ${clauses.join(' AND ')}
+        ORDER BY cc.change_date ASC, cc.changed_at ASC`,
+      params,
+    );
+
+    const queryWindowStats = async (
+      companyId: string,
+      machineId: string,
+      startDate: string,
+      endDate: string | null,
+    ): Promise<{ counterAtStart: number; counterAtEnd: number; windowProduction: number }> => {
+      const wRows: Array<{ counter_at_start: string | number; counter_at_end: string | number; window_prod: string | number }> =
+        await this.changeRepo.manager.query(
+          `SELECT
+             COALESCE(SUM(CASE WHEN entry_date <= $3 THEN actual_quantity ELSE 0 END), 0)::numeric(19,4) AS counter_at_start,
+             COALESCE(SUM(CASE WHEN ($4::date IS NULL OR entry_date <= $4::date) THEN actual_quantity ELSE 0 END), 0)::numeric(19,4) AS counter_at_end,
+             COALESCE(SUM(CASE WHEN entry_date > $3 AND ($4::date IS NULL OR entry_date <= $4::date) THEN actual_quantity ELSE 0 END), 0)::numeric(19,4) AS window_prod
+             FROM production_entries
+            WHERE company_id = $1
+              AND machine_id = $2
+              AND is_active = TRUE
+              AND deleted_at IS NULL`,
+          [companyId, machineId, startDate, endDate],
+        );
+      return {
+        counterAtStart: Number(wRows?.[0]?.counter_at_start || 0),
+        counterAtEnd: Number(wRows?.[0]?.counter_at_end || 0),
+        windowProduction: Number(wRows?.[0]?.window_prod || 0),
+      };
+    };
+
+    const details: Array<{
+      id: string;
+      issueNumber: string | null;
+      changeDate: string;
+      oldAfter: number | null;
+      newAfter: number;
+      oldLife: number | null;
+      newLife: number;
+    }> = [];
+
+    for (const r of rows || []) {
+      const sessions = Array.isArray(r.mounting_sessions) ? r.mounting_sessions.map((s: any) => ({ ...s })) : [];
+      const isSingleSession = sessions.length <= 1;
+      const targetDate = (r.store_issue_id && isSingleSession && r.sin_date)
+        ? String(r.sin_date).slice(0, 10)
+        : String(r.change_date).slice(0, 10);
+      const oldDate = String(r.change_date).slice(0, 10);
+      const oldAfter = numOrNull(r.production_counter_after);
+      const oldLife = numOrNull(r.production_since_previous);
+      const isActive =
+        !r.closed_at &&
+        r.lifecycle_status !== ToolLifecycleStatus.STANDBY &&
+        r.lifecycle_status !== ToolLifecycleStatus.CLOSED;
+
+      let sessionsChanged = false;
+      let newAfter = oldAfter ?? 0;
+      let newBefore = numOrNull(r.production_counter_before);
+      let newAccumulatedBeforeCurrent = numOrNull(r.accumulated_life_before_current_session) ?? 0;
+      let newLife = oldLife ?? 0;
+
+      if (sessions.length > 1) {
+        // Multi-session path: sum production strictly inside each session's [mountedAt, unmountedAt] window
+        let priorSum = 0;
+        let activeWindowProd = 0;
+        for (let idx = 0; idx < sessions.length; idx++) {
+          const s = sessions[idx];
+          const sMachId = s.machineId || r.machine_id;
+          const sStart = String(s.mountedAt || targetDate).slice(0, 10);
+          const sEnd = s.unmountedAt ? String(s.unmountedAt).slice(0, 10) : null;
+          const w = await queryWindowStats(r.company_id, sMachId, sStart, sEnd);
+          const sessionProd = Number(w.windowProduction.toFixed(4));
+          if (
+            Number(s.startCounter) !== w.counterAtStart ||
+            (sEnd && Number(s.endCounter) !== w.counterAtEnd) ||
+            Number(s.sessionProduction) !== sessionProd
+          ) {
+            s.startCounter = w.counterAtStart;
+            if (sEnd) s.endCounter = w.counterAtEnd;
+            s.sessionProduction = sessionProd;
+            sessionsChanged = true;
+          }
+          if (idx === sessions.length - 1 && isActive && !sEnd) {
+            newAfter = w.counterAtStart;
+            activeWindowProd = sessionProd;
+          } else {
+            priorSum = Number((priorSum + sessionProd).toFixed(4));
+            if (idx === sessions.length - 1 && sEnd) {
+              newBefore = w.counterAtEnd;
+            }
+          }
+        }
+        newAccumulatedBeforeCurrent = priorSum;
+        newLife = Number((priorSum + activeWindowProd).toFixed(4));
+      } else {
+        // Single-session run: bounded window from mount/install date to unmount/closed date (or NOW if active)
+        const closedDate = !isActive && r.closed_at ? new Date(r.closed_at).toISOString().slice(0, 10) : null;
+        const w = await queryWindowStats(r.company_id, r.machine_id, targetDate, closedDate);
+
+        if (r.store_issue_id) {
+          newAfter = w.counterAtStart;
+          if (isActive) {
+            newLife = Number(w.windowProduction.toFixed(4));
+          } else if (newBefore !== null) {
+            newLife = Number(Math.max(0, newBefore - newAfter).toFixed(4));
+          } else {
+            newLife = Number(w.windowProduction.toFixed(4));
+          }
+        } else if (isActive) {
+          // Manual install without Store Issue: preserve manual installCounter when set, else derive
+          const effectiveAfter = oldAfter ?? w.counterAtStart;
+          newAfter = effectiveAfter;
+          const priorAcc = numOrNull(r.accumulated_life_before_current_session) ?? 0;
+          newLife = Number((priorAcc + Math.max(0, w.counterAtEnd - effectiveAfter)).toFixed(4));
+        }
+
+        if (r.store_issue_id && sessions.length === 1) {
+          const s0 = sessions[0];
+          const timePart = typeof s0.mountedAt === 'string' && s0.mountedAt.includes('T')
+            ? s0.mountedAt.slice(10)
+            : 'T00:00:00';
+          const expectedMountedAt = `${targetDate}${timePart}`;
+          const expectedReason = r.issue_number ? `Issued via ${r.issue_number}` : s0.reason;
+          if (
+            s0.mountedAt !== expectedMountedAt ||
+            Number(s0.startCounter) !== newAfter ||
+            (expectedReason && s0.reason !== expectedReason)
+          ) {
+            s0.mountedAt = expectedMountedAt;
+            s0.startCounter = newAfter;
+            if (expectedReason) s0.reason = expectedReason;
+            sessionsChanged = true;
+          }
+        }
+      }
+
+      const needsDateUpdate = targetDate !== oldDate;
+      const needsAfterUpdate = oldAfter === null || oldAfter !== newAfter;
+      const needsAccUpdate = Number(r.accumulated_life_before_current_session ?? 0) !== newAccumulatedBeforeCurrent;
+      const needsLifeUpdate = oldLife === null || oldLife !== newLife;
+
+      if (needsDateUpdate || needsAfterUpdate || needsAccUpdate || needsLifeUpdate || sessionsChanged) {
+        await this.changeRepo.manager.query(
+          `UPDATE component_changes
+              SET change_date = $2,
+                  production_counter_after = $3,
+                  production_counter_before = $4,
+                  accumulated_life_before_current_session = $5,
+                  production_since_previous = $6,
+                  mounting_sessions = $7::jsonb,
+                  updated_at = NOW()
+            WHERE id = $1`,
+          [
+            r.id,
+            targetDate,
+            String(newAfter),
+            newBefore !== null ? String(newBefore) : null,
+            String(newAccumulatedBeforeCurrent),
+            String(newLife),
+            JSON.stringify(sessions),
+          ],
+        );
+        details.push({
+          id: r.id,
+          issueNumber: r.issue_number,
+          changeDate: targetDate,
+          oldAfter,
+          newAfter,
+          oldLife,
+          newLife,
+        });
+      }
+    }
+
+    if (details.length > 0) {
+      this.logger.log(
+        `Recalculated ${details.length} tool run(s): ${details.map((d) => `${d.issueNumber || d.id} -> ${d.newLife} PCS`).join(', ')}`,
+      );
+    }
+
+    return { scanned: rows?.length || 0, updated: details.length, details };
   }
 
   /**

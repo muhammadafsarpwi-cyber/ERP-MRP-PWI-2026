@@ -45,3 +45,61 @@ export function perUnitWeightLabel(
   if (COUNT_UOMS.has(u)) return weightPerPiece == null || weightPerPiece === 0 ? null : `${trimNum(weightPerPiece)} KG/${uom}`;
   return null;
 }
+
+/** Extract explicit Part Rejection KG weight from remarks (e.g. "Part Rejection: 200 PCS (2.11 KG)"). */
+export function parsePartRejectionKgFromRemarks(remarks?: string | null): number | null {
+  if (!remarks) return null;
+  const m =
+    /(?:Part Rejection|Component Scrap|Packing Rejection|Plating Defect|Rejection|Scrap|Defect):\s*[\d,.]+\s*[A-Za-z]*\s*\(\s*([\d,.]+)\s*KG\s*\)/i.exec(
+      String(remarks),
+    ) || /Total:\s*([\d,.]+)\s*KG\s*\(\s*\d+\s*PCS\s*\)/i.exec(String(remarks));
+  if (!m) return null;
+  const val = Number(m[1].replace(/,/g, ''));
+  return Number.isFinite(val) ? val : null;
+}
+
+/** Extract explicit actual Weight KG from Hand Packing remarks (e.g. "Weight: 3118.2 KG"). */
+export function parseWeightKgFromRemarks(remarks?: string | null): number | null {
+  if (!remarks) return null;
+  const m = /(?:^|\|\s*)Weight:\s*([\d,.]+)\s*KG/i.exec(String(remarks));
+  if (!m) return null;
+  const val = Number(m[1].replace(/,/g, ''));
+  return Number.isFinite(val) ? val : null;
+}
+
+/** Canonical unit-weight suffix ("kg/pc" for count UOMs, "kg/m" for length UOMs). */
+function unitWeightSuffix(uom: string): string | null {
+  const u = (uom || '').toUpperCase().trim();
+  if (!u || KG_UOMS.has(u)) return null;
+  if (LENGTH_UOMS.has(u)) return 'kg/m';
+  if (COUNT_UOMS.has(u)) return 'kg/pc';
+  return `kg/${u.toLowerCase()}`;
+}
+
+/**
+ * Standardized per-unit weight label ("<value> kg/pc" or "<value> kg/m") for
+ * cards and table rows: uses Item Master weightPerPiece/weightPerMeter when present,
+ * falling back cleanly to derived weight (totalKg / actualQty) when missing.
+ */
+export function formatStandardUnitWeight(
+  uom: string,
+  actualQty: number,
+  totalKg?: number | null,
+  weightPerPiece?: number | null,
+  weightPerMeter?: number | null,
+): string | null {
+  const u = (uom || '').toUpperCase().trim();
+  const suffix = unitWeightSuffix(u);
+  if (!suffix) return null;
+
+  if (LENGTH_UOMS.has(u) && weightPerMeter != null && weightPerMeter > 0) {
+    return `${trimNum(Number(weightPerMeter))} ${suffix}`;
+  }
+  if (COUNT_UOMS.has(u) && weightPerPiece != null && weightPerPiece > 0) {
+    return `${trimNum(Number(weightPerPiece))} ${suffix}`;
+  }
+  if (totalKg != null && totalKg > 0 && actualQty > 0) {
+    return `${Number((totalKg / actualQty).toFixed(5))} ${suffix}`;
+  }
+  return null;
+}

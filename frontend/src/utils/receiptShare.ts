@@ -1,4 +1,9 @@
 import { formatNameWithCode } from './formatEntityLabel';
+import {
+  formatWhatsAppPhoneWithCountryCode,
+  renderWhatsAppTemplate,
+  resolveWhatsAppTemplate,
+} from './whatsappSettingsStore';
 
 export interface ShareLine {
   itemCode?: string;
@@ -91,19 +96,28 @@ export function formatReceiptItemLines(lines: ShareLine[]): string {
 
 /** Check if user configured a custom Raw Material WhatsApp template in Company Settings */
 function getStoredRmReceiptTemplate(): string | null {
-  try {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      const saved = window.localStorage.getItem('erp_whatsapp_settings_v1');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed?.templates?.rmReceipt && typeof parsed.templates.rmReceipt === 'string' && parsed.templates.rmReceipt.trim()) {
-          return parsed.templates.rmReceipt.trim();
-        }
-      }
-    }
-  } catch {}
-  return null;
+  const custom = resolveWhatsAppTemplate('rmReceipt', '');
+  return custom || null;
 }
+
+export const DEFAULT_RM_RETURN_TEMPLATE = `*{company}*
+*RAW MATERIAL RETURN*
+━━━━━━━━━━━━━━━━━━━━━━━━━
+*Return Date:* {date}
+*Return Code:* {return_code}
+*Source / DC No:* {source_no}
+*Ref Gate Pass:* {ref_receipt}
+*Return Warehouse:* {warehouse}
+*Division:* {division}
+*Section:* {section}
+*Reason:* {reason}
+━━━━━━━━━━━━━━━━━━━━━━━━━
+{items}
+━━━━━━━━━━━━━━━━━━━━━━━━━
+*RETURN SUMMARY TOTAL:*
+• Total Returned Qty: {total_qty}
+━━━━━━━━━━━━━━━━━━━━━━━━━
+_Generated via PWI ERP System_`;
 
 /**
  * Rich, professional WhatsApp share message built from real receipt data.
@@ -214,6 +228,39 @@ export interface ShareReturnInfo {
 
 export function buildReturnWhatsAppMessage(info: ShareReturnInfo): string {
   const date = info.returnDate || '';
+  const warehouseDisplay = info.warehouseName?.trim() || info.warehouseCode?.trim() || '—';
+  const divisionDisplay = info.divisionName?.trim() || info.divisionCode?.trim() || '—';
+  const sectionDisplay = info.sectionName?.trim() || info.sectionCode?.trim() || '—';
+
+  const itemLines: string[] = [];
+  if (info.lines.length > 0) {
+    itemLines.push(`*RETURNED ITEMS (${info.lines.length} Line${info.lines.length > 1 ? 's' : ''}):*`);
+    info.lines.forEach((line, idx) => {
+      const itemTitle = formatNameWithCode(line.itemName, line.itemCode);
+      const uom = line.uomCode ? ` ${line.uomCode}` : '';
+      const qty = fmt(line.quantity);
+      itemLines.push(`\n*${idx + 1}. ${itemTitle}*`);
+      itemLines.push(`   • Returned Qty: ${qty}${uom}`);
+    });
+  }
+
+  const customTemplate = resolveWhatsAppTemplate('rmReturn', '');
+  if (customTemplate) {
+    return renderWhatsAppTemplate(customTemplate, {
+      '{company}': 'Pakistan Wire Industries (Pvt.) LTD',
+      '{return_code}': info.returnCode || '',
+      '{date}': date,
+      '{source_no}': info.sourceNo || '—',
+      '{ref_receipt}': info.referenceReceiptCode || '—',
+      '{warehouse}': warehouseDisplay,
+      '{division}': divisionDisplay,
+      '{section}': sectionDisplay,
+      '{reason}': info.reason || '—',
+      '{items}': itemLines.join('\n') || 'No items.',
+      '{total_qty}': fmt(info.quantityTotal),
+    });
+  }
+
   const lines: string[] = [];
 
   lines.push('*Pakistan Wire Industries (Pvt.) LTD*');
@@ -224,28 +271,14 @@ export function buildReturnWhatsAppMessage(info: ShareReturnInfo): string {
   if (info.sourceNo) lines.push(`*Source / DC No:* ${info.sourceNo}`);
   if (info.referenceReceiptCode) lines.push(`*Ref Gate Pass:* ${info.referenceReceiptCode}`);
 
-  const warehouseDisplay = info.warehouseName?.trim() || info.warehouseCode?.trim() || '';
-  const divisionDisplay = info.divisionName?.trim() || info.divisionCode?.trim() || '';
-  const sectionDisplay = info.sectionName?.trim() || info.sectionCode?.trim() || '';
-
-  if (warehouseDisplay) lines.push(`*Return Warehouse:* ${warehouseDisplay}`);
-  if (divisionDisplay) lines.push(`*Division:* ${divisionDisplay}`);
-  if (sectionDisplay) lines.push(`*Section:* ${sectionDisplay}`);
+  if (warehouseDisplay !== '—') lines.push(`*Return Warehouse:* ${warehouseDisplay}`);
+  if (divisionDisplay !== '—') lines.push(`*Division:* ${divisionDisplay}`);
+  if (sectionDisplay !== '—') lines.push(`*Section:* ${sectionDisplay}`);
   if (info.reason) lines.push(`*Reason:* ${info.reason}`);
 
   if (info.lines.length > 0) {
     lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━');
-    lines.push(`*RETURNED ITEMS (${info.lines.length} Line${info.lines.length > 1 ? 's' : ''}):*`);
-
-    info.lines.forEach((line, idx) => {
-      const itemTitle = formatNameWithCode(line.itemName, line.itemCode);
-      const uom = line.uomCode ? ` ${line.uomCode}` : '';
-      const qty = fmt(line.quantity);
-
-      lines.push(`\n*${idx + 1}. ${itemTitle}*`);
-      lines.push(`   • Returned Qty: ${qty}${uom}`);
-    });
-
+    lines.push(...itemLines);
     lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━');
     lines.push('*RETURN SUMMARY TOTAL:*');
     lines.push(`• Total Returned Qty: ${fmt(info.quantityTotal)}`);
@@ -267,7 +300,7 @@ export function waDirectShareUrl(message: string): string {
 
 /** Returns wa.me link with phone + message pre-filled, or '' if the phone is unusable. */
 export function waLink(phone: string, message: string): string {
-  const digits = phone.replace(/\D/g, '');
+  const digits = formatWhatsAppPhoneWithCountryCode(phone);
   if (digits.length < 8) return '';
   const url = new URL('https://wa.me/' + digits);
   if (message.trim()) url.searchParams.set('text', message.trim());
@@ -276,6 +309,6 @@ export function waLink(phone: string, message: string): string {
 
 /** Digits-only phone. Returns null when it is clearly invalid (<8 digits). */
 export function normalizeWaPhone(phone: string): string | null {
-  const digits = phone.replace(/\D/g, '');
+  const digits = formatWhatsAppPhoneWithCountryCode(phone);
   return digits.length >= 8 ? digits : null;
 }

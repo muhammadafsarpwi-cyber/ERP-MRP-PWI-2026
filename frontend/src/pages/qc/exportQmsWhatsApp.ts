@@ -1,4 +1,30 @@
 import { QmsInProcessInspection } from './types';
+import { renderWhatsAppTemplate, resolveWhatsAppTemplate } from '../../utils/whatsappSettingsStore';
+
+export const DEFAULT_QMS_INSPECTION_WHATSAPP_TEMPLATE = `====================================
+*PAKISTAN WIRE INDUSTRIES (PVT.) LTD.*
+*IN-PROCESS QUALITY INSPECTION REPORT*
+====================================
+
+*Doc Ref:* {doc_ref} | *Rev:* {rev_no} | *Date:* {issue_date}
+*Inspection #:* {inspection_no}
+
+------------------------------------
+*GENERAL METADATA*
+------------------------------------
+• *Division:* {division}
+• *Department:* {department}
+• *Date:* {date} | *Shift:* {shift}
+• *Machine:* {machine} | *Operator:* {operator}
+• *Part / Item:* *{item_name}* ({item_code})
+• *Inspector:* {inspector}
+{approved_by_line}
+{samples_section}{attributes_section}
+====================================
+*OVERALL RESULT:* *{overall_result}*
+*Remarks:* {remarks}
+====================================
+_Verified & Generated via PWI ERP System_`;
 
 /**
  * Builds a clean, professional, universally compatible WhatsApp text report.
@@ -6,72 +32,63 @@ import { QmsInProcessInspection } from './types';
  * across any mobile device, WhatsApp Web, or OS.
  */
 export function buildQmsWhatsAppMessage(insp: QmsInProcessInspection): string {
-  const lines: string[] = [];
-
-  lines.push('====================================');
-  lines.push('*PAKISTAN WIRE INDUSTRIES (PVT.) LTD.*');
-  lines.push('*IN-PROCESS QUALITY INSPECTION REPORT*');
-  lines.push('====================================');
-  lines.push('');
-  lines.push(`*Doc Ref:* ${insp.docRef || 'SPD/QMS/05'} | *Rev:* ${insp.revNo || '02'} | *Date:* ${insp.issueDate || '09-Jun-2022'}`);
-  lines.push(`*Inspection #:* ${insp.inspectionNo}`);
-  lines.push('');
-  lines.push('------------------------------------');
-  lines.push('*GENERAL METADATA*');
-  lines.push('------------------------------------');
-  lines.push(`• *Division:* ${insp.divisionName || 'Spoke Division'}`);
-  lines.push(`• *Department:* ${insp.departmentName || 'Spoke'}`);
-  lines.push(`• *Date:* ${insp.inspectionDate} | *Shift:* ${insp.shift}`);
-  lines.push(`• *Machine:* ${insp.machineNo} | *Operator:* ${insp.operatorName}`);
-  lines.push(`• *Part / Item:* *${insp.itemName}* (${insp.itemCode})`);
-  lines.push(`• *Inspector:* ${insp.inspectorName}`);
-  if (insp.approvedBy) {
-    lines.push(`• *Approved By:* ${insp.approvedBy}`);
-  }
-  lines.push('');
-  lines.push('------------------------------------');
-  lines.push('*DIMENSIONAL CHECKS (5 SAMPLES):*');
-  lines.push('------------------------------------');
-
+  const sampleLines: string[] = [];
   if (insp.samples && insp.samples.length > 0) {
+    sampleLines.push('------------------------------------');
+    sampleLines.push('*DIMENSIONAL CHECKS (5 SAMPLES):*');
+    sampleLines.push('------------------------------------');
     insp.samples.forEach((s, idx) => {
-      lines.push('');
+      sampleLines.push('');
       const tolStr = `(±${s.tolPlus}${s.unit})`;
-      lines.push(`*${idx + 1}. ${s.charName}*`);
-      lines.push(`   • Dimension Req: ${s.nominal} ${tolStr}`);
+      sampleLines.push(`*${idx + 1}. ${s.charName}*`);
+      sampleLines.push(`   • Dimension Req: ${s.nominal} ${tolStr}`);
       const rawSamples = [s.s1, s.s2, s.s3, s.s4, s.s5].filter(
         (v) => v !== undefined && v !== null && `${v}` !== ''
       );
       if (rawSamples.length > 0) {
-        lines.push(`   • 5 Samples: [ ${rawSamples.join(', ')} ]`);
+        sampleLines.push(`   • 5 Samples: [ ${rawSamples.join(', ')} ]`);
       }
       const avg = Number(s.average || 0).toFixed(2);
       const isPass =
         s.status === 'PASS' ||
         (s.nominal - s.tolMinus <= Number(s.average) && Number(s.average) <= s.nominal + s.tolPlus);
-      lines.push(`   • Average: *${avg} ${s.unit}*  -->  *${isPass ? 'PASS' : 'FAIL'}*`);
+      sampleLines.push(`   • Average: *${avg} ${s.unit}*  -->  *${isPass ? 'PASS' : 'FAIL'}*`);
     });
   }
 
+  const attrLines: string[] = [];
   if (insp.attributes && insp.attributes.length > 0) {
-    lines.push('');
-    lines.push('------------------------------------');
-    lines.push('*VISUAL & FUNCTIONAL CHECKS:*');
-    lines.push('------------------------------------');
+    attrLines.push('');
+    attrLines.push('------------------------------------');
+    attrLines.push('*VISUAL & FUNCTIONAL CHECKS:*');
+    attrLines.push('------------------------------------');
     insp.attributes.forEach((a) => {
       const isPass = (a.defectsQty || 0) === 0;
-      lines.push(`• *${a.checkName}:* ${a.checkedQty || 10}/${a.defectsQty || 0} defects  -->  *${isPass ? 'PASS' : 'FAIL'}*`);
+      attrLines.push(`• *${a.checkName}:* ${a.checkedQty || 10}/${a.defectsQty || 0} defects  -->  *${isPass ? 'PASS' : 'FAIL'}*`);
     });
   }
 
-  lines.push('');
-  lines.push('====================================');
-  lines.push(`*OVERALL RESULT:* *${insp.overallResult || 'PASS'}*`);
-  lines.push(`*Remarks:* ${insp.remarks || 'Ok'}`);
-  lines.push('====================================');
-  lines.push('_Verified & Generated via PWI ERP System_');
-
-  return lines.join('\n');
+  const template = resolveWhatsAppTemplate('qmsInspection', DEFAULT_QMS_INSPECTION_WHATSAPP_TEMPLATE);
+  return renderWhatsAppTemplate(template, {
+    '{doc_ref}': insp.docRef || 'SPD/QMS/05',
+    '{rev_no}': insp.revNo || '02',
+    '{issue_date}': insp.issueDate || '09-Jun-2022',
+    '{inspection_no}': insp.inspectionNo || '—',
+    '{division}': insp.divisionName || 'Spoke Division',
+    '{department}': insp.departmentName || 'Spoke',
+    '{date}': insp.inspectionDate || '—',
+    '{shift}': insp.shift || '—',
+    '{machine}': insp.machineNo || '—',
+    '{operator}': insp.operatorName || '—',
+    '{item_name}': insp.itemName || '—',
+    '{item_code}': insp.itemCode || '—',
+    '{inspector}': insp.inspectorName || '—',
+    '{approved_by_line}': insp.approvedBy ? `• *Approved By:* ${insp.approvedBy}\n` : '',
+    '{samples_section}': sampleLines.join('\n'),
+    '{attributes_section}': attrLines.join('\n'),
+    '{overall_result}': insp.overallResult || 'PASS',
+    '{remarks}': insp.remarks || 'Ok',
+  });
 }
 
 /**

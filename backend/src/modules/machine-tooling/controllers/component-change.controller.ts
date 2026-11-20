@@ -25,6 +25,7 @@ import {
   ComponentChangeQueryDto,
   ComponentCounterQueryDto,
   MonthlyConsumptionQueryDto,
+  LiveMachineCostingQueryDto,
 } from '../dto';
 
 @ApiTags('Component Change Transactions')
@@ -64,6 +65,19 @@ export class ComponentChangeController {
     return this.service.monthlyReport(
       this.getCompanyId(req),
       query.month,
+      query.machineId,
+      query.divisionId,
+    );
+  }
+
+  @Get('reports/live-costing')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.tool_consumption.report')
+  @ApiOperation({ summary: 'Live active machine setup costing report across all currently running tools' })
+  async liveMachineCostingReport(@Query() query: LiveMachineCostingQueryDto, @Req() req: any) {
+    return this.service.liveMachineCostingReport(
+      this.getCompanyId(req),
       query.machineId,
       query.divisionId,
     );

@@ -1,5 +1,11 @@
 import dayjs from 'dayjs';
 import { formatNumber } from '../../../utils/numberFormat';
+import {
+  formatWhatsAppPhoneWithCountryCode,
+  renderWhatsAppTemplate,
+  resolveWhatsAppTemplate,
+  WHATSAPP_SETTINGS_STORAGE_KEY,
+} from '../../../utils/whatsappSettingsStore';
 
 export interface MachineEntryMini {
   id: string;
@@ -82,7 +88,7 @@ function naturalSortMachines(a: MachineStatusRow, b: MachineStatusRow): number {
   return codeA.localeCompare(codeB, undefined, { numeric: true, sensitivity: 'base' });
 }
 
-export const PROD_FLEET_WHATSAPP_STORAGE_KEY = 'erp_whatsapp_settings_v1';
+export const PROD_FLEET_WHATSAPP_STORAGE_KEY = WHATSAPP_SETTINGS_STORAGE_KEY;
 
 export const DEFAULT_FLEET_TEMPLATE = `*PAKISTAN WIRE INDUSTRIES (PVT.) LTD*
 *DAILY SHIFT PRODUCTION REPORT*
@@ -111,22 +117,8 @@ _Generated via PWI ERP System_`;
  * Retrieves custom Daily Production Fleet WhatsApp template configured in Settings > WhatsApp Messages
  */
 export function getStoredFleetTemplate(): string | null {
-  try {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      const saved = window.localStorage.getItem(PROD_FLEET_WHATSAPP_STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (
-          parsed?.templates?.dailyProductionFleet &&
-          typeof parsed.templates.dailyProductionFleet === 'string' &&
-          parsed.templates.dailyProductionFleet.trim()
-        ) {
-          return parsed.templates.dailyProductionFleet.trim();
-        }
-      }
-    }
-  } catch {}
-  return null;
+  const custom = resolveWhatsAppTemplate('dailyProductionFleet', '');
+  return custom || null;
 }
 
 /**

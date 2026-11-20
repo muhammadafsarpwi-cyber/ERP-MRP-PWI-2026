@@ -717,6 +717,14 @@ const StoreIssues: React.FC = () => {
   };
 
   // Filtered list based on status and search query
+  const storeObjMap = useMemo(() => {
+    const map: Record<string, StoreOption> = {};
+    stores.forEach((st) => {
+      map[st.id] = st;
+    });
+    return map;
+  }, [stores]);
+
   const filteredData = useMemo(() => {
     return data.filter((item) => {
       if (activeTab !== 'ALL' && item.status !== activeTab) return false;
@@ -730,6 +738,11 @@ const StoreIssues: React.FC = () => {
       const matchOperator = item.operatorName?.toLowerCase().includes(q);
       const matchIncharge = item.shiftInchargeName?.toLowerCase().includes(q);
       const matchIssuedBy = item.issuedByName?.toLowerCase().includes(q);
+      const matchLines = (item.lines || []).some(
+        (ln: any) =>
+          String(ln.itemCode || '').toLowerCase().includes(q) ||
+          String(ln.itemName || '').toLowerCase().includes(q),
+      );
       return (
         matchNum ||
         matchPurpose ||
@@ -738,7 +751,8 @@ const StoreIssues: React.FC = () => {
         matchRemarks ||
         matchOperator ||
         matchIncharge ||
-        matchIssuedBy
+        matchIssuedBy ||
+        matchLines
       );
     });
   }, [data, activeTab, searchQuery, storeMap]);
@@ -747,6 +761,88 @@ const StoreIssues: React.FC = () => {
   const draftCount = data.filter((d) => d.status === 'DRAFT').length;
   const postedCount = data.filter((d) => d.status === 'POSTED').length;
   const cancelledCount = data.filter((d) => d.status === 'CANCELLED').length;
+
+  const renderIssuedItemStack = (line: any) => {
+    const codeStr = String(line.itemCode || '').trim();
+    const rawName = String(line.itemName || codeStr || '—').trim();
+    const parenIdx = rawName.indexOf('(');
+    const mainName = parenIdx > 0 ? rawName.slice(0, parenIdx).trim() : rawName;
+    const specPart = parenIdx > 0 ? rawName.slice(parenIdx).trim() : '';
+    const qtyNum = Number(line.quantity || 0);
+    const qtyLabel = `${Number.isInteger(qtyNum) ? qtyNum.toLocaleString('en-US') : Number(qtyNum.toFixed(2)).toLocaleString('en-US')}${line.uomCode ? ` ${line.uomCode}` : ''}`;
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
+        {/* Line 1 (Top): Bold Orange Item Code pill + Quantity badge */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          {codeStr && (
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                color: '#EA580C',
+                background: '#FFF7ED',
+                border: '1px solid #FED7AA',
+                fontWeight: 700,
+                fontSize: 12,
+                lineHeight: '18px',
+                padding: '0 7px',
+                borderRadius: 5,
+                letterSpacing: '0.02em',
+                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+              }}
+            >
+              {codeStr}
+            </span>
+          )}
+          <Tag
+            color="blue"
+            style={{
+              margin: 0,
+              fontWeight: 700,
+              fontSize: 11,
+              lineHeight: '18px',
+              padding: '0 7px',
+              borderRadius: 10,
+              fontVariantNumeric: 'tabular-nums',
+            }}
+          >
+            {qtyLabel}
+          </Tag>
+        </div>
+
+        {/* Line 2 (Middle): Main Item Name before '(' */}
+        <span
+          style={{
+            fontWeight: 700,
+            fontSize: 13,
+            lineHeight: 1.3,
+            color: token.colorText,
+            whiteSpace: 'normal',
+            wordBreak: 'break-word',
+          }}
+        >
+          {mainName}
+        </span>
+
+        {/* Line 3 (Bottom): Full bracketed specification starting at '(' */}
+        {specPart && (
+          <span
+            style={{
+              fontSize: 11.5,
+              fontWeight: 600,
+              lineHeight: 1.3,
+              color: token.colorTextSecondary,
+              whiteSpace: 'normal',
+              wordBreak: 'break-word',
+            }}
+          >
+            {specPart}
+          </span>
+        )}
+      </div>
+    );
+  };
 
   const columns: ColumnsType<MaterialIssue> = [
     {
@@ -769,19 +865,65 @@ const StoreIssues: React.FC = () => {
       title: 'Source Store',
       dataIndex: 'storeId',
       key: 'storeId',
-      width: 210,
+      width: 185,
       render: (id: string, r) => {
-        const name = storeMap[id] || r.storeName || id;
-        const isGeneral = name.toLowerCase().includes('general') || name.toLowerCase().includes('gs');
+        const st = storeObjMap[id];
+        const fallbackLabel = storeMap[id] || r.storeName || id || '—';
+        const parts = String(fallbackLabel).split(/\s*[—–]\s*/);
+        const storeCode = st?.storeCode || (parts.length > 1 ? parts[0].trim() : fallbackLabel);
+        const storeName = st?.storeName || (parts.length > 1 ? parts.slice(1).join(' — ').trim() : '');
+        const combinedLower = `${storeCode} ${storeName}`.toLowerCase();
+        const isGeneral =
+          st?.storeType === 'GENERAL' ||
+          combinedLower.includes('general') ||
+          combinedLower.includes('gs');
+
         return (
-          <Space direction="vertical" size={2}>
-            <span style={{ fontWeight: 500 }}>{name}</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3, lineHeight: 1.3 }}>
+            <span style={{ fontWeight: 700, fontSize: 13, color: token.colorText }}>
+              {storeCode}
+            </span>
+            {storeName && (
+              <span style={{ fontSize: 12, fontWeight: 500, color: token.colorTextSecondary }}>
+                {storeName}
+              </span>
+            )}
             {isGeneral && (
-              <Tag color="cyan" style={{ fontSize: '10px', width: 'fit-content' }}>
+              <Tag
+                color="green"
+                style={{ fontSize: '10.5px', fontWeight: 600, width: 'fit-content', margin: 0, borderRadius: 5 }}
+              >
                 General Store
               </Tag>
             )}
-          </Space>
+          </div>
+        );
+      },
+    },
+    {
+      title: 'Issued Item(s)',
+      key: 'issuedItems',
+      width: 280,
+      render: (_: any, r: MaterialIssue) => {
+        const lines = Array.isArray(r.lines) ? r.lines : [];
+        if (lines.length === 0) {
+          return <Typography.Text type="secondary">—</Typography.Text>;
+        }
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {lines.map((ln: any, idx: number) => (
+              <div
+                key={ln.id || `${r.id}-ln-${idx}`}
+                style={
+                  idx > 0
+                    ? { paddingTop: 7, borderTop: `1px dashed ${token.colorBorderSecondary}` }
+                    : undefined
+                }
+              >
+                {renderIssuedItemStack(ln)}
+              </div>
+            ))}
+          </div>
         );
       },
     },
@@ -962,12 +1104,12 @@ const StoreIssues: React.FC = () => {
             <Tabs activeKey={activeTab} onChange={setActiveTab} items={tabItems} style={{ marginBottom: 0 }} />
             <Space wrap>
               <Input
-                placeholder="Search SIN #, Machine, Purpose..."
+                placeholder="Search SIN #, Item Code, Item Name, Machine..."
                 prefix={<SearchOutlined />}
                 allowClear
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                style={{ width: 260 }}
+                style={{ width: 300 }}
               />
               <Button icon={<ReloadOutlined />} onClick={fetchData} loading={loading}>
                 Refresh

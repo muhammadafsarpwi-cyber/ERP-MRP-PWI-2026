@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert, Button, Card, Checkbox, Col, DatePicker, Divider, Empty, Modal, Popconfirm, Row, Segmented, Select, Space, Spin, Table, Tag, Tooltip,
+  Alert, Badge, Button, Card, Checkbox, Col, DatePicker, Divider, Empty, Grid, Modal, Popconfirm, Row, Select, Space, Spin, Table, Tag, Tooltip,
   Input, Typography, message, theme,
 } from 'antd';
 import {
-  CheckCircleFilled, DeleteOutlined, FileExcelOutlined, FilePdfOutlined, LeftOutlined, LinkOutlined, PlusOutlined, PrinterOutlined,
-  ApartmentOutlined, AppstoreOutlined, BorderOutlined, CalendarOutlined, CheckCircleOutlined, CheckSquareOutlined, NodeIndexOutlined, ReloadOutlined, RightOutlined, SafetyCertificateOutlined, SearchOutlined, SettingOutlined, SyncOutlined,
+  CheckCircleFilled, ClearOutlined, DeleteOutlined, FileExcelOutlined, FilePdfOutlined, FilterOutlined, LeftOutlined, LinkOutlined, PlusOutlined, PrinterOutlined,
+  ApartmentOutlined, AppstoreOutlined, BorderOutlined, CalendarOutlined, CheckCircleOutlined, CheckSquareOutlined, NodeIndexOutlined, ReloadOutlined, RightOutlined, SafetyCertificateOutlined, SearchOutlined, SettingOutlined, ShopOutlined, SyncOutlined,
   HistoryOutlined,
 } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
@@ -19,6 +19,7 @@ import { useLocation } from 'react-router-dom';
 import apiService from '../../services/api';
 import { useHeaderActions, type HeaderAction } from '../../components/layout/headerActionsStore';
 import { ItemStockLedgerModal } from '../../components/shared';
+import CardSelectDropdown from '../../components/dashboard/CardSelectDropdown';
 
 const { RangePicker } = DatePicker;
 const { Text, Title } = Typography;
@@ -356,6 +357,9 @@ interface ReportRow {
   itemName: string;
   itemType: string;
   uomCode: string | null;
+  weightPerMeter?: number | null;
+  finishedWeightPerMeter?: number | null;
+  weightPerPiece?: number | null;
   openingBalance: number;
   openingDispatched?: number;
   totalIn: number;
@@ -444,6 +448,7 @@ interface ChainSummary {
   balanced: boolean;
   undriven: string[];
   totalPacked: number;
+  packedUom: string;
 }
 
 interface ChainGrid {
@@ -472,6 +477,12 @@ const trimZeros = (s: string): string => {
 const isCountUnit = (uom: string | null | undefined): boolean => {
   const u = (uom ?? '').trim().toUpperCase();
   return u === 'PCS' || u === 'GRS';
+};
+
+/** Length units (M / METER) resolve kg/m from spiral / finished weight per meter. */
+export const isMeterUnit = (uom: string | null | undefined): boolean => {
+  const u = (uom ?? '').trim().toUpperCase();
+  return u === 'M' || u === 'METER' || u === 'METERS' || u === 'MTR';
 };
 
 /**
@@ -765,16 +776,29 @@ export const STANDARD_ITEM_WEIGHTS: Record<string, number> = {
   'SPI-FG-SPK-013': 0.01181,
 };
 
-/** Rows 2-8: PCS/GRS multiply by weight; KG and unknown units pass through. */
+/** Rows 2-8: PCS/GRS multiply by kg/pc, M/METER multiply by kg/m; KG passes through (× 1). */
 export const resolveWeight = (
   uomCode: string | null | undefined,
-  weightPerPiece: number | undefined | null,
+  unitWeight: number | undefined | null,
   itemCode?: string,
 ): number | null => {
-  const isCount = isCountUnit(uomCode) || (!uomCode && itemCode && !itemCode.startsWith('RM-'));
+  const uomUpper = (uomCode ?? '').trim().toUpperCase();
+  if (uomUpper === 'KG') return 1;
+  if (isMeterUnit(uomUpper)) {
+    if (unitWeight != null && !Number.isNaN(unitWeight) && unitWeight > 0) {
+      return unitWeight;
+    }
+    if (itemCode && STANDARD_ITEM_WEIGHTS[itemCode] != null) {
+      return STANDARD_ITEM_WEIGHTS[itemCode];
+    }
+    return null;
+  }
+  const isCount =
+    isCountUnit(uomUpper) ||
+    (!uomUpper && itemCode && !itemCode.startsWith('RM-') && !itemCode.startsWith('FLAT-'));
   if (!isCount) return 1;
-  if (weightPerPiece != null && !Number.isNaN(weightPerPiece) && weightPerPiece > 0) {
-    return weightPerPiece;
+  if (unitWeight != null && !Number.isNaN(unitWeight) && unitWeight > 0) {
+    return unitWeight;
   }
   if (itemCode && STANDARD_ITEM_WEIGHTS[itemCode] != null) {
     return STANDARD_ITEM_WEIGHTS[itemCode];
@@ -1327,6 +1351,7 @@ export const buildChainGrid = (
     balanced: true,
     undriven: [],
     totalPacked: 0,
+    packedUom: 'PCS',
   };
   if (declaredRows.length === 0) return { def, rows: [], summary: emptySummary };
 
@@ -1355,12 +1380,20 @@ export const buildChainGrid = (
     const rowDpDispatched = isDp ? round4(num(dpParentFgSrc?.totalOut)) : dpDispatched;
     const dpRowSource = isDp ? rowByCode.get(rowDef.itemCode) : undefined;
     const src = isDp ? dpParentFgSrc : rowByCode.get(rowDef.itemCode);
+    const effectiveUom = src?.uomCode ?? (isDp ? dpParentFgSrc?.uomCode : undefined);
+    const isFgOrDp = rowDef.stage === 'FG' || isDp;
+    const srcMeterWeight = isFgOrDp
+      ? (src?.finishedWeightPerMeter ?? src?.weightPerMeter)
+      : (src?.weightPerMeter ?? src?.finishedWeightPerMeter);
+    const configuredWeight = isMeterUnit(effectiveUom)
+      ? (weightMap[rowDef.itemCode] ?? srcMeterWeight ?? weightMap[dpParentFgCode] ?? weightMap[fgItemCode])
+      : (weightMap[rowDef.itemCode] ?? src?.weightPerPiece ?? weightMap[dpParentFgCode] ?? weightMap[fgItemCode]);
     const multiplier =
       rowDef.stage === 'RM'
         ? 1
         : resolveWeight(
-            src?.uomCode,
-            weightMap[rowDef.itemCode] ?? weightMap[dpParentFgCode] ?? weightMap[fgItemCode],
+            effectiveUom,
+            configuredWeight,
             isDp ? dpParentFgCode : rowDef.itemCode,
           );
 
@@ -1502,11 +1535,16 @@ export const buildChainGrid = (
       };
     }
 
-    // RM converts its successor's pieces (production output + part rejection) into KG using that successor's weight.
-    const needsKg = stage === 'RM';
+    // Any KG-tracked stage (e.g. RM Wire, FL Flat Strip) converts non-KG successor quantities
+    // (PCS or M) + part rejection into KG using that successor's exact kg/pc or kg/m weight.
+    // When both this stage and its successor are in KG (e.g. RM -> FL), consumption stays 1:1 in KG.
+    const stageUomUpper = (p.src?.uomCode ?? '').trim().toUpperCase();
+    const isThisKg = stage === 'RM' || stageUomUpper === 'KG';
     const convert = (c: StagePass): number | null => {
-      const grossDemand = round4(c.production + c.scrapTodayPcs);
-      if (!needsKg) return grossDemand;
+      const succUomUpper = (c.src?.uomCode ?? '').trim().toUpperCase();
+      const isSuccKg = c.def.stage === 'RM' || succUomUpper === 'KG';
+      const grossDemand = round4(c.production + (isSuccKg ? c.scrapTodayKg : c.scrapTodayPcs));
+      if (!isThisKg || isSuccKg) return grossDemand;
       const w = c.multiplier ?? STANDARD_ITEM_WEIGHTS[c.def.itemCode] ?? null;
       if (w === null) return null;
       return round4(grossDemand * w);
@@ -1522,17 +1560,20 @@ export const buildChainGrid = (
       const totalValue = round4(prodValue + nonProdOut);
 
       let remarks = '—';
-      if (stage === 'RM') {
-        const nextProdQty = matched[0]?.production ?? consumers[0]?.production ?? 0;
-        const nextRejQty = matched[0]?.scrapTodayPcs ?? consumers[0]?.scrapTodayPcs ?? 0;
+      if (isThisKg) {
+        const nextRow = matched[0] ?? consumers[0];
+        const nextUom = (nextRow?.src?.uomCode ?? (nextRow?.def.stage === 'RM' ? 'KG' : 'PCS')).trim().toUpperCase();
+        const isNextKg = nextRow?.def.stage === 'RM' || nextUom === 'KG';
+        const nextProdQty = round4(matched.reduce((s, c) => s + c.production, 0));
+        const nextRejQty = round4(matched.reduce((s, c) => s + (isNextKg ? c.scrapTodayKg : c.scrapTodayPcs), 0));
         const nextTotalQty = round4(nextProdQty + nextRejQty);
-        const rejSuffix = nextRejQty > 0 ? ` (incl. ${fmtDisplayQty(nextRejQty, 'PCS')} Rej)` : '';
+        const rejSuffix = nextRejQty > 0 ? ` (incl. ${fmtDisplayQty(nextRejQty, nextUom)} Rej)` : '';
         if (prodValue > 0 && nonProdOut > 0) {
-          remarks = `Prod: ${fmtDisplayKg(prodValue)} KG (Next: ${fmtDisplayQty(nextTotalQty, 'PCS')} PCS${rejSuffix}) | Return: ${fmtDisplayKg(nonProdOut)} KG`;
+          remarks = `Prod: ${fmtDisplayKg(prodValue)} KG (Next: ${fmtDisplayQty(nextTotalQty, nextUom)} ${nextUom}${rejSuffix}) | Return: ${fmtDisplayKg(nonProdOut)} KG`;
         } else if (nonProdOut > 0) {
           remarks = `Return Out: ${fmtDisplayKg(nonProdOut)} KG`;
         } else if (totalValue > 0) {
-          remarks = `Prod Consumed: ${fmtDisplayKg(totalValue)} KG (Next Stage Prod: ${fmtDisplayQty(nextTotalQty, 'PCS')} PCS${rejSuffix})`;
+          remarks = `Prod Consumed: ${fmtDisplayKg(totalValue)} KG (Next Stage Prod: ${fmtDisplayQty(nextTotalQty, nextUom)} ${nextUom}${rejSuffix})`;
         }
       } else {
         const targetDept = DEPARTMENT_NAME[nextStage] || nextStage;
@@ -1556,7 +1597,10 @@ export const buildChainGrid = (
 
       return {
         value: totalValue,
-        rule: needsKg ? `${label} (Production + Rejection) × weight (KG)` : `= ${label} (Production + Rejection)`,
+        rule:
+          isThisKg && matched.some((c) => c.def.stage !== 'RM' && (c.src?.uomCode ?? '').trim().toUpperCase() !== 'KG')
+            ? `${label} (Production + Rejection) × weight (KG)`
+            : `= ${label} (Production + Rejection)`,
         driven: true,
         remarks,
         prodValue,
@@ -1628,14 +1672,15 @@ export const buildChainGrid = (
     const totalFgProd = round4(consumers.reduce((s, c) => s + c.production + c.scrapTodayPcs, 0));
 
     let remarks = '—';
-    if (stage === 'RM') {
+    if (isThisKg) {
+      const nextUom = (consumers[0]?.src?.uomCode ?? (consumers[0]?.def.stage === 'RM' ? 'KG' : 'PCS')).trim().toUpperCase();
       const nextProdQty = consumers[0]?.production ?? 0;
       if (prodValue > 0 && nonProdOut > 0) {
-        remarks = `Prod: ${fmtDisplayKg(prodValue)} KG (Next: ${fmtDisplayQty(nextProdQty, 'PCS')} PCS) | Return: ${fmtDisplayKg(nonProdOut)} KG`;
+        remarks = `Prod: ${fmtDisplayKg(prodValue)} KG (Next: ${fmtDisplayQty(nextProdQty, nextUom)} ${nextUom}) | Return: ${fmtDisplayKg(nonProdOut)} KG`;
       } else if (nonProdOut > 0) {
         remarks = `Return Out: ${fmtDisplayKg(nonProdOut)} KG`;
       } else if (totalValue > 0) {
-        remarks = `Prod Consumed: ${fmtDisplayKg(totalValue)} KG (Next Stage Prod: ${fmtDisplayQty(nextProdQty, 'PCS')} PCS)`;
+        remarks = `Prod Consumed: ${fmtDisplayKg(totalValue)} KG (Next Stage Prod: ${fmtDisplayQty(nextProdQty, nextUom)} ${nextUom})`;
       }
     } else {
       const targetDept = DEPARTMENT_NAME[nextStage] || nextStage;
@@ -1734,6 +1779,8 @@ export const buildChainGrid = (
   const missingCodes = Array.from(new Set(rows.filter((r) => !r.found).map((r) => r.itemCode)));
   const fgRows = rows.filter((r) => r.stage === 'FG');
   const totalPacked = round4(fgRows.reduce((sum, r) => sum + r.production, 0));
+  const fgUoms = Array.from(new Set(fgRows.map((r) => (r.uomCode ?? '').trim().toUpperCase()).filter(Boolean)));
+  const packedUom = fgUoms.length === 1 ? fgUoms[0] : 'PCS';
   const summary: ChainSummary = {
     found,
     total: rows.length,
@@ -1746,6 +1793,7 @@ export const buildChainGrid = (
       .filter((r) => !r.issuanceDriven && !r.suppressed && !TERMINAL_STAGES.has(r.stage))
       .map((r) => r.stage),
     totalPacked,
+    packedUom,
   };
 
   return { def, rows, summary };
@@ -1785,7 +1833,7 @@ export const COL = {
   issuance: 5,
   closing: 6,
   // §6 — UoM sits directly against the balance it qualifies, so the matrix
-  // reads `… Closing Pieces → UoM → Per Piece Weight → Total Weight → Scrap`.
+  // reads `… Closing Qty → UoM → Per Piece Weight → Total Weight → Scrap`.
   uom: 7,
   perPieceWeight: 8,
   totalWeight: 9,
@@ -1796,14 +1844,14 @@ export const COL = {
 
 const EXPORT_HEADERS = [
   'Stage', 'Item (Code / Name)', 'Op Balance', 'Production', 'Sub-Total', 'Issuance',
-  'Closing Pieces', 'UoM', 'Per Piece Weight', 'Total Weight', 'Today Part Rejection', 'Total Part Rejection',
+  'Closing Qty', 'UoM', 'Unit Weight', 'Total Weight', 'Today Part Rejection', 'Total Part Rejection',
   'Remarks',
 ];
 
 /** §8 — ONE string for the merged scrap block: the grid title, the printed
  *  header and the PDF's merged parent cell all read this exact value, so the
  *  three surfaces can never drift apart again. */
-const SCRAP_HEADER = 'PART REJECTION — PCS / KG';
+const SCRAP_HEADER = 'PART REJECTION — QTY / KG';
 
 /**
  * §12 — the PDF's printable content width: A4 landscape minus BOTH x-margins,
@@ -1880,18 +1928,20 @@ const exportDisplayRow = (r: LedgerMetrics): (string | number | null)[] => {
     uomText,
     fmtPpw(r.perPieceWeight),
     fmtKg(r.totalWeight),
-    // §12 — dual unit display: PCS on line 1, KG on line 2 (or KG for RM)
+    // §12 — dual unit display: row UOM on line 1, KG on line 2 (or KG for RM)
     (() => {
-      const isKg = r.stage === 'RM' || (r.uomCode ?? '').toUpperCase() === 'KG';
+      const u = (r.uomCode || (r.stage === 'RM' ? 'KG' : 'PCS')).trim().toUpperCase();
+      const isKg = r.stage === 'RM' || u === 'KG';
       if (isKg) return r.scrapTodayKg > 0 ? `${fmtKg(r.scrapTodayKg)} KG` : '0';
-      if (r.scrapTodayPcs === 0 && r.scrapTodayKg === 0) return '0';
-      return `${fmtQty(r.scrapTodayPcs, 'PCS')} PCS\n(${fmtKg(r.scrapTodayKg)} KG)`;
+      if (r.scrapTodayPcs === 0 && r.scrapTodayKg === 0) return `0 ${u}`;
+      return `${fmtQty(r.scrapTodayPcs, u)} ${u}\n(${fmtKg(r.scrapTodayKg)} KG)`;
     })(),
     (() => {
-      const isKg = r.stage === 'RM' || (r.uomCode ?? '').toUpperCase() === 'KG';
+      const u = (r.uomCode || (r.stage === 'RM' ? 'KG' : 'PCS')).trim().toUpperCase();
+      const isKg = r.stage === 'RM' || u === 'KG';
       if (isKg) return r.scrapMonthKg > 0 ? `${fmtKg(r.scrapMonthKg)} KG` : '0';
-      if (r.scrapMonthPcs === 0 && r.scrapMonthKg === 0) return '0';
-      return `${fmtQty(r.scrapMonthPcs, 'PCS')} PCS\n(${fmtKg(r.scrapMonthKg)} KG)`;
+      if (r.scrapMonthPcs === 0 && r.scrapMonthKg === 0) return `0 ${u}`;
+      return `${fmtQty(r.scrapMonthPcs, u)} ${u}\n(${fmtKg(r.scrapMonthKg)} KG)`;
     })(),
     r.remarks ?? '—',
   ];
@@ -2202,8 +2252,14 @@ const ItemWiseProductionLedger: React.FC = () => {
   const [chainKey, setChainKey] = useState<string>(CHAIN_REGISTRY[0]?.key ?? '');
   const [showAll, setShowAll] = useState(false);
 
-  // ── DIVISION FILTERING (TASK / USER REQUEST) ──
+  // ── DIVISION & COLLAPSIBLE COMMAND-CENTER FILTERING ──
+  const screens = Grid.useBreakpoint();
+  const [filtersOpen, setFiltersOpen] = useState<boolean>(false);
   const [selectedDivisionId, setSelectedDivisionId] = useState<string>('ALL');
+  const [draftDivisionId, setDraftDivisionId] = useState<string>('ALL');
+  const [draftChainKey, setDraftChainKey] = useState<string>(CHAIN_REGISTRY[0]?.key ?? '');
+  const [draftViewMode, setDraftViewMode] = useState<'daily' | 'range'>('daily');
+  const [draftRange, setDraftRange] = useState<[Dayjs, Dayjs]>(() => [range[0], range[1]]);
   const [divisionsList, setDivisionsList] = useState<Array<{ id: string; name: string; divisionCode?: string }>>([]);
 
   useEffect(() => {
@@ -2220,7 +2276,7 @@ const ItemWiseProductionLedger: React.FC = () => {
     return () => { isMounted = false; };
   }, []);
 
-  /** Chains filtered by selected division (or all divisions) */
+  /** Chains filtered by applied division (or all divisions) */
   const filteredChains = useMemo(() => {
     if (selectedDivisionId === 'ALL') {
       return allChains;
@@ -2233,6 +2289,19 @@ const ItemWiseProductionLedger: React.FC = () => {
     });
   }, [allChains, selectedDivisionId, divisionsList]);
 
+  /** Chains filtered by draft division inside the expanded filter panel */
+  const draftFilteredChains = useMemo(() => {
+    if (draftDivisionId === 'ALL') {
+      return allChains;
+    }
+    return allChains.filter((c) => {
+      if (c.divisionId && c.divisionId === draftDivisionId) return true;
+      const divObj = divisionsList.find((d) => d.id === draftDivisionId);
+      if (divObj && c.divisionName && c.divisionName.toLowerCase().trim() === divObj.name.toLowerCase().trim()) return true;
+      return false;
+    });
+  }, [allChains, draftDivisionId, divisionsList]);
+
   // When filteredChains change, ensure valid chainKey selection
   useEffect(() => {
     if (filteredChains.length > 0) {
@@ -2242,6 +2311,33 @@ const ItemWiseProductionLedger: React.FC = () => {
       }
     }
   }, [filteredChains, chainKey]);
+
+  // Keep draftChainKey valid when draftFilteredChains changes
+  useEffect(() => {
+    if (draftFilteredChains.length > 0) {
+      const exists = draftFilteredChains.some((c) => c.key === draftChainKey);
+      if (!exists) {
+        setDraftChainKey(draftFilteredChains[0].key);
+      }
+    }
+  }, [draftFilteredChains, draftChainKey]);
+
+  // Sync draft state when applied values change externally (pill close, Prev/Next Day, Clear)
+  useEffect(() => {
+    setDraftDivisionId(selectedDivisionId);
+  }, [selectedDivisionId]);
+
+  useEffect(() => {
+    setDraftChainKey(chainKey);
+  }, [chainKey]);
+
+  useEffect(() => {
+    setDraftViewMode(viewMode);
+  }, [viewMode]);
+
+  useEffect(() => {
+    setDraftRange(range);
+  }, [range]);
 
   /**
    * §1 — chain keys the operator has ticked off. Absent ⇒ included, so the
@@ -2402,7 +2498,17 @@ const ItemWiseProductionLedger: React.FC = () => {
 
       list.forEach((i: any) => {
         if (i?.itemCode) {
-          const rawW = i.weightPerPiece ?? i.weight_per_piece ?? i.weight;
+          const itemUom = String(i.baseUom?.code ?? i.uom?.code ?? i.uomCode ?? '').trim().toUpperCase();
+          let rawW: unknown = null;
+          if (isMeterUnit(itemUom)) {
+            const wpm = i.weightPerMeter ?? i.weight_per_meter;
+            const finWpm = i.finishedWeightPerMeter ?? i.finished_weight_per_meter;
+            rawW = i.itemType === 'FINISHED_GOOD'
+              ? (finWpm != null && Number(finWpm) > 0 ? finWpm : wpm)
+              : (wpm != null && Number(wpm) > 0 ? wpm : finWpm);
+          } else if (itemUom !== 'KG') {
+            rawW = i.weightPerPiece ?? i.weight_per_piece ?? i.weight;
+          }
           const w = rawW != null && rawW !== '' ? num(rawW) : null;
           if (w !== null && w > 0) {
             found[i.itemCode] = w;
@@ -2725,7 +2831,7 @@ const ItemWiseProductionLedger: React.FC = () => {
               itemCode: rDef.itemCode,
               itemName: m?.name ?? currentNames[rDef.itemCode] ?? rDef.itemLabel ?? rDef.itemCode,
               itemType: m?.itemType ?? (rDef.stage === 'RM' ? 'RAW_MATERIAL' : rDef.stage === 'FG' ? 'FINISHED_GOOD' : 'WIP'),
-              uomCode: m?.uom?.code ?? m?.uomCode ?? (rDef.stage === 'RM' ? 'KG' : 'PCS'),
+              uomCode: m?.baseUom?.code ?? m?.uom?.code ?? m?.uomCode ?? (rDef.stage === 'RM' || rDef.stage === 'FL' ? 'KG' : 'PCS'),
               openingBalance: 0,
               totalIn: 0,
               totalOut: 0,
@@ -3185,18 +3291,22 @@ const ItemWiseProductionLedger: React.FC = () => {
     let total = 0;
     let totalPacked = 0;
     let balanced = true;
+    const gridUoms = new Set<string>();
     visibleGrids.forEach((g) => {
       found += g.summary.found;
       total += g.summary.total;
       totalPacked += g.summary.totalPacked;
+      if (g.summary.packedUom) gridUoms.add(g.summary.packedUom);
       balanced = balanced && g.summary.balanced;
       g.summary.missingCodes.forEach((c) => missingCodes.add(c));
       g.summary.undriven.forEach((s) => undriven.add(s));
     });
+    const packedUom = gridUoms.size === 1 ? Array.from(gridUoms)[0] : 'PCS';
     return {
       found,
       total,
       totalPacked,
+      packedUom,
       balanced,
       missingCodes: Array.from(missingCodes),
       undriven: Array.from(undriven),
@@ -3464,7 +3574,7 @@ const ItemWiseProductionLedger: React.FC = () => {
         ),
       },
       {
-        title: 'Closing Pieces',
+        title: 'Closing Qty',
         dataIndex: 'closingPieces',
         key: 'closingPieces',
         align: 'center' as const,
@@ -3503,7 +3613,7 @@ const ItemWiseProductionLedger: React.FC = () => {
               >
                 {v ?? '—'}
               </span>
-              {isFgOrDp ? (
+              {isFgOrDp && isCount ? (
                 <span className="iwl-subtext-fg-dp" style={{ fontSize: 9.5, fontWeight: 700, whiteSpace: 'nowrap' }}>
                   CTN • GRS
                 </span>
@@ -3521,16 +3631,24 @@ const ItemWiseProductionLedger: React.FC = () => {
         dataIndex: 'totalWeight',
         key: 'totalWeight',
         align: 'center' as const,
-        width: 130,
+        width: 135,
         onHeaderCell: () => ({ className: 'iwl-cell-weight-head' }),
         onCell: () => ({ className: 'iwl-cell-weight iwl-cell-num' }),
         render: (v: number | null, row: LedgerMetrics) => {
           const ppw = row.perPieceWeight;
-          const uom = (row.uomCode ?? '').toUpperCase();
-          const tip =
-            row.stage === 'RM'
-              ? `Total Weight: ${fmtDisplayKg(v)} KG (RM closing balance is already KG)`
-              : `Total Weight: ${fmtDisplayKg(v)} KG\nPer Piece Weight: ${fmtPpw(ppw)} KG (${isCountUnit(uom) ? 'Closing Pieces × Weight' : 'Multiplier 1'})`;
+          const uom = (row.uomCode ?? '').trim().toUpperCase();
+          const isMeter = isMeterUnit(uom);
+          const isKgRow = row.stage === 'RM' || uom === 'KG';
+          const unitFactorLabel = isKgRow
+            ? '1.0000'
+            : ppw != null
+              ? `@ ${fmtPpw(ppw)} ${isMeter ? 'kg/m' : 'kg/pc'}`
+              : '—';
+          const tip = isKgRow
+            ? `Total Weight: ${fmtDisplayKg(v)} KG (Closing balance is already in KG)`
+            : isMeter
+              ? `Total Weight: ${fmtDisplayKg(v)} KG\nWeight per Meter: ${fmtPpw(ppw)} kg/m (Closing M × kg/m)`
+              : `Total Weight: ${fmtDisplayKg(v)} KG\nWeight per Piece: ${fmtPpw(ppw)} kg/pc (${isCountUnit(uom) ? 'Closing PCS × kg/pc' : 'Multiplier 1'})`;
           const isNeg = v !== null && v < 0;
           return (
             <Tooltip title={<span style={{ whiteSpace: 'pre-line' }}>{tip}</span>}>
@@ -3554,7 +3672,7 @@ const ItemWiseProductionLedger: React.FC = () => {
                 >
                   {fmtDisplayKg(v)}
                 </span>
-                <span className="iwl-weight-ppw">{fmtPpw(ppw)}</span>
+                <span className="iwl-weight-ppw">{unitFactorLabel}</span>
               </div>
             </Tooltip>
           );
@@ -3575,12 +3693,13 @@ const ItemWiseProductionLedger: React.FC = () => {
             // §3 — the whole column is forced crimson, zeros included.
             onCell: () => ({ className: 'iwl-cell-scrap iwl-cell-num' }),
             render: (_: number, row: LedgerMetrics) => {
-              const isKg = row.stage === 'RM' || (row.uomCode ?? '').toUpperCase() === 'KG';
-              const pcs = row.scrapTodayPcs;
+              const rowUom = (row.uomCode || (row.stage === 'RM' ? 'KG' : 'PCS')).trim().toUpperCase();
+              const isKg = row.stage === 'RM' || rowUom === 'KG';
+              const qty = row.scrapTodayPcs;
               const kg = row.scrapTodayKg;
 
               if (isKg) {
-                if (kg === 0) return <span style={{ fontWeight: 700, fontSize: 13, color: '#dc2626' }}>0</span>;
+                if (kg === 0) return <span style={{ fontWeight: 700, fontSize: 13, color: '#dc2626' }}>0 KG</span>;
                 return (
                   <Tooltip title={`Part Rejections recorded on ${endDate}: ${fmtDisplayKg(kg)} KG`}>
                     <span style={{ fontWeight: 700, fontSize: 13, color: '#dc2626' }}>{fmtDisplayKg(kg)} KG</span>
@@ -3588,15 +3707,15 @@ const ItemWiseProductionLedger: React.FC = () => {
                 );
               }
 
-              if (pcs === 0 && kg === 0) {
-                return <span style={{ fontWeight: 700, fontSize: 13, color: '#dc2626' }}>0</span>;
+              if (qty === 0 && kg === 0) {
+                return <span style={{ fontWeight: 700, fontSize: 13, color: '#dc2626' }}>0 {rowUom}</span>;
               }
 
               return (
-                <Tooltip title={`Part Rejections on ${endDate}: ${fmtDisplayQty(pcs, 'PCS')} PCS (${fmtDisplayKg(kg)} KG)`}>
+                <Tooltip title={`Part Rejections on ${endDate}: ${fmtDisplayQty(qty, rowUom)} ${rowUom} (${fmtDisplayKg(kg)} KG)`}>
                   <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.25 }}>
                     <span style={{ fontWeight: 800, fontSize: 13, color: '#dc2626', whiteSpace: 'nowrap' }}>
-                      {fmtDisplayQty(pcs, 'PCS')} PCS
+                      {fmtDisplayQty(qty, rowUom)} {rowUom}
                     </span>
                     <span style={{ fontSize: 11, fontWeight: 600, color: '#b91c1c', opacity: 0.85, whiteSpace: 'nowrap' }}>
                       {fmtDisplayKg(kg)} KG
@@ -3614,12 +3733,13 @@ const ItemWiseProductionLedger: React.FC = () => {
             width: 95,
             onCell: () => ({ className: 'iwl-cell-scrap iwl-cell-num' }),
             render: (_: number, row: LedgerMetrics) => {
-              const isKg = row.stage === 'RM' || (row.uomCode ?? '').toUpperCase() === 'KG';
-              const pcs = row.scrapMonthPcs;
+              const rowUom = (row.uomCode || (row.stage === 'RM' ? 'KG' : 'PCS')).trim().toUpperCase();
+              const isKg = row.stage === 'RM' || rowUom === 'KG';
+              const qty = row.scrapMonthPcs;
               const kg = row.scrapMonthKg;
 
               if (isKg) {
-                if (kg === 0) return <span style={{ fontWeight: 700, fontSize: 13, color: '#dc2626' }}>0</span>;
+                if (kg === 0) return <span style={{ fontWeight: 700, fontSize: 13, color: '#dc2626' }}>0 KG</span>;
                 return (
                   <Tooltip title={`Cumulative Part Rejections (${monthFrom} to ${endDate}): ${fmtDisplayKg(kg)} KG`}>
                     <span style={{ fontWeight: 700, fontSize: 13, color: '#dc2626' }}>{fmtDisplayKg(kg)} KG</span>
@@ -3627,15 +3747,15 @@ const ItemWiseProductionLedger: React.FC = () => {
                 );
               }
 
-              if (pcs === 0 && kg === 0) {
-                return <span style={{ fontWeight: 700, fontSize: 13, color: '#dc2626' }}>0</span>;
+              if (qty === 0 && kg === 0) {
+                return <span style={{ fontWeight: 700, fontSize: 13, color: '#dc2626' }}>0 {rowUom}</span>;
               }
 
               return (
-                <Tooltip title={`Cumulative Part Rejections (${monthFrom} to ${endDate}): ${fmtDisplayQty(pcs, 'PCS')} PCS (${fmtDisplayKg(kg)} KG)`}>
+                <Tooltip title={`Cumulative Part Rejections (${monthFrom} to ${endDate}): ${fmtDisplayQty(qty, rowUom)} ${rowUom} (${fmtDisplayKg(kg)} KG)`}>
                   <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.25 }}>
                     <span style={{ fontWeight: 800, fontSize: 13, color: '#dc2626', whiteSpace: 'nowrap' }}>
-                      {fmtDisplayQty(pcs, 'PCS')} PCS
+                      {fmtDisplayQty(qty, rowUom)} {rowUom}
                     </span>
                     <span style={{ fontSize: 11, fontWeight: 600, color: '#b91c1c', opacity: 0.85, whiteSpace: 'nowrap' }}>
                       {fmtDisplayKg(kg)} KG
@@ -3696,14 +3816,6 @@ const ItemWiseProductionLedger: React.FC = () => {
     [endDate, monthFrom, token],
   );
 
-  const chainOptions = useMemo(() => {
-    return filteredChains.map((c) => ({
-      value: c.key,
-      label: c.label,
-      filterText: `${c.label} ${c.fgItemCode} ${(c.mergedFgCodes ?? []).join(' ')}`,
-    }));
-  }, [filteredChains]);
-
   const sharedUpstreamCandidates = useMemo(
     () => detectSharedUpstreamCandidates(rawChains),
     [rawChains],
@@ -3757,8 +3869,132 @@ const ItemWiseProductionLedger: React.FC = () => {
 
   const stamp = () => `${endDate}-${dayjs().format('HHmmss')}`;
 
+  const hasDraftChanges =
+    draftDivisionId !== selectedDivisionId ||
+    draftChainKey !== chainKey ||
+    draftViewMode !== viewMode ||
+    !draftRange[0].isSame(range[0], 'day') ||
+    !draftRange[1].isSame(range[1], 'day');
+
+  const yesterdayDefault = dayjs().subtract(1, 'day').format('YYYY-MM-DD');
+  const hasAnyFilter =
+    selectedDivisionId !== 'ALL' ||
+    showAll ||
+    viewMode === 'range' ||
+    endDate !== yesterdayDefault ||
+    (filteredChains.length > 0 && chainKey !== filteredChains[0].key) ||
+    hasDraftChanges;
+
+  const filterChips = useMemo(() => {
+    const chips: Array<{ key: 'division' | 'chain' | 'mode' | 'date'; label: string; value: string; closable: boolean }> = [];
+    if (selectedDivisionId !== 'ALL') {
+      chips.push({ key: 'division', label: 'Division', value: selectedDivisionName, closable: true });
+    }
+    if (showAll) {
+      chips.push({
+        key: 'chain',
+        label: 'Chains',
+        value: `Active (${visibleGrids.length}/${filteredChains.length})`,
+        closable: true,
+      });
+    } else if (chainDef) {
+      chips.push({
+        key: 'chain',
+        label: 'Chain',
+        value: chainDef.fgItemCode || chainDef.label.split('—')[0]?.trim() || chainKey,
+        closable: filteredChains.length > 0 && chainKey !== filteredChains[0].key,
+      });
+    }
+    if (viewMode === 'range') {
+      chips.push({
+        key: 'mode',
+        label: 'Range',
+        value: `${range[0].format('YYYY-MM-DD')} → ${endDate}`,
+        closable: true,
+      });
+    } else {
+      chips.push({
+        key: 'date',
+        label: 'Date',
+        value: endDate,
+        closable: endDate !== dayjs().subtract(1, 'day').format('YYYY-MM-DD'),
+      });
+    }
+    return chips;
+  }, [selectedDivisionId, selectedDivisionName, showAll, visibleGrids.length, filteredChains, chainDef, chainKey, viewMode, range, endDate]);
+
+  const handleApplyFilters = () => {
+    const dateOrModeChanged =
+      draftViewMode !== viewMode ||
+      !draftRange[0].isSame(range[0], 'day') ||
+      !draftRange[1].isSame(range[1], 'day');
+    if (dateOrModeChanged) {
+      setRows([]);
+      setLoading(true);
+      setLoadStatus('loading');
+    }
+    setSelectedDivisionId(draftDivisionId);
+    setChainKey(draftChainKey);
+    setViewMode(draftViewMode);
+    setRange(draftRange);
+    setFiltersOpen(false);
+  };
+
+  const handleClearAllFilters = () => {
+    const yest = dayjs().subtract(1, 'day');
+    const firstKey = allChains[0]?.key ?? '';
+    const dateOrModeChanged =
+      viewMode !== 'daily' ||
+      !range[0].isSame(yest, 'day') ||
+      !range[1].isSame(yest, 'day');
+    if (dateOrModeChanged) {
+      setRows([]);
+      setLoading(true);
+      setLoadStatus('loading');
+    }
+    setSelectedDivisionId('ALL');
+    setDraftDivisionId('ALL');
+    setShowAll(false);
+    setExcludedChains({});
+    setChainKey(firstKey);
+    setDraftChainKey(firstKey);
+    setViewMode('daily');
+    setDraftViewMode('daily');
+    setRange([yest, yest]);
+    setDraftRange([yest, yest]);
+  };
+
+  const handleRemoveFilterChip = (chipKey: 'division' | 'chain' | 'mode' | 'date') => {
+    if (chipKey === 'division') {
+      setSelectedDivisionId('ALL');
+      setDraftDivisionId('ALL');
+    } else if (chipKey === 'chain') {
+      if (showAll) {
+        setShowAll(false);
+      } else if (filteredChains[0]?.key) {
+        setChainKey(filteredChains[0].key);
+        setDraftChainKey(filteredChains[0].key);
+      }
+    } else if (chipKey === 'mode') {
+      setRows([]);
+      setLoading(true);
+      setLoadStatus('loading');
+      setViewMode('daily');
+      setDraftViewMode('daily');
+      setRange([range[1], range[1]]);
+      setDraftRange([range[1], range[1]]);
+    } else if (chipKey === 'date') {
+      const yest = dayjs().subtract(1, 'day');
+      setRows([]);
+      setLoading(true);
+      setLoadStatus('loading');
+      setRange([yest, yest]);
+      setDraftRange([yest, yest]);
+    }
+  };
+
   const buildExportPayload = (): ProductionLedgerExportOptions => ({
-    companyName: 'Pakistan Wire Industry',
+    companyName: LETTERHEAD.company,
     subtitle: LETTERHEAD.subtitle,
     reportTitle: 'Item-Wise Production Ledger',
     divisionName: selectedDivisionName || LETTERHEAD.division,
@@ -3773,6 +4009,7 @@ const ItemWiseProductionLedger: React.FC = () => {
       total: summary.total,
       balanced: summary.balanced,
       totalPacked: summary.totalPacked,
+      packedUom: summary.packedUom,
     },
     chains: visibleGrids.map((g) => ({
       key: g.def.key,
@@ -3783,6 +4020,7 @@ const ItemWiseProductionLedger: React.FC = () => {
         total: g.summary.total,
         balanced: g.summary.balanced,
         totalPacked: g.summary.totalPacked,
+        packedUom: g.summary.packedUom,
       },
       rows: g.rows.map((r) => ({
         key: r.key,
@@ -4040,9 +4278,9 @@ const ItemWiseProductionLedger: React.FC = () => {
           padding: 0 !important;
         }
 
-        /* ── §3 corporate letterhead (screen) ─────────────────────────── */
+        /* ── §3 corporate letterhead (hidden on screen, shown in Print / Ctrl+P) ── */
         .iwl-letterhead {
-          display: flex;
+          display: none;
           align-items: center;
           justify-content: space-between;
           border: 1px solid var(--theme-border, #e2e8f0);
@@ -5112,205 +5350,373 @@ const ItemWiseProductionLedger: React.FC = () => {
           </div>
         </div>
 
-        {/* ── §10 UNIFIED FILTER STRIP ───────────────────────────────────
-            Left: division select → chain select → show-all → date window
-            Right: previous day → next day. Sits directly under the
-            letterhead and above the metric cards. Screen only. */}
-        <div className="iwl-filters iwl-no-print">
-          <div className="iwl-filters-left">
-            {/* ── 1. DIVISION SELECTOR ── */}
-            <div className="iwl-filters-division">
-              <Text strong style={{ fontSize: 12.5, color: token.colorTextSecondary }}>
-                Division
-              </Text>
-              <Select
-                style={{ minWidth: 230, width: 250 }}
-                popupMatchSelectWidth={false}
-                dropdownStyle={{ minWidth: 270 }}
-                placeholder="Select Division"
-                value={selectedDivisionId}
-                onChange={(v) => setSelectedDivisionId(v)}
-                options={[
-                  { value: 'ALL', label: '🌐 All Divisions' },
-                  ...divisionsList.map((d) => ({
-                    value: d.id,
-                    label: d.name,
-                  })),
-                ]}
-              />
-            </div>
+        {/* ── §10 COMMAND-CENTER COLLAPSIBLE FILTER BAR ────────────────── */}
+        <section
+          className="erp-filter-bar iwl-no-print"
+          aria-label="Production Ledger filters"
+          style={{
+            background: 'var(--theme-surface, #ffffff)',
+            border: '1px solid var(--theme-border, #e2e8f0)',
+            borderRadius: 'var(--ui-radius-lg, 12px)',
+            padding: '12px 16px',
+            marginBottom: 14,
+            boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.04)',
+          }}
+        >
+          {/* Top Header Row: Filter Toggle & Active Pills on Left | Status & Quick Day Nav on Right */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: 10,
+              paddingBottom: filtersOpen ? 10 : 0,
+              borderBottom: filtersOpen ? '1px solid var(--theme-border, #e2e8f0)' : 'none',
+              marginBottom: filtersOpen ? 12 : 0,
+            }}
+          >
+            {/* Left: Toggle Button + Active Filter Pills + Clear All */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <Button
+                type={filtersOpen ? 'primary' : 'default'}
+                icon={<FilterOutlined />}
+                onClick={() => setFiltersOpen((prev) => !prev)}
+                style={{
+                  fontWeight: 600,
+                  borderRadius: 8,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                }}
+              >
+                <span>{filtersOpen ? 'Close Filters' : 'Open Filters'}</span>
+                {filterChips.length > 0 && (
+                  <Badge
+                    count={filterChips.length}
+                    style={{
+                      backgroundColor: filtersOpen ? '#ffffff' : 'var(--theme-primary, #3b82f6)',
+                      color: filtersOpen ? 'var(--theme-primary, #3b82f6)' : '#ffffff',
+                      fontWeight: 700,
+                    }}
+                  />
+                )}
+              </Button>
 
-            {/* ── 2. PRODUCTION ITEM CHAIN SELECTOR (Enlarged width, wide popup, clear full names) ── */}
-            <div className="iwl-filters-chain">
-              <Text strong style={{ fontSize: 12.5, color: token.colorTextSecondary }}>
-                Select Production Item Chain (Finished Goods)
-              </Text>
-              <Select
-                style={{ minWidth: 300, width: 380 }}
-                popupMatchSelectWidth={false}
-                dropdownStyle={{ minWidth: 540, maxWidth: 750, padding: 6 }}
-                showSearch
-                placeholder="Select Finished Good Item Chain"
-                value={chainKey}
-                onChange={(v) => setChainKey(v)}
-                optionFilterProp="filterText"
-                disabled={showAll}
-                options={chainOptions}
-                optionRender={(opt) => {
-                  const chain = filteredChains.find((c) => c.key === opt.value);
-                  const namePart = chain ? chain.label.split('—')[0]?.trim() : opt.label;
-                  const codePart = chain?.fgItemCode || '';
-                  return (
-                    <div
+              {filterChips.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                  {filterChips.map((chip) => (
+                    <Tag
+                      key={chip.key}
+                      closable={chip.closable}
+                      onClose={(e) => {
+                        e.preventDefault();
+                        handleRemoveFilterChip(chip.key);
+                      }}
                       style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        padding: '6px 8px',
-                        gap: 16,
-                        borderBottom: `1px solid ${token.colorBorderSecondary}`,
+                        borderRadius: 12,
+                        padding: '2px 8px',
+                        fontSize: 12,
+                        margin: 0,
+                        background: 'var(--theme-accent-soft, #eff6ff)',
+                        borderColor: 'var(--theme-accent, #bfdbfe)',
+                        color: 'var(--theme-accent-dark, #1d4ed8)',
                       }}
                     >
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                        <span style={{ fontWeight: 700, fontSize: 13.5, color: token.colorText }}>
-                          {namePart}
-                        </span>
-                        {chain?.divisionName && (
-                          <span style={{ fontSize: 11, color: token.colorTextTertiary }}>
-                            {chain.divisionName}
-                          </span>
-                        )}
-                      </div>
-                      <Tag
-                        color="blue"
-                        style={{
-                          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-                          fontWeight: 700,
-                          fontSize: 12,
-                          padding: '2px 8px',
-                          borderRadius: 4,
-                          margin: 0,
-                          flexShrink: 0,
-                        }}
-                      >
-                        {codePart}
-                      </Tag>
-                    </div>
-                  );
-                }}
-              />
+                      <strong>{chip.label}:</strong> {chip.value}
+                    </Tag>
+                  ))}
+                  {hasAnyFilter && (
+                    <Button
+                      type="link"
+                      size="small"
+                      onClick={handleClearAllFilters}
+                      style={{ fontSize: 12, padding: '0 4px', color: 'var(--theme-danger, #ef4444)' }}
+                    >
+                      Clear all
+                    </Button>
+                  )}
+                </div>
+              )}
             </div>
-            <Button
-              icon={<AppstoreOutlined />}
-              onClick={() => setSelectChainsModalOpen(true)}
-              type={showAll ? 'primary' : 'default'}
-              style={{ fontWeight: 500 }}
-            >
-              {showAll
-                ? `Active Chains (${visibleGrids.length}/${filteredChains.length})`
-                : 'Select Chains to View / Print'}
-            </Button>
-            {showAll && (
-              <Button
-                size="small"
-                onClick={() => setShowAll(false)}
-                title="Return to viewing single chain selected in dropdown"
-              >
-                Single Chain View
-              </Button>
-            )}
-            <Tooltip title="Merge FG items that share the same Plating / upstream stages (e.g. SPI-FG-SPK-001 + SPI-FG-SPK-002) into a single ledger">
-              <Button
-                icon={<LinkOutlined />}
-                onClick={() => setMergeModalOpen(true)}
-              >
-                Merge FG Items ({mergedFgGroups.length})
-              </Button>
-            </Tooltip>
-            <Segmented
-              value={viewMode}
-              onChange={(val) => {
-                const nextMode = val as 'daily' | 'range';
-                setViewMode(nextMode);
-                setRows([]);
-                setLoading(true);
-                setLoadStatus('loading');
-                if (nextMode === 'daily') {
-                  setRange([range[1], range[1]]);
-                }
-              }}
-              options={[
-                { label: '📅 Daily Ledger', value: 'daily' },
-                { label: '📊 Date Range', value: 'range' },
-              ]}
-            />
-            {viewMode === 'daily' ? (
-              <DatePicker
-                value={range[1]}
-                allowClear={false}
-                format="YYYY-MM-DD"
-                disabled={loading}
-                style={{ width: 140 }}
-                onChange={(d) => {
-                  if (d) {
-                    setRows([]);
-                    setLoading(true);
-                    setLoadStatus('loading');
-                    setRange([d, d]);
-                  }
-                }}
-              />
-            ) : (
-              <RangePicker
-                value={range}
-                allowClear={false}
-                format="YYYY-MM-DD"
-                disabled={loading}
-                onChange={(v) => {
-                  if (v && v[0] && v[1]) {
-                    setRows([]);
-                    setLoading(true);
-                    setLoadStatus('loading');
-                    setRange([v[0], v[1]]);
-                  }
-                }}
-              />
-            )}
-            {showAll && excludedCount > 0 ? (
-              <div className="iwl-filters-note">
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  {excludedCount} chain{excludedCount > 1 ? 's' : ''} excluded from the sheet and every
-                  export.
-                </Text>
-                <Button type="link" size="small" style={{ padding: 0 }} onClick={restoreAllChains}>
-                  Restore all
+
+            {/* Right: Load Status + Pending Apply + Prev/Next Day Quick Nav */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginLeft: 'auto' }}>
+              {loading ? (
+                <div className="iwl-status-badge iwl-status-badge--loading">
+                  <SyncOutlined spin style={{ color: '#0284c7' }} />
+                  <span>Loading {endDate}...</span>
+                </div>
+              ) : loadStatus === 'success' ? (
+                <div className="iwl-status-badge iwl-status-badge--ready">
+                  <CheckCircleFilled style={{ color: '#10b981' }} />
+                  <span>100% Loaded &amp; Ready</span>
+                </div>
+              ) : null}
+
+              {!filtersOpen && hasDraftChanges && (
+                <Button
+                  type="primary"
+                  size="middle"
+                  icon={<SearchOutlined />}
+                  loading={loading}
+                  onClick={handleApplyFilters}
+                  style={{ fontWeight: 600, borderRadius: 8 }}
+                >
+                  Apply Pending Filters
                 </Button>
-              </div>
-            ) : null}
+              )}
+
+              <Space.Compact>
+                <Button icon={<LeftOutlined />} disabled={loading} onClick={() => shiftEndDay(-1)} title="Previous Day">
+                  Prev Day
+                </Button>
+                <Button disabled={loading} onClick={() => shiftEndDay(1)} title="Next Day">
+                  Next Day <RightOutlined />
+                </Button>
+              </Space.Compact>
+            </div>
           </div>
 
-          <div className="iwl-filters-right">
-            {loading ? (
-              <div className="iwl-status-badge iwl-status-badge--loading">
-                <SyncOutlined spin style={{ color: '#0284c7' }} />
-                <span>Loading {endDate}...</span>
+          {/* Collapsible 4-Card Filter Grid & Action Toolbar */}
+          {filtersOpen && (
+            <>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: screens.lg
+                    ? 'repeat(4, 1fr)'
+                    : screens.md
+                    ? 'repeat(2, 1fr)'
+                    : '1fr',
+                  gap: 10,
+                  alignItems: 'stretch',
+                }}
+              >
+                {/* 1. Division Card */}
+                <CardSelectDropdown
+                  label="Division"
+                  title="Switch Division"
+                  subtitle="Filter item chains by division"
+                  allLabel="All Divisions"
+                  allSubtitle="Show chains across all divisions"
+                  icon={<ShopOutlined />}
+                  options={divisionsList.map((d) => ({
+                    id: d.id,
+                    name: d.name,
+                    code: d.divisionCode,
+                    subtext: 'Production Division',
+                  }))}
+                  activeId={draftDivisionId === 'ALL' ? undefined : draftDivisionId}
+                  onSelect={(v) => setDraftDivisionId(v ?? 'ALL')}
+                  badgeBg="#fef9c3"
+                  badgeColor="#854d0e"
+                />
+
+                {/* 2. Production Item Chain (FG) Card */}
+                <CardSelectDropdown
+                  label="Production Item Chain (FG)"
+                  title="Select Production Item Chain"
+                  subtitle="Finished Good manufacturing pipeline"
+                  allLabel="Select FG Item Chain"
+                  allSubtitle="Choose a chain to view"
+                  icon={<NodeIndexOutlined />}
+                  options={draftFilteredChains.map((c) => ({
+                    id: c.key,
+                    name: c.label.split('—')[0]?.trim() || c.label,
+                    code: c.fgItemCode,
+                    subtext: c.divisionName || 'Manufacturing Chain',
+                  }))}
+                  activeId={showAll ? undefined : draftChainKey}
+                  onSelect={(v) => {
+                    if (v) {
+                      setDraftChainKey(v);
+                      setShowAll(false);
+                    } else if (draftFilteredChains[0]?.key) {
+                      setDraftChainKey(draftFilteredChains[0].key);
+                      setShowAll(false);
+                    }
+                  }}
+                  disabled={showAll}
+                  disabledReason="Switch to Single Chain View or use Select Chains to View / Print"
+                  badgeBg="#e0f2fe"
+                  badgeColor="#0369a1"
+                />
+
+                {/* 3. Ledger Mode Card */}
+                <CardSelectDropdown
+                  label="Ledger Mode"
+                  title="Select Ledger Mode"
+                  subtitle="Single-day rolling or multi-day range"
+                  allLabel="Daily Ledger"
+                  icon={<AppstoreOutlined />}
+                  options={[
+                    { id: 'daily', name: 'Daily Ledger', code: 'DAY', subtext: 'Single-day rolling balance' },
+                    { id: 'range', name: 'Date Range', code: 'RNG', subtext: 'Cumulative period window' },
+                  ]}
+                  activeId={draftViewMode}
+                  onSelect={(v) => {
+                    const nextMode = (v as 'daily' | 'range') || 'daily';
+                    setDraftViewMode(nextMode);
+                    if (nextMode === 'daily') {
+                      setDraftRange([draftRange[1], draftRange[1]]);
+                    }
+                  }}
+                  badgeBg="#f3e8ff"
+                  badgeColor="#7e22ce"
+                />
+
+                {/* 4. Production Date / Range Card */}
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    background: 'var(--theme-card-bg, #ffffff)',
+                    border: '1px solid var(--theme-border, #e2e8f0)',
+                    borderRadius: 10,
+                    padding: '6px 10px',
+                    boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.04)',
+                    minWidth: 0,
+                  }}
+                >
+                  <div
+                    style={{
+                      width: 28,
+                      height: 28,
+                      borderRadius: 6,
+                      background: '#ecfdf5',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: '#047857',
+                      fontSize: 13,
+                      flexShrink: 0,
+                    }}
+                  >
+                    <CalendarOutlined />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 700,
+                        color: 'var(--theme-text-muted, #64748b)',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.04em',
+                        lineHeight: 1.15,
+                      }}
+                    >
+                      {draftViewMode === 'daily' ? 'Production Date' : 'Date Range'}
+                    </div>
+                    {draftViewMode === 'daily' ? (
+                      <DatePicker
+                        value={draftRange[1]}
+                        allowClear={false}
+                        format="YYYY-MM-DD"
+                        variant="borderless"
+                        size="small"
+                        disabled={loading}
+                        style={{ width: '100%', padding: 0, fontWeight: 700, fontSize: 12 }}
+                        onChange={(d) => {
+                          if (d) setDraftRange([d, d]);
+                        }}
+                      />
+                    ) : (
+                      <RangePicker
+                        value={draftRange}
+                        allowClear={false}
+                        format="YYYY-MM-DD"
+                        variant="borderless"
+                        size="small"
+                        disabled={loading}
+                        style={{ width: '100%', padding: 0, fontWeight: 700, fontSize: 12 }}
+                        onChange={(v) => {
+                          if (v && v[0] && v[1]) setDraftRange([v[0], v[1]]);
+                        }}
+                      />
+                    )}
+                  </div>
+                </div>
               </div>
-            ) : loadStatus === 'success' ? (
-              <div className="iwl-status-badge iwl-status-badge--ready">
-                <CheckCircleFilled style={{ color: '#10b981' }} />
-                <span>100% Loaded &amp; Ready</span>
+
+              {showAll && excludedCount > 0 && (
+                <div className="iwl-filters-note" style={{ marginTop: 8 }}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    {excludedCount} chain{excludedCount > 1 ? 's' : ''} excluded from the sheet and every export.
+                  </Text>
+                  <Button type="link" size="small" style={{ padding: 0 }} onClick={restoreAllChains}>
+                    Restore all
+                  </Button>
+                </div>
+              )}
+
+              {/* Bottom Action Footer */}
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: 8,
+                  paddingTop: 10,
+                  marginTop: 10,
+                  borderTop: '1px solid var(--theme-border, #e2e8f0)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <Button
+                    icon={<AppstoreOutlined />}
+                    onClick={() => setSelectChainsModalOpen(true)}
+                    type={showAll ? 'primary' : 'default'}
+                    style={{ fontWeight: 500, borderRadius: 8 }}
+                  >
+                    {showAll
+                      ? `Active Chains (${visibleGrids.length}/${filteredChains.length})`
+                      : 'Select Chains to View / Print'}
+                  </Button>
+                  {showAll && (
+                    <Button
+                      onClick={() => setShowAll(false)}
+                      style={{ borderRadius: 8 }}
+                      title="Return to viewing single chain selected in dropdown"
+                    >
+                      Single Chain View
+                    </Button>
+                  )}
+                  <Tooltip title="Merge FG items that share the same Plating / upstream stages (e.g. SPI-FG-SPK-001 + SPI-FG-SPK-002) into a single ledger">
+                    <Button
+                      icon={<LinkOutlined />}
+                      onClick={() => setMergeModalOpen(true)}
+                      style={{ borderRadius: 8 }}
+                    >
+                      Merge FG Items ({mergedFgGroups.length})
+                    </Button>
+                  </Tooltip>
+                  <Button
+                    icon={<ClearOutlined />}
+                    onClick={handleClearAllFilters}
+                    disabled={!hasAnyFilter}
+                    danger={hasAnyFilter}
+                    style={{ borderRadius: 8 }}
+                  >
+                    Clear Filters
+                  </Button>
+                </div>
+
+                <Button
+                  type="primary"
+                  icon={<SearchOutlined />}
+                  loading={loading}
+                  onClick={handleApplyFilters}
+                  style={{ fontWeight: 600, borderRadius: 8, minWidth: 120 }}
+                >
+                  {hasDraftChanges ? 'Apply Filters *' : 'Apply Filters'}
+                </Button>
               </div>
-            ) : null}
-            <Space.Compact>
-              <Button icon={<LeftOutlined />} disabled={loading} onClick={() => shiftEndDay(-1)} title="Previous Day">
-                Prev Day
-              </Button>
-              <Button disabled={loading} onClick={() => shiftEndDay(1)} title="Next Day">
-                Next Day <RightOutlined />
-              </Button>
-            </Space.Compact>
-          </div>
-        </div>
+            </>
+          )}
+        </section>
 
         {/* ── Shimmer loading progress bar ── */}
         <div className="iwl-shimmer-track iwl-no-print">
@@ -5439,10 +5845,10 @@ const ItemWiseProductionLedger: React.FC = () => {
                 </div>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 4 }}>
                   <span style={{ fontSize: 26, fontWeight: 800, color: '#059669', fontFamily: 'ui-monospace, SFMono-Regular, monospace' }}>
-                    {fmtQty(summary.totalPacked, 'PCS')}
+                    {fmtQty(summary.totalPacked, summary.packedUom)}
                   </span>
                   <span style={{ fontSize: 13, fontWeight: 600, color: token.colorTextSecondary }}>
-                    PCS
+                    {summary.packedUom}
                   </span>
                 </div>
                 <div style={{ fontSize: 11.5, color: token.colorTextSecondary, marginTop: 2 }}>
@@ -5624,7 +6030,7 @@ const ItemWiseProductionLedger: React.FC = () => {
                 <em>Production</em> this day only — so advancing the End Date rolls <em>Closing</em> into the
                 next day&rsquo;s <em>Opening</em>. <strong>Issuance is driven by the next stage:</strong> RM ←
                 ST Production × weight (KG) · ST ← SW · SW ← SP Inner + SP Outer · SP ← matching PL branch ·
-                PL Inner/Outer ← FG Packed ({fmtQty(summary.totalPacked, 'PCS')}) (Inner Only → 100% PL Inner,
+                PL Inner/Outer ← FG Packed ({fmtQty(summary.totalPacked, summary.packedUom)} {summary.packedUom}) (Inner Only → 100% PL Inner,
                 Outer Only → 100% PL Outer, Full Set → ÷ 2 across all merged FG items).{' '}
                 <strong>Closing = (Op + Production) − Issuance</strong>. Piece units (PCS / GRS) render as
                 whole integers; KG and weight columns use up to 2 decimals. Scrap is tracked twice: today only

@@ -19,6 +19,7 @@ import { formatNumber } from '../../../utils/numberFormat';
 import { formatApiError } from '../../../utils/apiError';
 import { buildReceiptWhatsAppMessage, normalizeWaPhone, waLink, waDirectShareUrl } from '../../../utils/receiptShare';
 import type { ShareReceiptInfo } from '../../../utils/receiptShare';
+import { useWhatsAppSettingsVersion } from '../../../utils/whatsappSettingsStore';
 import { formatNameWithCode } from '../../../utils/formatEntityLabel';
 import { DraggableResizableModal, SaveResultDialog, PageHeader, FilterBar, ItemStockLedgerModal, TabKeepAlive, GlobalLoading } from '../../../components/shared';
 import type { SaveResultData, SaveResultPhase } from '../../../components/shared/SaveResultDialog';
@@ -1643,6 +1644,7 @@ const RawMaterialReceiving: React.FC = () => {
   // enqueues a delivery; otherwise the button falls back to wa.me with the
   // message pre-filled (explicitly "Open WhatsApp", never a fake "sent").
   // ─────────────────────────────────────────────────────────────────────────
+  const settingsVersion = useWhatsAppSettingsVersion();
   const [waOpen, setWaOpen] = useState(false);
   const [waPhone, setWaPhone] = useState('');
   const [waMessage, setWaMessage] = useState('');
@@ -1724,6 +1726,12 @@ const RawMaterialReceiving: React.FC = () => {
     setWaOutcome(null);
     setWaOpen(true);
   }, [editingId]);
+
+  useEffect(() => {
+    if (waOpen && waShareInfo) {
+      setWaMessage(buildReceiptWhatsAppMessage(waShareInfo));
+    }
+  }, [settingsVersion, waOpen, waShareInfo]);
 
   // Action-column WhatsApp: the list row carries no item lines, so the REAL
   // detail is fetched (same endpoint as View) before the share dialog opens —
@@ -2420,7 +2428,7 @@ const RawMaterialReceiving: React.FC = () => {
       return generateItemWiseReceivingWhatsAppMessage(exportMeta, itemWiseList);
     }
     return generateReceivingWhatsAppMessage(exportMeta, exportRows);
-  }, [whatsAppTab, exportMeta, itemWiseList, exportRows]);
+  }, [whatsAppTab, exportMeta, itemWiseList, exportRows, whatsAppModalOpen, settingsVersion]);
 
   const handleCopyWhatsAppMessage = useCallback(() => {
     if (!whatsAppSummaryText) return;

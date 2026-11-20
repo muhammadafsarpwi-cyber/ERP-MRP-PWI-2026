@@ -12,7 +12,26 @@ import {
 import { usePermission } from '../../hooks/usePermission';
 import { SETTINGS_PERMISSIONS } from './settingsNavigationConfig';
 import { DEFAULT_FLEET_TEMPLATE } from '../../pages/production/entries/deptFleetWhatsApp';
-import { DEFAULT_RM_RECEIPT_TEMPLATE } from '../../utils/receiptShare';
+import {
+  DEFAULT_DAILY_PRODUCTION_REPORT_TEMPLATE,
+  DEFAULT_DIRECTOR_SUMMARY_TEMPLATE,
+  DEFAULT_DIRECTOR_SUMMARY_DEPT_TEMPLATE,
+} from '../../pages/production/entries/dailyProductionReport';
+import { DEFAULT_RM_RECEIPT_TEMPLATE, DEFAULT_RM_RETURN_TEMPLATE } from '../../utils/receiptShare';
+import { DEFAULT_RM_SUMMARY_TEMPLATE } from '../../pages/production/receiving/rawMaterialReceivingPdf';
+import {
+  DEFAULT_PACKING_CUSTOMER_DISPATCH_TEMPLATE,
+  DEFAULT_PACKING_DAILY_REPORT_TEMPLATE,
+  DEFAULT_PACKING_FGR_STOCK_TEMPLATE,
+  DEFAULT_PACKING_NIPPLE_DEFICIT_TEMPLATE,
+} from '../../pages/production/packing/packingWhatsApp';
+import { DEFAULT_ITEM_LEDGER_WHATSAPP_TEMPLATE } from '../../utils/itemLedgerExport';
+import { DEFAULT_JOB_CARD_WHATSAPP_TEMPLATE } from '../../utils/jobCardShare';
+import { DEFAULT_QMS_INSPECTION_WHATSAPP_TEMPLATE } from '../../pages/qc/exportQmsWhatsApp';
+import {
+  WHATSAPP_SETTINGS_STORAGE_KEY,
+  dispatchWhatsAppSettingsUpdated,
+} from '../../utils/whatsappSettingsStore';
 import './whatsAppSettings.css';
 
 const { TextArea } = Input;
@@ -22,6 +41,42 @@ export interface WhatsAppTemplateItem {
   name: string;
   template: string;
 }
+
+const DEFAULT_PRODUCTION_DOWNTIME_TEMPLATE = [
+  '*🏭 Pakistan Wire Industries (Pvt.) LTD*',
+  '*Daily Production & Downtime Report*',
+  '📅 Date: {date} ({weekday})',
+  '━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+  '⚙️ Total Running Time (RT): {running_hours}',
+  '🛑 Total Downtime (DT): {downtime_hours}',
+  '⏱️ Total Shift Time: {total_time}',
+  '📊 Downtime Rate: {downtime_rate}',
+  '⚠️ Dominant Stoppage: {top_reason}',
+  '━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+  '*Department-Wise Breakdown:*',
+  '{department_rows}',
+  '━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+  '_Generated via PWI ERP System_',
+].join('\n');
+
+const DEFAULT_PRODUCTION_INVENTORY_TEMPLATE = [
+  '*{company}*',
+  '*{title}*',
+  'Division: {division}',
+  'Department: {department}',
+  'Date Range: {date}',
+  '-----------------------------',
+  '*Total Items:* {total_items}',
+  '*On Hand Stock:* {on_hand}',
+  '*Available Stock:* {available}',
+  '*Total IN (range):* {total_in}',
+  '*Total OUT (range):* {total_out}',
+  '*Produced:* {produced}',
+  '*Required:* {required}',
+  '*Short Items:* {short_items}',
+  '-----------------------------',
+  '_Generated via PWI ERP System_',
+].join('\n');
 
 export interface WhatsAppSettingsData {
   countryCode: string;
@@ -33,7 +88,20 @@ export interface WhatsAppSettingsData {
     receipt: string;
     rmReceipt: string;
     rmSummary: string;
+    rmReturn: string;
     dailyProductionFleet: string;
+    dailyProductionReport: string;
+    dailyProductionDirectorSummary: string;
+    dailyProductionDirectorDeptBlock: string;
+    productionDowntime: string;
+    productionInventoryReport: string;
+    packingCustomerDispatch: string;
+    packingDailyProduction: string;
+    packingFgrStock: string;
+    packingNippleDeficit: string;
+    itemStockLedger: string;
+    maintenanceJobCard: string;
+    qmsInspection: string;
   };
 }
 
@@ -46,12 +114,25 @@ const DEFAULT_WHATSAPP_SETTINGS: WhatsAppSettingsData = {
     statement: 'Dear {customer},\n\nYour account balance with {company} is {balance} as of {date}.\n\nPlease reach out if anything looks incorrect.',
     receipt: 'Dear {customer},\n\nWe have received {amount} (receipt {doc_no}) on {date}. Thank you!\n\n{company}',
     rmReceipt: DEFAULT_RM_RECEIPT_TEMPLATE,
-    rmSummary: '*{company}*\n*Raw Material Receiving — Summary*\n━━━━━━━━━━━━━━━━━━━━━━━━━\n*Date Range:* {date}\n*Division:* {division}\n*Warehouse:* {warehouse}\n━━━━━━━━━━━━━━━━━━━━━━━━━\n• Gate Pass Qty: {total_gp_qty}\n• Received Qty: {total_rcv_qty}\n• Net Variance: {net_variance}\n━━━━━━━━━━━━━━━━━━━━━━━━━\n_Generated via PWI ERP System_',
+    rmSummary: DEFAULT_RM_SUMMARY_TEMPLATE,
+    rmReturn: DEFAULT_RM_RETURN_TEMPLATE,
     dailyProductionFleet: DEFAULT_FLEET_TEMPLATE,
+    dailyProductionReport: DEFAULT_DAILY_PRODUCTION_REPORT_TEMPLATE,
+    dailyProductionDirectorSummary: DEFAULT_DIRECTOR_SUMMARY_TEMPLATE,
+    dailyProductionDirectorDeptBlock: DEFAULT_DIRECTOR_SUMMARY_DEPT_TEMPLATE,
+    productionDowntime: DEFAULT_PRODUCTION_DOWNTIME_TEMPLATE,
+    productionInventoryReport: DEFAULT_PRODUCTION_INVENTORY_TEMPLATE,
+    packingCustomerDispatch: DEFAULT_PACKING_CUSTOMER_DISPATCH_TEMPLATE,
+    packingDailyProduction: DEFAULT_PACKING_DAILY_REPORT_TEMPLATE,
+    packingFgrStock: DEFAULT_PACKING_FGR_STOCK_TEMPLATE,
+    packingNippleDeficit: DEFAULT_PACKING_NIPPLE_DEFICIT_TEMPLATE,
+    itemStockLedger: DEFAULT_ITEM_LEDGER_WHATSAPP_TEMPLATE,
+    maintenanceJobCard: DEFAULT_JOB_CARD_WHATSAPP_TEMPLATE,
+    qmsInspection: DEFAULT_QMS_INSPECTION_WHATSAPP_TEMPLATE,
   },
 };
 
-const STORAGE_KEY = 'erp_whatsapp_settings_v1';
+const STORAGE_KEY = WHATSAPP_SETTINGS_STORAGE_KEY;
 
 const TAG_VARIABLES = [
   '{customer}',
@@ -80,6 +161,26 @@ const TAG_VARIABLES = [
   '{overall_achievement}',
   '{machine_rows}',
   '{item_summary}',
+  '{department_blocks}',
+  '{index}',
+  '{target}',
+  '{actual}',
+  '{achievement}',
+  '{part_rejection}',
+  '{process_scrap}',
+  '{item_rows}',
+];
+
+const PROD_DIR_MAIN_PLACEHOLDERS = ['{division}', '{date}', '{department_blocks}'];
+const PROD_DIR_DEPT_PLACEHOLDERS = [
+  '{index}',
+  '{department}',
+  '{target}',
+  '{actual}',
+  '{achievement}',
+  '{part_rejection}',
+  '{process_scrap}',
+  '{item_rows}',
 ];
 
 export const WhatsAppSettings: React.FC = () => {
@@ -136,6 +237,7 @@ export const WhatsAppSettings: React.FC = () => {
     setSaving(true);
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      dispatchWhatsAppSettingsUpdated();
       setTimeout(() => {
         setSaving(false);
         setInitialData(data);
@@ -346,6 +448,143 @@ export const WhatsAppSettings: React.FC = () => {
               placeholder="Template for Daily Production Shift Report WhatsApp share..."
             />
           </div>
+
+          {/* Daily Production Summary (Director Executive Breakdown) — [PROD-DIR-SUMMARY] */}
+          <div className="wa-template-box" style={{ gridColumn: 'span 2' }}>
+            <label className="wa-template-label">
+              <FileTextOutlined className="wa-field-icon" style={{ color: '#10b981' }} />
+              Daily Production Summary (Director Executive Breakdown) — [PROD-DIR-SUMMARY]
+            </label>
+            <div className="wa-variables-row" style={{ marginTop: 0 }}>
+              {PROD_DIR_MAIN_PLACEHOLDERS.map((tag) => (
+                <Tag key={tag} className="wa-variable-tag">
+                  {tag}
+                </Tag>
+              ))}
+            </div>
+            <TextArea
+              rows={7}
+              value={data.templates.dailyProductionDirectorSummary}
+              onChange={(e) => handleTemplateChange('dailyProductionDirectorSummary', e.target.value)}
+              className="wa-glowing-input"
+              placeholder="Main template for Director Daily Production Summary..."
+            />
+          </div>
+
+          {/* Secondary Sub-Template: Department Block Format — [PROD-DIR-SUMMARY] */}
+          <div className="wa-template-box" style={{ gridColumn: 'span 2' }}>
+            <label className="wa-template-label">
+              <ThunderboltOutlined className="wa-field-icon" style={{ color: '#0284c7' }} />
+              Department Block Format (Sub-Template for {'{department_blocks}'})
+            </label>
+            <div className="wa-variables-row" style={{ marginTop: 0 }}>
+              {PROD_DIR_DEPT_PLACEHOLDERS.map((tag) => (
+                <Tag key={tag} className="wa-variable-tag">
+                  {tag}
+                </Tag>
+              ))}
+            </div>
+            <span style={{ fontSize: 12, color: 'var(--wa-text-secondary)' }}>
+              Each line inside <code>{'{item_rows}'}</code> renders cleanly as:{' '}
+              <code>{'  ▪ {item_code} ({item_name}): *{good_qty}*'}</code>
+            </span>
+            <TextArea
+              rows={7}
+              value={data.templates.dailyProductionDirectorDeptBlock}
+              onChange={(e) => handleTemplateChange('dailyProductionDirectorDeptBlock', e.target.value)}
+              className="wa-glowing-input"
+              placeholder="Sub-template for each department block inside Daily Production Summary..."
+            />
+          </div>
+
+          {[
+            {
+              key: 'dailyProductionReport' as const,
+              title: 'Daily Production Full Report (WhatsApp Modal) — [PROD-FULL]',
+              rows: 6,
+              placeholders: ['{company}', '{division}', '{date}', '{shift_suffix}', '{audited}', '{report_body}', '{generated_label}'],
+            },
+            {
+              key: 'productionDowntime' as const,
+              title: 'Daily Production & Downtime Report — [PROD-DT]',
+              rows: 6,
+              placeholders: ['{date}', '{weekday}', '{running_hours}', '{downtime_hours}', '{total_time}', '{downtime_rate}', '{top_reason}', '{department_rows}'],
+            },
+            {
+              key: 'productionInventoryReport' as const,
+              title: 'Production Inventory Report Summary — [PROD-INV]',
+              rows: 6,
+              placeholders: ['{company}', '{title}', '{division}', '{department}', '{date}', '{total_items}', '{on_hand}', '{available}', '{total_in}', '{total_out}', '{produced}', '{required}', '{short_items}'],
+            },
+            {
+              key: 'packingDailyProduction' as const,
+              title: 'Daily Packing Production & Dispatch Report — [PKG-DAILY]',
+              rows: 6,
+              placeholders: ['{company}', '{date}', '{time}', '{division}', '{shift}', '{batches}', '{total_pcs}', '{total_gross}', '{total_cartons}', '{total_weight}', '{day_progress}'],
+            },
+            {
+              key: 'packingCustomerDispatch' as const,
+              title: 'Customer Packed FG Inventory Dispatch Report — [PKG-CUST]',
+              rows: 6,
+              placeholders: ['{company}', '{date}', '{customer}', '{soc_line}', '{division}', '{items}', '{total_pcs}', '{total_gross}', '{total_cartons}', '{total_weight}', '{total_valuation}'],
+            },
+            {
+              key: 'packingFgrStock' as const,
+              title: 'FGR Finished Goods Warehouse Stock Report — [PKG-FGR]',
+              rows: 6,
+              placeholders: ['{company}', '{warehouse}', '{date}', '{time}', '{items}', '{total_pcs}', '{total_gross}', '{total_cartons}', '{total_weight}', '{total_valuation}'],
+            },
+            {
+              key: 'packingNippleDeficit' as const,
+              title: 'Pending Nipple Deficit Alert (Hand Packing) — [PKG-NIP]',
+              rows: 6,
+              placeholders: ['{date}', '{department}', '{distinct_items}', '{waiting_batches}', '{total_pending_cartons}', '{total_pending_gross}', '{total_pending_pcs}', '{total_packed_weight}', '{items}'],
+            },
+            {
+              key: 'rmReturn' as const,
+              title: 'Raw Material Return Note — [RM-RET]',
+              rows: 6,
+              placeholders: ['{company}', '{date}', '{return_code}', '{source_no}', '{ref_receipt}', '{warehouse}', '{division}', '{section}', '{reason}', '{items}', '{total_qty}'],
+            },
+            {
+              key: 'itemStockLedger' as const,
+              title: 'Item Stock Ledger & Audit Trail — [INV-LEDGER]',
+              rows: 6,
+              placeholders: ['{item_code}', '{item_name}', '{warehouse}', '{uom}', '{date}', '{total_in}', '{total_out}', '{current_balance}', '{movements_count}', '{recent_movements}'],
+            },
+            {
+              key: 'maintenanceJobCard' as const,
+              title: 'Maintenance Job Card Summary — [MNT-JC]',
+              rows: 6,
+              placeholders: ['{job_card_no}', '{status}', '{priority_line}', '{machine}', '{hierarchy_line}', '{location_line}', '{team_line}', '{complaint}', '{reported_by_line}', '{timings_section}', '{technicians_section}', '{parts_section}', '{actions_section}', '{generated_at}'],
+            },
+            {
+              key: 'qmsInspection' as const,
+              title: 'QMS In-Process Quality Inspection Report — [QMS-INSP]',
+              rows: 6,
+              placeholders: ['{doc_ref}', '{rev_no}', '{issue_date}', '{inspection_no}', '{division}', '{department}', '{date}', '{shift}', '{machine}', '{operator}', '{item_name}', '{item_code}', '{inspector}', '{approved_by_line}', '{samples_section}', '{attributes_section}', '{overall_result}', '{remarks}'],
+            },
+          ].map((cfg) => (
+            <div key={cfg.key} className="wa-template-box" style={{ gridColumn: 'span 2' }}>
+              <label className="wa-template-label">
+                <MessageOutlined className="wa-field-icon" />
+                {cfg.title}
+              </label>
+              <div className="wa-variables-row" style={{ marginTop: 0 }}>
+                {cfg.placeholders.map((tag) => (
+                  <Tag key={tag} className="wa-variable-tag">
+                    {tag}
+                  </Tag>
+                ))}
+              </div>
+              <TextArea
+                rows={cfg.rows}
+                value={data.templates[cfg.key]}
+                onChange={(e) => handleTemplateChange(cfg.key, e.target.value)}
+                className="wa-glowing-input"
+              />
+            </div>
+          ))}
         </div>
       </div>
 

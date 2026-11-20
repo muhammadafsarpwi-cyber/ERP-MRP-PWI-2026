@@ -4396,9 +4396,14 @@ addToDept(org, {
       if (ppk > 0) return this.round4(quantity / ppk);
     }
 
-    // Product in METER/LENGTH and Component in KG/WEIGHT: qty × weightPerMeter
+    // Product in METER/LENGTH and Component in KG/WEIGHT: qty × weightPerMeter (prefer product's kg/m)
     if (isProdLength && isCompWeight) {
-      const wpm = Number((component as any)?.weightPerMeter || product.weightPerMeter || 0);
+      const wpm = Number(
+        product.weightPerMeter ||
+          (product as any).finishedWeightPerMeter ||
+          (component as any)?.weightPerMeter ||
+          0,
+      );
       if (wpm > 0) return this.round4(quantity * wpm);
     }
 

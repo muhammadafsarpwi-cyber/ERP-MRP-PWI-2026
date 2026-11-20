@@ -541,7 +541,9 @@ export class MachineComponentService implements OnModuleInit {
       await this.changeRepo.manager.query(
         `UPDATE component_changes
             SET unit_cost = $1
-          WHERE component_id = $2 AND company_id = $3 AND (unit_cost IS NULL OR unit_cost = 0)`,
+          WHERE component_id = $2
+            AND company_id = $3
+            AND (unit_cost IS NULL OR unit_cost = 0 OR closed_at IS NULL)`,
         [unitCost, id, companyId],
       );
     }

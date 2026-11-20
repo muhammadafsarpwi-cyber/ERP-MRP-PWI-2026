@@ -149,3 +149,15 @@ export class MonthlyConsumptionQueryDto {
   @Matches(UUID_LOOSE, { message: 'divisionId must be a UUID' })
   divisionId?: string;
 }
+
+export class LiveMachineCostingQueryDto {
+  @ApiPropertyOptional({ description: 'Machine UUID to narrow live costing to one machine' })
+  @IsOptional()
+  @Matches(UUID_LOOSE, { message: 'machineId must be a UUID' })
+  machineId?: string;
+
+  @ApiPropertyOptional({ description: 'Division UUID to narrow live costing to one division' })
+  @IsOptional()
+  @Matches(UUID_LOOSE, { message: 'divisionId must be a UUID' })
+  divisionId?: string;
+}

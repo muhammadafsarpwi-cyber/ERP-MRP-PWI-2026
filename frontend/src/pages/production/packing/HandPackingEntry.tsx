@@ -26,6 +26,7 @@ import { getLookupsSnapshot, prefetchAllLookups } from '../../../services/lookup
 import { formatNumber, toNum } from '../../../utils/numberFormat';
 import PageHeader from '../../../components/shared/PageHeader';
 import { getSavedPackingTargetConfig, savePackingTargetConfig, PACKING_TARGET_EVENT } from './packingTargetConfig';
+import { buildNippleDeficitWhatsApp } from './packingWhatsApp';
 import { PWI_LOGO_BASE64 } from '../../../assets/pwiLogoBase64';
 import './handPackingComponentTable.css';
 import '../../../styles/rejectionEntry.css';
@@ -962,40 +963,80 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
   const [selectedSectionId, setSelectedSectionId] = useState<string>('');
   const [selectedPackingDeptId, setSelectedPackingDeptId] = useState<string>('');
 
-  // Explicit packing departments list for user selection (e.g. Spoke Packing vs Nipple Packing)
+  const isPackingDepartment = (d: any) =>
+    d?.status === 'ACTIVE' && (
+      (d.name || '').toLowerCase().includes('pack') ||
+      (d.departmentCode || '').toLowerCase().includes('pack') ||
+      (d.departmentCode || '').toUpperCase() === 'SPI-NP-002' ||
+      (d.departmentCode || '').toUpperCase() === 'SPD-DEPT008'
+    );
+
+  const pickDefaultPackingDept = useCallback((depts: any[], divId?: string, itemCode?: string) => {
+    const active = (depts || []).filter((d: any) => d?.status === 'ACTIVE');
+    const hasDivIds = active.some((d: any) => Boolean(d?.divisionId));
+    const divScoped = divId && hasDivIds
+      ? active.filter((d: any) => d.divisionId === divId)
+      : active;
+    const pool = divScoped.length > 0 ? divScoped : active;
+    const upperCode = (itemCode || '').toUpperCase().trim();
+    const isLooseNipple = upperCode.startsWith('FG-NP-') || upperCode.startsWith('SPI-FG-NP-');
+
+    if (isLooseNipple) {
+      return (
+        pool.find((d: any) => (d.departmentCode || '').toUpperCase() === 'SPI-NP-002') ||
+        pool.find((d: any) => (d.name || '').toLowerCase().includes('nipple') && isPackingDepartment(d)) ||
+        pool.find(isPackingDepartment) ||
+        pool[0]
+      );
+    }
+
+    return (
+      pool.find((d: any) => (d.departmentCode || '').toUpperCase() === 'SPD-DEPT008' || d.id === SPD_PACKING_DEPT_ID) ||
+      pool.find((d: any) => isPackingDepartment(d) && (d.departmentCode || '').toUpperCase() !== 'SPI-NP-002') ||
+      pool.find(isPackingDepartment) ||
+      pool[0]
+    );
+  }, []);
+
+  // Explicit packing departments strictly scoped to the currently selected Division
   const packingDepartmentOptions = useMemo(() => {
+    const activeDiv = selectedDivisionId || form.getFieldValue('divisionId');
+    const hasDivIds = departments.some((d: any) => d?.status === 'ACTIVE' && Boolean(d?.divisionId));
     return departments
-      .filter((d: any) => d.status === 'ACTIVE' && (
-        (d.name || '').toLowerCase().includes('pack') ||
-        (d.departmentCode || '').toLowerCase().includes('pack') ||
-        (d.departmentCode || '').toUpperCase() === 'SPI-NP-002' ||
-        (d.departmentCode || '').toUpperCase() === 'SPD-DEPT008'
-      ))
+      .filter((d: any) => {
+        if (!isPackingDepartment(d)) return false;
+        if (activeDiv && hasDivIds) {
+          return d.divisionId === activeDiv;
+        }
+        return true;
+      })
       .map((d: any) => ({
         value: d.id,
         label: `${d.name} (${d.departmentCode || 'DEPT'})`,
       }));
-  }, [departments]);
+  }, [departments, selectedDivisionId, form]);
 
-  // Auto-sync selectedPackingDeptId with active division's packing department if empty
+  // Auto-sync selectedPackingDeptId with active division's packing department when empty or cross-division
   useEffect(() => {
-    if (!selectedPackingDeptId && departments.length > 0) {
-      const activeDiv = selectedDivisionId || SPD_DIVISION_ID;
-      const matched = departments.find((d: any) =>
-        d.status === 'ACTIVE' && (
-          ((d.departmentCode || '').toUpperCase() === 'SPD-DEPT008' && (!d.divisionId || d.divisionId === activeDiv)) ||
-          (d.divisionId === activeDiv && (d.name || '').toLowerCase().includes('pack')) ||
-          (d.id === SPD_PACKING_DEPT_ID)
-        )
-      ) || departments.find((d: any) => d.status === 'ACTIVE' && d.divisionId === activeDiv)
-        || departments.find((d: any) => d.status === 'ACTIVE' && (d.name || '').toLowerCase().includes('pack'));
+    if (departments.length === 0) return;
+    const activeDiv = selectedDivisionId || SPD_DIVISION_ID;
+    const hasDivIds = departments.some((d: any) => d?.status === 'ACTIVE' && Boolean(d?.divisionId));
+    const currentDept = selectedPackingDeptId ? departments.find((d: any) => d.id === selectedPackingDeptId) : null;
+    const wrongDivision = Boolean(
+      selectedPackingDeptId &&
+      hasDivIds &&
+      currentDept?.divisionId &&
+      currentDept.divisionId !== activeDiv
+    );
 
+    if (!selectedPackingDeptId || wrongDivision) {
+      const matched = pickDefaultPackingDept(departments, activeDiv);
       if (matched) {
         setSelectedPackingDeptId(matched.id);
         form.setFieldValue('departmentId', matched.id);
       }
     }
-  }, [departments, selectedDivisionId, selectedPackingDeptId, form]);
+  }, [departments, selectedDivisionId, selectedPackingDeptId, form, pickDefaultPackingDept]);
 
   // Daily packing target state (Cartons drives all conversions) - Authoritative default = 125 CTN
   const [targetCartons, setTargetCartons] = useState<number>(() => getSavedPackingTargetConfig().baseCartons);
@@ -1803,41 +1844,10 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
   }, [groupedPendingNippleItems, pendingNippleEntries]);
 
   const handleSharePendingNippleWhatsApp = useCallback(() => {
-    const dateStr = dayjs().format('DD-MMM-YYYY hh:mm A');
-    const totalCartons = pendingNippleEntries.reduce((s, r) => s + (r.cartons || 0), 0);
-    const totalGross = pendingNippleEntries.reduce((s, r) => s + (r.gross || 0), 0);
-    const totalPcs = pendingNippleEntries.reduce((s, r) => s + (r.pcs || 0), 0);
-    const totalWeight = pendingNippleEntries.reduce((s, r) => s + (r.weightKg || 0), 0);
-    const totalNippleGross = groupedPendingNippleItems.reduce((s, g) => s + (g.totalPendingNippleGross || 0), 0);
-
-    let text = `*PAKISTAN WIRE INDUSTRIES (PVT.) LTD.*\n`;
-    text += `📦 *WITHOUT NIPPLE PACK · SAFETY STOCK INVENTORY REPORT*\n`;
-    text += `📅 *Date & Time:* ${dateStr}\n`;
-    text += `🏢 *Department:* Packing Division (SPD)\n`;
-    text += `-------------------------------------------\n`;
-    text += `📊 *EXECUTIVE SUMMARY:*\n`;
-    text += `• *Distinct FG Items:* ${groupedPendingNippleItems.length} Items\n`;
-    text += `• *Waiting Incomplete Batches:* ${pendingNippleEntries.length} Batches\n`;
-    text += `• *Total Waiting Cartons:* *${formatNumber(totalCartons, 0)} Cartons*\n`;
-    text += `• *Total Packed Quantity:* ${formatNumber(totalGross, 0)} GRS (${formatNumber(totalPcs, 0)} PCS)\n`;
-    text += `• *Total Packed Weight:* *${formatNumber(totalWeight, 1)} KG (Spokes Only · Without Nipple)*\n`;
-    text += `• *Total Missing Nipple Deficit:* *${formatNumber(totalNippleGross, 0)} GRS Required*\n`;
-    text += `-------------------------------------------\n\n`;
-    text += `*ITEM-WISE CONSOLIDATED STOCK & NIPPLE DEFICIT:*\n\n`;
-
-    groupedPendingNippleItems.forEach((item, idx) => {
-      text += `*${idx + 1}. [${item.fgItemCode}]* ${item.fgItemName}\n`;
-      text += `   📦 *Cartons:* ${formatNumber(item.totalCartons, 0)} Cartons\n`;
-      text += `   📊 *Quantity:* ${formatNumber(item.totalGross, 0)} GRS (${formatNumber(item.totalPcs, 0)} PCS)\n`;
-      text += `   ⚖️ *Packed Weight:* ${formatNumber(item.totalWeightKg, 1)} KG (Spokes Only)\n`;
-      text += `   ⚠️ *Missing Nipple:* ${item.pendingNippleCode || 'Nipple Req'} ➔ *${formatNumber(item.totalPendingNippleGross, 0)} GRS Required*\n`;
-      text += `   📋 *Batches (${item.batchCount}):* ${item.batches.map(b => b.batchNo).join(', ')}\n`;
-      text += `   🏢 *Customers/SOC:* ${item.customers.join(', ') || 'Safety Stock'}\n\n`;
+    const text = buildNippleDeficitWhatsApp({
+      groupedPendingNippleItems,
+      pendingNippleEntries,
     });
-
-    text += `⚠️ *STATUS NOTE:* All items above are packed in White Poly Bags and held in Safety Stock. Dispatch is blocked until nipples arrive from store.\n`;
-    text += `_Generated automatically via PWI ERP System_`;
-
     const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
     window.open(url, '_blank');
   }, [groupedPendingNippleItems, pendingNippleEntries]);
@@ -2302,18 +2312,9 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
     const stdTarget = getSavedPackingTargetConfig().baseCartons || 125;
     setTargetCartons(stdTarget);
 
-    // Auto-select active division's packing department
+    // Auto-select active division's packing department (Spoke Packing preferred in Spoke Division)
     const activeDiv = selectedDivisionId || SPD_DIVISION_ID;
-    const divPackingDept = departments.find((d: any) =>
-      d.status === 'ACTIVE' && d.divisionId === activeDiv && (
-        (d.departmentCode || '').toUpperCase() === 'SPD-DEPT008' ||
-        (d.departmentCode || '').toUpperCase() === 'SPI-NP-002' ||
-        (d.name || '').toLowerCase().includes('pack') ||
-        (d.departmentCode || '').toLowerCase().includes('pack')
-      )
-    ) || departments.find((d: any) => d.status === 'ACTIVE' && d.divisionId === activeDiv)
-      || departments.find((d: any) => d.status === 'ACTIVE' && (d.name || '').toLowerCase().includes('pack'));
-
+    const divPackingDept = pickDefaultPackingDept(departments, activeDiv);
     const chosenDeptId = divPackingDept?.id || SPD_PACKING_DEPT_ID;
     setSelectedPackingDeptId(chosenDeptId);
 
@@ -3270,17 +3271,8 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
     const packingSec = sections.find((s) => s.divisionId === divId && (((s.sectionCode || '').toUpperCase() === 'SEC-013') || (s.name || '').toLowerCase().includes('pack')))
       || sections.find((s) => s.divisionId === divId);
     setSelectedSectionId(packingSec?.id || '');
-    // Auto-select packing department belonging to this division
-    const divPackingDept = departments.find((d: any) =>
-      d.status === 'ACTIVE' && d.divisionId === divId && (
-        (d.departmentCode || '').toUpperCase() === 'SPD-DEPT008' ||
-        (d.departmentCode || '').toUpperCase() === 'SPI-NP-002' ||
-        (d.name || '').toLowerCase().includes('pack') ||
-        (d.departmentCode || '').toLowerCase().includes('pack')
-      )
-    ) || departments.find((d: any) => d.status === 'ACTIVE' && d.divisionId === divId)
-      || departments.find((d: any) => d.status === 'ACTIVE' && (d.name || '').toLowerCase().includes('pack'));
-
+    // Auto-select packing department belonging to this division (Spoke Packing prioritized over Nipple Packing)
+    const divPackingDept = pickDefaultPackingDept(departments, divId, masterItems[0]?.itemCode);
     const chosenDeptId = divPackingDept?.id || '';
     setSelectedPackingDeptId(chosenDeptId);
     form.setFieldsValue({
@@ -4023,9 +4015,31 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       );
       setInspectedItemId(newProductId);
 
+      // Keep Packing Dept aligned: SPI-FG-SPK-* -> Spoke Packing (SPD-DEPT008); FG-NP-* -> Nipple Packing (SPI-NP-002)
+      const activeDiv = selectedDivisionId || form.getFieldValue('divisionId') || SPD_DIVISION_ID;
+      const upperCode = (itemCode || '').toUpperCase().trim();
+      const isSpokePackItem = upperCode.startsWith('SPI-FG-SPK-');
+      const isLooseNippleItem = upperCode.startsWith('FG-NP-') || upperCode.startsWith('SPI-FG-NP-');
+      const currDeptCode = (departments.find((d: any) => d.id === selectedPackingDeptId)?.departmentCode || '').toUpperCase();
+      const recommendedDept = pickDefaultPackingDept(departments, activeDiv, itemCode);
+      if (
+        recommendedDept && (
+          !selectedPackingDeptId ||
+          (isSpokePackItem && currDeptCode === 'SPI-NP-002') ||
+          (isLooseNippleItem && currDeptCode === 'SPD-DEPT008')
+        )
+      ) {
+        setSelectedPackingDeptId(recommendedDept.id);
+        form.setFieldValue('departmentId', recommendedDept.id);
+        if (recommendedDept.sectionId) {
+          setSelectedSectionId(recommendedDept.sectionId);
+          form.setFieldValue('sectionId', recommendedDept.sectionId);
+        }
+      }
+
       expandBomForMasterItem(rowKey, newProductId, nextPcs);
     },
-    [fgItems, masterItems, expandBomForMasterItem, activeSocOrder, socPackedStats, socNo, message]
+    [fgItems, masterItems, expandBomForMasterItem, activeSocOrder, socPackedStats, socNo, message, departments, selectedDivisionId, selectedPackingDeptId, pickDefaultPackingDept, form]
   );
 
   // Synchronize when urlProductId changes (e.g. user clicked "Use for Packing" on FG BOM Catalog).

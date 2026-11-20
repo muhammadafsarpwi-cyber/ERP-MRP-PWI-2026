@@ -87,6 +87,7 @@ export interface ProductionInventoryReportRow {
   thicknessMm: number | null;
   widthMm: number | null;
   weightPerMeter?: number | null;
+  finishedWeightPerMeter?: number | null;
   weightPerPiece?: number | null;
   divisionId: string | null;
   divisionName: string | null;
@@ -897,6 +898,7 @@ export class ProductionInventoryReportService {
         thicknessMm: item.thicknessMm != null ? Number(item.thicknessMm) : null,
         widthMm: item.widthMm != null ? Number(item.widthMm) : null,
         weightPerMeter: item.weightPerMeter != null ? Number(item.weightPerMeter) : null,
+        finishedWeightPerMeter: item.finishedWeightPerMeter != null ? Number(item.finishedWeightPerMeter) : null,
         weightPerPiece: item.weightPerPiece != null ? Number(item.weightPerPiece) : null,
         divisionId: item.divisionId ?? null,
         divisionName: item.division?.name ?? null,

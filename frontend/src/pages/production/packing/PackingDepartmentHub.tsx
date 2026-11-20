@@ -22,6 +22,15 @@ import PackingShiftTargetSetup from './PackingShiftTargetSetup';
 import Breadcrumbs from '../../../components/shared/Breadcrumbs';
 import apiService from '../../../services/api';
 import { formatNumber, toNum } from '../../../utils/numberFormat';
+import {
+  buildCustomerPackingDispatchWhatsApp,
+  buildTodayPackingWhatsApp,
+  buildFgrStockWhatsApp,
+} from './packingWhatsApp';
+import {
+  formatWhatsAppPhoneWithCountryCode,
+  useWhatsAppSettingsVersion,
+} from '../../../utils/whatsappSettingsStore';
 import dayjs from 'dayjs';
 import { useHeaderActions } from '../../../components/layout/headerActionsStore';
 import customParseFormat from 'dayjs/plugin/customParseFormat';
@@ -703,47 +712,13 @@ export const PackingDepartmentHub: React.FC = () => {
   const totalStockKg = customerStockData.reduce((acc, c) => acc + c.items.reduce((sum, it) => sum + (it.weightKg || 0), 0), 0);
   const totalStockValuation = customerStockData.reduce((acc, c) => acc + c.items.reduce((sum, it) => sum + (it.valuePkr || 0), 0), 0);
 
+  const waSettingsVersion = useWhatsAppSettingsVersion();
+
   // Generate formatted WhatsApp text for a specific customer's packed inventory
-  const generateCustomerWhatsAppText = useCallback((cust: any) => {
-    if (!cust) return '';
-    const custWeight = cust.items.reduce((s: number, it: any) => s + (it.weightKg || 0), 0);
-    const custPcs = cust.items.reduce((s: number, it: any) => s + (it.pcs || 0), 0);
-    const custGross = cust.items.reduce((s: number, it: any) => s + (it.gross || 0), 0);
-    const custCartons = cust.items.reduce((s: number, it: any) => s + (it.cartons || 0), 0);
-    const custVal = cust.items.reduce((s: number, it: any) => s + (it.valuePkr || 0), 0);
-    const dateStr = dayjs().format('DD-MMM-YYYY');
-
-    let msg = `🏭 *Pakistan Wire Industries (Pvt.) LTD*\n`;
-    msg += `📦 *PACKED FINISHED GOODS INVENTORY DISPATCH REPORT*\n`;
-    msg += `📅 *Date:* ${dateStr}\n`;
-    msg += `────────────────────────────\n`;
-    msg += `👤 *Customer:* ${cust.customerName} (${cust.customerCode})\n`;
-    if (cust.socNo && cust.socNo !== '—') msg += `📋 *SOC #:* ${cust.socNo}\n`;
-    msg += `🏢 *Division:* Spoke Division (DIV-SPD)\n`;
-    msg += `────────────────────────────\n`;
-    msg += `*PACKED FINISHED GOODS DETAIL:*\n`;
-
-    cust.items.forEach((it: any, idx: number) => {
-      msg += `\n${idx + 1}️⃣ *${it.itemCode}* — ${it.itemName}\n`;
-      if (it.packagingStyle) msg += `   🛍️ Style: ${it.packagingStyle}\n`;
-      msg += `   • Pieces: *${formatNumber(it.pcs, 0)} PCS*\n`;
-      msg += `   • Gross: *${formatNumber(it.gross, 0)} GRS*\n`;
-      msg += `   • Cartons: *${formatNumber(it.cartons, 0)} CTN*\n`;
-      msg += `   • Weight: *${formatNumber(it.weightKg, 2)} KG*\n`;
-    });
-
-    msg += `\n────────────────────────────\n`;
-    msg += `📊 *TOTAL SUMMARY:* (Pieces ➔ Gross ➔ Cartons)\n`;
-    msg += `🔢 *1. Total Pieces:* ${formatNumber(custPcs, 0)} PCS\n`;
-    msg += `📦 *2. Total Gross:* ${formatNumber(custGross, 0)} GRS\n`;
-    msg += `📦 *3. Total Cartons:* ${formatNumber(custCartons, 0)} CTN\n`;
-    msg += `⚖️ *Total Weight:* ${formatNumber(custWeight, 2)} KG\n`;
-    msg += `💰 *Total Valuation:* PKR ${formatNumber(custVal, 0)}\n`;
-    msg += `────────────────────────────\n`;
-    msg += `✅ *Verified & Ready for Dispatch by Packing Dept, PWI*`;
-
-    return msg;
-  }, []);
+  const generateCustomerWhatsAppText = useCallback(
+    (cust: any) => buildCustomerPackingDispatchWhatsApp(cust),
+    [waSettingsVersion],
+  );
 
   const handleOpenCustomerWhatsApp = (cust: any) => {
     setWhatsAppModalCust(cust);
@@ -754,7 +729,7 @@ export const PackingDepartmentHub: React.FC = () => {
   const handleSendCustomerWhatsApp = () => {
     if (!whatsAppModalCust) return;
     const text = generateCustomerWhatsAppText(whatsAppModalCust);
-    const phoneClean = whatsAppCustPhone.replace(/[^0-9]/g, '');
+    const phoneClean = formatWhatsAppPhoneWithCountryCode(whatsAppCustPhone);
     const url = phoneClean
       ? `https://api.whatsapp.com/send?phone=${phoneClean}&text=${encodeURIComponent(text)}`
       : `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
@@ -771,62 +746,17 @@ export const PackingDepartmentHub: React.FC = () => {
   };
 
   // 1. Generate WhatsApp text for Today's Packing Production & Dispatch Daily Log
-  const generateTodayPackingWhatsAppText = useCallback(() => {
-    const dateStr = dayjs().format('DD-MMM-YYYY');
-    const timeStr = dayjs().format('hh:mm A');
-    let text = `🏭 *Pakistan Wire Industries (Pvt.) LTD*\n`;
-    text += `📋 *DAILY PACKING PRODUCTION & DISPATCH REPORT*\n`;
-    text += `📅 *Date:* ${dateStr} | *Time:* ${timeStr}\n`;
-    text += `🏢 *Division:* Spoke Division (DIV-SPD) | *Shift:* General Shift (8:30 AM - 5:30 PM)\n`;
-    text += `━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
-
-    text += `📦 *TODAY'S RECORDED PACKING BATCHES:*\n`;
-    let batchCount = 0;
-    historyLogs.forEach((entry: any, idx: number) => {
-      const remarks = String(entry.remarks || '');
-      const batchMatch = remarks.match(/Batch:\s*([^|]+)/i);
-      const batchNo = batchMatch ? batchMatch[1].trim() : `PKG-2026-000${idx + 2}`;
-      const custMatch = remarks.match(/Customer:\s*([^|]+)/i);
-      const custName = custMatch ? custMatch[1].trim() : (entry.customer?.name || 'ALI SHAH AUTOS');
-      const socMatch = remarks.match(/SOC:\s*([^|]+)/i);
-      const socNo = socMatch ? socMatch[1].trim() : (entry.socNo || '5805');
-      const styleMatch = remarks.match(/Style:\s*([^|]+)/i);
-      const style = styleMatch ? styleMatch[1].trim() : 'OEM Packing';
-      const ctnMatch = remarks.match(/Cartons:\s*([\d.]+)/i);
-      const grossMatch = remarks.match(/Gross:\s*([\d.]+)/i) || remarks.match(/\(([\d.]+)\s*Gross/i);
-      const pcs = toNum(entry.actualQuantity || entry.quantity || 72000);
-      const cartons = ctnMatch ? Number(ctnMatch[1]) : 50;
-      const gross = grossMatch ? Number(grossMatch[1]) : 500;
-      const codeStr = String(entry.item?.itemCode || entry.itemCode || '');
-      const wt = codeStr.includes('006') ? 1156.0 : 1007.3;
-
-      const isShifted =
-        remarks.includes('Allocated from Safety Stock') ||
-        remarks.includes('SHIFTED FROM SAFETY STOCK') ||
-        remarks.includes('Allocated from Safety');
-
-      batchCount++;
-      text += `\n*Batch ${batchCount}: ${batchNo}*${isShifted ? ' _(⚡ Shifted from Safety Stock)_' : ''}\n`;
-      text += `• Customer: *${custName}* (SOC: ${socNo})\n`;
-      text += `• Item: *${codeStr}* — ${entry.item?.name || 'Finished Good'}\n`;
-      text += `• Style: ${style}\n`;
-      text += `• Output: *${formatNumber(pcs, 0)} PCS* | *${gross} GRS* | *${cartons} CTN*\n`;
-      text += `• Net Batch Weight: *${formatNumber(wt, 1)} KG*\n`;
-      text += `• Store (IN): *SPI FG Dispatch Warehouse (SPI-FGDW-001)*\n`;
-      text += `• Status: ${isShifted ? '✅ ALLOCATED & SHIFTED FROM SAFETY STOCK' : '✅ PACKED & READY FOR DISPATCH'}\n`;
-    });
-
-    text += `\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
-    text += `📊 *TODAY'S PRODUCTION TOTALS (PCS ➔ GRS ➔ CTN):*\n`;
-    text += `🔢 *1. Total Pieces Packed:* ${formatNumber(totalStockPcs, 0)} PCS\n`;
-    text += `📦 *2. Total Gross Packed:* ${formatNumber(totalStockGross, 0)} GRS\n`;
-    text += `🏷️ *3. Total Cartons Packed:* ${formatNumber(totalStockCartons, 0)} CTN\n`;
-    text += `⚖️ *Total Net Weight Packed:* ${formatNumber(totalStockKg, 1)} KG\n`;
-    text += `🎯 *Day Target Progress:* 100 / 125 Cartons (80% Achieved)\n`;
-    text += `━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
-    text += `👨‍💼 _Prepared by Packing Department Supervisor, PWI_`;
-    return text;
-  }, [historyLogs, totalStockPcs, totalStockGross, totalStockCartons, totalStockKg]);
+  const generateTodayPackingWhatsAppText = useCallback(
+    () =>
+      buildTodayPackingWhatsApp({
+        historyLogs,
+        totalStockPcs,
+        totalStockGross,
+        totalStockCartons,
+        totalStockKg,
+      }),
+    [historyLogs, totalStockPcs, totalStockGross, totalStockCartons, totalStockKg, waSettingsVersion],
+  );
 
   const handleOpenTodayWhatsApp = () => {
     setTodayWhatsAppPhone('');
@@ -836,7 +766,7 @@ export const PackingDepartmentHub: React.FC = () => {
 
   const handleSendTodayWhatsApp = () => {
     const text = generateTodayPackingWhatsAppText();
-    const phoneClean = todayWhatsAppPhone.replace(/[^0-9]/g, '');
+    const phoneClean = formatWhatsAppPhoneWithCountryCode(todayWhatsAppPhone);
     const url = phoneClean
       ? `https://api.whatsapp.com/send?phone=${phoneClean}&text=${encodeURIComponent(text)}`
       : `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
@@ -852,39 +782,18 @@ export const PackingDepartmentHub: React.FC = () => {
   };
 
   // 2. Generate WhatsApp text for Live FGR Warehouse Stock Balance Report
-  const generateFgrWhatsAppText = useCallback(() => {
-    const dateStr = dayjs().format('DD-MMM-YYYY');
-    const timeStr = dayjs().format('hh:mm A');
-    let text = `🏭 *Pakistan Wire Industries (Pvt.) LTD*\n`;
-    text += `📊 *FGR FINISHED GOODS WAREHOUSE STOCK REPORT*\n`;
-    text += `🏬 *Warehouse:* SPI FG Dispatch Warehouse (SPI-FGDW-001)\n`;
-    text += `📅 *Date:* ${dateStr} | *Time:* ${timeStr}\n`;
-    text += `━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
-
-    text += `📦 *LIVE FGR STOCK BREAKDOWN:*\n`;
-    customerStockData.forEach((cust, cIdx) => {
-      text += `\n👤 *Customer ${cIdx + 1}: ${cust.customerName}* (${cust.customerCode})\n`;
-      if (cust.socNo && cust.socNo !== '—') text += `   📋 SOC #: ${cust.socNo}\n`;
-      cust.items.forEach((it: any, iIdx: number) => {
-        text += `   ${iIdx + 1}. *${it.itemCode}* — ${it.itemName}\n`;
-        text += `      • Pieces: *${formatNumber(it.pcs, 0)} PCS*\n`;
-        text += `      • Gross: *${formatNumber(it.gross, 0)} GRS*\n`;
-        text += `      • Cartons: *${formatNumber(it.cartons, 0)} CTN*\n`;
-        text += `      • Net Weight: *${formatNumber(it.weightKg, 1)} KG*\n`;
-      });
-    });
-
-    text += `\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
-    text += `📊 *FGR EXECUTIVE TOTALS (PCS ➔ GRS ➔ CTN):*\n`;
-    text += `🔢 *1. Total Available Pieces:* ${formatNumber(totalStockPcs, 0)} PCS\n`;
-    text += `📦 *2. Total Available Gross:* ${formatNumber(totalStockGross, 0)} GRS\n`;
-    text += `🏷️ *3. Total Available Cartons:* ${formatNumber(totalStockCartons, 0)} CTN\n`;
-    text += `⚖️ *Total Net Weight in Stock:* ${formatNumber(totalStockKg, 1)} KG\n`;
-    text += `💰 *Total Stock Valuation:* PKR ${formatNumber(totalStockValuation, 0)}\n`;
-    text += `━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
-    text += `✅ _Official Live FGR Stock Balance verified by Packing & Warehouse Team_`;
-    return text;
-  }, [customerStockData, totalStockPcs, totalStockGross, totalStockCartons, totalStockKg, totalStockValuation]);
+  const generateFgrWhatsAppText = useCallback(
+    () =>
+      buildFgrStockWhatsApp({
+        customerStockData,
+        totalStockPcs,
+        totalStockGross,
+        totalStockCartons,
+        totalStockKg,
+        totalStockValuation,
+      }),
+    [customerStockData, totalStockPcs, totalStockGross, totalStockCartons, totalStockKg, totalStockValuation, waSettingsVersion],
+  );
 
   const handleOpenFgrWhatsApp = () => {
     setFgrWhatsAppPhone('');
@@ -894,7 +803,7 @@ export const PackingDepartmentHub: React.FC = () => {
 
   const handleSendFgrWhatsApp = () => {
     const text = generateFgrWhatsAppText();
-    const phoneClean = fgrWhatsAppPhone.replace(/[^0-9]/g, '');
+    const phoneClean = formatWhatsAppPhoneWithCountryCode(fgrWhatsAppPhone);
     const url = phoneClean
       ? `https://api.whatsapp.com/send?phone=${phoneClean}&text=${encodeURIComponent(text)}`
       : `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;

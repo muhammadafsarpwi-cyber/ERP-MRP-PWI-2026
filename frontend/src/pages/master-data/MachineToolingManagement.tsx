@@ -265,6 +265,45 @@ interface MonthlyReport {
   };
 }
 
+interface LiveCostToolRow {
+  changeId: string;
+  installedToolCode: string;
+  installDate: string;
+  runningDays: number;
+  storeIssueNumber?: string | null;
+  machine: ReportRow['machine'];
+  component: ReportRow['component'];
+  qtyUsed: number;
+  unitCost: number;
+  costSource?: ReportRow['costSource'];
+  totalCost: number;
+  productionCovered: number;
+  costPerGross: number | null;
+}
+interface LiveCostMachineSummary {
+  machine: ReportRow['machine'];
+  activeToolsCount: number;
+  qtyUsed: number;
+  totalCost: number;
+  productionCovered: number;
+  combinedCostPerGross: number | null;
+  earliestInstallDate: string | null;
+  latestInstallDate: string | null;
+  components: LiveCostToolRow[];
+}
+interface LiveCostingReport {
+  rows: LiveCostToolRow[];
+  machines: LiveCostMachineSummary[];
+  totals: {
+    machines: number;
+    activeTools: number;
+    qtyUsed: number;
+    productionCovered: number;
+    totalCost: number;
+    avgCombinedCostPerGross: number | null;
+  };
+}
+
 /* TASK26 — lifecycle records */
 
 interface ActiveToolRec {
@@ -1986,6 +2025,39 @@ const MachineToolingManagement: React.FC = () => {
     }
   }, [reportMonth, fReportDivision, fReportMachine, message]);
 
+  /* ── Tab 6: Live Machine Costing (all active tools, no month filter) ────── */
+  const [fLiveCostDivision, setFLiveCostDivision] = useState<string | undefined>(undefined);
+  const [fLiveCostMachine, setFLiveCostMachine] = useState<string | undefined>(undefined);
+  const [liveCosting, setLiveCosting] = useState<LiveCostingReport | null>(null);
+  const [liveCostingLoading, setLiveCostingLoading] = useState(false);
+  const [expandedLiveCostKeys, setExpandedLiveCostKeys] = useState<React.Key[]>([]);
+
+  const liveCostMachineOptions = useMemo(() => {
+    const list = fLiveCostDivision
+      ? machines.filter((m) => m.divisionId === fLiveCostDivision)
+      : machines;
+    return list.map((m) => ({
+      value: m.id,
+      label: `${m.machineCode ?? m.name ?? m.id}${m.name && m.name !== m.machineCode ? ` — ${m.name}` : ''}`,
+    }));
+  }, [machines, fLiveCostDivision]);
+
+  const fetchLiveCosting = useCallback(async () => {
+    setLiveCostingLoading(true);
+    try {
+      const params: any = {};
+      if (fLiveCostDivision) params.divisionId = fLiveCostDivision;
+      if (fLiveCostMachine) params.machineId = fLiveCostMachine;
+      const res = await apiService.get<any>('/machine-tooling/changes/reports/live-costing', params);
+      setLiveCosting(res?.data ?? res ?? null);
+      setLiveCostingLoading(false);
+    } catch (error: any) {
+      setLiveCosting(null);
+      setLiveCostingLoading(false);
+      message.error(extractApiError(error, 'Failed to load live machine costing report'));
+    }
+  }, [fLiveCostDivision, fLiveCostMachine, message]);
+
   const handleSaveComponentRate = useCallback(
     async (componentId: string, unitCost: number) => {
       setSavingRate(true);
@@ -1995,20 +2067,29 @@ const MachineToolingManagement: React.FC = () => {
         });
         message.success('Tool unit rate updated');
         setEditingRateCompId(null);
-        await fetchReport();
+        await Promise.all([
+          activeTab === 'liveCosting' ? fetchLiveCosting() : fetchReport(),
+          activeTab === 'liveCosting' && report ? fetchReport() : Promise.resolve(),
+          activeTab === 'report' && liveCosting ? fetchLiveCosting() : Promise.resolve(),
+        ]);
       } catch (error: any) {
         message.error(extractApiError(error, 'Failed to update unit rate'));
       } finally {
         setSavingRate(false);
       }
     },
-    [fetchReport, message],
+    [activeTab, fetchReport, fetchLiveCosting, report, liveCosting, message],
   );
 
   useEffect(() => {
     if (activeTab === 'report') fetchReport();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, fetchReport]);
+
+  useEffect(() => {
+    if (activeTab === 'liveCosting') fetchLiveCosting();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, fetchLiveCosting]);
 
   /* ── Tab 4: Active tools (currently installed, lifecycle) ────────────────── */
   const [activeTools, setActiveTools] = useState<ActiveToolRec[]>([]);
@@ -2928,6 +3009,111 @@ const MachineToolingManagement: React.FC = () => {
     },
   ];
 
+  const renderInlineUnitRateCell = (r: {
+    component?: { id: string; componentCode?: string } | null;
+    unitCost: number;
+    costSource?: ReportRow['costSource'];
+  }) => {
+    const compId = r.component?.id;
+    const isEditing = compId && editingRateCompId === compId;
+    if (isEditing) {
+      return (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end' }}
+        >
+          <InputNumber
+            size="small"
+            min={0}
+            step={100}
+            value={editingRateValue}
+            onChange={(val) => setEditingRateValue(Number(val) || 0)}
+            onPressEnter={() => handleSaveComponentRate(compId, editingRateValue)}
+            style={{ width: 105 }}
+            autoFocus
+          />
+          <Button
+            size="small"
+            type="primary"
+            icon={<CheckOutlined />}
+            loading={savingRate}
+            onClick={() => handleSaveComponentRate(compId, editingRateValue)}
+            aria-label="Save unit rate"
+          />
+          <Button
+            size="small"
+            icon={<CloseOutlined />}
+            onClick={() => setEditingRateCompId(null)}
+            aria-label="Cancel edit rate"
+          />
+        </div>
+      );
+    }
+    const hasRate = (r.unitCost ?? 0) > 0;
+    const srcLabel =
+      r.costSource === 'SNAPSHOT'
+        ? 'Issued'
+        : r.costSource === 'INVENTORY_AVG'
+          ? 'Avg Cost'
+          : r.costSource === 'LATEST_GRN'
+            ? 'GRN'
+            : r.costSource === 'ITEM_MASTER'
+              ? 'Item Master'
+              : r.costSource === 'COMPONENT'
+                ? 'Saved'
+                : null;
+    return (
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', lineHeight: 1.2 }}>
+          <span
+            style={{
+              fontWeight: 700,
+              color: hasRate ? token.colorText : '#d97706',
+              fontVariantNumeric: 'tabular-nums',
+            }}
+          >
+            {hasRate ? fmtPkr(r.unitCost) : 'Rs. 0'}
+          </span>
+          {srcLabel && (
+            <span style={{ fontSize: 10, color: token.colorTextTertiary }}>{srcLabel}</span>
+          )}
+        </div>
+        {compId && can('manufacturing.tool_component.update') && (
+          <Tooltip title={hasRate ? 'Edit tool unit rate (PKR)' : 'Enter missing unit rate (PKR)'}>
+            <button
+              type="button"
+              className="pwi-action-pill pwi-action-pill--amber"
+              aria-label={`Edit unit rate for ${r.component?.componentCode}`}
+              onClick={() => {
+                setEditingRateCompId(compId);
+                setEditingRateValue(r.unitCost || 0);
+              }}
+              style={{
+                width: 24,
+                height: 24,
+                minWidth: 24,
+                padding: 0,
+                borderRadius: 6,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                color: '#B45309',
+                background: '#FEF3C7',
+                border: '1px solid #FCD34D',
+              }}
+            >
+              <EditOutlined style={{ fontSize: 12 }} />
+            </button>
+          </Tooltip>
+        )}
+      </div>
+    );
+  };
+
   const reportDetailColumns: ColumnsType<ReportRow> = [
     {
       title: 'Component / Tooling',
@@ -2956,106 +3142,7 @@ const MachineToolingManagement: React.FC = () => {
       key: 'unitCost',
       width: 195,
       align: 'right',
-      render: (_, r) => {
-        const compId = r.component?.id;
-        const isEditing = compId && editingRateCompId === compId;
-        if (isEditing) {
-          return (
-            <div
-              onClick={(e) => e.stopPropagation()}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end' }}
-            >
-              <InputNumber
-                size="small"
-                min={0}
-                step={100}
-                value={editingRateValue}
-                onChange={(val) => setEditingRateValue(Number(val) || 0)}
-                onPressEnter={() => handleSaveComponentRate(compId, editingRateValue)}
-                style={{ width: 105 }}
-                autoFocus
-              />
-              <Button
-                size="small"
-                type="primary"
-                icon={<CheckOutlined />}
-                loading={savingRate}
-                onClick={() => handleSaveComponentRate(compId, editingRateValue)}
-                aria-label="Save unit rate"
-              />
-              <Button
-                size="small"
-                icon={<CloseOutlined />}
-                onClick={() => setEditingRateCompId(null)}
-                aria-label="Cancel edit rate"
-              />
-            </div>
-          );
-        }
-        const hasRate = (r.unitCost ?? 0) > 0;
-        const srcLabel =
-          r.costSource === 'SNAPSHOT'
-            ? 'Issued'
-            : r.costSource === 'INVENTORY_AVG'
-              ? 'Avg Cost'
-              : r.costSource === 'LATEST_GRN'
-                ? 'GRN'
-                : r.costSource === 'ITEM_MASTER'
-                  ? 'Item Master'
-                  : r.costSource === 'COMPONENT'
-                    ? 'Saved'
-                    : null;
-        return (
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}
-          >
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', lineHeight: 1.2 }}>
-              <span
-                style={{
-                  fontWeight: 700,
-                  color: hasRate ? token.colorText : '#d97706',
-                  fontVariantNumeric: 'tabular-nums',
-                }}
-              >
-                {hasRate ? fmtPkr(r.unitCost) : 'Rs. 0'}
-              </span>
-              {srcLabel && (
-                <span style={{ fontSize: 10, color: token.colorTextTertiary }}>{srcLabel}</span>
-              )}
-            </div>
-            {compId && can('manufacturing.tool_component.update') && (
-              <Tooltip title={hasRate ? 'Edit tool unit rate (PKR)' : 'Enter missing unit rate (PKR)'}>
-                <button
-                  type="button"
-                  className="pwi-action-pill pwi-action-pill--amber"
-                  aria-label={`Edit unit rate for ${r.component?.componentCode}`}
-                  onClick={() => {
-                    setEditingRateCompId(compId);
-                    setEditingRateValue(r.unitCost || 0);
-                  }}
-                  style={{
-                    width: 24,
-                    height: 24,
-                    minWidth: 24,
-                    padding: 0,
-                    borderRadius: 6,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    cursor: 'pointer',
-                    color: '#B45309',
-                    background: '#FEF3C7',
-                    border: '1px solid #FCD34D',
-                  }}
-                >
-                  <EditOutlined style={{ fontSize: 12 }} />
-                </button>
-              </Tooltip>
-            )}
-          </div>
-        );
-      },
+      render: (_, r) => renderInlineUnitRateCell(r),
     },
     {
       title: 'Total Cost',
@@ -3112,6 +3199,225 @@ const MachineToolingManagement: React.FC = () => {
     },
   ];
 
+  const liveCostMachines = useMemo<LiveCostMachineSummary[]>(() => {
+    return Array.isArray(liveCosting?.machines) ? liveCosting.machines : [];
+  }, [liveCosting]);
+
+  const liveCostMachineColumns: ColumnsType<LiveCostMachineSummary> = [
+    {
+      title: 'Machine',
+      key: 'machine',
+      width: 245,
+      render: (_, m) => (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, lineHeight: 1.3 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <Tag color="geekblue" icon={<ClusterOutlined />} style={{ margin: 0, fontWeight: 700, borderRadius: 6 }}>
+              {m.machine?.machineCode ?? '—'}
+            </Tag>
+            {m.machine?.divisionName && (
+              <Tag color="cyan" style={{ margin: 0, fontSize: 10.5, borderRadius: 5, fontWeight: 600 }}>
+                {m.machine.divisionName}
+              </Tag>
+            )}
+          </div>
+          {m.machine?.machineName && (
+            <span style={{ fontSize: 12, fontWeight: 600, color: token.colorText }}>
+              {m.machine.machineName}
+            </span>
+          )}
+        </div>
+      ),
+    },
+    {
+      title: 'Active Tools Count',
+      key: 'activeToolsCount',
+      width: 185,
+      render: (_, m) => (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 3, lineHeight: 1.3 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Tag color="cyan" style={{ margin: 0, fontWeight: 700, borderRadius: 12 }}>
+              {m.activeToolsCount} {m.activeToolsCount === 1 ? 'Active Tool' : 'Active Tools'}
+            </Tag>
+            <span style={{ fontWeight: 700, color: token.colorText, fontVariantNumeric: 'tabular-nums' }}>
+              {fmtNum(m.qtyUsed)} Qty
+            </span>
+          </div>
+          {m.earliestInstallDate && (
+            <span style={{ fontSize: 11, color: token.colorTextTertiary }}>
+              Earliest mounted: {m.earliestInstallDate}
+            </span>
+          )}
+        </div>
+      ),
+    },
+    {
+      title: 'Total Setup Tooling Cost (PKR)',
+      dataIndex: 'totalCost',
+      key: 'totalCost',
+      width: 205,
+      align: 'right',
+      render: (v: number, m) => {
+        const missingRates = (m.components || []).filter((c) => !(c.unitCost > 0)).length;
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+            <span style={{ fontWeight: 700, fontSize: 13.5, color: token.colorText, fontVariantNumeric: 'tabular-nums' }}>
+              {fmtPkr(v)}
+            </span>
+            {missingRates > 0 && (
+              <Tag color="warning" style={{ margin: 0, fontSize: 10, lineHeight: '15px', fontWeight: 600 }}>
+                {missingRates} rate{missingRates === 1 ? '' : 's'} needed (expand)
+              </Tag>
+            )}
+          </div>
+        );
+      },
+    },
+    {
+      title: `Total Production Covered (${PRODUCTION_UOM})`,
+      dataIndex: 'productionCovered',
+      key: 'productionCovered',
+      width: 215,
+      align: 'right',
+      render: (v: number) => (
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
+          <span style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--theme-primary)', fontVariantNumeric: 'tabular-nums' }}>
+            {fmtNum(v)} {PRODUCTION_UOM}
+          </span>
+          {renderLiveBadge()}
+        </div>
+      ),
+    },
+    {
+      title: 'Combined Cost / Gross (144 PCS)',
+      dataIndex: 'combinedCostPerGross',
+      key: 'combinedCostPerGross',
+      width: 215,
+      align: 'right',
+      render: (v: number | null) =>
+        v != null ? (
+          <Tag
+            color={v > 0 ? 'purple' : 'default'}
+            style={{ margin: 0, fontWeight: 700, fontSize: 12.5, padding: '3px 10px', borderRadius: 6, fontVariantNumeric: 'tabular-nums' }}
+          >
+            {fmtPkr(v, 2)} / Gross
+          </Tag>
+        ) : (
+          EMPTY
+        ),
+    },
+  ];
+
+  const liveCostDetailColumns: ColumnsType<LiveCostToolRow> = [
+    {
+      title: 'Component / Tooling',
+      key: 'component',
+      width: 270,
+      render: (_, r) =>
+        renderToolItemStack(r.component?.componentCode, r.component?.componentName, {
+          extraMeta: [
+            formatComponentTypeLabel(r.component?.componentType),
+            r.storeIssueNumber || null,
+          ]
+            .filter(Boolean)
+            .join(' · '),
+        }),
+    },
+    {
+      title: 'Installed / Issued Date & Running Days',
+      key: 'installDate',
+      width: 195,
+      render: (_, r) => {
+        const days = r.runningDays ?? 0;
+        const dayLabel = days === 0 ? 'Today (0d)' : `${days} ${days === 1 ? 'day' : 'days'}`;
+        const isCarryover = Boolean(
+          r.installDate && r.installDate < dayjs().startOf('month').format('YYYY-MM-DD'),
+        );
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            {renderDateValue(r.installDate)}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+              <Tag
+                color={isCarryover ? 'orange' : 'cyan'}
+                style={{ margin: 0, fontSize: 10.5, fontWeight: 700, borderRadius: 5, lineHeight: '16px' }}
+              >
+                {dayLabel}
+              </Tag>
+              {isCarryover && (
+                <Tag
+                  color="gold"
+                  style={{ margin: 0, fontSize: 10, fontWeight: 600, borderRadius: 4, lineHeight: '15px' }}
+                >
+                  Prior Month
+                </Tag>
+              )}
+            </div>
+          </div>
+        );
+      },
+    },
+    {
+      title: 'Qty Used',
+      key: 'qtyUsed',
+      width: 100,
+      align: 'right',
+      render: (_, r) => (
+        <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+          {fmtNum(r.qtyUsed)}
+          {r.component?.uomCode ? ` ${r.component.uomCode}` : ''}
+        </span>
+      ),
+    },
+    {
+      title: 'Unit Rate (PKR)',
+      key: 'unitCost',
+      width: 195,
+      align: 'right',
+      render: (_, r) => renderInlineUnitRateCell(r),
+    },
+    {
+      title: 'Total Cost',
+      dataIndex: 'totalCost',
+      key: 'totalCost',
+      width: 130,
+      align: 'right',
+      render: (v: number) => (
+        <span style={{ fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+          {fmtPkr(v)}
+        </span>
+      ),
+    },
+    {
+      title: `Production Covered (${PRODUCTION_UOM})`,
+      dataIndex: 'productionCovered',
+      key: 'productionCovered',
+      width: 185,
+      align: 'right',
+      render: (v: number) => (
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
+          <span style={{ fontWeight: 700, color: 'var(--theme-primary)', fontVariantNumeric: 'tabular-nums' }}>
+            {fmtNum(v)} {PRODUCTION_UOM}
+          </span>
+          {renderLiveBadge()}
+        </div>
+      ),
+    },
+    {
+      title: 'Cost / Gross (144 PCS)',
+      dataIndex: 'costPerGross',
+      key: 'costPerGross',
+      width: 165,
+      align: 'right',
+      render: (v: number | null) =>
+        v != null ? (
+          <span style={{ fontWeight: 700, color: '#7c3aed', fontVariantNumeric: 'tabular-nums' }}>
+            {fmtPkr(v, 2)} / Gross
+          </span>
+        ) : (
+          EMPTY
+        ),
+    },
+  ];
+
   const primaryAdd =
     activeTab === 'setup'
       ? {
@@ -3163,9 +3469,10 @@ const MachineToolingManagement: React.FC = () => {
       fetchLifeReport(lifePage);
       fetchStandbyTools();
     } else if (activeTab === 'report') fetchReport();
+    else if (activeTab === 'liveCosting') fetchLiveCosting();
   }, [
     activeTab, compPage, chgPage, atPage, lifePage,
-    fetchComponents, fetchChanges, fetchActiveTools, fetchLifeReport, fetchReport, fetchStandbyTools,
+    fetchComponents, fetchChanges, fetchActiveTools, fetchLifeReport, fetchReport, fetchLiveCosting, fetchStandbyTools,
   ]);
 
   const buildActiveTabExportPayload = useCallback(async (): Promise<ToolExportPayload> => {
@@ -3446,6 +3753,64 @@ const MachineToolingManagement: React.FC = () => {
           productionCovered: fmtQty(r.productionCovered, PRODUCTION_UOM),
           costPerGross: r.costPerGross != null ? `${fmtPkr(r.costPerGross, 2)} / Gross` : '—',
           lastChange: fmtDate(r.lastChangeDate),
+        })),
+      };
+    }
+
+    if (activeTab === 'liveCosting') {
+      const rows = liveCosting?.rows || [];
+      const filterParts: string[] = ['All Currently Active Tooling (All Months)'];
+      if (fLiveCostDivision) {
+        const divName = divisions.find((d) => d.id === fLiveCostDivision)?.name || fLiveCostDivision;
+        filterParts.push(`Division: ${divName}`);
+      }
+      if (fLiveCostMachine) filterParts.push(`Machine: ${lookupMachineLabel(fLiveCostMachine)}`);
+
+      return {
+        reportTitle: 'Live Machine Tooling Costing Report',
+        subtitle: 'Active Running Setups Across All Install Months · Combined Cost / Gross (144 PCS)',
+        fileBaseName: 'PWI-Live-Machine-Tooling-Costing',
+        printedBy: printedByName,
+        filterSummary: filterParts.join(' · '),
+        kpis: [
+          { label: 'Active Machines', value: String(liveCosting?.totals?.machines ?? 0), tone: 'neutral' },
+          { label: 'Active Tools Mounted', value: fmtNum(liveCosting?.totals?.activeTools ?? 0), tone: 'neutral' },
+          { label: 'Combined Production', value: `${fmtNum(liveCosting?.totals?.productionCovered ?? 0)} ${PRODUCTION_UOM}`, tone: 'success' },
+          { label: 'Active Setup Cost', value: fmtPkr(liveCosting?.totals?.totalCost ?? 0), tone: 'warning' },
+          {
+            label: 'Avg Combined Cost / Gross (144 PCS)',
+            value:
+              liveCosting?.totals?.avgCombinedCostPerGross != null
+                ? `${fmtPkr(liveCosting.totals.avgCombinedCostPerGross, 2)} / Gross`
+                : '—',
+            tone: 'danger',
+          },
+        ],
+        columns: [
+          { header: '#', key: 'seq', align: 'center', widthWeight: 0.4 },
+          { header: 'Machine', key: 'machine', widthWeight: 1.35 },
+          { header: 'Division', key: 'division', widthWeight: 0.9 },
+          { header: 'Component', key: 'component', widthWeight: 1.45 },
+          { header: 'Installed Date', key: 'installDate', widthWeight: 0.85 },
+          { header: 'Running Days', key: 'runningDays', align: 'right', widthWeight: 0.7 },
+          { header: 'Qty Used', key: 'qtyUsed', align: 'right', widthWeight: 0.7 },
+          { header: 'Unit Rate (PKR)', key: 'unitCost', align: 'right', widthWeight: 0.85 },
+          { header: 'Total Cost (PKR)', key: 'totalCost', align: 'right', widthWeight: 0.9 },
+          { header: 'Production Covered', key: 'productionCovered', align: 'right', widthWeight: 1.0 },
+          { header: 'Cost / Gross', key: 'costPerGross', align: 'right', widthWeight: 0.85 },
+        ],
+        rows: rows.map((r, idx) => ({
+          seq: idx + 1,
+          machine: fmtMachine(r.machine ? { machineCode: r.machine.machineCode, name: r.machine.machineName } : null),
+          division: r.machine?.divisionName || '—',
+          component: r.component ? `${r.component.componentCode} — ${r.component.componentName}` : '—',
+          installDate: fmtDate(r.installDate),
+          runningDays: r.runningDays === 0 ? 'Today (0d)' : `${r.runningDays} d`,
+          qtyUsed: fmtQty(r.qtyUsed, r.component?.uomCode),
+          unitCost: fmtPkr(r.unitCost ?? 0),
+          totalCost: fmtPkr(r.totalCost ?? 0),
+          productionCovered: fmtQty(r.productionCovered, PRODUCTION_UOM),
+          costPerGross: r.costPerGross != null ? `${fmtPkr(r.costPerGross, 2)} / Gross` : '—',
         })),
       };
     }
@@ -3805,6 +4170,7 @@ const MachineToolingManagement: React.FC = () => {
             ...(can('manufacturing.component_change.view') ? [{ key: 'active', label: 'Active Tools', icon: <CheckCircleOutlined />, color: '#0284c7', activeBg: '#0369a1', count: activeToolsTotal }] : []),
             ...(can('manufacturing.component_change.view') ? [{ key: 'life', label: 'Tool Life History', icon: <HistoryOutlined />, color: '#d97706', activeBg: '#b45309', count: lifeTotal }] : []),
             { key: 'report', label: 'Monthly Consumption', icon: <BarChartOutlined />, color: '#7c3aed', activeBg: '#6d28d9', count: null },
+            { key: 'liveCosting', label: 'Live Machine Costing', icon: <DollarOutlined />, color: '#0d9488', activeBg: '#0f766e', count: null },
           ].map((tab, idx, arr) => {
             const isSelected = activeTab === tab.key;
             const isFirst = idx === 0;
@@ -4349,6 +4715,233 @@ const MachineToolingManagement: React.FC = () => {
                 }}
                 emptyTitle="No consumption for this month"
                 emptyDescription="Record component changes in the selected month to see the consumption report."
+              />
+            </div>
+          </>
+        )}
+
+        {activeTab === 'liveCosting' && (
+          <>
+            <div style={{ padding: '8px 10px', borderBottom: '1px solid var(--theme-border, rgba(148, 163, 184, 0.12))' }}>
+              <TableToolbar
+                showExportButtons={false}
+                left={
+                  <Space size={8} wrap>
+                    <Select
+                      placeholder="All Divisions"
+                      allowClear
+                      showSearch
+                      optionFilterProp="label"
+                      value={fLiveCostDivision}
+                      onChange={(divId) => {
+                        setFLiveCostDivision(divId);
+                        if (divId && fLiveCostMachine) {
+                          const mach = machines.find((m) => m.id === fLiveCostMachine);
+                          if (mach && mach.divisionId !== divId) {
+                            setFLiveCostMachine(undefined);
+                          }
+                        }
+                      }}
+                      style={{ width: 200 }}
+                      options={reportDivisionOptions}
+                    />
+                    <Select
+                      placeholder="All Machines"
+                      allowClear
+                      showSearch
+                      optionFilterProp="label"
+                      value={fLiveCostMachine}
+                      onChange={(v) => setFLiveCostMachine(v)}
+                      style={{ width: 220 }}
+                      options={liveCostMachineOptions}
+                    />
+                    {(fLiveCostDivision || fLiveCostMachine) && (
+                      <Button
+                        type="link"
+                        danger
+                        onClick={() => {
+                          setFLiveCostDivision(undefined);
+                          setFLiveCostMachine(undefined);
+                        }}
+                      >
+                        Clear
+                      </Button>
+                    )}
+                  </Space>
+                }
+                actions={
+                  liveCostMachines.length > 0 ? (
+                    <Button
+                      size="small"
+                      style={{ borderRadius: 6, fontWeight: 600 }}
+                      onClick={() => {
+                        if (expandedLiveCostKeys.length >= liveCostMachines.length) {
+                          setExpandedLiveCostKeys([]);
+                        } else {
+                          setExpandedLiveCostKeys(liveCostMachines.map((m) => m.machine?.id ?? 'unknown'));
+                        }
+                      }}
+                    >
+                      {expandedLiveCostKeys.length >= liveCostMachines.length ? 'Collapse All' : 'Expand All Breakdown'}
+                    </Button>
+                  ) : null
+                }
+              />
+            </div>
+            <div
+              style={{
+                padding: '14px 16px 6px',
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(175px, 1fr))',
+                gap: 12,
+              }}
+            >
+              {[
+                { label: 'Active Machines', value: liveCosting?.totals.machines ?? 0, accent: '#0d9488', bgTint: 'rgba(13, 148, 136, 0.12)', icon: <DesktopOutlined /> },
+                { label: 'Active Tools Mounted', value: fmtNum(liveCosting?.totals.activeTools ?? 0), accent: '#0284c7', bgTint: 'rgba(2, 132, 199, 0.12)', icon: <ToolOutlined /> },
+                { label: `Combined Production (${PRODUCTION_UOM})`, value: `${fmtNum(liveCosting?.totals.productionCovered ?? 0)} ${PRODUCTION_UOM}`, accent: '#10b981', bgTint: 'rgba(16, 185, 129, 0.12)', icon: <RiseOutlined /> },
+                { label: 'Active Setup Cost (PKR)', value: fmtPkr(liveCosting?.totals.totalCost ?? 0), accent: '#d97706', bgTint: 'rgba(217, 119, 6, 0.12)', icon: <DollarOutlined /> },
+                {
+                  label: 'Avg Combined Cost / Gross (144 PCS)',
+                  value: liveCosting?.totals.avgCombinedCostPerGross != null ? `${fmtPkr(liveCosting.totals.avgCombinedCostPerGross, 2)} / Gross` : '—',
+                  accent: '#dc2626',
+                  bgTint: 'rgba(220, 38, 38, 0.12)',
+                  icon: <ThunderboltOutlined />,
+                },
+              ].map((kpi) => (
+                <div
+                  key={kpi.label}
+                  className="pwi-kpi-card"
+                  style={{
+                    ['--kpi-accent' as any]: kpi.accent,
+                    background: token.colorBgContainer,
+                    border: `1px solid ${token.colorBorderSecondary}`,
+                    borderTop: `3px solid ${kpi.accent}`,
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: token.colorTextSecondary }}>
+                      {kpi.label}
+                    </span>
+                    <span
+                      style={{
+                        width: 32,
+                        height: 32,
+                        borderRadius: 9,
+                        background: kpi.bgTint,
+                        color: kpi.accent,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: 15,
+                        flexShrink: 0,
+                      }}
+                    >
+                      {kpi.icon}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 21, fontWeight: 800, color: token.colorText, lineHeight: 1.2, fontVariantNumeric: 'tabular-nums' }}>
+                    {kpi.value}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div
+              style={{
+                margin: '10px 16px 12px',
+                padding: '10px 14px',
+                borderRadius: 8,
+                background: token.colorFillAlter,
+                border: `1px solid ${token.colorBorderSecondary}`,
+                borderLeft: '3px solid #0d9488',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                fontSize: 13,
+                color: token.colorTextSecondary,
+              }}
+            >
+              <InfoCircleOutlined style={{ color: '#0d9488', fontSize: 15, flexShrink: 0 }} />
+              <div>
+                <strong style={{ color: token.colorText }}>Live Machine Cost per Gross (144 PCS)</strong> —{' '}
+                <span>Includes all currently ACTIVE punches and dies running on each machine across all install months (including prior-month carryovers). Combined Cost / Gross = sum of each active tool&apos;s Cost / Gross on that machine.</span>
+              </div>
+            </div>
+            <div style={{ width: '100%', overflowX: 'auto' }}>
+              <ERPTable
+                columns={liveCostMachineColumns}
+                dataSource={liveCostMachines}
+                rowKey={(m) => m.machine?.id ?? 'unknown'}
+                loading={liveCostingLoading}
+                scroll={{ x: 'max-content' }}
+                containerStyle={{ border: 'none', borderRadius: 0, boxShadow: 'none' }}
+                pagination={false}
+                expandable={{
+                  columnWidth: 46,
+                  expandedRowKeys: expandedLiveCostKeys,
+                  onExpandedRowsChange: (keys) => setExpandedLiveCostKeys([...keys]),
+                  expandRowByClick: true,
+                  rowExpandable: (m) => Array.isArray(m.components) && m.components.length > 0,
+                  expandIcon: ({ expanded, onExpand, record }) =>
+                    Array.isArray(record.components) && record.components.length > 0 ? (
+                      <Tooltip title={expanded ? 'Collapse active tools breakdown' : 'Expand active tools breakdown'}>
+                        <button
+                          type="button"
+                          className={`pwi-expand-pill ${expanded ? 'pwi-expand-pill--active' : ''}`}
+                          aria-label={
+                            expanded
+                              ? `Collapse ${record.machine?.machineCode || 'machine'} active tools breakdown`
+                              : `Expand ${record.machine?.machineCode || 'machine'} active tools breakdown`
+                          }
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onExpand(record, e);
+                          }}
+                          style={{
+                            width: 26,
+                            height: 26,
+                            minWidth: 26,
+                            padding: 0,
+                            borderRadius: 6,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: 'pointer',
+                            color: expanded ? '#FFFFFF' : '#EA580C',
+                            background: expanded ? '#EA580C' : '#FFF7ED',
+                            border: `1px solid ${expanded ? '#EA580C' : '#FDBA74'}`,
+                            fontSize: 13.5,
+                            lineHeight: 1,
+                            transition: 'transform 0.14s ease, box-shadow 0.14s ease, background-color 0.14s ease, color 0.14s ease',
+                          }}
+                        >
+                          {expanded ? <ShrinkOutlined /> : <ArrowsAltOutlined />}
+                        </button>
+                      </Tooltip>
+                    ) : null,
+                  expandedRowRender: (m) => (
+                    <div
+                      style={{
+                        padding: '8px 10px',
+                        background: token.colorFillAlter,
+                        borderRadius: 8,
+                        border: `1px solid ${token.colorBorderSecondary}`,
+                      }}
+                    >
+                      <ERPTable
+                        columns={liveCostDetailColumns}
+                        dataSource={m.components ?? []}
+                        rowKey={(r) => r.changeId}
+                        size="small"
+                        pagination={false}
+                        scroll={{ x: 'max-content' }}
+                        containerStyle={{ border: `1px solid ${token.colorBorderSecondary}`, borderRadius: 6, boxShadow: 'none' }}
+                      />
+                    </div>
+                  ),
+                }}
+                emptyTitle="No active tooling currently mounted"
+                emptyDescription="Install or issue tools to machines to view live combined tooling costs per Gross."
               />
             </div>
           </>

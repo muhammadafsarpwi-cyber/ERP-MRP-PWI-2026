@@ -7,6 +7,20 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { formatNumber } from '../../../utils/numberFormat';
+import { renderWhatsAppTemplate, resolveWhatsAppTemplate } from '../../../utils/whatsappSettingsStore';
+
+export const DEFAULT_RM_SUMMARY_TEMPLATE = `*{company}*
+*Raw Material Receiving — Summary*
+━━━━━━━━━━━━━━━━━━━━━━━━━
+*Date Range:* {date}
+*Division:* {division}
+*Warehouse:* {warehouse}
+━━━━━━━━━━━━━━━━━━━━━━━━━
+• Gate Pass Qty: {total_gp_qty}
+• Received Qty: {total_rcv_qty}
+• Net Variance: {net_variance}
+━━━━━━━━━━━━━━━━━━━━━━━━━
+_Generated via PWI ERP System_`;
 
 export interface ReceivingExportItem {
   id: string;
@@ -829,6 +843,34 @@ export function generateReceivingWhatsAppMessage(
   const netKg = meta.netAvailableKg !== undefined
     ? Number(meta.netAvailableKg)
     : Math.max(0, Number(meta.totalReceivedKg || 0) - returnedKg);
+
+  const recentLines: string[] = [];
+  if (topRecords.length > 0) {
+    recentLines.push('*Recent Receipts:*');
+    topRecords.slice(0, 5).forEach((r) => {
+      recentLines.push(`• GP: ${r.gatePassNo || r.receiptCode} | PO: ${r.poCode || 'N/A'} | Recv: ${formatNumber(Number(r.receivedTotal || 0), 2)} KG`);
+    });
+    if (topRecords.length > 5) {
+      recentLines.push(`_...and ${topRecords.length - 5} more receipts._`);
+    }
+  }
+
+  const customTemplate = resolveWhatsAppTemplate('rmSummary', '');
+  if (customTemplate) {
+    return renderWhatsAppTemplate(customTemplate, {
+      '{company}': 'PAKISTAN WIRE INDUSTRIES (PVT.) LTD.',
+      '{date}': meta.dateRangeStr || todayStr,
+      '{division}': meta.divisionName || 'All Divisions',
+      '{warehouse}': meta.warehouseName || 'All Warehouses',
+      '{total_gp_qty}': `${formatNumber(meta.totalGatePassKg, 2)} KG`,
+      '{total_rcv_qty}': `${formatNumber(meta.totalReceivedKg, 2)} KG`,
+      '{total_ret_qty}': `${returnedKg > 0 ? '-' : ''}${formatNumber(returnedKg, 2)} KG`,
+      '{net_in_hand}': `${formatNumber(netKg, 2)} KG`,
+      '{net_variance}': `${diffSign}${formatNumber(meta.totalDifferenceKg, 2)} KG`,
+      '{receipts_count}': `${meta.receiptsCount} Gate Passes`,
+      '{items}': recentLines.join('\n') || 'No recent receipts.',
+    });
+  }
 
   let msg = `*PAKISTAN WIRE INDUSTRIES (PVT.) LTD.*\n`;
   msg += `*Raw Material Receiving & Audit Summary*\n`;

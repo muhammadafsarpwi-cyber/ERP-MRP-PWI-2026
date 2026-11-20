@@ -38,6 +38,7 @@ export interface ProductionLedgerExportChain {
     total: number;
     balanced: boolean;
     totalPacked: number;
+    packedUom?: string;
   };
 }
 
@@ -56,6 +57,7 @@ export interface ProductionLedgerExportOptions {
     total: number;
     balanced: boolean;
     totalPacked: number;
+    packedUom?: string;
   };
   showAll: boolean;
   fileStamp?: string;
@@ -157,12 +159,13 @@ function formatDualQtyLines(
   return lines.join('\n');
 }
 
-function formatRejectionLines(pcs: number, kg: number, isRmOrKg: boolean): string {
+function formatRejectionLines(pcs: number, kg: number, isRmOrKg: boolean, uomCode?: string | null): string {
   if (isRmOrKg) {
     return kg > 0 ? `${fmtNum(kg, 'KG')} KG` : '0';
   }
-  if (pcs === 0 && kg === 0) return '0';
-  return `${fmtNum(pcs, 'PCS')} PCS\n(${fmtNum(kg, 'KG')} KG)`;
+  const u = (uomCode || 'PCS').trim().toUpperCase();
+  if (pcs === 0 && kg === 0) return `0 ${u}`;
+  return `${fmtNum(pcs, u)} ${u}\n(${fmtNum(kg, 'KG')} KG)`;
 }
 
 function escapeHtml(raw: unknown): string {
@@ -210,8 +213,8 @@ function triggerBlobDownload(blob: Blob, filename: string): void {
 
 export async function exportProductionLedgerPdf(options: ProductionLedgerExportOptions): Promise<void> {
   const {
-    companyName = 'Pakistan Wire Industry',
-    subtitle = 'Manufacturing & Spoke Production Division — ERP / MRP Command Center',
+    companyName = 'PWI — Pakistan Wire Industries (Pvt.) LTD',
+    subtitle = 'ERP / MRP Command Center — Manufacturing Division',
     reportTitle = 'Item-Wise Production Ledger',
     divisionName,
     viewMode,
@@ -287,7 +290,7 @@ export async function exportProductionLedgerPdf(options: ProductionLedgerExportO
     doc.setFontSize(8);
     doc.setTextColor(51, 65, 85); // #334155
     doc.text(`Generated: ${generatedStr}`, pageW - marginX - 12, 52, { align: 'right' });
-    doc.text('Dual-Unit Basis: PCS / GRS (144 PCS) / KG', pageW - marginX - 12, 63, { align: 'right' });
+    doc.text('Unit Basis: PCS / GRS (144 PCS) / M / KG', pageW - marginX - 12, 63, { align: 'right' });
 
     // 4-Card KPI Summary Strip
     const kpiY = 82;
@@ -310,7 +313,7 @@ export async function exportProductionLedgerPdf(options: ProductionLedgerExportO
       },
       {
         title: 'TOTAL PACKED (TODAY)',
-        value: `${fmtNum(summary.totalPacked, 'PCS')} PCS`,
+        value: `${fmtNum(summary.totalPacked, summary.packedUom || 'PCS')} ${summary.packedUom || 'PCS'}`,
         sub: 'Finished Goods Packing Output',
         accent: [5, 150, 105] as [number, number, number],
       },
@@ -403,7 +406,8 @@ export async function exportProductionLedgerPdf(options: ProductionLedgerExportO
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8);
     doc.setTextColor(29, 78, 216); // #1D4ED8
-    const chainMeta = `Stages: ${chain.summary.found}/${chain.summary.total}  |  Packed: ${fmtNum(chain.summary.totalPacked, 'PCS')} PCS  |  ${
+    const chainUom = chain.summary.packedUom || 'PCS';
+    const chainMeta = `Stages: ${chain.summary.found}/${chain.summary.total}  |  Packed: ${fmtNum(chain.summary.totalPacked, chainUom)} ${chainUom}  |  ${
       chain.summary.balanced ? 'Balanced' : 'Check Discrepancy'
     }`;
     doc.text(chainMeta, pageW - marginX - 10, currentY + 13, { align: 'right' });
@@ -411,8 +415,8 @@ export async function exportProductionLedgerPdf(options: ProductionLedgerExportO
     const bodyRows = chain.rows.map((r) => {
       const uomText = r.uomCode || (r.stage === 'RM' ? 'KG' : 'PCS');
       const isKg = r.stage === 'RM' || uomText.toUpperCase() === 'KG';
-      const todayRej = formatRejectionLines(r.scrapTodayPcs, r.scrapTodayKg, isKg);
-      const totalRej = formatRejectionLines(r.scrapMonthPcs, r.scrapMonthKg, isKg);
+      const todayRej = formatRejectionLines(r.scrapTodayPcs, r.scrapTodayKg, isKg, uomText);
+      const totalRej = formatRejectionLines(r.scrapMonthPcs, r.scrapMonthKg, isKg, uomText);
       const rejText = `Today: ${todayRej.replace('\n', ' ')}\nTotal: ${totalRej.replace('\n', ' ')}`;
 
       return [
@@ -443,7 +447,7 @@ export async function exportProductionLedgerPdf(options: ProductionLedgerExportO
           'PRODUCTION',
           'SUB-TOTAL',
           'ISSUANCE',
-          'CLOSING PIECES',
+          'CLOSING QTY',
           'UOM',
           'TOTAL WEIGHT',
           'PART REJECTION\n(TODAY & TOTAL)',
@@ -555,9 +559,9 @@ export async function exportProductionLedgerPdf(options: ProductionLedgerExportO
   const sigGap = 24;
   const sigW = (contentW - sigGap * 2) / 3;
   const sigLabels = [
-    'Prepared By (Production)',
-    'Store / QC Verification',
-    'Approved By (Factory Manager)',
+    'Prepared By',
+    'Production Manager',
+    'Approved By',
   ];
   sigLabels.forEach((lbl, idx) => {
     const sx = marginX + idx * (sigW + sigGap);
@@ -726,13 +730,16 @@ function buildZipBlob(files: { name: string; content: string | Uint8Array }[]): 
  * 22 = GRS Integer #,##0 odd (#F8FAFC, bold dark blue #1D4ED8, right, thin #CBD5E1 border)
  * 23 = GRS Decimal #,##0.00 even (bold dark blue #1D4ED8, right, thin #CBD5E1 border)
  * 24 = GRS Decimal #,##0.00 odd (#F8FAFC, bold dark blue #1D4ED8, right, thin #CBD5E1 border)
+ * 25 = 4-Decimal Unit Weight #,##0.0000 even (right, thin #CBD5E1 border)
+ * 26 = 4-Decimal Unit Weight #,##0.0000 odd (#F8FAFC, right, thin #CBD5E1 border)
  */
 function buildExcelStylesXml(): string {
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-  <numFmts count="2">
+  <numFmts count="3">
     <numFmt numFmtId="164" formatCode="#,##0"/>
     <numFmt numFmtId="165" formatCode="#,##0.00"/>
+    <numFmt numFmtId="166" formatCode="#,##0.0000"/>
   </numFmts>
   <fonts count="8">
     <font><sz val="10"/><name val="Calibri"/><color rgb="FF0F172A"/></font>
@@ -772,7 +779,7 @@ function buildExcelStylesXml(): string {
     </border>
   </borders>
   <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-  <cellXfs count="25">
+  <cellXfs count="27">
     <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
     <xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="center" horizontal="left"/></xf>
     <xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="center" horizontal="left"/></xf>
@@ -798,6 +805,8 @@ function buildExcelStylesXml(): string {
     <xf numFmtId="164" fontId="7" fillId="5" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="center" horizontal="right"/></xf>
     <xf numFmtId="165" fontId="7" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyBorder="1" applyAlignment="1"><alignment vertical="center" horizontal="right"/></xf>
     <xf numFmtId="165" fontId="7" fillId="5" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="center" horizontal="right"/></xf>
+    <xf numFmtId="166" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyBorder="1" applyAlignment="1"><alignment vertical="center" horizontal="right"/></xf>
+    <xf numFmtId="166" fontId="0" fillId="5" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="center" horizontal="right"/></xf>
   </cellXfs>
 </styleSheet>`;
 }
@@ -885,7 +894,7 @@ function sanitizeSheetName(raw: string, usedNames: Set<string>): string {
 
 export async function exportProductionLedgerExcel(options: ProductionLedgerExportOptions): Promise<void> {
   const {
-    companyName = 'Pakistan Wire Industry',
+    companyName = 'PWI — Pakistan Wire Industries (Pvt.) LTD',
     reportTitle = 'Item-Wise Production Ledger',
     divisionName,
     viewMode,
@@ -914,13 +923,14 @@ export async function exportProductionLedgerExcel(options: ProductionLedgerExpor
     'Production',
     'Sub-Total',
     'Issuance',
-    'Closing Balance',
+    'Closing Qty',
     'Closing (GRS)',
     'UOM',
+    'Unit Weight',
     'Total Weight (KG)',
-    'Rejection Today (PCS)',
+    'Rejection Today (Qty)',
     'Rejection Today (KG)',
-    'Rejection Total (PCS)',
+    'Rejection Total (Qty)',
     'Rejection Total (KG)',
     'Remarks',
   ];
@@ -961,20 +971,23 @@ export async function exportProductionLedgerExcel(options: ProductionLedgerExpor
       merges.push('A1:A2');
     }
 
+    const packedUomLabel = chain.summary.packedUom || 'PCS';
+    const packedCountUnit = isCountUnit(packedUomLabel);
+
     // Row 3: Metadata & KPI Summary Strip
     rows.push([
       { value: 'Division', style: 3 },
       { value: divisionName, style: 4 },
       { value: 'Pipeline Stages', style: 3 },
       { value: `${chain.summary.found} / ${chain.summary.total}`, style: 4 },
-      { value: 'Packed Today (PCS)', style: 3 },
-      { value: roundNum(chain.summary.totalPacked, 0), style: 10 },
+      { value: `Packed Today (${packedUomLabel})`, style: 3 },
+      { value: roundNum(chain.summary.totalPacked, packedCountUnit ? 0 : 2), style: packedCountUnit ? 10 : 16 },
       { value: 'Reconciliation', style: 3 },
       { value: chain.summary.balanced ? '100% Balanced' : 'Discrepancy', style: 4 },
       { value: 'Generated', style: 3 },
       { value: generatedStr, style: 4 },
     ]);
-    merges.push('J3:R3');
+    merges.push('J3:S3');
 
     // Row 4: Blank spacer
     rows.push([]);
@@ -989,14 +1002,21 @@ export async function exportProductionLedgerExcel(options: ProductionLedgerExpor
       const ctrStyle = odd ? 9 : 8;
       const intStyle = odd ? 11 : 10;
       const decStyle = odd ? 17 : 16;
+      const unitWtStyle = odd ? 26 : 25;
       const uomText = r.uomCode || (r.stage === 'RM' ? 'KG' : 'PCS');
       const isCount = isCountUnit(uomText);
+      const isKgRow = r.stage === 'RM' || uomText.trim().toUpperCase() === 'KG';
       const qtyStyle = isCount ? intStyle : decStyle;
       const closeStyle = r.closingPieces < 0 ? (isCount ? 12 : 18) : qtyStyle;
       const opGrs = getGrsValue(r.opBalance, r.uomCode);
       const closeGrs = getGrsValue(r.closingPieces, r.uomCode);
       const grsStyle = (v: number | null) =>
         v !== null && Number.isInteger(v) ? (odd ? 22 : 21) : odd ? 24 : 23;
+      const unitWeightCell: XlsxCellSpec = isKgRow
+        ? { value: 1, style: unitWtStyle }
+        : r.perPieceWeight !== null && r.perPieceWeight !== undefined
+        ? { value: roundNum(r.perPieceWeight, 4), style: unitWtStyle }
+        : { value: '—', style: ctrStyle };
 
       rows.push([
         { value: r.stage, style: ctrStyle },
@@ -1011,6 +1031,7 @@ export async function exportProductionLedgerExcel(options: ProductionLedgerExpor
         { value: roundNum(r.closingPieces, isCount ? 0 : 2), style: closeStyle },
         { value: closeGrs ?? '—', style: closeGrs === null ? ctrStyle : grsStyle(closeGrs) },
         { value: uomText, style: ctrStyle },
+        unitWeightCell,
         { value: r.totalWeight !== null ? roundNum(r.totalWeight, 2) : 0, style: decStyle },
         { value: roundNum(r.scrapTodayPcs, 0), style: r.scrapTodayPcs > 0 ? 12 : intStyle },
         { value: roundNum(r.scrapTodayKg, 2), style: r.scrapTodayKg > 0 ? 18 : decStyle },
@@ -1021,20 +1042,20 @@ export async function exportProductionLedgerExcel(options: ProductionLedgerExpor
     });
 
     const dataEndRow = dataStartRow + chain.rows.length - 1;
-    // Sequential stage balances (Op Balance, Sub-Total, Issuance, Closing Balance) are NOT summed across mixed units/stages.
-    // Only true aggregate metrics are shown: FG Packed Output (Col 6), Total Weight (Col 12), and Part Rejections (Cols 13–16).
-    const dashCols = new Set([4, 5, 7, 8, 9, 10]);
-    const intSumCols = new Set([13, 15]);
-    const decSumCols = new Set([12, 14, 16]);
+    // Sequential stage balances (Op Balance, Sub-Total, Issuance, Closing Balance) and Unit Weight are NOT summed across mixed units/stages.
+    // Only true aggregate metrics are shown: FG Packed Output (Col 6), Total Weight (Col 13), and Part Rejections (Cols 14–17).
+    const dashCols = new Set([4, 5, 7, 8, 9, 10, 12]);
+    const intSumCols = new Set([14, 16]);
+    const decSumCols = new Set([13, 15, 17]);
     const totalsRow: XlsxCellSpec[] = headers.map((_, cIdx) => {
       if (cIdx === 0) return { value: 'SUMMARY', style: 13 };
       if (cIdx === 1) return { value: 'FG Packed / Weight / Rej', style: 13 };
       if (dashCols.has(cIdx)) return { value: '—', style: 19 };
       if (cIdx === 6 && chain.rows.length > 0) {
         return {
-          value: roundNum(chain.summary.totalPacked, 0),
+          value: roundNum(chain.summary.totalPacked, packedCountUnit ? 0 : 2),
           formula: `SUMIF(A${dataStartRow}:A${dataEndRow},"FG",G${dataStartRow}:G${dataEndRow})`,
-          style: 14,
+          style: packedCountUnit ? 14 : 20,
         };
       }
       if (intSumCols.has(cIdx) && chain.rows.length > 0) {
@@ -1070,10 +1091,11 @@ export async function exportProductionLedgerExcel(options: ProductionLedgerExpor
       15, // Closing Balance
       14, // Closing (GRS)
       8, // UOM
+      14, // Unit Weight
       16, // Total Weight (KG)
-      16, // Rej Today PCS
+      16, // Rej Today Qty
       16, // Rej Today KG
-      16, // Rej Total PCS
+      16, // Rej Total Qty
       16, // Rej Total KG
       30, // Remarks
     ];
@@ -1201,8 +1223,8 @@ export async function exportProductionLedgerExcel(options: ProductionLedgerExpor
 
 export async function printProductionLedgerReport(options: ProductionLedgerExportOptions): Promise<void> {
   const {
-    companyName = 'Pakistan Wire Industry',
-    subtitle = 'Manufacturing & Spoke Production Division',
+    companyName = 'PWI — Pakistan Wire Industries (Pvt.) LTD',
+    subtitle = 'ERP / MRP Command Center — Manufacturing Division',
     reportTitle = 'Item-Wise Production Ledger',
     divisionName,
     viewMode,
@@ -1252,8 +1274,8 @@ export async function printProductionLedgerReport(options: ProductionLedgerExpor
           const pal = stageBadgePalette(r.stage);
           const uomText = r.uomCode || (r.stage === 'RM' ? 'KG' : 'PCS');
           const isKg = r.stage === 'RM' || uomText.toUpperCase() === 'KG';
-          const todayRej = formatRejectionLines(r.scrapTodayPcs, r.scrapTodayKg, isKg).replace('\n', ' ');
-          const totalRej = formatRejectionLines(r.scrapMonthPcs, r.scrapMonthKg, isKg).replace('\n', ' ');
+          const todayRej = formatRejectionLines(r.scrapTodayPcs, r.scrapTodayKg, isKg, uomText).replace('\n', ' ');
+          const totalRej = formatRejectionLines(r.scrapMonthPcs, r.scrapMonthKg, isKg, uomText).replace('\n', ' ');
           const hasRej = r.scrapTodayKg > 0 || r.scrapTodayPcs > 0 || r.scrapMonthKg > 0;
 
           return `
@@ -1282,11 +1304,12 @@ export async function printProductionLedgerReport(options: ProductionLedgerExpor
         })
         .join('');
 
+      const chainUom = chain.summary.packedUom || 'PCS';
       return `
         <section class="chain-section ${idx > 0 ? 'chain-gap' : ''}">
           <div class="chain-bar">
             <span>${chains.length > 1 ? `CHAIN ${idx + 1} OF ${chains.length}: ` : 'ITEM CHAIN: '}${escapeHtml(chain.label)}</span>
-            <span class="chain-meta">Stages: ${chain.summary.found}/${chain.summary.total} &nbsp;|&nbsp; Packed: ${escapeHtml(fmtNum(chain.summary.totalPacked, 'PCS'))} PCS &nbsp;|&nbsp; ${chain.summary.balanced ? '100% Balanced' : 'Discrepancy'}</span>
+            <span class="chain-meta">Stages: ${chain.summary.found}/${chain.summary.total} &nbsp;|&nbsp; Packed: ${escapeHtml(fmtNum(chain.summary.totalPacked, chainUom))} ${escapeHtml(chainUom)} &nbsp;|&nbsp; ${chain.summary.balanced ? '100% Balanced' : 'Discrepancy'}</span>
           </div>
           <table>
             <thead>
@@ -1297,7 +1320,7 @@ export async function printProductionLedgerReport(options: ProductionLedgerExpor
                 <th style="width:68px;">PRODUCTION</th>
                 <th style="width:68px;">SUB-TOTAL</th>
                 <th style="width:68px;">ISSUANCE</th>
-                <th style="width:78px;">CLOSING PIECES</th>
+                <th style="width:78px;">CLOSING QTY</th>
                 <th style="width:36px;">UOM</th>
                 <th style="width:66px;">TOTAL WEIGHT</th>
                 <th style="width:118px;">PART REJECTION (TODAY & TOTAL)</th>
@@ -1455,7 +1478,7 @@ export async function printProductionLedgerReport(options: ProductionLedgerExpor
     <div class="header-right">
       <div class="header-date">${escapeHtml(dateLabel)}</div>
       <div>Generated: ${escapeHtml(generatedStr)}</div>
-      <div>Dual-Unit Basis: PCS / GRS (144 PCS) / KG</div>
+      <div>Unit Basis: PCS / GRS (144 PCS) / M / KG</div>
     </div>
   </div>
 
@@ -1472,7 +1495,7 @@ export async function printProductionLedgerReport(options: ProductionLedgerExpor
     </div>
     <div class="kpi-card" style="border-top-color:#10b981;">
       <div class="kpi-title">TOTAL PACKED (TODAY)</div>
-      <div class="kpi-val" style="color:#047857;">${escapeHtml(fmtNum(summary.totalPacked, 'PCS'))} PCS</div>
+      <div class="kpi-val" style="color:#047857;">${escapeHtml(fmtNum(summary.totalPacked, summary.packedUom || 'PCS'))} ${escapeHtml(summary.packedUom || 'PCS')}</div>
       <div class="kpi-sub" style="color:#059669;">Finished Goods Packing Output</div>
     </div>
     <div class="kpi-card" style="border-top-color:${summary.balanced ? '#8b5cf6' : '#ef4444'};">
@@ -1485,9 +1508,9 @@ export async function printProductionLedgerReport(options: ProductionLedgerExpor
   ${chainsHtml}
 
   <div class="sig-grid">
-    <div class="sig-box">Prepared By (Production)</div>
-    <div class="sig-box">Store / QC Verification</div>
-    <div class="sig-box">Approved By (Factory Manager)</div>
+    <div class="sig-box">Prepared By</div>
+    <div class="sig-box">Production Manager</div>
+    <div class="sig-box">Approved By</div>
   </div>
 </body>
 </html>`;
@@ -1502,6 +1525,7 @@ export async function printProductionLedgerReport(options: ProductionLedgerExpor
   printFrame.style.width = '0';
   printFrame.style.height = '0';
   printFrame.style.border = '0';
+  printFrame.style.visibility = 'hidden';
   document.body.appendChild(printFrame);
 
   const doc = printFrame.contentWindow?.document;
@@ -1514,10 +1538,31 @@ export async function printProductionLedgerReport(options: ProductionLedgerExpor
   doc.write(html);
   doc.close();
 
+  let printed = false;
   const triggerPrint = () => {
-    printFrame?.contentWindow?.focus();
-    printFrame?.contentWindow?.print();
+    if (printed) return;
+    printed = true;
+    const frameWin = printFrame?.contentWindow;
+    if (!frameWin) return;
+    frameWin.focus();
+    frameWin.print();
   };
 
-  setTimeout(triggerPrint, 250);
+  // Ensure embedded logo image finishes decoding before invoking print preview
+  const imgs = Array.from(doc.querySelectorAll('img'));
+  const pendingImgs = imgs.filter((img) => !img.complete);
+  if (pendingImgs.length > 0) {
+    let remaining = pendingImgs.length;
+    const onImgDone = () => {
+      remaining -= 1;
+      if (remaining <= 0) setTimeout(triggerPrint, 100);
+    };
+    pendingImgs.forEach((img) => {
+      img.addEventListener('load', onImgDone, { once: true });
+      img.addEventListener('error', onImgDone, { once: true });
+    });
+    setTimeout(triggerPrint, 600);
+  } else {
+    setTimeout(triggerPrint, 180);
+  }
 }

@@ -55,6 +55,7 @@ import { PageHeader, EmptyState, LargeLoadingBuffer } from '../../components/sha
 import { tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import { useWorkspaceTabStore } from '../../store/workspaceTabStore';
 import { formatDimension } from '../../utils/numberFormat';
+import { renderWhatsAppTemplate, resolveWhatsAppTemplate } from '../../utils/whatsappSettingsStore';
 import { ITEM_TYPES } from '../master-data/items/itemTypes';
 import './productionInventoryReport.css';
 
@@ -533,8 +534,8 @@ const renderDynamicUomQty = (
   const primaryColor = colorClass === 'erp-num--success'
     ? '#10B981'
     : colorClass === 'erp-num--danger'
-    ? '#EF4444'
-    : '#38BDF8';
+      ? '#EF4444'
+      : '#38BDF8';
 
   // 0. Raw Material: STRICTLY in KG (Never GRS, never PCS)
   if (isRawMaterialItem(r)) {
@@ -838,19 +839,19 @@ const ProductionInventoryReport: React.FC = () => {
       if (res?.success && Array.isArray(res.data) && res.data.length > 0) {
         setDivisions(res.data);
       }
-    }).catch(() => {});
+    }).catch(() => { });
 
     apiService.get<{ data: MovementTypeDef[] }>('/production/inventory-report/movement-types').then((res) => {
       if (Array.isArray(res.data) && res.data.length > 0) {
         setMovementTypes(res.data);
       }
-    }).catch(() => {});
+    }).catch(() => { });
 
     apiService.get<{ data: Array<{ id: string; code: string; name: string; status: string }> }>('/master-data/item-types', { limit: 500 }).then((res) => {
       if (Array.isArray(res.data) && res.data.length > 0) {
         setMasterItemTypes(res.data);
       }
-    }).catch(() => {});
+    }).catch(() => { });
   }, []);
 
   // Sync loaded divisions into tabSessionCache
@@ -880,7 +881,7 @@ const ProductionInventoryReport: React.FC = () => {
     setFilter((prev) => ({ ...prev, departmentId: undefined }));
     dashboardService.getFilterDepartments(filter.divisionId).then((res) => {
       if (res?.success && Array.isArray(res.data)) setDepartments(res.data);
-    }).catch(() => {});
+    }).catch(() => { });
   }, [filter.divisionId]);
 
   // Department cascade for multi-department modal with automatic report-items fallback
@@ -1667,7 +1668,26 @@ const ProductionInventoryReport: React.FC = () => {
     printWindow.document.close();
   };
 
-  /* ── WhatsApp Sharing ─────────────────────────────────────────────────── */
+  // WhatsApp Sharing
+  const DEFAULT_PROD_INVENTORY_WHATSAPP_TEMPLATE = [
+    '*{company}*',
+    '*{title}*',
+    'Division: {division}',
+    'Department: {department}',
+    'Date Range: {date}',
+    '-----------------------------',
+    '*Total Items:* {total_items}',
+    '*On Hand Stock:* {on_hand}',
+    '*Available Stock:* {available}',
+    '*Total IN (range):* {total_in}',
+    '*Total OUT (range):* {total_out}',
+    '*Produced:* {produced}',
+    '*Required:* {required}',
+    '*Short Items:* {short_items}',
+    '-----------------------------',
+    '_Generated via PWI ERP System_',
+  ].join('\n');
+
   const handleShareWhatsApp = () => {
     const s = activeSummary;
     const formatShareVal = (val: number) => {
@@ -1684,24 +1704,25 @@ const ProductionInventoryReport: React.FC = () => {
       return `${formatInt(val)} UNITS`;
     };
 
-    const text = [
-      `*${dynamicReportTitle.company}*`,
-      `*${dynamicReportTitle.title}*`,
-      `Division: ${dynamicReportTitle.divName}`,
-      `Department: ${dynamicReportTitle.deptName}`,
-      `Date Range: ${dynamicReportTitle.dateStr}`,
-      `-----------------------------`,
-      `*Total Items:* ${formatInt(s.itemCount)}`,
-      `*On Hand Stock:* ${formatShareVal(s.onHand)}`,
-      `*Available Stock:* ${formatShareVal(s.available)}`,
-      `*Total IN (range):* ${formatShareVal(s.totalIn)}`,
-      `*Total OUT (range):* ${formatShareVal(s.totalOut)}`,
-      `*Produced:* ${formatShareVal(s.produced)}`,
-      `*Required:* ${formatShareVal(s.required)}`,
-      `*Short Items:* ${formatInt(summary?.shortItems ?? 0)}`,
-      `-----------------------------`,
-      `_Generated from PWI ERP System_`,
-    ].join('\n');
+    const tpl = resolveWhatsAppTemplate(
+      'productionInventoryReport',
+      DEFAULT_PROD_INVENTORY_WHATSAPP_TEMPLATE,
+    );
+    const text = renderWhatsAppTemplate(tpl, {
+      '{company}': dynamicReportTitle.company,
+      '{title}': dynamicReportTitle.title,
+      '{division}': dynamicReportTitle.divName,
+      '{department}': dynamicReportTitle.deptName || 'All Departments',
+      '{date}': dynamicReportTitle.dateStr,
+      '{total_items}': formatInt(s.itemCount),
+      '{on_hand}': formatShareVal(s.onHand),
+      '{available}': formatShareVal(s.available),
+      '{total_in}': formatShareVal(s.totalIn),
+      '{total_out}': formatShareVal(s.totalOut),
+      '{produced}': formatShareVal(s.produced),
+      '{required}': formatShareVal(s.required),
+      '{short_items}': formatInt(summary?.shortItems ?? 0),
+    });
 
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
   };
@@ -2516,7 +2537,7 @@ const ProductionInventoryReport: React.FC = () => {
                         setSelectedDivisionForDept(res.data[0].id);
                       }
                     }
-                  }).catch(() => {});
+                  }).catch(() => { });
                 }
                 setDeptModalVisible(true);
               }}
@@ -3570,10 +3591,10 @@ const ProductionInventoryReport: React.FC = () => {
               dataSource={
                 deptItemsSearchText
                   ? (selectedDeptForItems.items || []).filter(
-                      (it: ReportRow) =>
-                        it.itemCode.toLowerCase().includes(deptItemsSearchText.toLowerCase()) ||
-                        it.itemName.toLowerCase().includes(deptItemsSearchText.toLowerCase()),
-                    )
+                    (it: ReportRow) =>
+                      it.itemCode.toLowerCase().includes(deptItemsSearchText.toLowerCase()) ||
+                      it.itemName.toLowerCase().includes(deptItemsSearchText.toLowerCase()),
+                  )
                   : selectedDeptForItems.items || []
               }
               pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: ['10', '20', '50'] }}

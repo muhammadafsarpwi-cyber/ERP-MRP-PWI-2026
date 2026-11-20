@@ -21,6 +21,10 @@ import {
   buildDepartmentFleetWhatsAppText,
   openWhatsAppDirect,
 } from './deptFleetWhatsApp';
+import {
+  formatWhatsAppPhoneWithCountryCode,
+  useWhatsAppSettingsVersion,
+} from '../../../utils/whatsappSettingsStore';
 
 export interface DeptFleetWhatsAppModalProps {
   open: boolean;
@@ -34,15 +38,16 @@ export const DeptFleetWhatsAppModal: React.FC<DeptFleetWhatsAppModalProps> = ({
   params,
 }) => {
   const { token } = theme.useToken();
+  const settingsVersion = useWhatsAppSettingsVersion();
   const [phone, setPhone] = useState('');
   const [copied, setCopied] = useState(false);
 
   const formattedText = useMemo(() => {
-    if (!params) return '';
+    if (!params || !open) return '';
     return buildDepartmentFleetWhatsAppText(params);
-  }, [params]);
+  }, [params, open, settingsVersion]);
 
-  const cleanPhone = phone.replace(/[^0-9]/g, '');
+  const cleanPhone = formatWhatsAppPhoneWithCountryCode(phone);
 
   const handleCopy = async () => {
     if (!formattedText) return;
