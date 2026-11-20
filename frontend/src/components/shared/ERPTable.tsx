@@ -158,8 +158,8 @@ export function ERPTable<T extends object = any>({
           return {
             ...existing,
             style: {
-              backgroundColor: 'var(--theme-table-header-bg, var(--ui-table-header-bg, #f1f5f9))',
-              color: 'var(--theme-table-header-color, var(--ui-table-header-text, #0f172a))',
+              backgroundColor: 'var(--erp-table-header-bg, var(--theme-table-header-bg, #312e81))',
+              color: 'var(--erp-table-header-text, var(--theme-table-header-color, #f8fafc))',
               ...(existing?.style || {}),
             },
             className: `${existing?.className || ''} erp-th-navy erp-th-2027 ${isActionsCol ? 'erp-th-actions' : ''}`.trim(),
@@ -469,11 +469,20 @@ export const TableActions: React.FC<TableActionsProps> = ({
               }
           };
 
-          const actionClass = act.className || (
-            act.key === 'view' || act.label?.toLowerCase().includes('view') ? 'act-view' :
-            act.key === 'edit' || act.label?.toLowerCase().includes('edit') ? 'act-edit' :
-            (act.key === 'delete' || act.danger || act.label?.toLowerCase().includes('delete')) ? 'act-delete' : 'act-default'
-          );
+          const lowerLabel = act.label?.toLowerCase() || '';
+          const lowerKey = act.key?.toLowerCase() || '';
+          const pillVariant =
+            act.danger || lowerKey === 'delete' || lowerLabel.includes('delete') || lowerLabel.includes('remove')
+              ? 'erp-action-pill--delete act-delete'
+              : lowerKey === 'edit' || lowerLabel.includes('edit')
+                ? 'erp-action-pill--edit act-edit'
+                : lowerKey === 'whatsapp' || lowerKey === 'approve' || lowerKey === 'activate' || lowerLabel.includes('whatsapp') || lowerLabel.includes('approve')
+                  ? 'erp-action-pill--success act-whatsapp'
+                  : lowerKey === 'warning' || lowerKey === 'deactivate' || lowerKey === 'pause' || lowerLabel.includes('suspend') || lowerLabel.includes('reverse')
+                    ? 'erp-action-pill--warn erp-action-btn--deactivate'
+                    : 'erp-action-pill--view act-view';
+
+          const actionClass = `${pillVariant} ${act.className || ''}`.trim();
 
           const btn = (
             <Button
@@ -485,7 +494,7 @@ export const TableActions: React.FC<TableActionsProps> = ({
               icon={act.icon}
               onClick={handleClick}
               aria-label={act.label}
-              className={`erp-action-btn ${actionClass}`.trim()}
+              className={`erp-action-btn erp-action-pill ${actionClass}`.trim()}
               style={act.style}
             />
           );
@@ -576,22 +585,22 @@ export const ActionButton: React.FC<ActionButtonProps> = ({
 
   const variantClass =
     variant === 'delete' || isDanger
-      ? 'act-delete erp-action-btn--delete'
+      ? 'erp-action-pill--delete act-delete erp-action-btn--delete'
       : variant === 'edit'
-        ? 'act-edit erp-action-btn--edit'
+        ? 'erp-action-pill--edit act-edit erp-action-btn--edit'
         : variant === 'view'
-          ? 'act-view erp-action-btn--view'
+          ? 'erp-action-pill--view act-view erp-action-btn--view'
           : variant === 'print'
-            ? 'act-print erp-action-btn--print'
+            ? 'erp-action-pill--view act-print erp-action-btn--print'
             : variant === 'whatsapp'
-              ? 'act-whatsapp'
+              ? 'erp-action-pill--success act-whatsapp'
               : variant === 'approve' || variant === 'activate'
-                ? 'erp-action-btn--activate'
+                ? 'erp-action-pill--success erp-action-btn--activate'
                 : variant === 'deactivate' || variant === 'warning'
-                  ? 'erp-action-btn--deactivate'
+                  ? 'erp-action-pill--warn erp-action-btn--deactivate'
                   : variant === 'copy'
-                    ? 'erp-action-btn--copy'
-                    : 'act-default';
+                    ? 'erp-action-pill--view erp-action-btn--copy'
+                    : 'erp-action-pill--view act-default';
 
   const resolvedTooltip = tooltip ?? label;
   const buttonNode = (
@@ -605,7 +614,7 @@ export const ActionButton: React.FC<ActionButtonProps> = ({
       onClick={onClick}
       aria-label={ariaLabel || label || tooltip}
       data-testid={dataTestId}
-      className={`erp-action-btn ${variantClass} ${className}`.trim()}
+      className={`erp-action-btn erp-action-pill ${variantClass} ${className}`.trim()}
       style={style}
     />
   );

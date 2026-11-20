@@ -139,6 +139,7 @@ import {
   ScrapDisposalManagement,
 } from './pages/store';
 import AiAssistantPage from './pages/ai-assistant/AiAssistantPage';
+import TeamChat from './pages/chat/TeamChat';
 import GeneralReports from './pages/reports/GeneralReports';
 import { VisitorManagement, VisitorLocationManagement } from './pages/visitor';
 import apiService from './services/api';
@@ -175,6 +176,7 @@ const App: React.FC = () => {
             <MainLayout>
               <Routes>
                   <Route path="/dashboard" element={<Dashboard />} />
+                  <Route path="/team-chat" element={<TeamChat />} />
                   <Route path="/reports" element={<GeneralReports />} />
                   <Route path="/ai-assistant" element={<AiAssistantPage />} />
                   <Route path="/ai-assistant/settings" element={<Navigate to="/settings/ai-provider" replace />} />

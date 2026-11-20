@@ -3,25 +3,20 @@
  * Scoped strictly under `.pwi-tooling-executive-page` so global tables are unaffected.
  * ============================================================================ */
 
-/* Dynamic Theme-Connected Table Headers (Light / Dark / Crystal) */
-html:not([data-theme='dark']) .pwi-tooling-executive-page .ant-table-wrapper .ant-table .ant-table-container .ant-table-thead > tr > th {
-  background: #1E293B !important;
-  color: #F8FAFC !important;
-  border-bottom: 2px solid var(--pwi-accent-primary, #3b82f6) !important;
-}
-
+/* Dynamic Theme-Connected Table Headers (Inherited from Master ERP Table System) */
+html:not([data-theme='dark']) .pwi-tooling-executive-page .ant-table-wrapper .ant-table .ant-table-container .ant-table-thead > tr > th,
 html[data-theme='dark'] .pwi-tooling-executive-page .ant-table-wrapper .ant-table .ant-table-container .ant-table-thead > tr > th {
-  background: #0F172A !important;
-  color: #F1F5F9 !important;
-  border-bottom: 2px solid var(--pwi-accent-primary, #38bdf8) !important;
+  background: var(--erp-table-header-bg, var(--theme-table-header-bg, #312e81)) !important;
+  color: var(--erp-table-header-text, var(--theme-table-header-color, #f8fafc)) !important;
+  border-bottom: 2px solid var(--erp-table-header-accent, var(--theme-accent, #4f46e5)) !important;
 }
 
 html[data-glass='on'] .pwi-tooling-executive-page .ant-table-wrapper .ant-table .ant-table-container .ant-table-thead > tr > th {
-  background: rgba(15, 23, 42, 0.78) !important;
+  background: var(--erp-table-header-bg, var(--theme-table-header-bg, #312e81)) !important;
   -webkit-backdrop-filter: blur(12px) saturate(160%);
   backdrop-filter: blur(12px) saturate(160%);
-  color: #F8FAFC !important;
-  border-bottom: 2px solid var(--pwi-accent-primary, #38bdf8) !important;
+  color: var(--erp-table-header-text, #f8fafc) !important;
+  border-bottom: 2px solid var(--erp-table-header-accent, var(--theme-accent, #38bdf8)) !important;
 }
 
 /* Interactive Executive KPI Cards with tactile hover lift & accent border glow */
@@ -62,89 +57,9 @@ html[data-theme='dark'] .pwi-date-navy {
   color: #60A5FA;
 }
 
-/* Native <button> Color-Coded Action Pills (completely bypasses Ant Button & erp-table.css overrides) */
+/* Legacy alias mapping — geometry & semantic colors come from erp-table.css `--erp-pill-*` */
 .pwi-action-pill {
-  width: 28px;
-  height: 28px;
-  min-width: 28px;
-  padding: 0;
-  border-radius: 7px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 13.5px;
-  line-height: 1;
-  cursor: pointer;
-  outline: none;
-  box-shadow: none;
-  transition: transform 0.14s ease, filter 0.14s ease, box-shadow 0.14s ease, background-color 0.14s ease, color 0.14s ease;
-}
-
-.pwi-action-pill svg {
-  color: inherit !important;
-  fill: currentColor !important;
-  width: 14px;
-  height: 14px;
-}
-
-.pwi-action-pill:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 3px 8px rgba(15, 23, 42, 0.16);
-}
-
-.pwi-action-pill--blue:hover {
-  background: #1D4ED8 !important;
-  color: #FFFFFF !important;
-  border-color: #1D4ED8 !important;
-}
-html[data-theme='dark'] .pwi-action-pill--blue {
-  background: rgba(29, 78, 216, 0.24) !important;
-  color: #60A5FA !important;
-  border-color: rgba(96, 165, 250, 0.45) !important;
-}
-
-.pwi-action-pill--green:hover {
-  background: #15803D !important;
-  color: #FFFFFF !important;
-  border-color: #15803D !important;
-}
-html[data-theme='dark'] .pwi-action-pill--green {
-  background: rgba(21, 128, 61, 0.24) !important;
-  color: #4ADE80 !important;
-  border-color: rgba(74, 222, 128, 0.45) !important;
-}
-
-.pwi-action-pill--amber:hover {
-  background: #B45309 !important;
-  color: #FFFFFF !important;
-  border-color: #B45309 !important;
-}
-html[data-theme='dark'] .pwi-action-pill--amber {
-  background: rgba(180, 83, 9, 0.24) !important;
-  color: #FBBF24 !important;
-  border-color: rgba(251, 191, 36, 0.45) !important;
-}
-
-.pwi-action-pill--orange:hover {
-  background: #C2410C !important;
-  color: #FFFFFF !important;
-  border-color: #C2410C !important;
-}
-html[data-theme='dark'] .pwi-action-pill--orange {
-  background: rgba(194, 65, 12, 0.24) !important;
-  color: #FB923C !important;
-  border-color: rgba(251, 146, 60, 0.45) !important;
-}
-
-.pwi-action-pill--red:hover {
-  background: #B91C1C !important;
-  color: #FFFFFF !important;
-  border-color: #B91C1C !important;
-}
-html[data-theme='dark'] .pwi-action-pill--red {
-  background: rgba(185, 28, 28, 0.24) !important;
-  color: #F87171 !important;
-  border-color: rgba(248, 113, 113, 0.45) !important;
+  border-radius: var(--ui-radius-sm, 6px);
 }
 
 /* Compact horizontal table cell padding so ACTIONS column fits cleanly without right-edge clipping */
@@ -164,36 +79,42 @@ html .pwi-tooling-executive-page .ant-table-wrapper .ant-table .ant-table-contai
 html:not([data-theme='dark']) .pwi-tooling-executive-page .erp-table-container .ant-table-tbody > tr:not(:hover) > td,
 html:not([data-theme='dark']) .pwi-tooling-executive-page .erp-table-container .ant-table-tbody > tr:nth-child(even):not(:hover) > td,
 html:not([data-theme='dark']) .pwi-tooling-executive-page .erp-table-container .ant-table-tbody > tr:nth-child(odd):not(:hover) > td {
-  background: var(--theme-table-row-odd, #ffffff) !important;
-  background-color: var(--theme-table-row-odd, #ffffff) !important;
+  background: var(--erp-table-row-bg, #ffffff) !important;
+  background-color: var(--erp-table-row-bg, #ffffff) !important;
 }
 
-/* Unmistakable, crisp slate-blue row hover highlight + left accent bar (Light mode) */
+/* Hover highlight + left accent bar driven centrally by --erp-table-* tokens */
 html:not([data-theme='dark']) .pwi-tooling-executive-page .erp-table-container .ant-table-tbody > tr.erp-table-row--separated:hover > td,
 html:not([data-theme='dark']) .pwi-tooling-executive-page .erp-table-container .ant-table-tbody > tr:hover > td,
 html:not([data-theme='dark']) .pwi-tooling-executive-page .erp-table-container .ant-table-tbody > tr.ant-table-row-hover > td {
-  background: #dbeafe !important;
-  background-color: #dbeafe !important;
-  box-shadow: inset 0 1px 0 #93c5fd, inset 0 -1px 0 #93c5fd !important;
+  background: var(--erp-table-row-hover, #eef2ff) !important;
+  background-color: var(--erp-table-row-hover, #eef2ff) !important;
+  box-shadow: inset 0 1px 0 var(--erp-table-row-hover-border, #c7d2fe),
+              inset 0 -1px 0 var(--erp-table-row-hover-border, #c7d2fe) !important;
 }
 
 html:not([data-theme='dark']) .pwi-tooling-executive-page .erp-table-container .ant-table-tbody > tr:hover > td:first-child,
 html:not([data-theme='dark']) .pwi-tooling-executive-page .erp-table-container .ant-table-tbody > tr.ant-table-row-hover > td:first-child {
-  box-shadow: inset 4px 0 0 #2563eb, inset 0 1px 0 #93c5fd, inset 0 -1px 0 #93c5fd !important;
+  box-shadow: inset 4px 0 0 var(--erp-table-row-hover-indicator, #4f46e5),
+              inset 0 1px 0 var(--erp-table-row-hover-border, #c7d2fe),
+              inset 0 -1px 0 var(--erp-table-row-hover-border, #c7d2fe) !important;
 }
 
 /* Dark / Crystal theme hover highlight + left accent bar */
 html[data-theme='dark'] .pwi-tooling-executive-page .erp-table-container .ant-table-tbody > tr.erp-table-row--separated:hover > td,
 html[data-theme='dark'] .pwi-tooling-executive-page .erp-table-container .ant-table-tbody > tr:hover > td,
 html[data-theme='dark'] .pwi-tooling-executive-page .erp-table-container .ant-table-tbody > tr.ant-table-row-hover > td {
-  background: rgba(37, 99, 235, 0.24) !important;
-  background-color: rgba(37, 99, 235, 0.24) !important;
-  box-shadow: inset 0 1px 0 rgba(56, 189, 248, 0.35), inset 0 -1px 0 rgba(56, 189, 248, 0.35) !important;
+  background: var(--erp-table-row-hover, rgba(129, 140, 248, 0.16)) !important;
+  background-color: var(--erp-table-row-hover, rgba(129, 140, 248, 0.16)) !important;
+  box-shadow: inset 0 1px 0 var(--erp-table-row-hover-border, rgba(129, 140, 248, 0.36)),
+              inset 0 -1px 0 var(--erp-table-row-hover-border, rgba(129, 140, 248, 0.36)) !important;
 }
 
 html[data-theme='dark'] .pwi-tooling-executive-page .erp-table-container .ant-table-tbody > tr:hover > td:first-child,
 html[data-theme='dark'] .pwi-tooling-executive-page .erp-table-container .ant-table-tbody > tr.ant-table-row-hover > td:first-child {
-  box-shadow: inset 4px 0 0 #38bdf8, inset 0 1px 0 rgba(56, 189, 248, 0.35), inset 0 -1px 0 rgba(56, 189, 248, 0.35) !important;
+  box-shadow: inset 4px 0 0 var(--erp-table-row-hover-indicator, #818cf8),
+              inset 0 1px 0 var(--erp-table-row-hover-border, rgba(129, 140, 248, 0.36)),
+              inset 0 -1px 0 var(--erp-table-row-hover-border, rgba(129, 140, 248, 0.36)) !important;
 }
 
 /* Larger desktop segmented status filter pills */

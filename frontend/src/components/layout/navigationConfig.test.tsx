@@ -92,6 +92,7 @@ const SEEDED_VIEW_PERMISSIONS: string[] = [
 /** Every authenticated route registered in App.tsx / Production routers. */
 const DISCOVERED_ROUTES: string[] = [
   '/dashboard',
+  '/team-chat',
   '/settings',
   '/ai-assistant',
   // General Reports (pre-existing route that was missing from this list and

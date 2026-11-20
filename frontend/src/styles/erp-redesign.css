@@ -79,13 +79,13 @@
   --ui-table-header-pad-y: 12px;
   --ui-table-header-pad-x: 20px;
 
-  /* The header band. `--ui-table-header-*` are aliases of the retuned
-     `--theme-table-*` tokens in ThemeProvider.tsx, so the CSS, the antd
-     ConfigProvider and ERPTable.tsx all paint the SAME band from one source. */
-  --ui-table-header-bg: var(--theme-table-header-bg, #f1f5f9);
-  --ui-table-header-text: var(--theme-table-header-color, #0f172a);
-  --ui-table-header-rule: var(--theme-table-header-border, #e2e8f0);
-  --ui-table-rule: var(--theme-table-border, #e2e8f0);
+  /* The header band. `--ui-table-header-*` alias the centralized `--erp-table-*`
+     tokens in ThemeProvider.tsx, so CSS, antd ConfigProvider and ERPTable
+     paint the exact active preset table header from a single source of truth. */
+  --ui-table-header-bg: var(--erp-table-header-bg, var(--theme-table-header-bg, #312e81));
+  --ui-table-header-text: var(--erp-table-header-text, var(--theme-table-header-color, #f8fafc));
+  --ui-table-header-rule: var(--erp-table-header-accent, var(--theme-accent, #4f46e5));
+  --ui-table-rule: var(--erp-table-border, var(--theme-table-border, #e2e8f0));
 }
 
 html[data-theme='dark'] {
@@ -93,10 +93,10 @@ html[data-theme='dark'] {
   --ui-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4), 0 1px 2px rgba(0, 0, 0, 0.3);
   --ui-shadow-md: 0 4px 14px rgba(0, 0, 0, 0.45);
   --ui-shadow-lg: 0 14px 40px rgba(0, 0, 0, 0.6);
-  --ui-table-header-bg: var(--theme-table-header-bg, #1e293b);
-  --ui-table-header-text: var(--theme-table-header-color, #e2e8f0);
-  --ui-table-header-rule: var(--theme-table-header-border, #334155);
-  --ui-table-rule: var(--theme-table-border, #293548);
+  --ui-table-header-bg: var(--erp-table-header-bg, var(--theme-table-header-bg, #1e1b5c));
+  --ui-table-header-text: var(--erp-table-header-text, var(--theme-table-header-color, #f8fafc));
+  --ui-table-header-rule: var(--erp-table-header-accent, var(--theme-accent, #818cf8));
+  --ui-table-rule: var(--erp-table-border, var(--theme-table-border, #2a3054));
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -155,7 +155,7 @@ body {
 /* ── 3.1 Container ──────────────────────────────────────────────────────── */
 .ant-table-wrapper .ant-table,
 .erp-table-container .ant-table {
-  background: var(--theme-surface, #ffffff);
+  background: var(--erp-table-row-bg, var(--theme-surface, #ffffff));
   font-size: 13px;
   border-radius: var(--ui-radius-md);
 }
@@ -165,12 +165,6 @@ body {
 }
 
 /* ── 3.2 Header band ────────────────────────────────────────────────────── */
-/* LEGACY OVERRIDE. erp-table.css draws the header as a dark navy slab
-   (#0b1e36) with white 11px uppercase type at `padding: 10px 12px`, all at
-   `!important`. The band's COLOUR is fixed by the retuned
-   `--theme-table-header-*` tokens in ThemeProvider.tsx, so this block only
-   has to reclaim the geometry and type that are hard-coded in the legacy
-   sheet. (0,4,3) outranks the legacy max of (0,2,1). */
 html .ant-table-wrapper .ant-table .ant-table-container .ant-table-thead > tr > th,
 html .erp-table-container .ant-table .ant-table-container .ant-table-thead > tr > th,
 html .ant-table-thead th[class*='ant-table-cell-fix-'],
@@ -183,21 +177,19 @@ html th.erp-th-navy {
   transition: background-color var(--ui-speed) var(--ui-ease);
 }
 
-/* The band's colour, restated here rather than only in the legacy sheet, so
-   this layer is self-contained if erp-table.css is ever retired. */
 html .ant-table-wrapper .ant-table .ant-table-container .ant-table-thead > tr > th,
 html .erp-table-container .ant-table .ant-table-container .ant-table-thead > tr > th,
 html .ant-table-thead > tr > th,
 html .ant-table-thead th[class*='ant-table-cell-fix-'],
 html th.erp-th-navy {
-  background: var(--ui-table-header-bg) !important;
-  background-color: var(--ui-table-header-bg) !important;
-  color: var(--ui-table-header-text) !important;
-  border-bottom: 2.5px solid #f59e0b !important;
-  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3) !important;
+  background: var(--erp-table-header-bg, var(--ui-table-header-bg)) !important;
+  background-color: var(--erp-table-header-bg, var(--ui-table-header-bg)) !important;
+  color: var(--erp-table-header-text, var(--ui-table-header-text)) !important;
+  border-bottom: 2px solid var(--erp-table-header-accent, var(--ui-table-header-rule)) !important;
+  box-shadow: none !important;
 }
 
-/* The title itself — legacy set it to white explicitly. */
+/* Header titles & inner wrappers */
 html .ant-table-wrapper .ant-table .ant-table-container .ant-table-thead > tr > th .ant-table-column-title,
 html .erp-table-container .ant-table .ant-table-container .ant-table-thead > tr > th .ant-table-column-title,
 html .ant-table-thead > tr > th .ant-table-column-title,
@@ -207,39 +199,33 @@ html .ant-table-thead > tr > th .erp-th__icon,
 html .erp-th,
 html .erp-th__line,
 html .erp-th__icon {
-  color: var(--ui-table-header-text) !important;
+  color: var(--erp-table-header-text, var(--ui-table-header-text)) !important;
   font-weight: 600 !important;
 }
 
-/* Sort affordances: legacy forced white, which disappears on a light band. */
+/* Sort affordances: high-contrast light glyphs on dynamic dark header band */
 html .ant-table-wrapper .ant-table .ant-table-container .ant-table-thead > tr > th .ant-table-column-sorter {
-  color: var(--theme-text-muted, #94a3b8) !important;
+  color: rgba(248, 250, 252, 0.6) !important;
 }
 
 html .ant-table-wrapper .ant-table .ant-table-container .ant-table-thead > tr > th .ant-table-column-sorter-up.active,
 html .ant-table-wrapper .ant-table .ant-table-container .ant-table-thead > tr > th .ant-table-column-sorter-down.active {
-  color: var(--theme-accent, #6366f1) !important;
+  color: var(--erp-table-header-text, #ffffff) !important;
 }
 
-/* Column split. Legacy drew a 50%-height white hairline, which is invisible
-   on a light band. A taller, very low-alpha rule gives the modern "column
-   gutter" read without the vertical grid the brief asked to remove. */
+/* Subtle column gutter divider on dark header band */
 html .ant-table-wrapper .ant-table .ant-table-container .ant-table-thead > tr > th::before,
 html .erp-table-container .ant-table .ant-table-container .ant-table-thead > tr > th::before {
-  background-color: var(--ui-table-header-rule) !important;
-  height: 60% !important;
+  background-color: rgba(255, 255, 255, 0.16) !important;
+  height: 55% !important;
 }
 
 /* ── 3.3 Cells: room to breathe ─────────────────────────────────────────── */
-/* LEGACY OVERRIDE. The legacy body rule is `padding: 8px 12px !important` at
-   `:root:not([data-theme="dark"]) .ant-table-wrapper .ant-table-tbody > tr > td`
-   — (0,4,2). This ladder reaches (0,4,3) so it wins outright, in both modes,
-   regardless of load order. */
 html .ant-table-wrapper .ant-table .ant-table-container .ant-table-tbody > tr > td,
 html .erp-table-container .ant-table .ant-table-container .ant-table-tbody > tr > td {
   padding: var(--ui-table-cell-pad-y) var(--ui-table-cell-pad-x) !important;
   vertical-align: middle;
-  border-bottom: 1px solid var(--ui-table-rule) !important;
+  border-bottom: 1px solid var(--erp-table-border, var(--ui-table-rule)) !important;
   transition: background-color var(--ui-speed-fast) var(--ui-ease);
 }
 

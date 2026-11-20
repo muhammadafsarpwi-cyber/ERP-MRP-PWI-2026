@@ -634,12 +634,12 @@ html[data-theme='dark'] .inv-trace-title,
 }
 
 .inv-pixel-table .ant-table-thead > tr > th {
-  background-color: #1b2432 !important;
-  color: #ffffff !important;
+  background-color: var(--erp-table-header-bg, #312e81) !important;
+  color: var(--erp-table-header-text, #f8fafc) !important;
   font-weight: 700 !important;
   font-size: 12.5px !important;
   padding: 10px 14px !important;
-  border-bottom: none !important;
+  border-bottom: 2px solid var(--erp-table-header-accent, var(--theme-accent, #4f46e5)) !important;
   letter-spacing: 0.3px;
 }
 
@@ -649,38 +649,31 @@ html[data-theme='dark'] .inv-trace-title,
 
 .inv-pixel-table .ant-table-tbody > tr > td {
   padding: 10px 14px !important;
-  border-bottom: 1px solid var(--inv-table-border) !important;
+  border-bottom: 1px solid var(--erp-table-border, var(--inv-table-border)) !important;
   font-size: 13px;
-  background-color: var(--inv-table-row-odd) !important;
-  color: var(--inv-text-primary) !important;
+  background-color: var(--erp-table-row-bg, var(--inv-table-row-odd)) !important;
+  color: var(--inv-text-primary, var(--theme-text)) !important;
   vertical-align: middle;
 }
 
-.inv-pixel-table .ant-table-tbody > tr:nth-child(even) > td {
-  background-color: var(--inv-table-row-even) !important;
-}
-
 .inv-pixel-table .ant-table-tbody > tr:hover > td {
-  background-color: var(--inv-table-row-hover) !important;
+  background-color: var(--erp-table-row-hover, var(--inv-table-row-hover)) !important;
 }
 
-/* --- Table wrapper + zebra rows (shared by Sales Returns / Invoices pages) --- */
+/* --- Clean Table Wrapper (No Zebra Striping) --- */
 .inv-table-wrapper {
   width: 100%;
   overflow-x: auto;
 }
 
-.inv-table-wrapper .ant-table-tbody > tr.inv-row-even > td {
-  background-color: var(--inv-table-row-even, #f8fafc);
-}
-
+.inv-table-wrapper .ant-table-tbody > tr.inv-row-even > td,
 .inv-table-wrapper .ant-table-tbody > tr.inv-row-odd > td {
-  background-color: var(--inv-table-row-odd, #ffffff);
+  background-color: var(--erp-table-row-bg, var(--inv-table-row-odd, #ffffff));
 }
 
 .inv-table-wrapper .ant-table-tbody > tr.inv-row-even:hover > td,
 .inv-table-wrapper .ant-table-tbody > tr.inv-row-odd:hover > td {
-  background-color: var(--inv-table-row-hover, #eef2f7);
+  background-color: var(--erp-table-row-hover, var(--inv-table-row-hover, #eef2ff));
 }
 
 /* --- Document Column Wrapper --- */
@@ -2660,22 +2653,22 @@ html[data-theme='dark'] .doc-split-main,
   background: #141d2b !important;
 }
 
-/* Reference style dark table header */
+/* Reference style theme-linked table header */
 .doc-reference-table .ant-table-thead > tr > th {
-  background: #1b2432 !important;
-  color: #ffffff !important;
+  background: var(--erp-table-header-bg, #312e81) !important;
+  color: var(--erp-table-header-text, #f8fafc) !important;
   font-weight: 700 !important;
   font-size: 12px !important;
   text-transform: uppercase !important;
   letter-spacing: 0.5px !important;
-  border-bottom: 2px solid #2d3b50 !important;
+  border-bottom: 2px solid var(--erp-table-header-accent, var(--theme-accent, #4f46e5)) !important;
   padding: 10px 12px !important;
 }
 
 .doc-reference-table .ant-table-tbody > tr > td {
   font-size: 13px !important;
   padding: 10px 12px !important;
-  border-bottom: 1px solid var(--inv-table-border, #e2e8f0) !important;
+  border-bottom: 1px solid var(--erp-table-border, var(--inv-table-border, #e2e8f0)) !important;
 }
 
 .doc-summary-box {

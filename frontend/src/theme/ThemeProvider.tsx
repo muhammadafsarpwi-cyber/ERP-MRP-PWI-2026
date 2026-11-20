@@ -12,10 +12,11 @@ import { useThemeStore } from './themeStore';
 import {
   darkenHex,
   deriveRolesFromAccent,
+  ensureMinContrast,
+  getContrastText,
   lightenHex,
   mixHex,
   rgbaFromHex,
-  getContrastText,
 } from './colorUtils';
 import { OrbitalDualRingLoader } from '../components/shared/LoadingState';
 import './theme.css';
@@ -75,13 +76,95 @@ const buildSettingsCssVars = (
   };
 };
 
+/**
+ * Explicit dark table-header base hexes for featured corporate presets so
+ * Navy Corporate, Emerald Sovereign, Classic Blue, Indigo Night, Mineral Teal,
+ * and Obsidian & Mint match executive table chrome with crisp white text.
+ */
+const PRESET_TABLE_HEADER_HEX: Record<string, string> = {
+  navy: '#1e293b',
+  'emerald-sovereign': '#064e3b',
+  blue: '#1e3a8a',
+  indigo: '#312e81',
+  'mineral-teal': '#134e4a',
+  'obsidian-mint': '#0f2922',
+};
+
+/**
+ * Resolves the active table <thead> background & border tokens from the selected
+ * palette + mode + customAccent, guaranteeing WCAG contrast (>= 7:1 against #f8fafc).
+ */
+export const resolveTableHeaderBg = (
+  mode: 'light' | 'dark',
+  paletteId: string,
+  roles: { primary: string; surface: string; accent: string; background: string },
+  hasCustomAccent = false
+): string => {
+  const presetBase = !hasCustomAccent ? PRESET_TABLE_HEADER_HEX[paletteId] : undefined;
+  const seed = presetBase ?? roles.primary;
+
+  if (mode === 'dark') {
+    const blended = mixHex(seed, roles.surface, presetBase ? 0.22 : 0.18);
+    return ensureMinContrast(darkenHex(blended, 0.14), '#f8fafc', 7.0);
+  }
+  return ensureMinContrast(seed, '#ffffff', 7.0);
+};
+
 /** Exported for tests — the exact token map applied to `document.documentElement`. */
 export const buildCssVars = (
   mode: 'light' | 'dark',
-  roles: { primary: string; surface: string; accent: string; background: string }
+  roles: { primary: string; surface: string; accent: string; background: string },
+  paletteId = 'indigo',
+  hasCustomAccent = false
 ): Record<string, string> => {
   const dark = mode === 'dark';
   const { primary, surface, accent, background } = roles;
+  const tableHeaderBg = resolveTableHeaderBg(mode, paletteId, roles, hasCustomAccent);
+  const tableHeaderAccent = dark ? lightenHex(accent, 0.08) : accent;
+  const tableBorder = dark
+    ? mixHex(surface, accent, 0.22)
+    : mixHex(surface, tableHeaderBg, 0.16);
+  const tableRowBg = dark ? surface : '#ffffff';
+  const tableRowHover = dark
+    ? mixHex(surface, accent, 0.24)
+    : mixHex('#ffffff', accent, 0.12);
+  const tableRowHoverBorder = dark
+    ? rgbaFromHex(accent, 0.42)
+    : rgbaFromHex(accent, 0.35);
+  const tableRowSelected = dark
+    ? mixHex(surface, accent, 0.32)
+    : mixHex('#ffffff', accent, 0.20);
+
+  const tableTokens: Record<string, string> = {
+    '--erp-table-header-bg': tableHeaderBg,
+    '--erp-table-header-text': '#f8fafc',
+    '--erp-table-header-accent': tableHeaderAccent,
+    '--erp-table-header-divider': 'rgba(255, 255, 255, 0.14)',
+    '--erp-table-border': tableBorder,
+    '--erp-table-row-bg': tableRowBg,
+    '--erp-table-row-hover': tableRowHover,
+    '--erp-table-row-hover-border': tableRowHoverBorder,
+    '--erp-table-row-hover-indicator': accent,
+    '--erp-table-row-selected': tableRowSelected,
+    '--theme-table-header-bg': tableHeaderBg,
+    '--theme-table-header-color': '#f8fafc',
+    '--theme-table-header-border': tableHeaderAccent,
+    '--theme-table-row-odd': tableRowBg,
+    '--theme-table-row-even': tableRowBg,
+    '--theme-table-row-hover': tableRowHover,
+    '--theme-table-row-selected': tableRowSelected,
+    '--theme-table-text': dark ? 'rgba(241, 245, 249, 0.95)' : 'rgba(15, 23, 42, 0.92)',
+    '--theme-table-text-secondary': dark ? 'rgba(203, 213, 225, 0.72)' : 'rgba(100, 116, 139, 0.88)',
+    '--theme-table-border': tableBorder,
+    '--theme-table-border-strong': dark ? mixHex(surface, '#ffffff', 0.20) : mixHex(surface, tableHeaderBg, 0.26),
+    '--theme-table-scrollbar-thumb': dark ? mixHex(surface, accent, 0.38) : mixHex(surface, tableHeaderBg, 0.28),
+    '--theme-table-scrollbar-track': dark ? darkenHex(surface, 0.12) : mixHex(surface, '#0f172a', 0.04),
+    '--theme-table-sticky-bg': tableRowBg,
+    '--theme-table-sticky-hover': tableRowHover,
+    '--theme-table-sticky-selected': tableRowSelected,
+    '--theme-table-sticky-selected-hover': dark ? mixHex(surface, accent, 0.36) : mixHex('#ffffff', accent, 0.24),
+  };
+
   if (dark) {
     return {
       // In dark mode, primary brand/accent text & interactive elements should use accent (high-contrast, bright)
@@ -125,28 +208,7 @@ export const buildCssVars = (
       '--theme-surface-subtle': mixHex(surface, '#ffffff', 0.04),
       '--theme-chart-grid': 'rgba(226, 232, 255, 0.09)',
       '--theme-chart-axis': 'rgba(199, 204, 235, 0.5)',
-      '--theme-table-sticky-bg': surface,
-      '--theme-table-sticky-hover': mixHex(surface, accent, 0.18),
-      '--theme-table-sticky-selected': mixHex(surface, accent, 0.26),
-      '--theme-table-sticky-selected-hover': mixHex(surface, accent, 0.32),
-      // 2027 Dynamic Enterprise Table tokens (adapts directly to current palette)
-      // Header is a LOW-CONTRAST accent tint over the surface rather than an
-      // inverted slab of `darkenHex(primary, .18)`. On a dense data grid a
-      // dark navy band with white 11px type reads as a wall; a tint keeps the
-      // band clearly distinct from the rows without fighting the row text.
-      '--theme-table-header-bg': mixHex(surface, accent, 0.16),
-      '--theme-table-header-color': 'rgba(241, 245, 249, 0.95)',
-      '--theme-table-header-border': mixHex(surface, accent, 0.30),
-      '--theme-table-row-odd': surface,
-      '--theme-table-row-even': lightenHex(surface, 0.04),
-      '--theme-table-row-hover': mixHex(surface, accent, 0.18),
-      '--theme-table-row-selected': mixHex(surface, accent, 0.26),
-      '--theme-table-text': 'rgba(241, 245, 249, 0.95)',
-      '--theme-table-text-secondary': 'rgba(203, 213, 225, 0.65)',
-      '--theme-table-border': mixHex(surface, '#ffffff', 0.10),
-      '--theme-table-border-strong': mixHex(surface, '#ffffff', 0.18),
-      '--theme-table-scrollbar-thumb': mixHex(surface, accent, 0.38),
-      '--theme-table-scrollbar-track': darkenHex(surface, 0.12),
+      ...tableTokens,
       // System Settings shell tokens (dark)
       ...buildSettingsCssVars('dark', roles),
     };
@@ -191,27 +253,7 @@ export const buildCssVars = (
     '--theme-surface-subtle': mixHex(surface, '#0f172a', 0.035),
     '--theme-chart-grid': 'rgba(15, 23, 42, 0.08)',
     '--theme-chart-axis': 'rgba(15, 23, 42, 0.5)',
-    '--theme-table-sticky-bg': '#ffffff',
-    '--theme-table-sticky-hover': mixHex(surface, primary, 0.05),
-    '--theme-table-sticky-selected': mixHex(surface, primary, 0.10),
-    '--theme-table-sticky-selected-hover': mixHex(surface, primary, 0.14),
-    // 2027 Dynamic Enterprise Table tokens (adapts directly to current palette)
-    // See the dark branch above: the header is a subtle accent tint, not a
-    // dark navy slab. Text flips to the normal strong text colour, which is
-    // what makes the "unorganized / heavy" header read as light and clean.
-    '--theme-table-header-bg': mixHex(surface, accent, 0.07),
-    '--theme-table-header-color': 'rgba(15, 23, 42, 0.92)',
-    '--theme-table-header-border': mixHex(surface, accent, 0.16),
-    '--theme-table-row-odd': '#ffffff',
-    '--theme-table-row-even': mixHex(surface, primary, 0.035),
-    '--theme-table-row-hover': mixHex('#ffffff', accent, 0.08),
-    '--theme-table-row-selected': mixHex('#ffffff', accent, 0.16),
-    '--theme-table-text': 'rgba(15, 23, 42, 0.92)',
-    '--theme-table-text-secondary': 'rgba(100, 116, 139, 0.85)',
-    '--theme-table-border': mixHex(surface, '#0f172a', 0.10),
-    '--theme-table-border-strong': mixHex(surface, '#0f172a', 0.18),
-    '--theme-table-scrollbar-thumb': mixHex(surface, '#0f172a', 0.25),
-    '--theme-table-scrollbar-track': mixHex(surface, '#0f172a', 0.04),
+    ...tableTokens,
     // System Settings shell tokens (light)
     ...buildSettingsCssVars('light', roles),
   };
@@ -325,12 +367,13 @@ const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
   React.useEffect(() => {
     const root = document.documentElement;
     root.setAttribute('data-theme', resolvedMode);
+    root.setAttribute('data-palette', draft.paletteId);
     // Drives the glassmorphism layer in theme-glass.css. Kept as an
     // attribute (not a class) so it is available before first paint and
     // trivially inspectable in devtools.
     root.setAttribute('data-glass', draft.glass ? 'on' : 'off');
     root.setAttribute('data-corner-style', draft.cornerStyle);
-    applyCssVars(buildCssVars(resolvedMode, roles));
+    applyCssVars(buildCssVars(resolvedMode, roles, draft.paletteId, Boolean(draft.customAccent)));
     applyCssVars(
       buildAppearanceCssVars(resolvedMode, roles, {
         cornerStyle: draft.cornerStyle,
@@ -341,6 +384,8 @@ const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
     );
   }, [
     resolvedMode,
+    draft.paletteId,
+    draft.customAccent,
     draft.cornerStyle,
     draft.glass,
     draft.glassBlur,
@@ -350,10 +395,21 @@ const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
 
   const themeConfig = React.useMemo(() => {
     const dark = resolvedMode === 'dark';
-    // Subtle accent tint over the surface — replaces the dark navy slab.
-    const computedHeaderBg = dark
-      ? mixHex(roles.surface, roles.accent, 0.16)
-      : mixHex(roles.surface, roles.accent, 0.07);
+    const computedHeaderBg = resolveTableHeaderBg(
+      resolvedMode,
+      draft.paletteId,
+      roles,
+      Boolean(draft.customAccent)
+    );
+    const tableBorderColor = dark
+      ? mixHex(roles.surface, roles.accent, 0.22)
+      : mixHex(roles.surface, computedHeaderBg, 0.16);
+    const tableHoverBg = dark
+      ? mixHex(roles.surface, roles.accent, 0.24)
+      : mixHex('#ffffff', roles.accent, 0.12);
+    const tableSelectedBg = dark
+      ? mixHex(roles.surface, roles.accent, 0.32)
+      : mixHex('#ffffff', roles.accent, 0.20);
     return {
       algorithm: dark ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
       token: {
@@ -400,19 +456,15 @@ const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
         },
         Table: {
           headerBg: computedHeaderBg,
-          headerColor: dark ? 'rgba(241, 245, 249, 0.95)' : 'rgba(15, 23, 42, 0.92)',
-          // Was a white hairline — invisible against the new light tint.
-          headerSplitColor: dark ? 'rgba(255, 255, 255, 0.10)' : 'rgba(15, 23, 42, 0.10)',
-          headerSortActiveBg: dark ? mixHex(roles.surface, roles.accent, 0.26) : mixHex(roles.surface, roles.accent, 0.14),
-          headerSortHoverBg: dark ? mixHex(roles.surface, roles.accent, 0.20) : mixHex(roles.surface, roles.accent, 0.10),
-          fixedHeaderSortActiveBg: dark ? mixHex(roles.surface, roles.accent, 0.26) : mixHex(roles.surface, roles.accent, 0.14),
-          borderColor: dark ? mixHex(roles.surface, '#ffffff', 0.10) : mixHex(roles.surface, '#0f172a', 0.10),
-          rowHoverBg: dark ? mixHex(roles.surface, roles.accent, 0.18) : mixHex('#ffffff', roles.accent, 0.08),
-          rowSelectedBg: dark ? mixHex(roles.surface, roles.accent, 0.26) : mixHex('#ffffff', roles.accent, 0.16),
-          rowSelectedHoverBg: dark ? mixHex(roles.surface, roles.accent, 0.32) : mixHex('#ffffff', roles.accent, 0.20),
-          // Matches `--ui-table-cell-pad-*` in styles/erp-redesign.css, which is
-          // what actually paints the grid (it outranks these via !important).
-          // Kept in sync so the token is correct for any component that reads it.
+          headerColor: '#f8fafc',
+          headerSplitColor: 'rgba(255, 255, 255, 0.14)',
+          headerSortActiveBg: lightenHex(computedHeaderBg, 0.08),
+          headerSortHoverBg: lightenHex(computedHeaderBg, 0.05),
+          fixedHeaderSortActiveBg: lightenHex(computedHeaderBg, 0.08),
+          borderColor: tableBorderColor,
+          rowHoverBg: tableHoverBg,
+          rowSelectedBg: tableSelectedBg,
+          rowSelectedHoverBg: mixHex(tableSelectedBg, roles.accent, 0.15),
           cellPaddingBlock: 13,
           cellPaddingInline: 20,
           fontSize: 13,
@@ -449,7 +501,7 @@ const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
         },
       },
     };
-  }, [resolvedMode, draft.cornerStyle, roles]);
+  }, [resolvedMode, draft.paletteId, draft.customAccent, draft.cornerStyle, roles]);
 
   return (
     <ConfigProvider theme={themeConfig}>

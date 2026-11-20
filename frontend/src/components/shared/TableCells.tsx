@@ -42,7 +42,7 @@ export const HeaderCell: React.FC<{
   first: React.ReactNode;
   second?: React.ReactNode;
 }> = ({ icon, first, second }) => (
-  <span
+    <span
     className="erp-th"
     style={{
       display: 'inline-flex',
@@ -52,7 +52,7 @@ export const HeaderCell: React.FC<{
       textAlign: 'center',
       lineHeight: 1.45,
       gap: 1,
-      color: 'var(--theme-table-header-color, var(--ui-table-header-text, inherit))',
+      color: 'var(--erp-table-header-text, var(--theme-table-header-color, inherit))',
     }}
   >
     <span
@@ -88,3 +88,42 @@ export const HeaderCell: React.FC<{
     )}
   </span>
 );
+
+export type ErpActionPillVariant = 'view' | 'success' | 'edit' | 'warn' | 'delete';
+
+export interface ErpActionPillProps {
+  variant: ErpActionPillVariant;
+  icon: React.ReactNode;
+  title?: string;
+  ariaLabel?: string;
+  onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void;
+  disabled?: boolean;
+  size?: 'sm' | 'md';
+  className?: string;
+}
+
+/** Centralized table action pill backed solely by `--erp-pill-*` tokens in erp-table.css. */
+export const ErpActionPill: React.FC<ErpActionPillProps> = ({
+  variant,
+  icon,
+  title,
+  ariaLabel,
+  onClick,
+  disabled = false,
+  size = 'md',
+  className = '',
+}) => {
+  const sizeClass = size === 'sm' ? 'erp-action-pill--sm' : '';
+  const btn = (
+    <button
+      type="button"
+      disabled={disabled}
+      aria-label={ariaLabel || title || variant}
+      onClick={onClick}
+      className={`erp-action-pill erp-action-pill--${variant} ${sizeClass} ${className}`.trim()}
+    >
+      {icon}
+    </button>
+  );
+  return title ? <Tooltip title={title}>{btn}</Tooltip> : btn;
+};

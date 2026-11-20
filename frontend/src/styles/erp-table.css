@@ -18,11 +18,11 @@
   z-index: auto !important;
 }
 
-/* ── 1. Table Container (Subtle light border, no heavy double-card side borders) ── */
+/* ── 1. Table Container (Single Source of Truth Tokens) ── */
 .erp-table-container {
-  background: var(--theme-surface, #ffffff);
-  border: 1px solid var(--theme-border, rgba(15, 23, 42, 0.1));
-  border-radius: 8px;
+  background: var(--erp-table-row-bg, var(--theme-surface, #ffffff));
+  border: 1px solid var(--erp-table-border, var(--theme-border, rgba(15, 23, 42, 0.1)));
+  border-radius: var(--ui-radius-md, 8px);
   overflow: hidden;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
@@ -32,9 +32,9 @@
 /* Eliminate unnecessary outer side borders when a table is hosted inside a Card */
 .ant-card.erp-table-card,
 .erp-table-container-card {
-  border: 1px solid var(--theme-border, rgba(15, 23, 42, 0.1)) !important;
-  border-radius: 8px !important;
-  background: var(--theme-surface, #ffffff) !important;
+  border: 1px solid var(--erp-table-border, var(--theme-border, rgba(15, 23, 42, 0.1))) !important;
+  border-radius: var(--ui-radius-md, 8px) !important;
+  background: var(--erp-table-row-bg, var(--theme-surface, #ffffff)) !important;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02) !important;
 }
 
@@ -49,7 +49,7 @@
 }
 
 .erp-table-container .ant-table {
-  background: var(--theme-surface, #ffffff);
+  background: var(--erp-table-row-bg, var(--theme-surface, #ffffff));
   font-size: 13px;
 }
 
@@ -57,10 +57,11 @@
   border: none !important;
 }
 
-/* ── 2. Table Header Typography & Styling (Dark Navy #0b1e36 + White Text) ── */
+/* ── 2. Table Header Typography & Styling (Dynamic Theme-Linked Header) ── */
 .erp-table-container .ant-table-thead > tr > th,
 .ant-table-wrapper .ant-table-thead > tr > th,
 .ant-table-thead > tr > th,
+.ant-table-expanded-row .ant-table-thead > tr > th,
 .ant-table-wrapper .erp-table-header th,
 .ant-table-wrapper .ant-table-thead > tr > th.ant-table-cell-fix-left,
 .ant-table-wrapper .ant-table-thead > tr > th.ant-table-cell-fix-left-last,
@@ -79,31 +80,20 @@
 .ant-table-header .ant-table-thead > tr > th,
 html .ant-table-thead > tr > th,
 html .ant-table-thead th,
-th.erp-th-navy {
-  background: var(--theme-table-header-bg, var(--ui-table-header-bg, #f1f5f9)) !important;
-  background-color: var(--theme-table-header-bg, var(--ui-table-header-bg, #f1f5f9)) !important;
-  color: var(--theme-table-header-color, var(--ui-table-header-text, #0f172a)) !important;
+th.erp-th-navy,
+table.erp-data-table thead tr th {
+  background: var(--erp-table-header-bg, var(--theme-table-header-bg, #312e81)) !important;
+  background-color: var(--erp-table-header-bg, var(--theme-table-header-bg, #312e81)) !important;
+  color: var(--erp-table-header-text, var(--theme-table-header-color, #f8fafc)) !important;
   font-weight: 700 !important;
   font-size: 11px !important;
   letter-spacing: 0.06em !important;
   text-transform: uppercase !important;
   padding: 10px 12px !important;
-  border-bottom: 2.5px solid #f59e0b !important;
-  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3) !important;
+  border-bottom: 2px solid var(--erp-table-header-accent, var(--theme-accent, #4f46e5)) !important;
+  box-shadow: none !important;
   white-space: nowrap !important;
   word-break: keep-all !important;
-}
-
-[data-theme="dark"] .ant-table-thead th[class*="ant-table-cell-fix-"],
-[data-theme="dark"] .ant-table-sticky-holder .ant-table-thead > tr > th,
-[data-theme="dark"] .ant-table-header .ant-table-thead > tr > th,
-[data-theme="dark"] html .ant-table-thead > tr > th,
-[data-theme="dark"] th.erp-th-navy {
-  background: var(--theme-table-header-bg, #0b1e36) !important;
-  background-color: var(--theme-table-header-bg, #0b1e36) !important;
-  color: var(--theme-table-header-color, #f1f5f9) !important;
-  border-bottom: 2.5px solid #f59e0b !important;
-  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.25) !important;
 }
 
 .erp-table-container .ant-table-thead > tr > th .ant-table-column-title,
@@ -124,59 +114,34 @@ th.erp-th-navy {
 .erp-table-container .ant-table-thead > tr > th .ant-table-column-sorter,
 .ant-table-wrapper .ant-table-thead > tr > th .ant-table-column-sorter,
 .ant-table-thead > tr > th .ant-table-column-sorter {
-  color: var(--theme-text-muted, #64748b) !important;
-}
-
-[data-theme="dark"] .erp-table-container .ant-table-thead > tr > th .ant-table-column-sorter,
-[data-theme="dark"] .ant-table-wrapper .ant-table-thead > tr > th .ant-table-column-sorter,
-[data-theme="dark"] .ant-table-thead > tr > th .ant-table-column-sorter {
-  color: rgba(241, 245, 249, 0.6) !important;
+  color: rgba(248, 250, 252, 0.6) !important;
 }
 
 .erp-table-container .ant-table-thead > tr > th .ant-table-column-sorter-up.active,
 .erp-table-container .ant-table-thead > tr > th .ant-table-column-sorter-down.active,
 .ant-table-wrapper .ant-table-thead > tr > th .ant-table-column-sorter-up.active,
-.ant-table-wrapper .ant-table-thead > tr > th .ant-table-column-sorter-down.active {
-  color: var(--theme-accent, #2563eb) !important;
+.ant-table-wrapper .ant-table-thead > tr > th .ant-table-column-sorter-down.active,
+.ant-table-thead > tr > th .ant-table-column-sorter-up.active,
+.ant-table-thead > tr > th .ant-table-column-sorter-down.active {
+  color: var(--erp-table-header-text, #ffffff) !important;
 }
 
-[data-theme="dark"] .erp-table-container .ant-table-thead > tr > th .ant-table-column-sorter-up.active,
-[data-theme="dark"] .erp-table-container .ant-table-thead > tr > th .ant-table-column-sorter-down.active,
-[data-theme="dark"] .ant-table-wrapper .ant-table-thead > tr > th .ant-table-column-sorter-up.active,
-[data-theme="dark"] .ant-table-wrapper .ant-table-thead > tr > th .ant-table-column-sorter-down.active {
-  color: var(--theme-accent, #38bdf8) !important;
-}
-
-/* Header split divider (subtle contrast against header background) */
+/* Header split divider (subtle high-contrast divider on dynamic header band) */
 .erp-table-container .ant-table-thead > tr > th::before,
 .ant-table-wrapper .ant-table-thead > tr > th::before,
 .ant-table-thead > tr > th::before {
-  background-color: var(--theme-table-header-border, rgba(15, 23, 42, 0.12)) !important;
-  height: 50% !important;
-}
-
-[data-theme="dark"] .erp-table-container .ant-table-thead > tr > th::before,
-[data-theme="dark"] .ant-table-wrapper .ant-table-thead > tr > th::before,
-[data-theme="dark"] .ant-table-thead > tr > th::before {
-  background-color: var(--theme-table-header-border, rgba(255, 255, 255, 0.14)) !important;
-  height: 50% !important;
+  background-color: rgba(255, 255, 255, 0.16) !important;
+  height: 55% !important;
 }
 
 /* Header scrollbar gutter cell (matches header styling above vertical scrollbar) */
 .erp-table-container .ant-table-thead > tr > th.ant-table-cell-scrollbar,
 .ant-table-wrapper .ant-table-thead > tr > th.ant-table-cell-scrollbar,
 .ant-table-thead > tr > th.ant-table-cell-scrollbar {
-  background: var(--theme-table-header-bg, var(--ui-table-header-bg, #f1f5f9)) !important;
-  border-bottom: 2px solid var(--theme-table-header-border, var(--ui-table-header-rule, #cbd5e1)) !important;
+  background: var(--erp-table-header-bg, var(--theme-table-header-bg, #312e81)) !important;
+  border-bottom: 2px solid var(--erp-table-header-accent, var(--theme-accent, #4f46e5)) !important;
   box-shadow: none !important;
   padding: 0 !important;
-}
-
-[data-theme="dark"] .erp-table-container .ant-table-thead > tr > th.ant-table-cell-scrollbar,
-[data-theme="dark"] .ant-table-wrapper .ant-table-thead > tr > th.ant-table-cell-scrollbar,
-[data-theme="dark"] .ant-table-thead > tr > th.ant-table-cell-scrollbar {
-  background: var(--theme-table-header-bg, #0b1e36) !important;
-  border-bottom: 2px solid var(--theme-table-header-border, #071324) !important;
 }
 
 /* Fixed/sticky table header container */
@@ -186,14 +151,8 @@ th.erp-th-navy {
   position: sticky !important;
   top: 0 !important;
   z-index: 15 !important;
-  background: var(--theme-table-header-bg, var(--ui-table-header-bg, #f1f5f9)) !important;
+  background: var(--erp-table-header-bg, var(--theme-table-header-bg, #312e81)) !important;
   overflow: hidden !important;
-}
-
-[data-theme="dark"] .erp-table-container .ant-table-header,
-[data-theme="dark"] .ant-table-wrapper .ant-table-header,
-[data-theme="dark"] .ant-table-header {
-  background: var(--theme-table-header-bg, #0b1e36) !important;
 }
 
 /* ── 2.5. Custom Enterprise Scrollbars (Vertical & Horizontal on Table Body) ── */
@@ -267,42 +226,33 @@ th.erp-th-navy {
   background: var(--theme-accent, #94a3b8);
 }
 
-/* ── 3. Table Body Rows & Cells (Alternating Zebra Striping) ── */
+/* ── 3. Table Body Rows & Cells (Pure Clean Surface — Zero Zebra Stripes) ── */
 
-/* ── Light Mode Zebra Striping (Default) ── */
-:root:not([data-theme="dark"]) .erp-table-container .ant-table-tbody > tr:nth-child(even):not(:hover) > td,
-:root:not([data-theme="dark"]) .ant-table-wrapper .ant-table-tbody > tr:nth-child(even):not(:hover) > td,
-:root:not([data-theme="dark"]) .ant-table-tbody > tr:nth-child(even):not(:hover) > td,
-:root:not([data-theme="dark"]) .ant-table-tbody > tr:nth-child(even):not(:hover) > td.ant-table-cell-fix-left,
-:root:not([data-theme="dark"]) .ant-table-tbody > tr:nth-child(even):not(:hover) > td.ant-table-cell-fix-right,
-html:not([data-theme="dark"]) body .ant-table-tbody > tr:nth-child(even):not(:hover) > td,
-html:not([data-theme="dark"]) body .ant-table-tbody > tr:nth-child(even):not(:hover) > td.ant-table-cell-fix-left,
-html:not([data-theme="dark"]) body .ant-table-tbody > tr:nth-child(even):not(:hover) > td.ant-table-cell-fix-right {
-  background: var(--theme-table-row-even, #f8fafc) !important;
-}
-
-:root:not([data-theme="dark"]) .erp-table-container .ant-table-tbody > tr:nth-child(odd):not(:hover) > td,
-:root:not([data-theme="dark"]) .ant-table-wrapper .ant-table-tbody > tr:nth-child(odd):not(:hover) > td,
-:root:not([data-theme="dark"]) .ant-table-tbody > tr:nth-child(odd):not(:hover) > td,
-:root:not([data-theme="dark"]) .ant-table-tbody > tr:nth-child(odd):not(:hover) > td.ant-table-cell-fix-left,
-:root:not([data-theme="dark"]) .ant-table-tbody > tr:nth-child(odd):not(:hover) > td.ant-table-cell-fix-right,
-html:not([data-theme="dark"]) body .ant-table-tbody > tr:nth-child(odd):not(:hover) > td,
-html:not([data-theme="dark"]) body .ant-table-tbody > tr:nth-child(odd):not(:hover) > td.ant-table-cell-fix-left,
-html:not([data-theme="dark"]) body .ant-table-tbody > tr:nth-child(odd):not(:hover) > td.ant-table-cell-fix-right {
-  background: var(--theme-table-row-odd, #ffffff) !important;
+/* Light Mode: Every row sits on a crisp solid white surface (#ffffff); highlight appears ONLY on hover */
+:root:not([data-theme="dark"]) .erp-table-container .ant-table-tbody > tr:not(:hover):not(.ant-table-row-hover) > td,
+:root:not([data-theme="dark"]) .ant-table-wrapper .ant-table-tbody > tr:not(:hover):not(.ant-table-row-hover) > td,
+:root:not([data-theme="dark"]) .ant-table-tbody > tr:not(:hover):not(.ant-table-row-hover) > td,
+:root:not([data-theme="dark"]) .ant-table-tbody > tr:not(:hover):not(.ant-table-row-hover) > td.ant-table-cell-fix-left,
+:root:not([data-theme="dark"]) .ant-table-tbody > tr:not(:hover):not(.ant-table-row-hover) > td.ant-table-cell-fix-right,
+html:not([data-theme="dark"]) body .ant-table-tbody > tr:not(:hover):not(.ant-table-row-hover) > td,
+html:not([data-theme="dark"]) body .ant-table-tbody > tr:not(:hover):not(.ant-table-row-hover) > td.ant-table-cell-fix-left,
+html:not([data-theme="dark"]) body .ant-table-tbody > tr:not(:hover):not(.ant-table-row-hover) > td.ant-table-cell-fix-right,
+:root:not([data-theme="dark"]) table.erp-data-table tbody tr:not(:hover) td {
+  background: var(--erp-table-row-bg, #ffffff) !important;
 }
 
 :root:not([data-theme="dark"]) .erp-table-container .ant-table-tbody > tr > td,
 :root:not([data-theme="dark"]) .ant-table-wrapper .ant-table-tbody > tr > td,
-:root:not([data-theme="dark"]) .ant-table-tbody > tr > td {
+:root:not([data-theme="dark"]) .ant-table-tbody > tr > td,
+:root:not([data-theme="dark"]) table.erp-data-table tbody tr td {
   padding: 8px 12px !important;
   font-size: 13px;
   color: var(--theme-text, #1e293b);
-  border-bottom: 1px solid var(--theme-table-border, rgba(226, 232, 240, 0.85)) !important;
-  transition: background 0.15s ease;
+  border-bottom: 1px solid var(--erp-table-border, #e2e8f0) !important;
+  transition: background-color 0.14s ease, box-shadow 0.14s ease;
 }
 
-/* Light Mode Hover State */
+/* Light Mode Hover State: crisp theme-tinted highlight + left indicator accent */
 :root:not([data-theme="dark"]) .erp-table-container .ant-table-tbody > tr:hover > td,
 :root:not([data-theme="dark"]) .erp-table-container .ant-table-tbody > tr.ant-table-row-hover > td,
 :root:not([data-theme="dark"]) .ant-table-wrapper .ant-table-tbody > tr:hover > td,
@@ -312,8 +262,22 @@ html:not([data-theme="dark"]) body .ant-table-tbody > tr:nth-child(odd):not(:hov
 :root:not([data-theme="dark"]) .ant-table-tbody > tr:hover > td.ant-table-cell-fix-left,
 :root:not([data-theme="dark"]) .ant-table-tbody > tr:hover > td.ant-table-cell-fix-right,
 :root:not([data-theme="dark"]) .ant-table-tbody > tr.ant-table-row-hover > td.ant-table-cell-fix-left,
-:root:not([data-theme="dark"]) .ant-table-tbody > tr.ant-table-row-hover > td.ant-table-cell-fix-right {
-  background: var(--theme-table-row-hover, #eff6ff) !important;
+:root:not([data-theme="dark"]) .ant-table-tbody > tr.ant-table-row-hover > td.ant-table-cell-fix-right,
+:root:not([data-theme="dark"]) table.erp-data-table tbody tr:hover td {
+  background: var(--erp-table-row-hover, #eef2ff) !important;
+  box-shadow: inset 0 1px 0 var(--erp-table-row-hover-border, #c7d2fe),
+              inset 0 -1px 0 var(--erp-table-row-hover-border, #c7d2fe) !important;
+}
+
+:root:not([data-theme="dark"]) .erp-table-container .ant-table-tbody > tr:hover > td:first-child,
+:root:not([data-theme="dark"]) .erp-table-container .ant-table-tbody > tr.ant-table-row-hover > td:first-child,
+:root:not([data-theme="dark"]) .ant-table-wrapper .ant-table-tbody > tr:hover > td:first-child,
+:root:not([data-theme="dark"]) .ant-table-wrapper .ant-table-tbody > tr.ant-table-row-hover > td:first-child,
+:root:not([data-theme="dark"]) .ant-table-tbody > tr:hover > td:first-child,
+:root:not([data-theme="dark"]) .ant-table-tbody > tr.ant-table-row-hover > td:first-child {
+  box-shadow: inset 4px 0 0 var(--erp-table-row-hover-indicator, var(--theme-primary, #4f46e5)),
+              inset 0 1px 0 var(--erp-table-row-hover-border, #c7d2fe),
+              inset 0 -1px 0 var(--erp-table-row-hover-border, #c7d2fe) !important;
 }
 
 /* Light Mode Selected State */
@@ -323,7 +287,7 @@ html:not([data-theme="dark"]) body .ant-table-tbody > tr:nth-child(odd):not(:hov
   background: var(--theme-table-row-selected, #dbeafe) !important;
 }
 
-/* ── 3b. Dark Mode Zebra Striping & Body Rows ([data-theme="dark"]) ── */
+/* ── 3b. Dark Mode Clean Rows & Dynamic Hover ([data-theme="dark"]) ── */
 [data-theme="dark"] .erp-table-container,
 [data-theme="dark"] .erp-table-container .ant-table,
 [data-theme="dark"] .ant-table-wrapper .ant-table,
@@ -331,47 +295,34 @@ html:not([data-theme="dark"]) body .ant-table-tbody > tr:nth-child(odd):not(:hov
 [data-theme="dark"] .ant-table-container,
 [data-theme="dark"] .ant-card.erp-table-card,
 [data-theme="dark"] .erp-table-container-card {
-  background: var(--theme-surface, #0f172a) !important;
+  background: var(--erp-table-row-bg, var(--theme-surface, #181c33)) !important;
   color: var(--theme-table-text, #f1f5f9) !important;
-  border-color: var(--theme-table-border, #1e293b) !important;
+  border-color: var(--erp-table-border, var(--theme-border, #2a3054)) !important;
 }
 
-/* Dark Mode Even Rows */
-[data-theme="dark"] .erp-table-container .ant-table-tbody > tr:nth-child(even):not(:hover) > td,
-[data-theme="dark"] .ant-table-wrapper .ant-table-tbody > tr:nth-child(even):not(:hover) > td,
-[data-theme="dark"] .ant-table-tbody > tr:nth-child(even):not(:hover) > td,
-[data-theme="dark"] .ant-table-tbody > tr:nth-child(even):not(:hover) > td.ant-table-cell-fix-left,
-[data-theme="dark"] .ant-table-tbody > tr:nth-child(even):not(:hover) > td.ant-table-cell-fix-right,
-[data-theme="dark"] tr:nth-child(even):not(:hover) > td.ant-table-cell-fix-left,
-[data-theme="dark"] tr:nth-child(even):not(:hover) > td.ant-table-cell-fix-right {
-  background: var(--theme-table-row-even, #152238) !important;
+[data-theme="dark"] .erp-table-container .ant-table-tbody > tr:not(:hover):not(.ant-table-row-hover) > td,
+[data-theme="dark"] .ant-table-wrapper .ant-table-tbody > tr:not(:hover):not(.ant-table-row-hover) > td,
+[data-theme="dark"] .ant-table-tbody > tr:not(:hover):not(.ant-table-row-hover) > td,
+[data-theme="dark"] .ant-table-tbody > tr:not(:hover):not(.ant-table-row-hover) > td.ant-table-cell-fix-left,
+[data-theme="dark"] .ant-table-tbody > tr:not(:hover):not(.ant-table-row-hover) > td.ant-table-cell-fix-right,
+[data-theme="dark"] table.erp-data-table tbody tr:not(:hover) td {
+  background: var(--erp-table-row-bg, var(--theme-surface, #181c33)) !important;
   color: var(--theme-table-text, #f1f5f9) !important;
 }
 
-/* Dark Mode Odd Rows */
-[data-theme="dark"] .erp-table-container .ant-table-tbody > tr:nth-child(odd):not(:hover) > td,
-[data-theme="dark"] .ant-table-wrapper .ant-table-tbody > tr:nth-child(odd):not(:hover) > td,
-[data-theme="dark"] .ant-table-tbody > tr:nth-child(odd):not(:hover) > td,
-[data-theme="dark"] .ant-table-tbody > tr:nth-child(odd):not(:hover) > td.ant-table-cell-fix-left,
-[data-theme="dark"] .ant-table-tbody > tr:nth-child(odd):not(:hover) > td.ant-table-cell-fix-right,
-[data-theme="dark"] tr:nth-child(odd):not(:hover) > td.ant-table-cell-fix-left,
-[data-theme="dark"] tr:nth-child(odd):not(:hover) > td.ant-table-cell-fix-right {
-  background: var(--theme-table-row-odd, #0f172a) !important;
-  color: var(--theme-table-text, #f1f5f9) !important;
-}
-
-/* Dark Mode Cell Typography and Borders (Crisp 1px slate-800 line) */
+/* Dark Mode Cell Typography and Borders */
 [data-theme="dark"] .erp-table-container .ant-table-tbody > tr > td,
 [data-theme="dark"] .ant-table-wrapper .ant-table-tbody > tr > td,
-[data-theme="dark"] .ant-table-tbody > tr > td {
+[data-theme="dark"] .ant-table-tbody > tr > td,
+[data-theme="dark"] table.erp-data-table tbody tr td {
   padding: 9px 12px !important;
   font-size: 13px;
   color: var(--theme-table-text, #f1f5f9) !important;
-  border-bottom: 1px solid #1e293b !important;
-  transition: background-color 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s ease !important;
+  border-bottom: 1px solid var(--erp-table-border, var(--theme-border, #2a3054)) !important;
+  transition: background-color 0.16s ease, box-shadow 0.16s ease !important;
 }
 
-/* Dark Mode Row Hover with Smooth Glow */
+/* Dark Mode Row Hover with Smooth Accent Glow + Left Indicator */
 [data-theme="dark"] .erp-table-container .ant-table-tbody > tr:hover > td,
 [data-theme="dark"] .erp-table-container .ant-table-tbody > tr.ant-table-row-hover > td,
 [data-theme="dark"] .ant-table-wrapper .ant-table-tbody > tr:hover > td,
@@ -382,11 +333,22 @@ html:not([data-theme="dark"]) body .ant-table-tbody > tr:nth-child(odd):not(:hov
 [data-theme="dark"] .ant-table-tbody > tr:hover > td.ant-table-cell-fix-right,
 [data-theme="dark"] .ant-table-tbody > tr.ant-table-row-hover > td.ant-table-cell-fix-left,
 [data-theme="dark"] .ant-table-tbody > tr.ant-table-row-hover > td.ant-table-cell-fix-right,
-[data-theme="dark"] tr:hover > td.ant-table-cell-fix-left,
-[data-theme="dark"] tr:hover > td.ant-table-cell-fix-right {
-  background: rgba(30, 41, 59, 0.75) !important;
-  box-shadow: inset 0 1px 0 rgba(56, 189, 248, 0.14), inset 0 -1px 0 rgba(56, 189, 248, 0.14) !important;
+[data-theme="dark"] table.erp-data-table tbody tr:hover td {
+  background: var(--erp-table-row-hover, rgba(129, 140, 248, 0.16)) !important;
+  box-shadow: inset 0 1px 0 var(--erp-table-row-hover-border, rgba(129, 140, 248, 0.36)),
+              inset 0 -1px 0 var(--erp-table-row-hover-border, rgba(129, 140, 248, 0.36)) !important;
   color: #ffffff !important;
+}
+
+[data-theme="dark"] .erp-table-container .ant-table-tbody > tr:hover > td:first-child,
+[data-theme="dark"] .erp-table-container .ant-table-tbody > tr.ant-table-row-hover > td:first-child,
+[data-theme="dark"] .ant-table-wrapper .ant-table-tbody > tr:hover > td:first-child,
+[data-theme="dark"] .ant-table-wrapper .ant-table-tbody > tr.ant-table-row-hover > td:first-child,
+[data-theme="dark"] .ant-table-tbody > tr:hover > td:first-child,
+[data-theme="dark"] .ant-table-tbody > tr.ant-table-row-hover > td:first-child {
+  box-shadow: inset 4px 0 0 var(--erp-table-row-hover-indicator, var(--theme-accent, #818cf8)),
+              inset 0 1px 0 var(--erp-table-row-hover-border, rgba(129, 140, 248, 0.36)),
+              inset 0 -1px 0 var(--erp-table-row-hover-border, rgba(129, 140, 248, 0.36)) !important;
 }
 
 /* Dark Mode Selected Row */
@@ -574,19 +536,13 @@ html:not([data-theme="dark"]) body .ant-table-tbody > tr:nth-child(odd):not(:hov
   max-width: 100%;
 }
 
-/* ── 7. Unified Action Column Buttons (Single Global Source of Truth) ──
-   Standard across the entire ERP:
-   - Outlined colored border + transparent background + colored icon at rest
-   - Solid colored background + pure white (#ffffff) icon on hover
-   - Distinct semantic color for each action:
-     • View (Eye): Royal Blue (#93c5fd border, #0284c7 icon -> #0284c7 hover)
-     • Edit (Pencil): Warm Amber / Gold (#fde68a border, #d97706 icon -> #d97706 hover)
-     • Delete / Danger (Trash / Close): Crimson Red (#fca5a5 border, #dc2626 icon -> #dc2626 hover)
-     • Print (Printer): Indigo / Violet (#c7d2fe border, #4f46e5 icon -> #4f46e5 hover)
-     • WhatsApp / Approve / Activate (Check / WA): Emerald Green (#86efac border, #16a34a icon -> #16a34a hover)
-     • Send / Convert / Deliver (Send / Swap): Teal / Cyan (#99f6e4 border, #0d9488 icon -> #0d9488 hover)
-     • Copy / Duplicate / Roles (Copy / History): Purple (#ddd6fe border, #7c3aed icon -> #7c3aed hover)
-     • Warning / Reverse / Pause (Pause / Rollback): Dark Orange (#fed7aa border, #ea580c icon -> #ea580c hover)
+/* ── 7. Unified Action-Button Pill System (Single Source of Truth) ──────────
+   Controlled solely via `--erp-pill-{view,success,edit,warn,delete}-*` tokens:
+   1. View / Details / Print (Royal Blue):  #1D4ED8 / #DBEAFE / #93C5FD
+   2. Success / WhatsApp / Approve (Green): #15803D / #DCFCE7 / #86EFAC
+   3. Edit / Update (Warm Amber):           #B45309 / #FEF3C7 / #FCD34D
+   4. Warn / Reverse / Hold (Deep Orange):  #C2410C / #FFEDD5 / #FDBA74
+   5. Delete / Danger / Reject (Crimson):   #B91C1C / #FEE2E2 / #FCA5A5
    ────────────────────────────────────────────────────────────────────────── */
 .erp-table-actions,
 .erp-table-actions--bordered,
@@ -612,15 +568,14 @@ html:not([data-theme="dark"]) body .ant-table-tbody > tr:nth-child(odd):not(:hov
   margin-inline-end: 0 !important;
 }
 
-/* Fallback margin separation even when size={0} is supplied in React */
 .ant-table-cell:last-child .ant-space > .ant-space-item + .ant-space-item,
 .ant-table-cell .ant-space > .ant-space-item + .ant-space-item {
   margin-inline-start: 2px !important;
 }
 
-/* Explicit exemption: Text-only buttons and text link buttons in table cells must NEVER be squished */
-.ant-table-cell .ant-btn-link:not(.ant-btn-icon-only):not(.erp-action-btn),
-.ant-table-cell .ant-btn:not(.ant-btn-icon-only):not(.erp-action-btn):not(.action-btn-square):not(.inv-action-btn):not(.um-action-btn):not(.visitor-action-btn):not(.btn-gr-action-icon):not(.btn-po-action-icon):not(.jc-action-primary):not(.ant-btn-primary) {
+/* Text-only links & non-icon action buttons remain fluid width */
+.ant-table-cell .ant-btn-link:not(.ant-btn-icon-only):not(.erp-action-btn):not(.erp-action-pill),
+.ant-table-cell .ant-btn:not(.ant-btn-icon-only):not(.erp-action-btn):not(.erp-action-pill):not(.pwi-action-pill):not(.action-btn-square):not(.inv-action-btn):not(.um-action-btn):not(.visitor-action-btn):not(.btn-gr-action-icon):not(.btn-po-action-icon):not(.jc-action-primary):not(.ant-btn-primary) {
   width: auto !important;
   min-width: unset !important;
   height: auto !important;
@@ -631,7 +586,9 @@ html:not([data-theme="dark"]) body .ant-table-tbody > tr:nth-child(odd):not(:hov
   white-space: nowrap !important;
 }
 
-/* Base geometry for ALL Table Action Icon Buttons */
+/* Base geometry for ALL Table Action Pills (Light + Dark mode shared) */
+.erp-action-pill,
+.pwi-action-pill,
 .erp-table-actions .ant-btn-icon-only,
 .erp-table-actions--bordered .ant-btn-icon-only,
 .erp-col-actions .ant-btn-icon-only,
@@ -650,22 +607,31 @@ td.ant-table-cell .ant-btn-icon-only,
   min-width: 28px !important;
   height: 28px !important;
   padding: 0 !important;
-  font-size: 13px !important;
-  border-radius: 6px !important;
+  font-size: 13.5px !important;
+  line-height: 1 !important;
+  border-radius: var(--ui-radius-sm, 6px) !important;
   margin: 0 1px !important;
-  background: transparent !important;
-  border: 1px solid #93c5fd !important;
-  color: #0284c7 !important;
+  background: var(--erp-pill-view-bg, #dbeafe) !important;
+  border: 1px solid var(--erp-pill-view-border, #93c5fd) !important;
+  color: var(--erp-pill-view-color, #1d4ed8) !important;
   box-shadow: none !important;
   cursor: pointer !important;
-  transition: background-color 0.16s cubic-bezier(0.4, 0, 0.2, 1),
-              border-color 0.16s cubic-bezier(0.4, 0, 0.2, 1),
-              color 0.16s cubic-bezier(0.4, 0, 0.2, 1),
-              transform 0.16s cubic-bezier(0.4, 0, 0.2, 1),
-              box-shadow 0.16s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  transition: background-color 0.14s ease,
+              border-color 0.14s ease,
+              color 0.14s ease,
+              transform 0.14s ease,
+              box-shadow 0.14s ease !important;
 }
 
-/* Force inner icon & SVG to inherit the button's state color (overrides inline icon colors) */
+.erp-action-pill--sm {
+  width: 24px !important;
+  min-width: 24px !important;
+  height: 24px !important;
+  font-size: 12px !important;
+}
+
+.erp-action-pill .anticon,
+.pwi-action-pill .anticon,
 .erp-table-actions .ant-btn-icon-only .anticon,
 .erp-table-actions--bordered .ant-btn-icon-only .anticon,
 .erp-col-actions .ant-btn-icon-only .anticon,
@@ -677,6 +643,8 @@ td.ant-table-cell .ant-btn-icon-only .anticon,
 .visitor-action-btn .anticon,
 .btn-gr-action-icon .anticon,
 .btn-po-action-icon .anticon,
+.erp-action-pill svg,
+.pwi-action-pill svg,
 td.ant-table-cell .ant-btn-icon-only svg,
 .erp-action-btn svg,
 .action-btn-square svg,
@@ -691,46 +659,133 @@ td.ant-table-cell .ant-btn-icon-only svg,
   fill: currentColor !important;
 }
 
-/* ──────────────────────────────────────────────────────────────────────────
-   1. VIEW (Royal / Sky Blue)
-   ────────────────────────────────────────────────────────────────────────── */
+/* 1. VIEW / DETAILS / PRINT / COPY (Royal Blue Pill) */
+.erp-action-pill--view,
+.pwi-action-pill--blue,
 .erp-table-actions .act-view,
 .erp-table-actions--bordered .act-view,
+.erp-table-actions .act-print,
+.erp-table-actions .act-copy,
 .erp-action-btn--view,
+.erp-action-btn--print,
+.erp-action-btn--copy,
 .action-btn-view,
 .inv-action-btn.inv-btn-view,
+.inv-action-btn.inv-btn-print,
 .visitor-action-btn.visitor-action-blue,
 .btn-gr-action-icon.view,
+.btn-gr-action-icon.print,
 .jc-view-btn,
 .erp-table-actions .ant-btn[aria-label*="View" i],
 .erp-table-actions .ant-btn[aria-label*="Detail" i],
-td.ant-table-cell .ant-btn-icon-only:has(.anticon-eye) {
-  background: transparent !important;
-  border: 1px solid #93c5fd !important;
-  color: #0284c7 !important;
+.erp-table-actions .ant-btn[aria-label*="Print" i],
+.erp-table-actions .ant-btn[aria-label*="Copy" i],
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-eye),
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-printer),
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-copy),
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-history) {
+  background: var(--erp-pill-view-bg, #dbeafe) !important;
+  border: 1px solid var(--erp-pill-view-border, #93c5fd) !important;
+  color: var(--erp-pill-view-color, #1d4ed8) !important;
 }
 
+.erp-action-pill--view:not(:disabled):hover,
+.pwi-action-pill--blue:not(:disabled):hover,
 .erp-table-actions .act-view:not(:disabled):hover,
 .erp-table-actions--bordered .act-view:not(:disabled):hover,
+.erp-table-actions .act-print:not(:disabled):hover,
+.erp-table-actions .act-copy:not(:disabled):hover,
 .erp-action-btn--view:not(:disabled):hover,
+.erp-action-btn--print:not(:disabled):hover,
+.erp-action-btn--copy:not(:disabled):hover,
 .action-btn-view:not(:disabled):hover,
 .inv-action-btn.inv-btn-view:not(:disabled):hover,
+.inv-action-btn.inv-btn-print:not(:disabled):hover,
 .visitor-action-btn.visitor-action-blue:not(:disabled):hover,
 .btn-gr-action-icon.view:not(:disabled):hover,
+.btn-gr-action-icon.print:not(:disabled):hover,
 .jc-view-btn:not(:disabled):hover,
 .erp-table-actions .ant-btn[aria-label*="View" i]:not(:disabled):hover,
 .erp-table-actions .ant-btn[aria-label*="Detail" i]:not(:disabled):hover,
-td.ant-table-cell .ant-btn-icon-only:has(.anticon-eye):not(:disabled):hover {
-  background: #0284c7 !important;
-  border-color: #0284c7 !important;
+.erp-table-actions .ant-btn[aria-label*="Print" i]:not(:disabled):hover,
+.erp-table-actions .ant-btn[aria-label*="Copy" i]:not(:disabled):hover,
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-eye):not(:disabled):hover,
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-printer):not(:disabled):hover,
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-copy):not(:disabled):hover,
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-history):not(:disabled):hover {
+  background: var(--erp-pill-view-hover-bg, #1d4ed8) !important;
+  border-color: var(--erp-pill-view-hover-bg, #1d4ed8) !important;
   color: #ffffff !important;
   transform: translateY(-1px);
-  box-shadow: 0 2px 6px rgba(2, 132, 199, 0.28) !important;
+  box-shadow: 0 2px 6px rgba(29, 78, 216, 0.25) !important;
 }
 
-/* ──────────────────────────────────────────────────────────────────────────
-   2. EDIT (Warm Amber / Gold)
-   ────────────────────────────────────────────────────────────────────────── */
+/* 2. SUCCESS / WHATSAPP / APPROVE / SEND / DELIVER (Emerald Green Pill) */
+.erp-action-pill--success,
+.pwi-action-pill--green,
+.erp-table-actions .act-whatsapp,
+.erp-table-actions--bordered .act-whatsapp,
+.erp-action-btn--activate,
+.inv-action-btn.inv-btn-whatsapp,
+.inv-action-btn.inv-btn-wa,
+.inv-action-btn.inv-btn-approve,
+.inv-action-btn.inv-btn-deliver,
+.inv-action-btn.inv-btn-Convert,
+.inv-action-btn.inv-btn-convert,
+.inv-action-btn.inv-btn-send,
+.um-action-btn.um-action-activate,
+.visitor-action-btn.visitor-action-green,
+.visitor-action-btn.visitor-action-teal,
+.btn-gr-action-icon.gatepass,
+.erp-table-actions .ant-btn[aria-label*="WhatsApp" i],
+.erp-table-actions .ant-btn[aria-label*="Send" i],
+.erp-table-actions .ant-btn[aria-label*="Convert" i],
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-whats-app),
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-check-circle),
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-check),
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-send),
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-swap),
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-share-alt) {
+  background: var(--erp-pill-success-bg, #dcfce7) !important;
+  border: 1px solid var(--erp-pill-success-border, #86efac) !important;
+  color: var(--erp-pill-success-color, #15803d) !important;
+}
+
+.erp-action-pill--success:not(:disabled):hover,
+.pwi-action-pill--green:not(:disabled):hover,
+.erp-table-actions .act-whatsapp:not(:disabled):hover,
+.erp-table-actions--bordered .act-whatsapp:not(:disabled):hover,
+.erp-action-btn--activate:not(:disabled):hover,
+.inv-action-btn.inv-btn-whatsapp:not(:disabled):hover,
+.inv-action-btn.inv-btn-wa:not(:disabled):hover,
+.inv-action-btn.inv-btn-approve:not(:disabled):hover,
+.inv-action-btn.inv-btn-deliver:not(:disabled):hover,
+.inv-action-btn.inv-btn-Convert:not(:disabled):hover,
+.inv-action-btn.inv-btn-convert:not(:disabled):hover,
+.inv-action-btn.inv-btn-send:not(:disabled):hover,
+.um-action-btn.um-action-activate:not(:disabled):hover,
+.visitor-action-btn.visitor-action-green:not(:disabled):hover,
+.visitor-action-btn.visitor-action-teal:not(:disabled):hover,
+.btn-gr-action-icon.gatepass:not(:disabled):hover,
+.erp-table-actions .ant-btn[aria-label*="WhatsApp" i]:not(:disabled):hover,
+.erp-table-actions .ant-btn[aria-label*="Send" i]:not(:disabled):hover,
+.erp-table-actions .ant-btn[aria-label*="Convert" i]:not(:disabled):hover,
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-whats-app):not(:disabled):hover,
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-check-circle):not(:disabled):hover,
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-check):not(:disabled):hover,
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-send):not(:disabled):hover,
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-swap):not(:disabled):hover,
+td.ant-table-cell .ant-btn-icon-only:has(.anticon-share-alt):not(:disabled):hover {
+  background: var(--erp-pill-success-hover-bg, #15803d) !important;
+  border-color: var(--erp-pill-success-hover-bg, #15803d) !important;
+  color: #ffffff !important;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(21, 128, 61, 0.25) !important;
+}
+
+/* 3. EDIT / UPDATE (Warm Amber Pill) */
+.erp-action-pill--edit,
+.pwi-action-pill--amber,
 .erp-table-actions .act-edit,
 .erp-table-actions--bordered .act-edit,
 .erp-action-btn--edit,
@@ -740,11 +795,13 @@ td.ant-table-cell .ant-btn-icon-only:has(.anticon-eye):not(:disabled):hover {
 .erp-table-actions .ant-btn[aria-label*="Edit" i],
 td.ant-table-cell .ant-btn-icon-only:has(.anticon-edit),
 td.ant-table-cell .ant-btn-icon-only:has(.anticon-form) {
-  background: transparent !important;
-  border: 1px solid #fde68a !important;
-  color: #d97706 !important;
+  background: var(--erp-pill-edit-bg, #fef3c7) !important;
+  border: 1px solid var(--erp-pill-edit-border, #fcd34d) !important;
+  color: var(--erp-pill-edit-color, #b45309) !important;
 }
 
+.erp-action-pill--edit:not(:disabled):hover,
+.pwi-action-pill--amber:not(:disabled):hover,
 .erp-table-actions .act-edit:not(:disabled):hover,
 .erp-table-actions--bordered .act-edit:not(:disabled):hover,
 .erp-action-btn--edit:not(:disabled):hover,
@@ -754,144 +811,16 @@ td.ant-table-cell .ant-btn-icon-only:has(.anticon-form) {
 .erp-table-actions .ant-btn[aria-label*="Edit" i]:not(:disabled):hover,
 td.ant-table-cell .ant-btn-icon-only:has(.anticon-edit):not(:disabled):hover,
 td.ant-table-cell .ant-btn-icon-only:has(.anticon-form):not(:disabled):hover {
-  background: #d97706 !important;
-  border-color: #d97706 !important;
+  background: var(--erp-pill-edit-hover-bg, #b45309) !important;
+  border-color: var(--erp-pill-edit-hover-bg, #b45309) !important;
   color: #ffffff !important;
   transform: translateY(-1px);
-  box-shadow: 0 2px 6px rgba(217, 119, 6, 0.28) !important;
+  box-shadow: 0 2px 6px rgba(180, 83, 9, 0.25) !important;
 }
 
-/* ──────────────────────────────────────────────────────────────────────────
-   3. PRINT (Indigo / Blue-Violet)
-   ────────────────────────────────────────────────────────────────────────── */
-.erp-table-actions .act-print,
-.erp-action-btn--print,
-.inv-action-btn.inv-btn-print,
-.btn-gr-action-icon.print,
-.erp-table-actions .ant-btn[aria-label*="Print" i],
-td.ant-table-cell .ant-btn-icon-only:has(.anticon-printer) {
-  background: transparent !important;
-  border: 1px solid #c7d2fe !important;
-  color: #4f46e5 !important;
-}
-
-.erp-table-actions .act-print:not(:disabled):hover,
-.erp-action-btn--print:not(:disabled):hover,
-.inv-action-btn.inv-btn-print:not(:disabled):hover,
-.btn-gr-action-icon.print:not(:disabled):hover,
-.erp-table-actions .ant-btn[aria-label*="Print" i]:not(:disabled):hover,
-td.ant-table-cell .ant-btn-icon-only:has(.anticon-printer):not(:disabled):hover {
-  background: #4f46e5 !important;
-  border-color: #4f46e5 !important;
-  color: #ffffff !important;
-  transform: translateY(-1px);
-  box-shadow: 0 2px 6px rgba(79, 70, 229, 0.28) !important;
-}
-
-/* ──────────────────────────────────────────────────────────────────────────
-   4. WHATSAPP / APPROVE / ACTIVATE / SUCCESS (Emerald Green)
-   ────────────────────────────────────────────────────────────────────────── */
-.erp-table-actions .act-whatsapp,
-.erp-table-actions--bordered .act-whatsapp,
-.erp-action-btn--activate,
-.inv-action-btn.inv-btn-whatsapp,
-.inv-action-btn.inv-btn-wa,
-.inv-action-btn.inv-btn-approve,
-.um-action-btn.um-action-activate,
-.visitor-action-btn.visitor-action-green,
-.visitor-action-btn.visitor-action-teal,
-.btn-gr-action-icon.gatepass,
-.erp-table-actions .ant-btn[aria-label*="WhatsApp" i],
-td.ant-table-cell .ant-btn-icon-only:has(.anticon-whats-app),
-td.ant-table-cell .ant-btn-icon-only:has(.anticon-check-circle),
-td.ant-table-cell .ant-btn-icon-only:has(.anticon-check) {
-  background: transparent !important;
-  border: 1px solid #86efac !important;
-  color: #16a34a !important;
-}
-
-.erp-table-actions .act-whatsapp:not(:disabled):hover,
-.erp-table-actions--bordered .act-whatsapp:not(:disabled):hover,
-.erp-action-btn--activate:not(:disabled):hover,
-.inv-action-btn.inv-btn-whatsapp:not(:disabled):hover,
-.inv-action-btn.inv-btn-wa:not(:disabled):hover,
-.inv-action-btn.inv-btn-approve:not(:disabled):hover,
-.um-action-btn.um-action-activate:not(:disabled):hover,
-.visitor-action-btn.visitor-action-green:not(:disabled):hover,
-.visitor-action-btn.visitor-action-teal:not(:disabled):hover,
-.btn-gr-action-icon.gatepass:not(:disabled):hover,
-.erp-table-actions .ant-btn[aria-label*="WhatsApp" i]:not(:disabled):hover,
-td.ant-table-cell .ant-btn-icon-only:has(.anticon-whats-app):not(:disabled):hover,
-td.ant-table-cell .ant-btn-icon-only:has(.anticon-check-circle):not(:disabled):hover,
-td.ant-table-cell .ant-btn-icon-only:has(.anticon-check):not(:disabled):hover {
-  background: #16a34a !important;
-  border-color: #16a34a !important;
-  color: #ffffff !important;
-  transform: translateY(-1px);
-  box-shadow: 0 2px 6px rgba(22, 163, 74, 0.28) !important;
-}
-
-/* ──────────────────────────────────────────────────────────────────────────
-   5. SEND / CONVERT / DELIVER / SHARE (Teal / Cyan)
-   ────────────────────────────────────────────────────────────────────────── */
-.inv-action-btn.inv-btn-deliver,
-.inv-action-btn.inv-btn-Convert,
-.inv-action-btn.inv-btn-convert,
-.inv-action-btn.inv-btn-send,
-.erp-table-actions .ant-btn[aria-label*="Send" i],
-.erp-table-actions .ant-btn[aria-label*="Convert" i],
-td.ant-table-cell .ant-btn-icon-only:has(.anticon-send),
-td.ant-table-cell .ant-btn-icon-only:has(.anticon-swap),
-td.ant-table-cell .ant-btn-icon-only:has(.anticon-share-alt) {
-  background: transparent !important;
-  border: 1px solid #99f6e4 !important;
-  color: #0d9488 !important;
-}
-
-.inv-action-btn.inv-btn-deliver:not(:disabled):hover,
-.inv-action-btn.inv-btn-Convert:not(:disabled):hover,
-.inv-action-btn.inv-btn-convert:not(:disabled):hover,
-.inv-action-btn.inv-btn-send:not(:disabled):hover,
-.erp-table-actions .ant-btn[aria-label*="Send" i]:not(:disabled):hover,
-.erp-table-actions .ant-btn[aria-label*="Convert" i]:not(:disabled):hover,
-td.ant-table-cell .ant-btn-icon-only:has(.anticon-send):not(:disabled):hover,
-td.ant-table-cell .ant-btn-icon-only:has(.anticon-swap):not(:disabled):hover,
-td.ant-table-cell .ant-btn-icon-only:has(.anticon-share-alt):not(:disabled):hover {
-  background: #0d9488 !important;
-  border-color: #0d9488 !important;
-  color: #ffffff !important;
-  transform: translateY(-1px);
-  box-shadow: 0 2px 6px rgba(13, 148, 136, 0.28) !important;
-}
-
-/* ──────────────────────────────────────────────────────────────────────────
-   6. COPY / DUPLICATE / ROLES / HISTORY (Purple / Violet)
-   ────────────────────────────────────────────────────────────────────────── */
-.erp-action-btn--copy,
-.erp-table-actions .act-copy,
-.erp-table-actions .ant-btn[aria-label*="Copy" i],
-td.ant-table-cell .ant-btn-icon-only:has(.anticon-copy),
-td.ant-table-cell .ant-btn-icon-only:has(.anticon-history) {
-  background: transparent !important;
-  border: 1px solid #ddd6fe !important;
-  color: #7c3aed !important;
-}
-
-.erp-action-btn--copy:not(:disabled):hover,
-.erp-table-actions .act-copy:not(:disabled):hover,
-.erp-table-actions .ant-btn[aria-label*="Copy" i]:not(:disabled):hover,
-td.ant-table-cell .ant-btn-icon-only:has(.anticon-copy):not(:disabled):hover,
-td.ant-table-cell .ant-btn-icon-only:has(.anticon-history):not(:disabled):hover {
-  background: #7c3aed !important;
-  border-color: #7c3aed !important;
-  color: #ffffff !important;
-  transform: translateY(-1px);
-  box-shadow: 0 2px 6px rgba(124, 58, 237, 0.28) !important;
-}
-
-/* ──────────────────────────────────────────────────────────────────────────
-   7. WARNING / REVERSE / ON-HOLD / PAUSE (Dark Orange / Amber)
-   ────────────────────────────────────────────────────────────────────────── */
+/* 4. WARNING / REVERSE / ON-HOLD / PAUSE (Deep Orange Pill) */
+.erp-action-pill--warn,
+.pwi-action-pill--orange,
 .erp-action-btn--deactivate,
 .um-action-btn.um-action-deactivate,
 .visitor-action-btn.visitor-action-amber,
@@ -901,11 +830,13 @@ td.ant-table-cell .ant-btn-icon-only:has(.anticon-pause-circle),
 td.ant-table-cell .ant-btn-icon-only:has(.anticon-stop),
 td.ant-table-cell .ant-btn-icon-only:has(.anticon-rollback),
 td.ant-table-cell .ant-btn-icon-only:has(.anticon-undo) {
-  background: transparent !important;
-  border: 1px solid #fed7aa !important;
-  color: #ea580c !important;
+  background: var(--erp-pill-warn-bg, #ffedd5) !important;
+  border: 1px solid var(--erp-pill-warn-border, #fdba74) !important;
+  color: var(--erp-pill-warn-color, #c2410c) !important;
 }
 
+.erp-action-pill--warn:not(:disabled):hover,
+.pwi-action-pill--orange:not(:disabled):hover,
 .erp-action-btn--deactivate:not(:disabled):hover,
 .um-action-btn.um-action-deactivate:not(:disabled):hover,
 .visitor-action-btn.visitor-action-amber:not(:disabled):hover,
@@ -915,16 +846,16 @@ td.ant-table-cell .ant-btn-icon-only:has(.anticon-pause-circle):not(:disabled):h
 td.ant-table-cell .ant-btn-icon-only:has(.anticon-stop):not(:disabled):hover,
 td.ant-table-cell .ant-btn-icon-only:has(.anticon-rollback):not(:disabled):hover,
 td.ant-table-cell .ant-btn-icon-only:has(.anticon-undo):not(:disabled):hover {
-  background: #ea580c !important;
-  border-color: #ea580c !important;
+  background: var(--erp-pill-warn-hover-bg, #c2410c) !important;
+  border-color: var(--erp-pill-warn-hover-bg, #c2410c) !important;
   color: #ffffff !important;
   transform: translateY(-1px);
-  box-shadow: 0 2px 6px rgba(234, 88, 12, 0.28) !important;
+  box-shadow: 0 2px 6px rgba(194, 65, 12, 0.25) !important;
 }
 
-/* ──────────────────────────────────────────────────────────────────────────
-   8. DELETE / DANGER / TRASH / REJECT (Crimson Red)
-   ────────────────────────────────────────────────────────────────────────── */
+/* 5. DELETE / DANGER / TRASH / REJECT (Crimson Red Pill) */
+.erp-action-pill--delete,
+.pwi-action-pill--red,
 .erp-table-actions .act-delete,
 .erp-table-actions--bordered .act-delete,
 .erp-table-actions .act-delete.ant-btn-dangerous,
@@ -943,11 +874,13 @@ td.ant-table-cell .ant-btn-icon-only:has(.anticon-undo):not(:disabled):hover {
 td.ant-table-cell .ant-btn-icon-only.ant-btn-dangerous,
 td.ant-table-cell .ant-btn-icon-only:has(.anticon-delete),
 td.ant-table-cell .ant-btn-icon-only:has(.anticon-close-circle) {
-  background: transparent !important;
-  border: 1px solid #fca5a5 !important;
-  color: #dc2626 !important;
+  background: var(--erp-pill-delete-bg, #fee2e2) !important;
+  border: 1px solid var(--erp-pill-delete-border, #fca5a5) !important;
+  color: var(--erp-pill-delete-color, #b91c1c) !important;
 }
 
+.erp-action-pill--delete:not(:disabled):hover,
+.pwi-action-pill--red:not(:disabled):hover,
 .erp-table-actions .act-delete:not(:disabled):hover,
 .erp-table-actions--bordered .act-delete:not(:disabled):hover,
 .erp-table-actions .act-delete.ant-btn-dangerous:not(:disabled):hover,
@@ -966,37 +899,16 @@ td.ant-table-cell .ant-btn-icon-only:has(.anticon-close-circle) {
 td.ant-table-cell .ant-btn-icon-only.ant-btn-dangerous:not(:disabled):hover,
 td.ant-table-cell .ant-btn-icon-only:has(.anticon-delete):not(:disabled):hover,
 td.ant-table-cell .ant-btn-icon-only:has(.anticon-close-circle):not(:disabled):hover {
-  background: #dc2626 !important;
-  border-color: #dc2626 !important;
+  background: var(--erp-pill-delete-hover-bg, #b91c1c) !important;
+  border-color: var(--erp-pill-delete-hover-bg, #b91c1c) !important;
   color: #ffffff !important;
   transform: translateY(-1px);
-  box-shadow: 0 2px 6px rgba(220, 38, 38, 0.28) !important;
+  box-shadow: 0 2px 6px rgba(185, 28, 28, 0.25) !important;
 }
 
-/* ──────────────────────────────────────────────────────────────────────────
-   9. DEFAULT / UNCLASSIFIED ICON ACTION BUTTONS (Vibrant Sky Blue Fallback)
-   ────────────────────────────────────────────────────────────────────────── */
-.erp-table-actions .act-default,
-.erp-table-actions .ant-btn-icon-only:not(.act-edit):not(.act-delete):not(.act-view):not(.act-whatsapp):not(.act-print):not(.act-copy):not(.ant-btn-dangerous),
-.erp-col-actions .ant-btn-icon-only:not(.act-edit):not(.act-delete):not(.act-view):not(.act-whatsapp):not(.act-print):not(.act-copy):not(.ant-btn-dangerous),
-td.ant-table-cell .ant-btn-icon-only:not(.act-edit):not(.act-delete):not(.act-view):not(.act-whatsapp):not(.act-print):not(.act-copy):not(.ant-btn-dangerous) {
-  background: transparent !important;
-  border: 1px solid #93c5fd !important;
-  color: #0284c7 !important;
-}
-
-.erp-table-actions .act-default:not(:disabled):hover,
-.erp-table-actions .ant-btn-icon-only:not(.act-edit):not(.act-delete):not(.act-view):not(.act-whatsapp):not(.act-print):not(.act-copy):not(.ant-btn-dangerous):not(:disabled):hover,
-.erp-col-actions .ant-btn-icon-only:not(.act-edit):not(.act-delete):not(.act-view):not(.act-whatsapp):not(.act-print):not(.act-copy):not(.ant-btn-dangerous):not(:disabled):hover,
-td.ant-table-cell .ant-btn-icon-only:not(.act-edit):not(.act-delete):not(.act-view):not(.act-whatsapp):not(.act-print):not(.act-copy):not(.ant-btn-dangerous):not(:disabled):hover {
-  background: #0284c7 !important;
-  border-color: #0284c7 !important;
-  color: #ffffff !important;
-  transform: translateY(-1px);
-  box-shadow: 0 2px 6px rgba(2, 132, 199, 0.28) !important;
-}
-
-/* Disabled state for table action buttons */
+/* Disabled state for all table action pills */
+.erp-action-pill:disabled,
+.pwi-action-pill:disabled,
 td.ant-table-cell .ant-btn-icon-only:disabled,
 td.ant-table-cell .ant-btn-icon-only.ant-btn-disabled,
 .erp-action-btn:disabled,
@@ -1007,229 +919,6 @@ td.ant-table-cell .ant-btn-icon-only.ant-btn-disabled,
   cursor: not-allowed !important;
   transform: none !important;
   box-shadow: none !important;
-}
-
-/* ==========================================================================
-   Dark Mode Outlines & Hover Fills (Distinct Semantic Palette)
-   ========================================================================== */
-/* View (Blue in Dark Mode) */
-[data-theme="dark"] .erp-table-actions .act-view,
-[data-theme="dark"] .erp-table-actions--bordered .act-view,
-[data-theme="dark"] .erp-action-btn--view,
-[data-theme="dark"] .action-btn-view,
-[data-theme="dark"] .inv-action-btn.inv-btn-view,
-[data-theme="dark"] .visitor-action-btn.visitor-action-blue,
-[data-theme="dark"] .btn-gr-action-icon.view,
-[data-theme="dark"] .jc-view-btn,
-[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-eye) {
-  background: transparent !important;
-  border: 1px solid rgba(56, 189, 248, 0.45) !important;
-  color: #38bdf8 !important;
-}
-[data-theme="dark"] .erp-table-actions .act-view:not(:disabled):hover,
-[data-theme="dark"] .erp-table-actions--bordered .act-view:not(:disabled):hover,
-[data-theme="dark"] .erp-action-btn--view:not(:disabled):hover,
-[data-theme="dark"] .action-btn-view:not(:disabled):hover,
-[data-theme="dark"] .inv-action-btn.inv-btn-view:not(:disabled):hover,
-[data-theme="dark"] .visitor-action-btn.visitor-action-blue:not(:disabled):hover,
-[data-theme="dark"] .btn-gr-action-icon.view:not(:disabled):hover,
-[data-theme="dark"] .jc-view-btn:not(:disabled):hover,
-[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-eye):not(:disabled):hover {
-  background: #0284c7 !important;
-  border-color: #0284c7 !important;
-  color: #ffffff !important;
-}
-
-/* Edit (Amber / Gold in Dark Mode) */
-[data-theme="dark"] .erp-table-actions .act-edit,
-[data-theme="dark"] .erp-table-actions--bordered .act-edit,
-[data-theme="dark"] .erp-action-btn--edit,
-[data-theme="dark"] .action-btn-edit,
-[data-theme="dark"] .inv-action-btn.inv-btn-edit,
-[data-theme="dark"] .btn-gr-action-icon.edit,
-[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-edit),
-[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-form) {
-  background: transparent !important;
-  border: 1px solid rgba(251, 191, 36, 0.45) !important;
-  color: #fbbf24 !important;
-}
-[data-theme="dark"] .erp-table-actions .act-edit:not(:disabled):hover,
-[data-theme="dark"] .erp-table-actions--bordered .act-edit:not(:disabled):hover,
-[data-theme="dark"] .erp-action-btn--edit:not(:disabled):hover,
-[data-theme="dark"] .action-btn-edit:not(:disabled):hover,
-[data-theme="dark"] .inv-action-btn.inv-btn-edit:not(:disabled):hover,
-[data-theme="dark"] .btn-gr-action-icon.edit:not(:disabled):hover,
-[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-edit):not(:disabled):hover,
-[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-form):not(:disabled):hover {
-  background: #d97706 !important;
-  border-color: #d97706 !important;
-  color: #ffffff !important;
-}
-
-/* Print (Indigo in Dark Mode) */
-[data-theme="dark"] .erp-table-actions .act-print,
-[data-theme="dark"] .erp-action-btn--print,
-[data-theme="dark"] .inv-action-btn.inv-btn-print,
-[data-theme="dark"] .btn-gr-action-icon.print,
-[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-printer) {
-  background: transparent !important;
-  border: 1px solid rgba(129, 140, 248, 0.45) !important;
-  color: #818cf8 !important;
-}
-[data-theme="dark"] .erp-table-actions .act-print:not(:disabled):hover,
-[data-theme="dark"] .erp-action-btn--print:not(:disabled):hover,
-[data-theme="dark"] .inv-action-btn.inv-btn-print:not(:disabled):hover,
-[data-theme="dark"] .btn-gr-action-icon.print:not(:disabled):hover,
-[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-printer):not(:disabled):hover {
-  background: #4f46e5 !important;
-  border-color: #4f46e5 !important;
-  color: #ffffff !important;
-}
-
-/* WhatsApp / Approve / Activate (Green in Dark Mode) */
-[data-theme="dark"] .erp-table-actions .act-whatsapp,
-[data-theme="dark"] .erp-table-actions--bordered .act-whatsapp,
-[data-theme="dark"] .erp-action-btn--activate,
-[data-theme="dark"] .inv-action-btn.inv-btn-whatsapp,
-[data-theme="dark"] .inv-action-btn.inv-btn-wa,
-[data-theme="dark"] .inv-action-btn.inv-btn-approve,
-[data-theme="dark"] .um-action-btn.um-action-activate,
-[data-theme="dark"] .visitor-action-btn.visitor-action-green,
-[data-theme="dark"] .visitor-action-btn.visitor-action-teal,
-[data-theme="dark"] .btn-gr-action-icon.gatepass,
-[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-whats-app),
-[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-check-circle),
-[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-check) {
-  background: transparent !important;
-  border: 1px solid rgba(74, 222, 128, 0.45) !important;
-  color: #4ade80 !important;
-}
-[data-theme="dark"] .erp-table-actions .act-whatsapp:not(:disabled):hover,
-[data-theme="dark"] .erp-table-actions--bordered .act-whatsapp:not(:disabled):hover,
-[data-theme="dark"] .erp-action-btn--activate:not(:disabled):hover,
-[data-theme="dark"] .inv-action-btn.inv-btn-whatsapp:not(:disabled):hover,
-[data-theme="dark"] .inv-action-btn.inv-btn-wa:not(:disabled):hover,
-[data-theme="dark"] .inv-action-btn.inv-btn-approve:not(:disabled):hover,
-[data-theme="dark"] .um-action-btn.um-action-activate:not(:disabled):hover,
-[data-theme="dark"] .visitor-action-btn.visitor-action-green:not(:disabled):hover,
-[data-theme="dark"] .visitor-action-btn.visitor-action-teal:not(:disabled):hover,
-[data-theme="dark"] .btn-gr-action-icon.gatepass:not(:disabled):hover,
-[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-whats-app):not(:disabled):hover,
-[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-check-circle):not(:disabled):hover,
-[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-check):not(:disabled):hover {
-  background: #16a34a !important;
-  border-color: #16a34a !important;
-  color: #ffffff !important;
-}
-
-/* Send / Convert / Deliver (Teal in Dark Mode) */
-[data-theme="dark"] .inv-action-btn.inv-btn-deliver,
-[data-theme="dark"] .inv-action-btn.inv-btn-Convert,
-[data-theme="dark"] .inv-action-btn.inv-btn-convert,
-[data-theme="dark"] .inv-action-btn.inv-btn-send,
-[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-send),
-[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-swap),
-[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-share-alt) {
-  background: transparent !important;
-  border: 1px solid rgba(45, 212, 191, 0.45) !important;
-  color: #2dd4bf !important;
-}
-[data-theme="dark"] .inv-action-btn.inv-btn-deliver:not(:disabled):hover,
-[data-theme="dark"] .inv-action-btn.inv-btn-Convert:not(:disabled):hover,
-[data-theme="dark"] .inv-action-btn.inv-btn-convert:not(:disabled):hover,
-[data-theme="dark"] .inv-action-btn.inv-btn-send:not(:disabled):hover,
-[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-send):not(:disabled):hover,
-[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-swap):not(:disabled):hover,
-[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-share-alt):not(:disabled):hover {
-  background: #0d9488 !important;
-  border-color: #0d9488 !important;
-  color: #ffffff !important;
-}
-
-/* Copy / Duplicate / Roles / History (Purple in Dark Mode) */
-[data-theme="dark"] .erp-action-btn--copy,
-[data-theme="dark"] .erp-table-actions .act-copy,
-[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-copy),
-[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-history) {
-  background: transparent !important;
-  border: 1px solid rgba(167, 139, 250, 0.45) !important;
-  color: #a78bfa !important;
-}
-[data-theme="dark"] .erp-action-btn--copy:not(:disabled):hover,
-[data-theme="dark"] .erp-table-actions .act-copy:not(:disabled):hover,
-[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-copy):not(:disabled):hover,
-[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-history):not(:disabled):hover {
-  background: #7c3aed !important;
-  border-color: #7c3aed !important;
-  color: #ffffff !important;
-}
-
-/* Warning / Reverse / On-Hold / Pause (Orange in Dark Mode) */
-[data-theme="dark"] .erp-action-btn--deactivate,
-[data-theme="dark"] .um-action-btn.um-action-deactivate,
-[data-theme="dark"] .visitor-action-btn.visitor-action-amber,
-[data-theme="dark"] .visitor-action-btn.visitor-action-orange,
-[data-theme="dark"] .btn-gr-action-icon.reverse,
-[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-pause-circle),
-[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-stop),
-[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-rollback),
-[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-undo) {
-  background: transparent !important;
-  border: 1px solid rgba(251, 146, 60, 0.45) !important;
-  color: #fb923c !important;
-}
-[data-theme="dark"] .erp-action-btn--deactivate:not(:disabled):hover,
-[data-theme="dark"] .um-action-btn.um-action-deactivate:not(:disabled):hover,
-[data-theme="dark"] .visitor-action-btn.visitor-action-amber:not(:disabled):hover,
-[data-theme="dark"] .visitor-action-btn.visitor-action-orange:not(:disabled):hover,
-[data-theme="dark"] .btn-gr-action-icon.reverse:not(:disabled):hover,
-[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-pause-circle):not(:disabled):hover,
-[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-stop):not(:disabled):hover,
-[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-rollback):not(:disabled):hover,
-[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-undo):not(:disabled):hover {
-  background: #ea580c !important;
-  border-color: #ea580c !important;
-  color: #ffffff !important;
-}
-
-/* Delete / Danger / Trash / Reject (Red in Dark Mode) */
-[data-theme="dark"] .erp-table-actions .act-delete,
-[data-theme="dark"] .erp-table-actions--bordered .act-delete,
-[data-theme="dark"] .erp-table-actions .ant-btn-icon-only.ant-btn-dangerous,
-[data-theme="dark"] .erp-action-btn--delete,
-[data-theme="dark"] .action-btn-delete,
-[data-theme="dark"] .inv-action-btn.inv-btn-delete,
-[data-theme="dark"] .inv-action-btn.inv-btn-cancel,
-[data-theme="dark"] .um-action-btn.um-action-delete,
-[data-theme="dark"] .visitor-action-btn.visitor-action-red,
-[data-theme="dark"] .btn-gr-action-icon.danger,
-[data-theme="dark"] .btn-gr-action-icon.delete,
-[data-theme="dark"] .btn-po-action-icon.delete,
-[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only.ant-btn-dangerous,
-[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-delete),
-[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-close-circle) {
-  background: transparent !important;
-  border: 1px solid rgba(248, 113, 113, 0.45) !important;
-  color: #f87171 !important;
-}
-[data-theme="dark"] .erp-table-actions .act-delete:not(:disabled):hover,
-[data-theme="dark"] .erp-table-actions--bordered .act-delete:not(:disabled):hover,
-[data-theme="dark"] .erp-table-actions .ant-btn-icon-only.ant-btn-dangerous:not(:disabled):hover,
-[data-theme="dark"] .erp-action-btn--delete:not(:disabled):hover,
-[data-theme="dark"] .action-btn-delete:not(:disabled):hover,
-[data-theme="dark"] .inv-action-btn.inv-btn-delete:not(:disabled):hover,
-[data-theme="dark"] .inv-action-btn.inv-btn-cancel:not(:disabled):hover,
-[data-theme="dark"] .um-action-btn.um-action-delete:not(:disabled):hover,
-[data-theme="dark"] .visitor-action-btn.visitor-action-red:not(:disabled):hover,
-[data-theme="dark"] .btn-gr-action-icon.danger:not(:disabled):hover,
-[data-theme="dark"] .btn-gr-action-icon.delete:not(:disabled):hover,
-[data-theme="dark"] .btn-po-action-icon.delete:not(:disabled):hover,
-[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only.ant-btn-dangerous:not(:disabled):hover,
-[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-delete):not(:disabled):hover,
-[data-theme="dark"] td.ant-table-cell .ant-btn-icon-only:has(.anticon-close-circle):not(:disabled):hover {
-  background: #dc2626 !important;
-  border-color: #dc2626 !important;
-  color: #ffffff !important;
 }
 
 /* ── 8. Unified Toolbar Card (Search + Filters on Left, Actions on Right) ── */
@@ -1640,13 +1329,13 @@ td.ant-table-cell .ant-btn-icon-only.ant-btn-disabled,
   background: var(--theme-surface, #ffffff);
 }
 
-/* ── 13. Subtle Alternating Row Styling ── */
-.erp-table-striped .ant-table-tbody > tr:nth-child(even):not(:hover) > td {
-  background: var(--theme-surface-alt, rgba(15, 23, 42, 0.015)) !important;
+/* ── 13. Clean Uniform Row Background (No Alternating Stripes) ── */
+.erp-table-striped .ant-table-tbody > tr:not(:hover) > td {
+  background: var(--erp-table-row-bg, #ffffff) !important;
 }
 
-[data-theme="dark"] .erp-table-striped .ant-table-tbody > tr:nth-child(even):not(:hover) > td {
-  background: rgba(255, 255, 255, 0.02) !important;
+[data-theme="dark"] .erp-table-striped .ant-table-tbody > tr:not(:hover) > td {
+  background: var(--erp-table-row-bg, var(--theme-surface, #181c33)) !important;
 }
 
 /* ── 14. Fixed Sticky Columns Solid Background (Prevents horizontal scroll text bleed-through) ── */
@@ -1656,14 +1345,12 @@ td.ant-table-cell .ant-btn-icon-only.ant-btn-disabled,
 .ant-table-wrapper .ant-table-tbody > tr > td.ant-table-cell-fix-right,
 .erp-table-container .ant-table-tbody > tr > td.ant-table-cell-fix-left,
 .erp-table-container .ant-table-tbody > tr > td.ant-table-cell-fix-right {
-  background-color: var(--theme-table-sticky-bg, #ffffff) !important;
+  background-color: var(--erp-table-row-bg, #ffffff) !important;
   opacity: 1 !important;
   z-index: 3 !important;
 }
 
-/* Table Header Sticky Columns across ALL tables in BOTH Light and Dark themes:
-   MUST ALWAYS match the main table header background (dark navy) and bright white text,
-   never turning into white/grey boxes with invisible white text! */
+/* Table Header Sticky Columns across ALL tables */
 .ant-table-thead > tr > th.ant-table-cell-fix-left,
 .ant-table-thead > tr > th.ant-table-cell-fix-right,
 .ant-table-thead > tr > th.ant-table-cell-fix-left-last,
@@ -1679,15 +1366,15 @@ td.ant-table-cell .ant-btn-icon-only.ant-btn-disabled,
 .ant-table-thead th[class*="ant-table-cell-fix-"],
 .ant-table-wrapper .ant-table-thead th[class*="ant-table-cell-fix-"],
 .erp-table-container .ant-table-thead th[class*="ant-table-cell-fix-"] {
-  background: var(--theme-table-header-bg, var(--ui-table-header-bg, #f1f5f9)) !important;
-  background-color: var(--theme-table-header-bg, var(--ui-table-header-bg, #f1f5f9)) !important;
-  color: var(--theme-table-header-color, var(--ui-table-header-text, #0f172a)) !important;
+  background: var(--erp-table-header-bg, var(--theme-table-header-bg, #312e81)) !important;
+  background-color: var(--erp-table-header-bg, var(--theme-table-header-bg, #312e81)) !important;
+  color: var(--erp-table-header-text, var(--theme-table-header-color, #f8fafc)) !important;
   font-weight: 700 !important;
   font-size: 12px !important;
   letter-spacing: 0.04em !important;
   text-transform: uppercase !important;
   padding: 9px 12px !important;
-  border-bottom: 2px solid var(--theme-table-header-border, var(--ui-table-header-rule, #cbd5e1)) !important;
+  border-bottom: 2px solid var(--erp-table-header-accent, var(--theme-accent, #4f46e5)) !important;
   opacity: 1 !important;
   z-index: 10 !important;
 }
@@ -1700,13 +1387,7 @@ td.ant-table-cell .ant-btn-icon-only.ant-btn-disabled,
   font-weight: 700 !important;
 }
 
-/* Light mode even rows */
-.erp-table-striped .ant-table-tbody > tr:nth-child(even):not(:hover):not(.ant-table-row-selected) > td.ant-table-cell-fix-left,
-.erp-table-striped .ant-table-tbody > tr:nth-child(even):not(:hover):not(.ant-table-row-selected) > td.ant-table-cell-fix-right {
-  background-color: #f8fafc !important;
-}
-
-/* Light mode hover state */
+/* Light mode sticky hover state */
 .ant-table-tbody > tr:hover > td.ant-table-cell-fix-left,
 .ant-table-tbody > tr:hover > td.ant-table-cell-fix-right,
 .ant-table-tbody > tr.ant-table-row-hover > td.ant-table-cell-fix-left,
@@ -1715,7 +1396,7 @@ td.ant-table-cell .ant-btn-icon-only.ant-btn-disabled,
 .erp-table-container .ant-table-tbody > tr:hover > td.ant-table-cell-fix-right,
 .erp-table-container .ant-table-tbody > tr.ant-table-row-hover > td.ant-table-cell-fix-left,
 .erp-table-container .ant-table-tbody > tr.ant-table-row-hover > td.ant-table-cell-fix-right {
-  background-color: #f0f4ff !important;
+  background-color: var(--erp-table-row-hover, #eef2ff) !important;
   opacity: 1 !important;
 }
 
@@ -1728,30 +1409,30 @@ td.ant-table-cell .ant-btn-icon-only.ant-btn-disabled,
 .erp-table-container .ant-table-tbody > tr.ant-table-row-selected > td.ant-table-cell-fix-right,
 .erp-table-container .ant-table-tbody > tr.ant-table-row-selected:hover > td.ant-table-cell-fix-left,
 .erp-table-container .ant-table-tbody > tr.ant-table-row-selected:hover > td.ant-table-cell-fix-right {
-  background-color: #e6f4ff !important;
+  background-color: var(--theme-table-row-selected, #dbeafe) !important;
   opacity: 1 !important;
 }
 
 .erp-table-container .ant-table-cell-fix-left-last,
 .ant-table-wrapper .ant-table-cell-fix-left-last {
-  border-right: 1px solid var(--theme-border, rgba(15, 23, 42, 0.12)) !important;
+  border-right: 1px solid var(--erp-table-border, rgba(15, 23, 42, 0.12)) !important;
   box-shadow: 4px 0 8px -2px rgba(0, 0, 0, 0.08) !important;
 }
 
 .erp-table-container .ant-table-cell-fix-right-first,
 .ant-table-wrapper .ant-table-cell-fix-right-first {
-  border-left: 1px solid var(--theme-border, rgba(15, 23, 42, 0.12)) !important;
+  border-left: 1px solid var(--erp-table-border, rgba(15, 23, 42, 0.12)) !important;
   box-shadow: -4px 0 8px -2px rgba(0, 0, 0, 0.08) !important;
 }
 
-/* ── Dark Mode Sticky Columns (100% Solid Hex, Zero Alpha Bleed-Through) ── */
+/* ── Dark Mode Sticky Columns ── */
 [data-theme="dark"] .ant-table-tbody > tr > td.ant-table-cell-fix-left,
 [data-theme="dark"] .ant-table-tbody > tr > td.ant-table-cell-fix-right,
 [data-theme="dark"] .ant-table-wrapper .ant-table-tbody > tr > td.ant-table-cell-fix-left,
 [data-theme="dark"] .ant-table-wrapper .ant-table-tbody > tr > td.ant-table-cell-fix-right,
 [data-theme="dark"] .erp-table-container .ant-table-tbody > tr > td.ant-table-cell-fix-left,
 [data-theme="dark"] .erp-table-container .ant-table-tbody > tr > td.ant-table-cell-fix-right {
-  background-color: var(--theme-surface, #181c33) !important;
+  background-color: var(--erp-table-row-bg, var(--theme-surface, #181c33)) !important;
   opacity: 1 !important;
   z-index: 3 !important;
 }
@@ -1771,16 +1452,12 @@ td.ant-table-cell .ant-btn-icon-only.ant-btn-disabled,
 [data-theme="dark"] .ant-table-thead th[class*="ant-table-cell-fix-"],
 [data-theme="dark"] .ant-table-wrapper .ant-table-thead th[class*="ant-table-cell-fix-"],
 [data-theme="dark"] .erp-table-container .ant-table-thead th[class*="ant-table-cell-fix-"] {
-  background: var(--theme-table-header-bg, #0b1e36) !important;
-  background-color: var(--theme-table-header-bg, #0b1e36) !important;
-  color: var(--theme-table-header-color, #f1f5f9) !important;
+  background: var(--erp-table-header-bg, var(--theme-table-header-bg, #1e1b5c)) !important;
+  background-color: var(--erp-table-header-bg, var(--theme-table-header-bg, #1e1b5c)) !important;
+  color: var(--erp-table-header-text, var(--theme-table-header-color, #f8fafc)) !important;
+  border-bottom: 2px solid var(--erp-table-header-accent, var(--theme-accent, #818cf8)) !important;
   opacity: 1 !important;
   z-index: 10 !important;
-}
-
-[data-theme="dark"] .erp-table-striped .ant-table-tbody > tr:nth-child(even):not(:hover):not(.ant-table-row-selected) > td.ant-table-cell-fix-left,
-[data-theme="dark"] .erp-table-striped .ant-table-tbody > tr:nth-child(even):not(:hover):not(.ant-table-row-selected) > td.ant-table-cell-fix-right {
-  background-color: #1c213d !important;
 }
 
 [data-theme="dark"] .ant-table-tbody > tr:hover > td.ant-table-cell-fix-left,
@@ -1791,7 +1468,7 @@ td.ant-table-cell .ant-btn-icon-only.ant-btn-disabled,
 [data-theme="dark"] .erp-table-container .ant-table-tbody > tr:hover > td.ant-table-cell-fix-right,
 [data-theme="dark"] .erp-table-container .ant-table-tbody > tr.ant-table-row-hover > td.ant-table-cell-fix-left,
 [data-theme="dark"] .erp-table-container .ant-table-tbody > tr.ant-table-row-hover > td.ant-table-cell-fix-right {
-  background-color: #252c4e !important;
+  background-color: var(--erp-table-row-hover, rgba(129, 140, 248, 0.16)) !important;
   opacity: 1 !important;
 }
 
@@ -1910,8 +1587,11 @@ td.ant-table-cell .ant-btn-icon-only.ant-btn-disabled,
   }
 
   /* 7. Action Micro-buttons: Mini touch targets */
+  .erp-action-pill,
+  .pwi-action-pill,
   .erp-action-btn {
     width: 24px !important;
+    min-width: 24px !important;
     height: 24px !important;
     font-size: 11px !important;
     border-radius: 4px !important;
@@ -2193,29 +1873,26 @@ td.ant-table-cell .ant-btn-icon-only.ant-btn-disabled,
 
 .erp-table-row--separated > td,
 .erp-table-container .ant-table-tbody > tr.erp-table-row--separated > td {
-  border-bottom: 1px solid rgba(226, 232, 240, 0.85) !important;
-  transition: background 0.18s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.18s ease, border-color 0.18s ease !important;
+  border-bottom: 1px solid var(--erp-table-border, rgba(226, 232, 240, 0.85)) !important;
+  transition: background 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease !important;
 }
 
-[data-theme="dark"] .erp-table-row--separated > td,
-[data-theme="dark"] .erp-table-container .ant-table-tbody > tr.erp-table-row--separated > td {
-  border-bottom: 1px solid rgba(30, 41, 59, 0.85) !important; /* border-b border-slate-800 */
-}
-
-/* Row Hover: subtle neon highlight glow / slate-900/40 */
+/* Row Hover uses centralized --erp-table-row-hover tokens */
 [data-theme="dark"] .erp-table-container .ant-table-tbody > tr.erp-table-row--separated:hover > td,
 [data-theme="dark"] .erp-table-container .ant-table-tbody > tr:hover > td,
 [data-theme="dark"] .erp-table-container .ant-table-tbody > tr.ant-table-row-hover > td {
-  background: rgba(15, 23, 42, 0.70) !important; /* hover:bg-slate-900/40-70 */
-  box-shadow: inset 0 1px 0 rgba(56, 189, 248, 0.18), inset 0 -1px 0 rgba(56, 189, 248, 0.18) !important;
+  background: var(--erp-table-row-hover, rgba(129, 140, 248, 0.16)) !important;
+  box-shadow: inset 0 1px 0 var(--erp-table-row-hover-border, rgba(129, 140, 248, 0.36)),
+              inset 0 -1px 0 var(--erp-table-row-hover-border, rgba(129, 140, 248, 0.36)) !important;
   color: #ffffff !important;
 }
 
 :root:not([data-theme="dark"]) .erp-table-container .ant-table-tbody > tr.erp-table-row--separated:hover > td,
 :root:not([data-theme="dark"]) .erp-table-container .ant-table-tbody > tr:hover > td,
 :root:not([data-theme="dark"]) .erp-table-container .ant-table-tbody > tr.ant-table-row-hover > td {
-  background: #f1f5f9 !important;
-  box-shadow: inset 0 1px 0 rgba(14, 165, 233, 0.12), inset 0 -1px 0 rgba(14, 165, 233, 0.12) !important;
+  background: var(--erp-table-row-hover, #eef2ff) !important;
+  box-shadow: inset 0 1px 0 var(--erp-table-row-hover-border, #c7d2fe),
+              inset 0 -1px 0 var(--erp-table-row-hover-border, #c7d2fe) !important;
 }
 
 /* ── 2027 Strictly Centered Table Selection Checkbox Column ── */

@@ -883,11 +883,11 @@
 }
 
 .reports-data-table .ant-table-thead > tr > th {
-  background-color: var(--theme-surface-alt, #f8fafc) !important;
-  color: var(--theme-text, #334155) !important;
+  background-color: var(--erp-table-header-bg, #312e81) !important;
+  color: var(--erp-table-header-text, #f8fafc) !important;
   font-weight: 700 !important;
   font-size: 12px !important;
-  border-bottom: 1px solid var(--theme-border, #e2e8f0) !important;
+  border-bottom: 2px solid var(--erp-table-header-accent, var(--theme-accent, #4f46e5)) !important;
   padding: 10px 12px !important;
 }
 
@@ -895,12 +895,12 @@
   padding: 9px 12px !important;
   font-size: 12px !important;
   color: var(--theme-text, #0f172a) !important;
-  border-bottom: 1px solid var(--theme-border, #f1f5f9) !important;
-  background-color: var(--theme-surface, #ffffff) !important;
+  border-bottom: 1px solid var(--erp-table-border, #e2e8f0) !important;
+  background-color: var(--erp-table-row-bg, var(--theme-surface, #ffffff)) !important;
 }
 
 .reports-data-table .ant-table-tbody > tr:hover > td {
-  background-color: var(--theme-surface-alt, #f8fafc) !important;
+  background-color: var(--erp-table-row-hover, #eef2ff) !important;
 }
 
 .reports-total-summary-row {
@@ -993,21 +993,21 @@ html[data-theme='dark'] .reports-bar-label-line,
 
 html[data-theme='dark'] .reports-data-table .ant-table-thead > tr > th,
 [data-theme='dark'] .reports-data-table .ant-table-thead > tr > th {
-  background-color: #182234 !important;
-  color: #e2e8f0 !important;
-  border-bottom-color: #243248 !important;
+  background-color: var(--erp-table-header-bg, #1e1b5c) !important;
+  color: var(--erp-table-header-text, #f8fafc) !important;
+  border-bottom: 2px solid var(--erp-table-header-accent, var(--theme-accent, #818cf8)) !important;
 }
 
 html[data-theme='dark'] .reports-data-table .ant-table-tbody > tr > td,
 [data-theme='dark'] .reports-data-table .ant-table-tbody > tr > td {
-  background-color: #111827 !important;
-  color: #f8fafc !important;
-  border-bottom-color: #1f2937 !important;
+  background-color: var(--erp-table-row-bg, var(--theme-surface, #181c33)) !important;
+  color: var(--theme-text, #f8fafc) !important;
+  border-bottom-color: var(--erp-table-border, #2a3054) !important;
 }
 
 html[data-theme='dark'] .reports-data-table .ant-table-tbody > tr:hover > td,
 [data-theme='dark'] .reports-data-table .ant-table-tbody > tr:hover > td {
-  background-color: #1e293b !important;
+  background-color: var(--erp-table-row-hover, rgba(129, 140, 248, 0.16)) !important;
 }
 
 html[data-theme='dark'] .reports-total-summary-row,

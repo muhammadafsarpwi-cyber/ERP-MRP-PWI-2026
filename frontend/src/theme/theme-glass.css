@@ -109,11 +109,13 @@ html[data-glass='on'] .erp-filter-bar {
    Reinforce the scope decision: even though a Table can live inside a glass
    Card, the grid itself must not blur. Re-opaque the table wrapper so row
    striping and sticky headers keep their contrast against the frosted card. */
+html[data-glass='on'] .erp-table-container,
 html[data-glass='on'] .ant-card .ant-table-wrapper,
 html[data-glass='on'] .ant-card .ant-table {
-  background: var(--theme-surface);
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
+  background: var(--glass-tint) !important;
+  border-color: var(--glass-edge) !important;
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
 }
 
 /* ── 6. BROWSER FALLBACK ────────────────────────────────────────────────

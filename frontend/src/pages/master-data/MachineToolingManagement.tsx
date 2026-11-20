@@ -1318,12 +1318,12 @@ const MachineToolingManagement: React.FC = () => {
   );
 
   type ActionPillVariant = 'blue' | 'green' | 'amber' | 'orange' | 'red';
-  const ACTION_PILL_STYLES: Record<ActionPillVariant, React.CSSProperties> = {
-    blue: { color: '#1D4ED8', background: '#DBEAFE', border: '1px solid #93C5FD' },
-    green: { color: '#15803D', background: '#DCFCE7', border: '1px solid #86EFAC' },
-    amber: { color: '#B45309', background: '#FEF3C7', border: '1px solid #FCD34D' },
-    orange: { color: '#C2410C', background: '#FFEDD5', border: '1px solid #FDBA74' },
-    red: { color: '#B91C1C', background: '#FEE2E2', border: '1px solid #FCA5A5' },
+  const ACTION_PILL_SEMANTIC: Record<ActionPillVariant, 'view' | 'success' | 'edit' | 'warn' | 'delete'> = {
+    blue: 'view',
+    green: 'success',
+    amber: 'edit',
+    orange: 'warn',
+    red: 'delete',
   };
 
   const renderActionPill = (
@@ -1336,24 +1336,9 @@ const MachineToolingManagement: React.FC = () => {
     <Tooltip title={title}>
       <button
         type="button"
-        className={`pwi-action-pill pwi-action-pill--${variant}`}
+        className={`erp-action-pill erp-action-pill--${ACTION_PILL_SEMANTIC[variant]} pwi-action-pill pwi-action-pill--${variant}`}
         aria-label={ariaLabel}
         {...(onClick ? { onClick } : {})}
-        style={{
-          width: 28,
-          height: 28,
-          minWidth: 28,
-          padding: 0,
-          borderRadius: 7,
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          cursor: 'pointer',
-          fontSize: 13.5,
-          lineHeight: 1,
-          transition: 'transform 0.14s ease, box-shadow 0.14s ease, filter 0.14s ease',
-          ...ACTION_PILL_STYLES[variant],
-        }}
       >
         {icon}
       </button>
@@ -3085,25 +3070,11 @@ const MachineToolingManagement: React.FC = () => {
           <Tooltip title={hasRate ? 'Edit tool unit rate (PKR)' : 'Enter missing unit rate (PKR)'}>
             <button
               type="button"
-              className="pwi-action-pill pwi-action-pill--amber"
+              className="erp-action-pill erp-action-pill--sm erp-action-pill--edit pwi-action-pill pwi-action-pill--amber"
               aria-label={`Edit unit rate for ${r.component?.componentCode}`}
               onClick={() => {
                 setEditingRateCompId(compId);
                 setEditingRateValue(r.unitCost || 0);
-              }}
-              style={{
-                width: 24,
-                height: 24,
-                minWidth: 24,
-                padding: 0,
-                borderRadius: 6,
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer',
-                color: '#B45309',
-                background: '#FEF3C7',
-                border: '1px solid #FCD34D',
               }}
             >
               <EditOutlined style={{ fontSize: 12 }} />

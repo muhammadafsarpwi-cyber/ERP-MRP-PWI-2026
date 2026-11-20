@@ -219,16 +219,16 @@
   box-shadow: 0 14px 35px -6px rgba(0, 0, 0, 0.4) !important;
 }
 
-/* ── TABLE HEADER ── Theme-aware background with accent border ── */
+/* ── TABLE HEADER ── Centralized Master ERP Table System ── */
 .crystal-table-card .ant-table-thead > tr > th,
 .crystal-table-card .ant-table-thead > tr > td {
-  background: var(--theme-surface, #f7f8fd) !important;
-  color: var(--theme-text, rgba(15, 23, 42, 0.88)) !important;
+  background: var(--erp-table-header-bg, #312e81) !important;
+  color: var(--erp-table-header-text, #f8fafc) !important;
   font-weight: 700 !important;
   font-size: 12px !important;
   letter-spacing: 0.4px !important;
   text-transform: uppercase !important;
-  border-bottom: 2px solid var(--theme-accent, #4f46e5) !important;
+  border-bottom: 2px solid var(--erp-table-header-accent, var(--theme-accent, #4f46e5)) !important;
   padding: 12px 14px !important;
   white-space: nowrap;
 }
@@ -239,64 +239,50 @@
 
 /* Header icon colors */
 .crystal-table-card .ant-table-thead .anticon {
-  color: var(--theme-text-secondary, rgba(15, 23, 42, 0.72)) !important;
+  color: inherit !important;
 }
 
 /* Header sort arrows */
 .crystal-table-card .ant-table-column-sorter {
-  color: var(--theme-text-muted, rgba(15, 23, 42, 0.55)) !important;
+  color: rgba(248, 250, 252, 0.6) !important;
 }
 .crystal-table-card .ant-table-column-sorter-up.active,
 .crystal-table-card .ant-table-column-sorter-down.active {
-  color: var(--theme-accent, #4f46e5) !important;
+  color: var(--erp-table-header-text, #ffffff) !important;
 }
 
 /* Header filter icon */
 .crystal-table-card .ant-table-filter-trigger {
-  color: var(--theme-text-muted, rgba(15, 23, 42, 0.55)) !important;
+  color: rgba(248, 250, 252, 0.7) !important;
 }
 .crystal-table-card .ant-table-filter-trigger.active {
-  color: var(--theme-accent, #4f46e5) !important;
+  color: var(--erp-table-header-text, #ffffff) !important;
 }
 
 /* Fixed column header (Actions - right side) */
 .crystal-table-card .ant-table-thead > tr > th.ant-table-cell-fix-right {
-  background: var(--theme-surface, #f7f8fd) !important;
+  background: var(--erp-table-header-bg, #312e81) !important;
 }
 
-/* ── CRITICAL: Override erp-table.css global rules that force white text ──
-   The global erp-table.css forces white text on:
-   - .ant-table-column-title (all headers)
-   - Fixed column headers (ant-table-cell-fix-*)
-   - Fixed column body cells (ant-table-cell-fix-*)
-   We must override these for the crystal-table-card to use proper theme colors. */
-
-/* 1. Header .ant-table-column-title — use theme text color, not white */
-.crystal-table-card .ant-table-thead > tr > th .ant-table-column-title {
-  color: var(--theme-text, rgba(15, 23, 42, 0.88)) !important;
-}
-
+/* 1. Header .ant-table-column-title inherits centralized header text color */
+.crystal-table-card .ant-table-thead > tr > th .ant-table-column-title,
 [data-theme='dark'] .crystal-table-card .ant-table-thead > tr > th .ant-table-column-title {
-  color: var(--theme-text, #f8fafc) !important;
+  color: var(--erp-table-header-text, #f8fafc) !important;
 }
 
-/* 2. Fixed column headers — override white text from erp-table.css */
+/* 2. Fixed column headers inherit centralized header tokens */
 .crystal-table-card .ant-table-thead > tr > th.ant-table-cell-fix-right,
 .crystal-table-card .ant-table-thead > tr > th.ant-table-cell-fix-right-first,
 .crystal-table-card .ant-table-thead > tr > th.ant-table-cell-fix-left,
 .crystal-table-card .ant-table-thead > tr > th.ant-table-cell-fix-left-last,
-.crystal-table-card .ant-table-thead th[class*="ant-table-cell-fix-"] {
-  color: var(--theme-text, rgba(15, 23, 42, 0.88)) !important;
-  background: var(--theme-surface, #f7f8fd) !important;
-}
-
+.crystal-table-card .ant-table-thead th[class*="ant-table-cell-fix-"],
 [data-theme='dark'] .crystal-table-card .ant-table-thead > tr > th.ant-table-cell-fix-right,
 [data-theme='dark'] .crystal-table-card .ant-table-thead > tr > th.ant-table-cell-fix-right-first,
 [data-theme='dark'] .crystal-table-card .ant-table-thead > tr > th.ant-table-cell-fix-left,
 [data-theme='dark'] .crystal-table-card .ant-table-thead > tr > th.ant-table-cell-fix-left-last,
 [data-theme='dark'] .crystal-table-card .ant-table-thead th[class*="ant-table-cell-fix-"] {
-  color: var(--theme-text, #f8fafc) !important;
-  background: var(--theme-surface, #181c33) !important;
+  color: var(--erp-table-header-text, #f8fafc) !important;
+  background: var(--erp-table-header-bg, #312e81) !important;
 }
 
 /* 3. Fixed column body cells — override white text from erp-table.css */
@@ -356,10 +342,10 @@
    beating global for EVERY body cell (fixed included) in both themes.
    Result: one stripe system, bg-tint-only hover, token dividers. ── */
 .user-management-container .crystal-table-card .ant-table-wrapper .ant-table-tbody > tr.ant-table-row > td {
-  background: var(--theme-surface-elevated, #ffffff) !important;
-  border-bottom: 1px solid var(--theme-border, #e4e7f1) !important;
+  background: var(--erp-table-row-bg, #ffffff) !important;
+  border-bottom: 1px solid var(--erp-table-border, #e4e7f1) !important;
   padding: 11px 14px !important;
-  transition: background 0.18s ease !important;
+  transition: background 0.16s ease !important;
   vertical-align: middle !important;
   border-left: none !important;
   border-right: none !important;
@@ -367,17 +353,10 @@
   box-shadow: none !important;
 }
 
-.user-management-container .crystal-table-card .ant-table-wrapper .ant-table-tbody > tr.ant-table-row:nth-child(odd) > td {
-  background: var(--theme-surface-alt, #eef0f9) !important;
-}
-
-.user-management-container .crystal-table-card .ant-table-wrapper .ant-table-tbody > tr.ant-table-row:nth-child(even) > td {
-  background: var(--theme-surface-elevated, #ffffff) !important;
-}
-
 .user-management-container .crystal-table-card .ant-table-wrapper .ant-table-tbody > tr.ant-table-row:hover > td {
-  background: var(--theme-accent-soft, rgba(79, 70, 229, 0.08)) !important;
-  box-shadow: none !important;
+  background: var(--erp-table-row-hover, #eef2ff) !important;
+  box-shadow: inset 0 1px 0 var(--erp-table-row-hover-border, #c7d2fe),
+              inset 0 -1px 0 var(--erp-table-row-hover-border, #c7d2fe) !important;
 }
 
 /* Last row — no bottom border */
@@ -403,15 +382,14 @@
 /* ── DARK THEME OVERRIDES ── */
 [data-theme='dark'] .crystal-table-card .ant-table-thead > tr > th,
 [data-theme='dark'] .crystal-table-card .ant-table-thead > tr > td {
-  background: var(--theme-surface, #181c33) !important;
-  border-bottom: 2px solid var(--theme-accent, #818cf8) !important;
-  color: var(--theme-text, #f8fafc) !important;
+  background: var(--erp-table-header-bg, #1e1b5c) !important;
+  border-bottom: 2px solid var(--erp-table-header-accent, var(--theme-accent, #818cf8)) !important;
+  color: var(--erp-table-header-text, #f8fafc) !important;
 }
 
-/* ── DARK unified pattern (same (0,6,2)+ system as light above) ── */
 [data-theme='dark'] .user-management-container .crystal-table-card .ant-table-wrapper .ant-table-tbody > tr.ant-table-row > td {
-  background: var(--theme-surface-elevated, #202544) !important;
-  border-bottom: 1px solid var(--theme-border, #2a3054) !important;
+  background: var(--erp-table-row-bg, var(--theme-surface, #181c33)) !important;
+  border-bottom: 1px solid var(--erp-table-border, #2a3054) !important;
   color: var(--theme-text, #f1f5f9) !important;
   border-left: none !important;
   border-right: none !important;
@@ -419,17 +397,10 @@
   box-shadow: none !important;
 }
 
-[data-theme='dark'] .user-management-container .crystal-table-card .ant-table-wrapper .ant-table-tbody > tr.ant-table-row:nth-child(odd) > td {
-  background: var(--theme-surface-alt, #202544) !important;
-}
-
-[data-theme='dark'] .user-management-container .crystal-table-card .ant-table-wrapper .ant-table-tbody > tr.ant-table-row:nth-child(even) > td {
-  background: var(--theme-surface-elevated, #202544) !important;
-}
-
 [data-theme='dark'] .user-management-container .crystal-table-card .ant-table-wrapper .ant-table-tbody > tr.ant-table-row:hover > td {
-  background: var(--theme-accent-soft, rgba(129, 140, 248, 0.12)) !important;
-  box-shadow: none !important;
+  background: var(--erp-table-row-hover, rgba(129, 140, 248, 0.16)) !important;
+  box-shadow: inset 0 1px 0 var(--erp-table-row-hover-border, rgba(129, 140, 248, 0.36)),
+              inset 0 -1px 0 var(--erp-table-row-hover-border, rgba(129, 140, 248, 0.36)) !important;
 }
 
 
@@ -1387,10 +1358,16 @@
 .user-management-container .crystal-table-card .ant-table-thead > tr > th.ant-table-cell-fix-right-first,
 .user-management-container .crystal-table-card .ant-table-thead > tr > th.ant-table-cell-fix-left,
 .user-management-container .crystal-table-card .ant-table-thead > tr > th.ant-table-cell-fix-left-last,
-.user-management-container .crystal-table-card .ant-table-thead th[class*="ant-table-cell-fix-"] {
-  background: var(--theme-primary-deep, #303c8f) !important;
-  color: var(--theme-on-primary, #ffffff) !important;
-  border-bottom: 2px solid var(--theme-primary-deep, #303c8f) !important;
+.user-management-container .crystal-table-card .ant-table-thead th[class*="ant-table-cell-fix-"],
+[data-theme='dark'] .user-management-container .crystal-table-card .ant-table-thead > tr > th,
+[data-theme='dark'] .user-management-container .crystal-table-card .ant-table-thead > tr > th.ant-table-cell-fix-right,
+[data-theme='dark'] .user-management-container .crystal-table-card .ant-table-thead > tr > th.ant-table-cell-fix-right-first,
+[data-theme='dark'] .user-management-container .crystal-table-card .ant-table-thead > tr > th.ant-table-cell-fix-left,
+[data-theme='dark'] .user-management-container .crystal-table-card .ant-table-thead > tr > th.ant-table-cell-fix-left-last,
+[data-theme='dark'] .user-management-container .crystal-table-card .ant-table-thead th[class*="ant-table-cell-fix-"] {
+  background: var(--erp-table-header-bg, #312e81) !important;
+  color: var(--erp-table-header-text, #f8fafc) !important;
+  border-bottom: 2px solid var(--erp-table-header-accent, var(--theme-accent, #4f46e5)) !important;
   font-weight: 600 !important;
   font-size: 12px !important;
   letter-spacing: 0.3px !important;
@@ -1402,13 +1379,16 @@
   color: inherit !important;
 }
 
-.user-management-container .crystal-table-card .ant-table-thead .ant-table-column-sorter {
-  color: rgba(255, 255, 255, 0.55) !important;
+.user-management-container .crystal-table-card .ant-table-thead .ant-table-column-sorter,
+[data-theme='dark'] .user-management-container .crystal-table-card .ant-table-thead .ant-table-column-sorter {
+  color: rgba(255, 255, 255, 0.6) !important;
 }
 
 .user-management-container .crystal-table-card .ant-table-thead .ant-table-column-sorter-up.active,
-.user-management-container .crystal-table-card .ant-table-thead .ant-table-column-sorter-down.active {
-  color: #ffffff !important;
+.user-management-container .crystal-table-card .ant-table-thead .ant-table-column-sorter-down.active,
+[data-theme='dark'] .user-management-container .crystal-table-card .ant-table-thead .ant-table-column-sorter-up.active,
+[data-theme='dark'] .user-management-container .crystal-table-card .ant-table-thead .ant-table-column-sorter-down.active {
+  color: var(--erp-table-header-text, #ffffff) !important;
 }
 
 .user-management-container .crystal-table-card .ant-table-thead .ant-table-filter-trigger {
@@ -1420,33 +1400,6 @@
 .user-management-container .crystal-table-card .ant-table-thead .ant-table-filter-trigger:hover {
   color: #ffffff !important;
   background: rgba(255, 255, 255, 0.18) !important;
-}
-
-/* ── STRONG HEADER — DARK theme: keep existing dark header language
-   (surface band + accent underline), NOT a bright header ── */
-[data-theme='dark'] .user-management-container .crystal-table-card .ant-table-thead > tr > th,
-[data-theme='dark'] .user-management-container .crystal-table-card .ant-table-thead > tr > th.ant-table-cell-fix-right,
-[data-theme='dark'] .user-management-container .crystal-table-card .ant-table-thead > tr > th.ant-table-cell-fix-right-first,
-[data-theme='dark'] .user-management-container .crystal-table-card .ant-table-thead > tr > th.ant-table-cell-fix-left,
-[data-theme='dark'] .user-management-container .crystal-table-card .ant-table-thead > tr > th.ant-table-cell-fix-left-last,
-[data-theme='dark'] .user-management-container .crystal-table-card .ant-table-thead th[class*="ant-table-cell-fix-"] {
-  background: var(--theme-surface, #181c33) !important;
-  color: var(--theme-text, #f8fafc) !important;
-  border-bottom: 2px solid var(--theme-accent, #818cf8) !important;
-  font-weight: 600 !important;
-  font-size: 12px !important;
-  letter-spacing: 0.3px !important;
-  padding: 10px 12px !important;
-  white-space: nowrap;
-}
-
-[data-theme='dark'] .user-management-container .crystal-table-card .ant-table-thead .ant-table-column-sorter {
-  color: rgba(248, 250, 252, 0.45) !important;
-}
-
-[data-theme='dark'] .user-management-container .crystal-table-card .ant-table-thead .ant-table-column-sorter-up.active,
-[data-theme='dark'] .user-management-container .crystal-table-card .ant-table-thead .ant-table-column-sorter-down.active {
-  color: var(--theme-accent, #818cf8) !important;
 }
 
 /* ── Status pill: compact semantic badge, readable in both themes ── */

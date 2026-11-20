@@ -82,12 +82,12 @@
 
 /* Table Header */
 .erp-batch-costing-table .ant-table-thead > tr > th {
-  background: #1e293b !important;
-  color: #ffffff !important;
+  background: var(--erp-table-header-bg, #312e81) !important;
+  color: var(--erp-table-header-text, #f8fafc) !important;
   font-weight: 700 !important;
   font-size: 12.5px !important;
-  border-bottom: 2px solid #475569 !important;
-  border-right: 1px solid #334155 !important;
+  border-bottom: 2px solid var(--erp-table-header-accent, var(--theme-accent, #4f46e5)) !important;
+  border-right: none !important;
   padding: 12px 14px !important;
   text-transform: uppercase !important;
   letter-spacing: 0.4px !important;
@@ -99,10 +99,10 @@
 
 /* Table Body Cells & Gridlines */
 .erp-batch-costing-table .ant-table-tbody > tr > td {
-  background: #0f172a !important;
+  background: var(--theme-surface-elevated, #0f172a) !important;
   color: #f1f5f9 !important;
   border-bottom: 1px solid #334155 !important;
-  border-right: 1px solid #1e293b !important;
+  border-right: none !important;
   padding: 12px 14px !important;
   font-size: 13px !important;
   transition: background 0.15s ease !important;
@@ -114,7 +114,7 @@
 
 /* Row Hover */
 .erp-batch-costing-table .ant-table-tbody > tr:hover > td {
-  background: #1e293b !important;
+  background: var(--erp-table-row-hover, #1e293b) !important;
 }
 
 /* High-Contrast Cell Elements */

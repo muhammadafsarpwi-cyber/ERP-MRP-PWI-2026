@@ -7,6 +7,7 @@ import { useUserStore } from '../../store/userStore';
 import ThemeSettingsButton from './ThemeCustomizer';
 import HeaderSearch from './HeaderSearch';
 import NotificationBell from './NotificationBell';
+import TeamChatHeaderIcon from './TeamChatHeaderIcon';
 import EmailCommunicationIcon from './EmailCommunicationIcon';
 import WhatsAppCommunicationIcon from './WhatsAppCommunicationIcon';
 import ProfileMenu from './ProfileMenu';
@@ -93,10 +94,17 @@ export function buildMenuItems(
   const withBadge = (key: string, label: React.ReactNode): React.ReactNode => {
     if (!(key in navBadges)) return label;
     const count = navBadges[key];
+    const isRedAlert = key === '/team-chat' && count > 0;
     return (
       <span className="erp-nav-label">
         <span className="erp-nav-label-text">{label}</span>
-        <span className={`erp-nav-chip${count > 0 ? ' erp-nav-chip--hot' : ''}`}>{count}</span>
+        <span
+          className={`erp-nav-chip${count > 0 ? ' erp-nav-chip--hot' : ''}${
+            isRedAlert ? ' erp-nav-chip--red' : ''
+          }`}
+        >
+          {count}
+        </span>
       </span>
     );
   };
@@ -917,6 +925,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
               }}
             >
               <HeaderSearch />
+              <TeamChatHeaderIcon />
               <NotificationBell />
               <EmailCommunicationIcon />
               <WhatsAppCommunicationIcon />

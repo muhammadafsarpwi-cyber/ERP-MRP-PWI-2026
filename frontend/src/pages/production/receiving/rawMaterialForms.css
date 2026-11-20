@@ -1455,10 +1455,11 @@
   background: transparent !important;
 }
 
-.rm-form-section-card .ant-table-thead > tr > th {
-  background: var(--theme-table-header-bg, var(--ui-table-header-bg, #f1f5f9)) !important;
-  color: var(--theme-table-header-color, var(--ui-table-header-text, #0f172a)) !important;
-  border-bottom: 1px solid var(--theme-table-header-border, var(--ui-table-header-rule, #cbd5e1)) !important;
+.rm-form-section-card .ant-table-thead > tr > th,
+[data-theme="dark"] .rm-form-section-card .ant-table-thead > tr > th {
+  background: var(--erp-table-header-bg, var(--theme-table-header-bg, #312e81)) !important;
+  color: var(--erp-table-header-text, var(--theme-table-header-color, #f8fafc)) !important;
+  border-bottom: 2px solid var(--erp-table-header-accent, var(--theme-accent, #4f46e5)) !important;
   font-size: 11px !important;
   font-weight: 700 !important;
   letter-spacing: 0.04em !important;
@@ -1466,21 +1467,15 @@
   padding: 8px 10px !important;
 }
 
-[data-theme="dark"] .rm-form-section-card .ant-table-thead > tr > th {
-  background: var(--theme-table-header-bg, #15182e) !important;
-  color: var(--theme-table-header-color, #f1f5f9) !important;
-  border-bottom: 1px solid var(--theme-table-header-border, var(--theme-border)) !important;
-}
-
 .rm-form-section-card .ant-table-tbody > tr > td {
-  background: var(--theme-surface, transparent) !important;
-  border-bottom: 1px solid var(--theme-border, rgba(255, 255, 255, 0.06)) !important;
-  color: var(--theme-text, #e2e8f0) !important;
+  background: var(--erp-table-row-bg, var(--theme-surface, transparent)) !important;
+  border-bottom: 1px solid var(--erp-table-border, var(--theme-border)) !important;
+  color: var(--theme-text) !important;
   padding: 8px 10px !important;
 }
 
 .rm-form-section-card .ant-table-tbody > tr:hover > td {
-  background: var(--theme-table-row-hover, rgba(255, 255, 255, 0.04)) !important;
+  background: var(--erp-table-row-hover, #eef2ff) !important;
 }
 
 /* Custom Select Dropdown item styling with Name prominent and Code in bracket/tag */

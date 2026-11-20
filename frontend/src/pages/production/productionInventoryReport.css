@@ -277,16 +277,11 @@
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.erp-pir .ant-table-row:hover td {
-  background: rgba(249, 115, 22, 0.035) !important;
-  border-top-color: rgba(249, 115, 22, 0.4) !important;
-  border-bottom-color: rgba(249, 115, 22, 0.4) !important;
-}
-
+.erp-pir .ant-table-row:hover td,
 [data-theme='dark'] .erp-pir .ant-table-row:hover td {
-  background: rgba(249, 115, 22, 0.075) !important;
-  border-top-color: rgba(255, 107, 0, 0.35) !important;
-  border-bottom-color: rgba(255, 107, 0, 0.35) !important;
+  background: var(--erp-table-row-hover, #eef2ff) !important;
+  border-top-color: var(--erp-table-row-hover-border, #c7d2fe) !important;
+  border-bottom-color: var(--erp-table-row-hover-border, #c7d2fe) !important;
 }
 
 /* ── Draggable Modal Handle ────────────────────────────────────────────── */
@@ -680,31 +675,35 @@
 
 /* ── 2027 Modern Stock Ledger Table & Movement Pills ─────────────────────── */
 .erp-modern-ledger-table {
-  border-radius: 8px;
+  border-radius: var(--ui-radius-md, 8px);
   overflow: hidden;
-  border: 1px solid var(--theme-border, #e2e8f0);
+  border: 1px solid var(--erp-table-border, var(--theme-border, #e2e8f0));
 }
 
-.erp-modern-ledger-table .ant-table-thead > tr > th {
-  background: #f8fafc !important;
-  color: #475569 !important;
+.erp-modern-ledger-table .ant-table-thead > tr > th,
+[data-theme='dark'] .erp-modern-ledger-table .ant-table-thead > tr > th {
+  background: var(--erp-table-header-bg, #312e81) !important;
+  color: var(--erp-table-header-text, #f8fafc) !important;
   font-size: 11px !important;
   font-weight: 700 !important;
   text-transform: uppercase !important;
   letter-spacing: 0.5px !important;
   padding: 10px 12px !important;
-  border-bottom: 2px solid #e2e8f0 !important;
+  border-bottom: 2px solid var(--erp-table-header-accent, var(--theme-accent, #4f46e5)) !important;
   white-space: nowrap !important;
 }
 
-.erp-modern-ledger-table .ant-table-tbody > tr > td {
+.erp-modern-ledger-table .ant-table-tbody > tr > td,
+[data-theme='dark'] .erp-modern-ledger-table .ant-table-tbody > tr > td {
   padding: 9px 12px !important;
   font-size: 12.5px;
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid var(--erp-table-border, #e2e8f0) !important;
+  color: var(--theme-text, #1e293b);
 }
 
-.erp-modern-ledger-table .ant-table-tbody > tr:hover > td {
-  background: #f8fafc !important;
+.erp-modern-ledger-table .ant-table-tbody > tr:hover > td,
+[data-theme='dark'] .erp-modern-ledger-table .ant-table-tbody > tr:hover > td {
+  background: var(--erp-table-row-hover, #eef2ff) !important;
 }
 
 /* Movement Pills: Zero awkward wrapping, clean enterprise look */
@@ -799,22 +798,7 @@
 
 /* Dark Mode Adaptations */
 [data-theme='dark'] .erp-modern-ledger-table {
-  border-color: #1e293b;
-}
-
-[data-theme='dark'] .erp-modern-ledger-table .ant-table-thead > tr > th {
-  background: #0f172a !important;
-  color: #94a3b8 !important;
-  border-bottom-color: #1e293b !important;
-}
-
-[data-theme='dark'] .erp-modern-ledger-table .ant-table-tbody > tr > td {
-  border-bottom-color: #1e293b;
-  color: #e2e8f0;
-}
-
-[data-theme='dark'] .erp-modern-ledger-table .ant-table-tbody > tr:hover > td {
-  background: #1e293b !important;
+  border-color: var(--erp-table-border, #2a3054);
 }
 
 [data-theme='dark'] .erp-mvt-pill--in {

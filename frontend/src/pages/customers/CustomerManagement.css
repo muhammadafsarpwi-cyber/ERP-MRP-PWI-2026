@@ -732,14 +732,14 @@ html[data-theme='dark'],
   background: transparent !important;
 }
 
-/* Dark Navy Header (#1b2432) */
+/* Centralized Theme-Linked Header */
 .customer-pixel-table .ant-table-thead > tr > th {
-  background-color: #1b2432 !important;
-  color: #ffffff !important;
+  background-color: var(--erp-table-header-bg, #312e81) !important;
+  color: var(--erp-table-header-text, #f8fafc) !important;
   font-weight: 700 !important;
   font-size: 12.5px !important;
   padding: 10px 14px !important;
-  border-bottom: none !important;
+  border-bottom: 2px solid var(--erp-table-header-accent, var(--theme-accent, #4f46e5)) !important;
   letter-spacing: 0.3px;
 }
 
@@ -747,21 +747,15 @@ html[data-theme='dark'],
   display: none !important;
 }
 
-/* Table Body Rows - Full Theme Support */
-.customer-pixel-table .ant-table-tbody > tr:nth-child(even) > td {
-  background-color: var(--cm-table-row-even) !important;
-  color: var(--cm-text-primary) !important;
-  border-bottom: 1px solid var(--cm-table-border) !important;
-}
-
-.customer-pixel-table .ant-table-tbody > tr:nth-child(odd) > td {
-  background-color: var(--cm-table-row-odd) !important;
-  color: var(--cm-text-primary) !important;
-  border-bottom: 1px solid var(--cm-table-border) !important;
+/* Table Body Rows - Uniform surface, highlight only on hover */
+.customer-pixel-table .ant-table-tbody > tr > td {
+  background-color: var(--erp-table-row-bg, var(--cm-table-row-odd, #ffffff)) !important;
+  color: var(--cm-text-primary, var(--theme-text)) !important;
+  border-bottom: 1px solid var(--erp-table-border, var(--cm-table-border)) !important;
 }
 
 .customer-pixel-table .ant-table-tbody > tr:hover > td {
-  background-color: var(--cm-table-row-hover) !important;
+  background-color: var(--erp-table-row-hover, var(--cm-table-row-hover)) !important;
 }
 
 .customer-pixel-table .ant-table-tbody > tr > td {
@@ -1154,12 +1148,12 @@ html[data-theme='dark'],
 }
 
 .ledger-pixel-table .ant-table-thead > tr > th {
-  background-color: #1b2432 !important;
-  color: #ffffff !important;
+  background-color: var(--erp-table-header-bg, #312e81) !important;
+  color: var(--erp-table-header-text, #f8fafc) !important;
   font-weight: 700 !important;
   font-size: 12.5px !important;
   padding: 10px 14px !important;
-  border-bottom: none !important;
+  border-bottom: 2px solid var(--erp-table-header-accent, var(--theme-accent, #4f46e5)) !important;
   letter-spacing: 0.3px;
 }
 
@@ -1169,18 +1163,14 @@ html[data-theme='dark'],
 
 .ledger-pixel-table .ant-table-tbody > tr > td {
   padding: 10px 14px !important;
-  border-bottom: 1px solid var(--cm-table-border) !important;
+  border-bottom: 1px solid var(--erp-table-border, var(--cm-table-border)) !important;
   font-size: 13px;
-  background-color: var(--cm-table-row-odd) !important;
-  color: var(--cm-text-primary) !important;
-}
-
-.ledger-pixel-table .ant-table-tbody > tr:nth-child(even) > td {
-  background-color: var(--cm-table-row-even) !important;
+  background-color: var(--erp-table-row-bg, var(--cm-table-row-odd)) !important;
+  color: var(--cm-text-primary, var(--theme-text)) !important;
 }
 
 .ledger-pixel-table .ant-table-tbody > tr:hover > td {
-  background-color: var(--cm-table-row-hover) !important;
+  background-color: var(--erp-table-row-hover, var(--cm-table-row-hover)) !important;
 }
 
 /* Movement Tags */
@@ -2137,11 +2127,11 @@ html[data-theme='dark'] .reference-field-label {
 }
 
 .c360-dark-table .ant-table-thead > tr > th {
-  background-color: #181f2c !important;
-  color: #ffffff !important;
+  background-color: var(--erp-table-header-bg, #312e81) !important;
+  color: var(--erp-table-header-text, #f8fafc) !important;
   font-weight: 700 !important;
   font-size: 12px !important;
-  border-bottom: none !important;
+  border-bottom: 2px solid var(--erp-table-header-accent, var(--theme-accent, #4f46e5)) !important;
 }
 
 /* Dark mode overrides for Customer 360 */
@@ -2522,24 +2512,24 @@ html[data-theme='dark'] .c360-alert-banner {
 }
 
 .supplier-360-modal .c360-subtable {
-  border: 1px solid #e2e8f0;
-  border-radius: 4px;
+  border: 1px solid var(--erp-table-border, #e2e8f0);
+  border-radius: var(--ui-radius-md, 8px);
   overflow: hidden;
 }
 
 .supplier-360-modal .c360-subtable .ant-table-thead > tr > th {
-  background-color: #f8fafc !important;
-  color: #334155 !important;
+  background-color: var(--erp-table-header-bg, #312e81) !important;
+  color: var(--erp-table-header-text, #f8fafc) !important;
   font-weight: 700 !important;
   font-size: 12px !important;
-  border-bottom: 1px solid #e2e8f0 !important;
+  border-bottom: 2px solid var(--erp-table-header-accent, var(--theme-accent, #4f46e5)) !important;
 }
 
 .supplier-360-modal .c360-subtable .ant-table-tbody > tr > td {
-  color: #0f172a !important;
+  color: var(--theme-text, #0f172a) !important;
   font-size: 12px !important;
-  border-bottom: 1px solid #f1f5f9 !important;
-  background-color: #ffffff !important;
+  border-bottom: 1px solid var(--erp-table-border, #e2e8f0) !important;
+  background-color: var(--erp-table-row-bg, #ffffff) !important;
 }
 
 /* ===================================================
@@ -2599,26 +2589,26 @@ html[data-theme='dark'] .supplier-360-modal .c360-activity-header,
 
 html[data-theme='dark'] .supplier-360-modal .c360-subtable,
 [data-theme='dark'] .supplier-360-modal .c360-subtable {
-  border-color: #243248 !important;
+  border-color: var(--erp-table-border, #243248) !important;
 }
 
 html[data-theme='dark'] .supplier-360-modal .c360-subtable .ant-table-thead > tr > th,
 [data-theme='dark'] .supplier-360-modal .c360-subtable .ant-table-thead > tr > th {
-  background-color: #1e293b !important;
-  color: #e2e8f0 !important;
-  border-bottom: 1px solid #334155 !important;
+  background-color: var(--erp-table-header-bg, #1e1b5c) !important;
+  color: var(--erp-table-header-text, #f8fafc) !important;
+  border-bottom: 2px solid var(--erp-table-header-accent, var(--theme-accent, #818cf8)) !important;
 }
 
 html[data-theme='dark'] .supplier-360-modal .c360-subtable .ant-table-tbody > tr > td,
 [data-theme='dark'] .supplier-360-modal .c360-subtable .ant-table-tbody > tr > td {
-  background-color: #141d2b !important;
-  color: #f8fafc !important;
-  border-bottom: 1px solid #1e293b !important;
+  background-color: var(--erp-table-row-bg, #181c33) !important;
+  color: var(--theme-text, #f8fafc) !important;
+  border-bottom: 1px solid var(--erp-table-border, #2a3054) !important;
 }
 
 html[data-theme='dark'] .supplier-360-modal .c360-subtable .ant-table-tbody > tr:hover > td,
 [data-theme='dark'] .supplier-360-modal .c360-subtable .ant-table-tbody > tr:hover > td {
-  background-color: #1a2538 !important;
+  background-color: var(--erp-table-row-hover, rgba(129, 140, 248, 0.16)) !important;
 }
 
 html[data-theme='dark'] .supplier-360-modal .c360-balance-box,

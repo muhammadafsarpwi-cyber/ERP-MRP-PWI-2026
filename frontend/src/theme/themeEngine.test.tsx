@@ -34,9 +34,11 @@ import {
   GLASS_BLUR,
   GLASS_OPACITY,
   migrateCornerStyle,
+  PALETTES,
+  resolveRoles,
 } from './palettes';
 import { useThemeStore } from './themeStore';
-import ThemeProvider from './ThemeProvider';
+import ThemeProvider, { buildCssVars } from './ThemeProvider';
 import { AdvancedThemeModal } from './AdvancedThemeModal';
 
 jest.setTimeout(30000);
@@ -343,5 +345,80 @@ describe('theme-glass.css scope guards', () => {
   it('keeps an opt-out for reduced transparency and for browsers without blur', () => {
     expect(glassCss).toContain('@supports not ((backdrop-filter: blur(1px))');
     expect(glassCss).toContain('prefers-reduced-transparency: reduce');
+  });
+});
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Part 5 — Master ERP Table & Action-Pill Token Matrix
+   ═══════════════════════════════════════════════════════════════════════ */
+
+describe('Master ERP Table & Action-Pill System', () => {
+  const EXPECTED_PRESETS: Array<[string, string]> = [
+    ['navy', '#1e293b'],
+    ['emerald-sovereign', '#064e3b'],
+    ['blue', '#1e3a8a'],
+    ['indigo', '#312e81'],
+    ['mineral-teal', '#134e4a'],
+    ['obsidian-mint', '#0f2922'],
+  ];
+
+  it('binds distinct WCAG-accessible table headers and clean non-striped white rows across all presets', () => {
+    const headerSet = new Set<string>();
+
+    for (const [paletteId, expectedLightHex] of EXPECTED_PRESETS) {
+      const palette = PALETTES.find((p) => p.id === paletteId)!;
+      expect(palette).toBeDefined();
+
+      const lightVars = buildCssVars('light', resolveRoles(palette, 'light'), paletteId, false);
+      expect(lightVars['--erp-table-header-bg'].toLowerCase()).toBe(expectedLightHex);
+      expect(lightVars['--erp-table-header-text']).toBe('#f8fafc');
+      expect(contrastRatio(lightVars['--erp-table-header-bg'], '#f8fafc')).toBeGreaterThanOrEqual(7.0);
+      expect(lightVars['--erp-table-row-bg']).toBe('#ffffff');
+      expect(lightVars['--theme-table-row-odd']).toBe('#ffffff');
+      expect(lightVars['--theme-table-row-even']).toBe('#ffffff');
+      headerSet.add(lightVars['--erp-table-header-bg'].toLowerCase());
+
+      const darkVars = buildCssVars('dark', resolveRoles(palette, 'dark'), paletteId, false);
+      expect(darkVars['--erp-table-header-text']).toBe('#f8fafc');
+      expect(contrastRatio(darkVars['--erp-table-header-bg'], '#f8fafc')).toBeGreaterThanOrEqual(7.0);
+      expect(darkVars['--theme-table-row-odd']).toBe(darkVars['--theme-table-row-even']);
+    }
+
+    expect(headerSet.size).toBe(EXPECTED_PRESETS.length);
+
+    for (const paletteId of ['soft-pastel', 'mono-pro']) {
+      const palette = PALETTES.find((p) => p.id === paletteId)!;
+      expect(palette).toBeDefined();
+      for (const mode of ['light', 'dark'] as const) {
+        const vars = buildCssVars(mode, resolveRoles(palette, mode), paletteId, false);
+        expect(vars['--erp-table-header-text']).toBe('#f8fafc');
+        expect(contrastRatio(vars['--erp-table-header-bg'], '#f8fafc')).toBeGreaterThanOrEqual(7.0);
+        if (mode === 'light') {
+          expect(vars['--erp-table-row-bg']).toBe('#ffffff');
+          expect(vars['--theme-table-row-odd']).toBe('#ffffff');
+          expect(vars['--theme-table-row-even']).toBe('#ffffff');
+        }
+      }
+    }
+
+    // Custom Accent derives a rich accessible table header
+    const customRoles = deriveRolesFromAccent('#be123c', 'light');
+    const customVars = buildCssVars('light', customRoles, 'indigo', true);
+    expect(customVars['--erp-table-header-bg']).toMatch(/^#[0-9a-f]{6}$/i);
+    expect(contrastRatio(customVars['--erp-table-header-bg'], '#f8fafc')).toBeGreaterThanOrEqual(7.0);
+    expect(customVars['--erp-table-row-bg']).toBe('#ffffff');
+  });
+
+  it('defines centralized 5-color semantic action pills and removes zebra striping in erp-table.css', () => {
+    const erpTableCss = fs.readFileSync(
+      path.join(__dirname, '..', 'styles', 'erp-table.css'),
+      'utf8'
+    );
+    expect(erpTableCss).toContain('.erp-action-pill--view');
+    expect(erpTableCss).toContain('.erp-action-pill--success');
+    expect(erpTableCss).toContain('.erp-action-pill--edit');
+    expect(erpTableCss).toContain('.erp-action-pill--warn');
+    expect(erpTableCss).toContain('.erp-action-pill--delete');
+    expect(erpTableCss).not.toMatch(/:nth-child\(even\)/);
   });
 });

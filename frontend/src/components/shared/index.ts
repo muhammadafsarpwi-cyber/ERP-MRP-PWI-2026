@@ -27,7 +27,13 @@ export {
   type ActionButtonVariant,
   TableToolbar,
 } from './ERPTable';
-export { HeaderCell, HighlightedCell } from './TableCells';
+export {
+  HeaderCell,
+  HighlightedCell,
+  ErpActionPill,
+  type ErpActionPillVariant,
+  type ErpActionPillProps,
+} from './TableCells';
 export {
   default as CategoryBadge,
   DepartmentBadge,

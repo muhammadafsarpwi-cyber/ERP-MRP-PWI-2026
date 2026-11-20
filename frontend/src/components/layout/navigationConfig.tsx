@@ -156,6 +156,8 @@ export const NAV_ENTRIES: NavEntry[] = [
   
   { key: '/dashboard', label: 'Dashboard', icon: DashboardOutlined, color: 'primary' },
 
+  { key: '/team-chat', label: 'Team Chat', icon: MessageOutlined, color: 'indigo' },
+
   { key: '/reports', label: 'Reports', icon: BarChartOutlined, color: 'success' },
 
   { key: '/ai-assistant', label: 'AI Assistant', icon: RobotOutlined, color: 'cyan' },

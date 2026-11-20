@@ -45,8 +45,9 @@
   position: sticky;
   top: 0;
   z-index: 1;
-  background: var(--theme-table-header-bg, rgba(0, 0, 0, 0.04));
-  color: var(--theme-table-text-secondary, var(--theme-text-muted, #64748b));
+  background: var(--erp-table-header-bg, var(--theme-table-header-bg, #312e81));
+  color: var(--erp-table-header-text, var(--theme-table-header-color, #f8fafc));
+  border-bottom: 2px solid var(--erp-table-header-accent, var(--theme-accent, #4f46e5));
   font-size: 10.5px;
   font-weight: 700;
   text-transform: uppercase;
@@ -54,19 +55,15 @@
   text-align: left;
   padding: 8px 10px;
   white-space: nowrap;
-  /* unbordered: header separation comes from its background only */
 }
 
-.ai-ans-table tbody tr:nth-child(odd) {
-  background: var(--theme-table-row-odd, transparent);
-}
-
+.ai-ans-table tbody tr:nth-child(odd),
 .ai-ans-table tbody tr:nth-child(even) {
-  background: var(--theme-table-row-even, transparent);
+  background: var(--erp-table-row-bg, var(--theme-surface, #ffffff));
 }
 
 .ai-ans-table tbody tr:hover {
-  background: var(--theme-table-row-hover, rgba(59, 130, 246, 0.08));
+  background: var(--erp-table-row-hover, rgba(59, 130, 246, 0.08));
 }
 
 .ai-ans-table td {

@@ -35,6 +35,7 @@ import { DispatchModule } from './modules/dispatch/dispatch.module';
 import { VisitorModule } from './modules/visitor/visitor.module';
 import { RecycleBinModule } from './modules/recycle-bin/recycle-bin.module';
 import { AiModule } from './modules/ai/ai.module';
+import { TeamChatModule } from './modules/team-chat/team-chat.module';
 import * as net from 'net';
 
 function isDatabaseAvailable(host: string, port: number, timeout = 3000): Promise<boolean> {
@@ -118,6 +119,7 @@ function isDatabaseAvailable(host: string, port: number, timeout = 3000): Promis
     RecycleBinModule,
     // AI assistant (Text-to-SQL + Voice) — read-only by design, own pg pool
     AiModule,
+    TeamChatModule,
   ],
   controllers: [AppController],
   providers: [AppService],
