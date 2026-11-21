@@ -62,7 +62,7 @@ export interface AiAnswerMeta {
 }
 
 export interface AiAnswer {
-  status: 'success' | 'empty';
+  status: 'success' | 'empty' | 'clarification';
   mode: 'text' | 'voice';
   question: string;
   /** What Whisper understood (voice mode only) — let the user verify/correct it. */
@@ -71,6 +71,7 @@ export interface AiAnswer {
   sql: string;
   assumption?: string;
   explanation: { en: string; ur: string };
+  clarificationOptions?: string[];
   confidence?: number;
   columns: string[];
   rows: Record<string, unknown>[];
@@ -94,7 +95,17 @@ export interface AiSchemaInfo {
 
 export interface AiHealthInfo {
   database: { ok: boolean; latencyMs?: number; error?: string };
-  providers: { gemini: boolean; whisper: boolean };
+  providers: {
+    textToSql?: boolean;
+    gemini: boolean;
+    activeProvider?: {
+      label: string;
+      model: string;
+      platform: string;
+      source: string;
+    } | null;
+    whisper: boolean;
+  };
 }
 
 interface AiApiEnvelope<T> {
@@ -109,10 +120,34 @@ export type AiVoiceLanguage = 'ur' | 'en' | 'pa';
 
 // ── Service ─────────────────────────────────────────────────────────────────
 
+export interface AiQuestionScope {
+  divisionId?: string;
+  departmentId?: string;
+  departmentName?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  periodLabel?: string;
+  language?: 'en' | 'ur';
+}
+
 class AiAssistantService {
   /** Natural-language question → read-only SQL → rows + chart payload. */
-  async askQuestion(question: string): Promise<AiAnswer> {
-    const res = await apiService.post<AiApiEnvelope<AiAnswer>>('/ai/assistant/query', { question });
+  async askQuestion(question: string, scope?: AiQuestionScope): Promise<AiAnswer> {
+    const payload: Record<string, string> = { question };
+    if (scope?.divisionId && scope.divisionId !== 'ALL') {
+      payload.divisionId = scope.divisionId;
+    }
+    if (scope?.departmentId) {
+      payload.departmentId = scope.departmentId;
+    }
+    if (scope?.departmentName && scope.departmentName !== 'ALL') {
+      payload.departmentName = scope.departmentName;
+    }
+    if (scope?.dateFrom) payload.dateFrom = scope.dateFrom;
+    if (scope?.dateTo) payload.dateTo = scope.dateTo;
+    if (scope?.periodLabel) payload.periodLabel = scope.periodLabel;
+    if (scope?.language) payload.language = scope.language;
+    const res = await apiService.post<AiApiEnvelope<AiAnswer>>('/ai/assistant/query', payload);
     if (!res?.success || !res?.data) {
       throw new Error(res?.message || 'The AI assistant returned an empty response.');
     }
@@ -130,12 +165,23 @@ class AiAssistantService {
     audioBase64: string,
     mimeType: string,
     language: AiVoiceLanguage = 'ur',
+    scope?: AiQuestionScope,
   ): Promise<AiAnswer> {
-    const res = await apiService.post<AiApiEnvelope<AiAnswer>>('/ai/assistant/voice', {
+    const payload: Record<string, string> = {
       audioBase64,
       mimeType,
       language,
-    });
+    };
+    if (scope?.divisionId && scope.divisionId !== 'ALL') {
+      payload.divisionId = scope.divisionId;
+    }
+    if (scope?.departmentId) {
+      payload.departmentId = scope.departmentId;
+    }
+    if (scope?.departmentName && scope.departmentName !== 'ALL') {
+      payload.departmentName = scope.departmentName;
+    }
+    const res = await apiService.post<AiApiEnvelope<AiAnswer>>('/ai/assistant/voice', payload);
     if (!res?.success || !res?.data) {
       throw new Error(res?.message || 'Voice request returned an empty response.');
     }

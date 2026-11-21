@@ -2,6 +2,9 @@ import React from 'react';
 
 export type ReportingDimension =
   | 'daily_granular_ledger'
+  | 'last_entry'
+  | 'raw_material_receiving'
+  | 'raw_material_stock'
   | 'operator'
   | 'machine'
   | 'department'
@@ -66,6 +69,9 @@ export interface QueryIntent {
   specificOperator?: string;
   specificItem?: string;
   specificCustomer?: string;
+  rawQuery?: string;
+  /** 'high' when an explicit ERP intent matched; 'fallback' for open-ended / custom queries routed to LLM. */
+  confidence?: 'high' | 'fallback';
   requestedUnit?: ReportingUnit;
   sortBy?: 'natural' | 'highest' | 'lowest' | 'alphabetical' | 'chronological';
   limit?: number;
@@ -162,7 +168,9 @@ export interface DivisionMeta {
 }
 
 export interface DepartmentMeta {
+  id?: string;
   code: string;
   name: string;
   shortName?: string;
+  divisionId?: string;
 }

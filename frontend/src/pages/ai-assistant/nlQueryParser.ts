@@ -94,6 +94,63 @@ export function extractSpecificItem(query: string): string | undefined {
   return undefined;
 }
 
+const NON_CUSTOMER_TARGETS = new Set([
+  'customer', 'customers', 'client', 'clients', 'buyer', 'buyers', 'party', 'parties',
+  'all', 'all customers', 'all clients', 'all divisions', 'everyone', 'us', 'me', 'them',
+  'spoke', 'spoke division', 'control cable', 'control cable division', 'main division',
+  'nb division', 'wrd', 'wrd division', 'flattening', 'spiral', 'pvc', 'packing',
+  'straightener', 'swagging', 'plating', 'warehouse', 'store', 'production', 'material',
+  'materials', 'dispatch', 'dispatches', 'order', 'orders', 'sales', 'month', 'week',
+  'year', 'today', 'yesterday',
+]);
+
+/**
+ * Extracts a specific Customer Name or Customer Code mentioned in a natural-language query,
+ * e.g. "How much material was dispatched to Crown this month?" -> "Crown",
+ *      "Show pending orders for Ali Shah Autos" -> "Ali Shah Autos",
+ *      "CUS-CFP-001 dispatch summary" -> "CUS-CFP-001".
+ */
+export function extractSpecificCustomer(rawQuery: string): string | undefined {
+  const cleaned = rawQuery.replace(/^[🎤\s]+/, '').trim();
+  if (!cleaned) return undefined;
+
+  // 1. Explicit customer code like CUS-CFP-001
+  const codeMatch = cleaned.match(/\b(CUS-[A-Z0-9-]+)\b/i);
+  if (codeMatch) {
+    return codeMatch[1].toUpperCase();
+  }
+
+  // 2. Natural-language dispatch / delivery / order phrases naming a customer
+  const patterns = [
+    /\b(?:dispatched|delivered|shipped|sent|sold|invoiced|billed|supplied)\s+to\s+([A-Za-z0-9][A-Za-z0-9\s&.'-]{1,60})/i,
+    /\b(?:dispatch(?:es)?|deliver(?:y|ies)|pending\s+orders?|pending\s+balance|sales\s+orders?|orders?|invoices?)\s+(?:for|of|to)\s+(?:customer\s+)?([A-Za-z0-9][A-Za-z0-9\s&.'-]{1,60})/i,
+    /\b(?:customer|client|buyer|party)\s+(?:named\s+|called\s+)?([A-Za-z0-9][A-Za-z0-9\s&.'-]{1,60})/i,
+  ];
+
+  const stripTrailingSuffix = (raw: string): string =>
+    raw
+      .replace(/[?!.,;:]+$/g, '')
+      .replace(
+        /\s+\b(?:this\s+month|last\s+month|previous\s+month|current\s+month|this\s+week|last\s+week|this\s+year|last\s+year|last\s+\d+\s+(?:days?|months?)|today|yesterday|in\s+(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)|on\s+\d.*|from\s+\d.*|so\s+far|right\s+now|please|report|summary|details|breakdown|status|balance|pending|orders?|dispatches?|volume|by\s+sales.*)\b.*$/i,
+        '',
+      )
+      .replace(/^(?:the|our|my)\s+/i, '')
+      .trim();
+
+  for (const re of patterns) {
+    const m = cleaned.match(re);
+    if (!m || !m[1]) continue;
+    const candidate = stripTrailingSuffix(m[1]);
+    if (!candidate || candidate.length < 2) continue;
+    const low = candidate.toLowerCase();
+    if (NON_CUSTOMER_TARGETS.has(low)) continue;
+    if (/^(?:top\s+\d+|\d+|gross|pcs|kg|mtr|ctn|cartons?)$/i.test(low)) continue;
+    return candidate;
+  }
+
+  return undefined;
+}
+
 function resolveRequestedUnit(query: string): ReportingUnit | undefined {
   const q = query.toLowerCase();
   if (/\b(gross|grosses|gross[\s-]?wise)\b/i.test(q) || q.includes('گراس')) return 'Gross';
@@ -102,6 +159,21 @@ function resolveRequestedUnit(query: string): ReportingUnit | undefined {
   if (/\b(in\s+mtrs?|in\s+meters?|in\s+metres?|meter[\s-]?wise)\b/i.test(q) || q.includes('میٹر')) return 'MTR';
   if (/\b(in\s+bags?|bag[\s-]?wise)\b/i.test(q) || q.includes('بیگ')) return 'Bags';
   return undefined;
+}
+
+/** Normalize live DB division codes (e.g. DIV-002-CCD, DIV-001-SPI, DIV-004-MDE51) & names to canonical keys. */
+export function canonicalizeDivisionCode(codeOrName?: string, id?: string): string {
+  const s = (codeOrName || '').trim().toLowerCase();
+  const idLow = (id || '').trim().toLowerCase();
+  if (s === 'all' || idLow === 'all' || s.includes('all division')) return 'ALL';
+  if (idLow.includes('0002') || s.includes('ccd') || s.includes('control cable')) return 'DIV-CCD';
+  if (idLow.includes('0001') || s.includes('spd') || s.includes('spi') || s.includes('spoke')) return 'DIV-SPD';
+  if (idLow.includes('83ecd746') || s.includes('pwi') || s.includes('mde51') || s.includes('main')) return 'DIV-PWI';
+  if (idLow.includes('0653339b') || s === 'div-nb' || s.includes('-nb') || s.includes('nb division') || s.includes('baloch')) {
+    return 'DIV-NB';
+  }
+  if (idLow.includes('0005') || s.includes('wrd') || s.includes('wire rope')) return 'DIV-WRD';
+  return (codeOrName || 'UNKNOWN').trim().toUpperCase();
 }
 
 export function parseNaturalLanguageQuery(
@@ -218,12 +290,14 @@ export function parseNaturalLanguageQuery(
   // 3. Resolve Division Scope
   let divisionCode = currentDivisionCode || context?.lastDivisionCode || 'DIV-CCD';
   let explicitDivision = false;
-  if (q.includes('control cable') || q.includes('ccd') || q.includes('کیبل') || q.includes('کنٹرول')) {
-    divisionCode = 'DIV-CCD';
+  if (q.includes('control cable') || q.includes('ccd') || q.includes('div-002-ccd') || q.includes('کیبل') || q.includes('کنٹرول')) {
+    divisionCode = currentDivisionCode && canonicalizeDivisionCode(currentDivisionCode) === 'DIV-CCD' ? currentDivisionCode : 'DIV-CCD';
     explicitDivision = true;
   } else if (
     q.includes('spoke') ||
     q.includes('spd') ||
+    q.includes('div-001-spd') ||
+    q.includes('div-001-spi') ||
     q.includes('سپوک') ||
     q.includes('اسپوک') ||
     q.includes('سوک') ||
@@ -231,13 +305,16 @@ export function parseNaturalLanguageQuery(
     q.includes('کوک ڈویژن') ||
     q.includes('سپورٹ ڈویژن')
   ) {
-    divisionCode = 'DIV-SPD';
+    divisionCode = currentDivisionCode && canonicalizeDivisionCode(currentDivisionCode) === 'DIV-SPD' ? currentDivisionCode : 'DIV-SPD';
     explicitDivision = true;
-  } else if (q.includes('main division') || q.includes('e-51') || q.includes('div-pwi') || q.includes('مین') || q.includes('وائر ڈرائنگ')) {
-    divisionCode = 'DIV-PWI';
+  } else if (q.includes('main division') || q.includes('e-51') || q.includes('div-pwi') || q.includes('div-003-pwi') || q.includes('مین') || q.includes('وائر ڈرائنگ')) {
+    divisionCode = currentDivisionCode && canonicalizeDivisionCode(currentDivisionCode) === 'DIV-PWI' ? currentDivisionCode : 'DIV-PWI';
     explicitDivision = true;
-  } else if (q.includes('nb division') || q.includes('baloch') || q.includes('div-nb') || q.includes('بلوچ')) {
-    divisionCode = 'DIV-NB';
+  } else if (q.includes('nb division') || q.includes('baloch') || q.includes('div-nb') || q.includes('div-004-nb') || q.includes('بلوچ')) {
+    divisionCode = currentDivisionCode && canonicalizeDivisionCode(currentDivisionCode) === 'DIV-NB' ? currentDivisionCode : 'DIV-NB';
+    explicitDivision = true;
+  } else if (q.includes('wrd') || q.includes('wire rope') || q.includes('div-005-wrd')) {
+    divisionCode = currentDivisionCode && canonicalizeDivisionCode(currentDivisionCode) === 'DIV-WRD' ? currentDivisionCode : 'DIV-WRD';
     explicitDivision = true;
   } else if (q.includes('all divisions') || q.includes('multi-division') || q.includes('all plants') || q.includes('تمام ڈویژن')) {
     divisionCode = 'ALL';
@@ -262,10 +339,14 @@ export function parseNaturalLanguageQuery(
 
   // 4. Resolve Department Filter
   let departmentCode = 'ALL';
-  const detectedDept = resolveDepartmentCode(q, divisionCode);
+  const canonicalDiv = canonicalizeDivisionCode(divisionCode);
+  const detectedDept = resolveDepartmentCode(q, canonicalDiv);
   if (detectedDept) {
     departmentCode = detectedDept;
-  } else if (currentDepartmentCode && (!explicitDivision || divisionCode === currentDivisionCode)) {
+  } else if (
+    currentDepartmentCode &&
+    (!explicitDivision || canonicalDiv === canonicalizeDivisionCode(currentDivisionCode))
+  ) {
     departmentCode = currentDepartmentCode;
   }
 
@@ -321,6 +402,9 @@ export function parseNaturalLanguageQuery(
   ) {
     specificItem = context.lastIntent.specificItem;
   }
+
+  // 6c. Detect Specific Customer Name or Code (e.g. "Crown", "Crown Fit", "Ali Shah", "CUS-CFP-001")
+  const specificCustomer = extractSpecificCustomer(rawQuery);
 
   // 7. Resolve Time Period
   const isCumulativeItemQuestion =
@@ -394,12 +478,37 @@ export function parseNaturalLanguageQuery(
     (isTargetOrAverageQuery && !q.includes('operator') && !q.includes('اپریٹر') && !q.includes('department-wise') && !q.includes('department wise')) ||
     Boolean(specificMachine);
 
+  const isLastEntryQuery =
+    /\b(last\s+(?:production\s+)?entr(?:y|ies)|latest\s+(?:production\s+)?entr(?:y|ies)|recent\s+(?:production\s+)?entr(?:y|ies)|most\s+recent\s+(?:production\s+)?entr(?:y|ies)|last\s+activity|latest\s+activity|recent\s+activity|when\s+was\s+(?:the\s+)?last\s+(?:production\s+)?entr(?:y|ies)(?:\s+made)?|last\s+recorded\s+entr(?:y|ies)|when\s+(?:did|was)\s+(?:production|entries|we)\s+last)\b/i.test(
+      q,
+    ) ||
+    q.includes('آخری انٹری') ||
+    q.includes('آخری اینٹری');
+
+  const mentionsRawMaterial = /\b(raw\s+material(?:s)?|rm)\b/i.test(q);
+  const mentionsReceivingTerms =
+    /\b(rm\s+receiv(?:ed|ing)|material\s+receiv(?:ed|ing)|receiv(?:ed|ing)|grn|grns|goods\s+receipt(?:s)?|gate\s+pass(?:es)?|rmr)\b/i.test(
+      q,
+    );
+  const mentionsStockBalanceTerms =
+    /\b(stock|balance|balances|inventory|on[\s-]?hand|available\s+(?:stock|balance|qty|quantity)|current\s+stock|in[\s-]?stock)\b/i.test(
+      q,
+    );
+
+  const isRawMaterialStockQuery = mentionsRawMaterial && mentionsStockBalanceTerms && !mentionsReceivingTerms;
+  const isRawMaterialReceivingQuery =
+    (mentionsRawMaterial && mentionsReceivingTerms) ||
+    mentionsReceivingTerms ||
+    (mentionsRawMaterial && !mentionsStockBalanceTerms && !isRejectionOrScrapQuery);
+
   const isCustomerOrSalesVolumeQuery =
+    Boolean(specificCustomer) ||
     q.includes('customer') ||
     q.includes('customers') ||
     q.includes('sales volume') ||
     q.includes('sales order') ||
     q.includes('sales invoice') ||
+    q.includes('pending order') ||
     q.includes('client sales') ||
     q.includes('top client') ||
     q.includes('top buyer') ||
@@ -411,7 +520,41 @@ export function parseNaturalLanguageQuery(
     q.includes('سیلز') ||
     q.includes('dispatch') ||
     q.includes('dispatches') ||
+    q.includes('dispatched') ||
+    q.includes('delivered to') ||
+    q.includes('shipped to') ||
     q.includes('ڈسپیچ');
+
+  let effectivePeriod = period;
+  if (
+    isLastEntryQuery &&
+    effectivePeriod.type === 'this_month' &&
+    !/\b(this\s+month|current\s+month)\b/i.test(q)
+  ) {
+    effectivePeriod = {
+      type: 'all',
+      label: 'All Time (Latest Activity)',
+      startDate: undefined,
+      endDate: undefined,
+    };
+  } else if (
+    isRawMaterialStockQuery &&
+    effectivePeriod.type === 'this_month' &&
+    !/\b(this\s+month|current\s+month)\b/i.test(q)
+  ) {
+    effectivePeriod = {
+      type: 'all',
+      label: 'Current Stock Balance',
+      startDate: undefined,
+      endDate: undefined,
+    };
+  }
+
+  let confidence: 'high' | 'fallback' = 'high';
+  const isOpenEndedCustomAnalytics =
+    /\b(supplier|suppliers|vendor|vendors|purchase\s+order|po\s+status|cost\s+per|unit\s+cost|tool\s+cost|compare\s+.*cost|profit|margin|expense|who\s+delivered|which\s+supplier|why\s+did)\b/i.test(
+      q,
+    );
 
   if (
     q.includes('job card') ||
@@ -425,6 +568,15 @@ export function parseNaturalLanguageQuery(
     (specificMachine && (q.includes('کارڈ') || q.includes('مرمت')))
   ) {
     dimension = 'maintenance';
+  } else if (isOpenEndedCustomAnalytics) {
+    dimension = 'machine';
+    confidence = 'fallback';
+  } else if (isRawMaterialStockQuery) {
+    dimension = 'raw_material_stock';
+  } else if (isRawMaterialReceivingQuery) {
+    dimension = 'raw_material_receiving';
+  } else if (isLastEntryQuery) {
+    dimension = 'last_entry';
   } else if (isRejectionOrScrapQuery) {
     dimension = 'rejection';
   } else if (isDowntimeQuery) {
@@ -509,6 +661,7 @@ export function parseNaturalLanguageQuery(
     dimension = 'division_comparison';
   } else {
     dimension = 'machine';
+    confidence = 'fallback';
   }
 
   // 9. Resolve Metrics
@@ -538,11 +691,14 @@ export function parseNaturalLanguageQuery(
   return {
     dimension,
     metrics,
-    period,
+    period: effectivePeriod,
     divisionCode,
     departmentCode,
     specificMachine,
     specificItem,
+    specificCustomer,
+    rawQuery,
+    confidence,
     requestedUnit: detectedUnit,
     sortBy,
     limit,
@@ -551,17 +707,18 @@ export function parseNaturalLanguageQuery(
 
 // ── Department Code Resolver ────────────────────────────────────────────────
 function resolveDepartmentCode(query: string, divisionCode?: string): string | undefined {
+  const canonicalDiv = canonicalizeDivisionCode(divisionCode);
   const q = query.toLowerCase();
   if (q.includes('flattening') || q.includes('فلیٹننگ') || /\bft\b/.test(q)) return 'Flattening';
   if (q.includes('spiral') || q.includes('سپائرل') || /\bsp\b/.test(q) || /\bsp-\d+\b/.test(q)) return 'Spiral';
   if (q.includes('pvc') || q.includes('coating') || q.includes('پی وی سی')) return 'PVC';
   if (q.includes('packing') || q.includes('packaging') || q.includes('پیکنگ')) {
-    return divisionCode === 'DIV-SPD' ? 'Spoke Packing' : 'Packing';
+    return canonicalDiv === 'DIV-SPD' ? 'Spoke Packing' : 'Packing';
   }
   if (q.includes('straightener') || q.includes('سٹریٹنر') || q.includes('اسٹریٹنر') || q.includes('سٹیٹنر') || /\bst\b/.test(q)) return 'Straightener';
   if (q.includes('swagging') || q.includes('سویجنگ') || q.includes('سواجنگ') || q.includes('سواگنگ') || q.includes('سوگ') || q.includes('swag') || /\bsw\b/.test(q)) return 'Swagging';
   if (q.includes('plating') || q.includes('electroplating') || q.includes('پلیٹنگ')) {
-    return divisionCode === 'DIV-SPD' ? 'Spoke Plating' : 'Plating';
+    return canonicalDiv === 'DIV-SPD' ? 'Spoke Plating' : 'Plating';
   }
   if (
     q.includes('spoke heading') ||

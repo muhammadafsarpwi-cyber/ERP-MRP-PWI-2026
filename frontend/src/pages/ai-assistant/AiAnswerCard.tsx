@@ -38,6 +38,49 @@ import './aiAnswerCard.css';
  * automatically with no per-component logic.
  */
 
+/**
+ * Safely renders inline markdown bold (`**...**`) and inline code (`` `...` ``)
+ * as clean React elements without showing raw markdown asterisks.
+ */
+export function renderRichText(text: string): React.ReactNode {
+  if (!text) return null;
+  const lines = text.split('\n');
+  return lines.map((line, lineIdx) => {
+    const tokens = line.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
+    return (
+      <React.Fragment key={lineIdx}>
+        {tokens.map((part, idx) => {
+          if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
+            return (
+              <strong key={idx} style={{ fontWeight: 700 }}>
+                {part.slice(2, -2)}
+              </strong>
+            );
+          }
+          if (part.startsWith('`') && part.endsWith('`') && part.length > 2) {
+            return (
+              <code
+                key={idx}
+                style={{
+                  fontFamily: 'monospace',
+                  fontSize: '0.88em',
+                  padding: '1px 5px',
+                  borderRadius: 4,
+                  background: 'var(--theme-surface-alt, rgba(148, 163, 184, 0.16))',
+                }}
+              >
+                {part.slice(1, -1)}
+              </code>
+            );
+          }
+          return <React.Fragment key={idx}>{part}</React.Fragment>;
+        })}
+        {lineIdx < lines.length - 1 && <br />}
+      </React.Fragment>
+    );
+  });
+}
+
 const CHART_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316'];
 
 const SUGGESTION_ICONS: Record<string, string> = {
@@ -280,14 +323,62 @@ const AiAnswerCard: React.FC<AiAnswerCardProps> = ({ answer, isDark, uomOverride
 
   // ── Table fallback — clean, unbordered, striped ────────────────────────────
 
+  const renderStyledCell = (col: string, rawVal: unknown): React.ReactNode => {
+    const formatted = formatCell(rawVal);
+    const colLow = col.toLowerCase().trim();
+    if (formatted !== '—' && (colLow === 'item code' || colLow === 'item_code' || colLow === 'sku')) {
+      return (
+        <span
+          style={{
+            display: 'inline-block',
+            padding: '1px 7px',
+            borderRadius: 5,
+            fontFamily: 'monospace',
+            fontWeight: 700,
+            fontSize: 11.5,
+            background: isDark ? 'rgba(249, 115, 22, 0.2)' : '#fff7ed',
+            color: isDark ? '#fdba74' : '#c2410c',
+            border: isDark ? '1px solid rgba(251, 146, 60, 0.45)' : '1px solid #fdba74',
+          }}
+        >
+          {formatted}
+        </span>
+      );
+    }
+    if (
+      formatted !== '—' &&
+      (colLow.includes('last received date') ||
+        colLow === 'last_received_date' ||
+        colLow.includes('last entry date') ||
+        colLow === 'last_entry_date')
+    ) {
+      return (
+        <strong
+          style={{
+            fontFamily: 'monospace',
+            fontWeight: 700,
+            color: isDark ? '#60a5fa' : '#1e3a8a',
+          }}
+        >
+          {formatted}
+        </strong>
+      );
+    }
+    return formatted;
+  };
+
   const renderTable = (): React.ReactNode => {
     if (!hasRows) return null;
+    const visibleColumns =
+      columns.length > 1
+        ? columns.filter((col) => col.toLowerCase().trim() !== 'division_id')
+        : columns;
     return (
       <div className="ai-ans-table-wrap">
         <table className="ai-ans-table" aria-label="AI query result rows">
           <thead>
             <tr>
-              {columns.map((col) => {
+              {visibleColumns.map((col) => {
                 const isConvertedCol =
                   isGrossActive &&
                   GROSS_CONVERTIBLE_COL_REGEX.test(col) &&
@@ -303,9 +394,9 @@ const AiAnswerCard: React.FC<AiAnswerCardProps> = ({ answer, isDark, uomOverride
           <tbody>
             {displayRows.map((row, rowIndex) => (
               <tr key={rowIndex}>
-                {columns.map((col) => (
+                {visibleColumns.map((col) => (
                   <td key={col} className={numericColumns.has(col) ? 'ai-ans-num' : undefined}>
-                    {formatCell(row[col])}
+                    {renderStyledCell(col, row[col])}
                   </td>
                 ))}
               </tr>
@@ -316,18 +407,38 @@ const AiAnswerCard: React.FC<AiAnswerCardProps> = ({ answer, isDark, uomOverride
     );
   };
 
-  // ── Empty state — bilingual + clickable suggestions ────────────────────────
+  // ── Clarifying follow-up options (when Gemini asks for clarification) ────
+
+  const renderClarification = (): React.ReactNode => {
+    if (status !== 'clarification') return null;
+    const opts = answer.clarificationOptions || [];
+    if (opts.length === 0) return null;
+    return (
+      <div className="ai-ans-empty" style={{ marginTop: 8 }}>
+        <div className="ai-ans-suggestions">
+          {opts.map((opt, idx) => (
+            <button
+              key={`clarify-${idx}`}
+              type="button"
+              className="ai-ans-suggestion"
+              onClick={() => onSuggest?.({ type: 'filter', label: opt, labelUr: opt, value: opt })}
+              title={opt}
+            >
+              🎯 {opt}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  // ── Empty state — clean English + clickable suggestions ──────────────────
 
   const renderEmptyState = (): React.ReactNode => {
     if (status !== 'empty' || !emptyState) return null;
     return (
       <div className="ai-ans-empty">
-        <div className="ai-ans-empty-en">🔍 {emptyState.message.en}</div>
-        {emptyState.message.ur && (
-          <div className="ai-ans-empty-ur" dir="rtl">
-            {emptyState.message.ur}
-          </div>
-        )}
+        <div className="ai-ans-empty-en">🔍 {renderRichText(emptyState.message.en)}</div>
         {emptyState.suggestions.length > 0 && (
           <div className="ai-ans-suggestions">
             {emptyState.suggestions.map((s, idx) => (
@@ -336,7 +447,7 @@ const AiAnswerCard: React.FC<AiAnswerCardProps> = ({ answer, isDark, uomOverride
                 type="button"
                 className="ai-ans-suggestion"
                 onClick={() => onSuggest?.(s)}
-                title={s.labelUr || s.label}
+                title={s.label}
               >
                 {SUGGESTION_ICONS[s.type] ?? '🔎'} {s.label}
               </button>
@@ -353,6 +464,7 @@ const AiAnswerCard: React.FC<AiAnswerCardProps> = ({ answer, isDark, uomOverride
     const { meta, confidence, assumption, sql, truncated } = answer;
     return (
       <>
+        {renderClarification()}
         {renderEmptyState()}
         {hasRows && (
           <div className="ai-ans-rowcount">
@@ -373,7 +485,7 @@ const AiAnswerCard: React.FC<AiAnswerCardProps> = ({ answer, isDark, uomOverride
             <pre>{sql}</pre>
           </details>
         )}
-        {assumption && <div className="ai-ans-assumption">💡 {assumption}</div>}
+        {assumption && <div className="ai-ans-assumption">💡 {renderRichText(assumption)}</div>}
       </>
     );
   };

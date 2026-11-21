@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, HttpCode, HttpStatus, Post, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, HttpCode, HttpStatus, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
@@ -8,6 +8,7 @@ import { AskAiDto, TranscribeAudioDto } from '../dto/ai-assistant.dto';
 import { ReadOnlyDataSourceService } from '../services/read-only-datasource.service';
 import { SchemaCatalogService } from '../services/schema-catalog.service';
 import { TextToSqlService } from '../services/text-to-sql.service';
+import { UniversalLlmService } from '../services/universal-llm.service';
 import { WhisperSttService } from '../services/whisper-stt.service';
 
 /**
@@ -32,11 +33,29 @@ export class AiAssistantController {
     private readonly whisper: WhisperSttService,
     private readonly catalogService: SchemaCatalogService,
     private readonly dbPool: ReadOnlyDataSourceService,
+    private readonly llm: UniversalLlmService,
   ) {}
 
   /** Division UUIDs the caller may read (`undefined` = unrestricted). */
   private divisions(req: any): string[] | undefined {
     return divisionFilterFromRequest(req.allowedDivisionIds);
+  }
+
+  /**
+   * Intersect the caller's server-authorized division list with an optional
+   * UI-selected `divisionId`. Never widens access past server permissions.
+   */
+  private scopedDivisions(req: any, requestedDivisionId?: string): string[] | undefined {
+    const serverAllowed = this.divisions(req);
+    const reqDiv = (requestedDivisionId ?? '').trim();
+    if (!reqDiv || reqDiv.toUpperCase() === 'ALL') {
+      return serverAllowed;
+    }
+    if (serverAllowed === undefined) {
+      return [reqDiv];
+    }
+    const matched = serverAllowed.filter((id) => id.toLowerCase() === reqDiv.toLowerCase());
+    return matched.length > 0 ? matched : [];
   }
 
   // ── Text-to-SQL ────────────────────────────────────────────────────────────
@@ -50,12 +69,18 @@ export class AiAssistantController {
     description:
       'Translates the question into a read-only SQL SELECT via Google Gemini, enforces division ' +
       'row-level scoping, executes it on a read-only DB role and returns rows — or an intelligent ' +
-      'bilingual "no records found" response with clickable suggestions.',
+      'no-records-found response with clickable suggestions.',
   })
   async ask(@Body() dto: AskAiDto, @Req() req: any) {
     const answer = await this.textToSql.ask({
       question: dto.question,
-      allowedDivisionIds: this.divisions(req),
+      allowedDivisionIds: this.scopedDivisions(req, dto.divisionId),
+      departmentId: dto.departmentId,
+      departmentName: dto.departmentName,
+      dateFrom: dto.dateFrom,
+      dateTo: dto.dateTo,
+      periodLabel: dto.periodLabel,
+      language: dto.language,
       mode: 'text',
       userId: req.user?.id,
       userEmail: req.user?.email,
@@ -75,8 +100,7 @@ export class AiAssistantController {
     summary: 'Speak your question: audio → Whisper transcript → Text-to-SQL answer',
     description:
       'Upload a microphone recording (base64). The backend transcribes it with OpenAI Whisper ' +
-      '(Urdu/English code-switching aware) and feeds the transcript into the Text-to-SQL engine. ' +
-      'The response echoes `transcript` so the UI can show (and let the user correct) what was heard.',
+      'and feeds the transcript into the Text-to-SQL engine.',
   })
   async voice(@Body() dto: TranscribeAudioDto, @Req() req: any) {
     const audio = this.decodeAudio(dto.audioBase64);
@@ -87,7 +111,9 @@ export class AiAssistantController {
 
     const answer = await this.textToSql.ask({
       question: transcription.text,
-      allowedDivisionIds: this.divisions(req),
+      allowedDivisionIds: this.scopedDivisions(req, dto.divisionId),
+      departmentId: dto.departmentId,
+      departmentName: dto.departmentName,
       mode: 'voice',
       userId: req.user?.id,
       userEmail: req.user?.email,
@@ -120,9 +146,9 @@ export class AiAssistantController {
   @UseGuards(PermissionGuard)
   @RequirePermission('ai.query')
   @ApiOperation({ summary: 'Schema summary visible to the caller (domains, tables, divisions)', description: 'Drives the frontend suggestion chips and "what can I ask?" UI. Already narrowed by division scope; sensitive tables are never exposed.' })
-  async schema(@Req() req: any) {
+  async schema(@Req() req: any, @Query('divisionId') divisionId?: string) {
     const catalog = await this.catalogService.getCatalog();
-    const allowed = this.divisions(req);
+    const allowed = this.scopedDivisions(req, divisionId);
     const divisions = this.catalogService.visibleDivisions(catalog, allowed);
 
     const domains = [...new Set(catalog.tables.map((t) => t.domain))].sort();
@@ -138,10 +164,10 @@ export class AiAssistantController {
         ),
         divisions: divisions.map((d) => ({ id: d.id, code: d.code, name: d.name })),
         examples: [
-          'SPT division ki last month ki production kitni thi?',
+          'When was the last production entry made?',
+          'Show machine-wise production and efficiency this month',
           'Show top 10 customers by invoice amount this year',
-          'کون سی مشینوں کا ڈاؤن ٹائم سب سے زیادہ ہے؟',
-          'Which items are below reorder level in City warehouse?',
+          'Which machines had the highest downtime this month?',
         ],
       },
     };
@@ -152,13 +178,32 @@ export class AiAssistantController {
   @RequirePermission('ai.query')
   @ApiOperation({ summary: 'AI assistant readiness (read-only DB pool + provider keys)' })
   async health() {
-    const db = await this.dbPool.probe();
+    const [db, activeProvider] = await Promise.all([
+      this.dbPool.probe(),
+      this.llm.getActiveProviderInfo().catch(() => ({
+        source: 'none' as const,
+        platform: 'fallback' as const,
+        label: 'Not Configured',
+        model: '',
+        isPrimary: false,
+      })),
+    ]);
+    const hasActiveLlm = activeProvider.source !== 'none';
     return {
       success: true,
       data: {
-        database: db,
+        database: { ...db, ok: db.ready },
         providers: {
-          gemini: Boolean(process.env.GEMINI_API_KEY),
+          textToSql: Boolean(db.ready && hasActiveLlm),
+          gemini: hasActiveLlm,
+          activeProvider: hasActiveLlm
+            ? {
+                label: activeProvider.label,
+                model: activeProvider.model,
+                platform: activeProvider.platform,
+                source: activeProvider.source,
+              }
+            : null,
           whisper: this.whisper.enabled,
         },
       },

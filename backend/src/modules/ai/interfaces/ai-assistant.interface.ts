@@ -94,6 +94,10 @@ export interface EmptyStateResult {
 
 export interface GeminiSqlResponse {
   sql: string;
+  /** When true, the question is genuinely ambiguous — return a clarifying follow-up instead of guessing SQL. */
+  needs_clarification?: boolean;
+  clarification_question?: string;
+  clarification_options?: string[];
   /** One-line assumption the model made about an ambiguous question. */
   assumption?: string;
   explanation_en?: string;
@@ -133,7 +137,7 @@ export interface GeminiNarrationResponse {
 // ── Final API payload ────────────────────────────────────────────────────────
 
 export interface AiAnswer {
-  status: 'success' | 'empty';
+  status: 'success' | 'empty' | 'clarification';
   mode: 'text' | 'voice';
   question: string;
   /** Present for voice requests: what Whisper understood. */
@@ -142,6 +146,8 @@ export interface AiAnswer {
   sql: string;
   assumption?: string;
   explanation: { en: string; ur: string };
+  /** Clickable follow-up choices when status === 'clarification'. */
+  clarificationOptions?: string[];
   confidence?: number;
   columns: string[];
   rows: Record<string, unknown>[];

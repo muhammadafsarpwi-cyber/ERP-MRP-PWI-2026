@@ -50,8 +50,8 @@ const SENSITIVE_TABLES = new Set([
 /** Prefix-based sensitive rules (covers future notification_* style tables). */
 const SENSITIVE_PREFIXES = ['notification_', 'schema_migrations'];
 
-/** Hard caps keep the prompt small enough for fast, cheap inference. */
-const MAX_TABLES = 140;
+/** Hard caps keep the prompt comprehensive while remaining bounded. */
+const MAX_TABLES = 250;
 const MAX_COLUMNS_PER_TABLE = 45;
 const MAX_FKS_PER_TABLE = 12;
 const MAX_DEPARTMENTS = 250;

@@ -67,7 +67,7 @@ import {
   AiEmptyStateSuggestion,
 } from '../../services/aiAssistantService';
 import { useVoiceRecorder, blobToBase64 } from '../../hooks/useVoiceRecorder';
-import AiAnswerCard from './AiAnswerCard';
+import AiAnswerCard, { renderRichText } from './AiAnswerCard';
 import { useThemeStore } from '../../theme/themeStore';
 import dayjs from 'dayjs';
 import weekOfYear from 'dayjs/plugin/weekOfYear';
@@ -82,8 +82,8 @@ import {
   QueryIntent,
   ReportingUnit,
 } from './types';
-import { parseNaturalLanguageQuery } from './nlQueryParser';
-import { generateReportData, formatQty } from './reportGenerator';
+import { parseNaturalLanguageQuery, canonicalizeDivisionCode } from './nlQueryParser';
+import { generateReportData, formatQty, isStoreOrWarehouseDepartment } from './reportGenerator';
 import {
   detectExportCommand,
   buildAiReportWhatsAppText,
@@ -139,14 +139,12 @@ const CHART_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#e
 
 export const DIVISION_DEPARTMENTS: Record<string, DepartmentMeta[]> = {
   'DIV-CCD': [
-    { code: 'ALL', name: 'All Departments', shortName: 'All Depts' },
     { code: 'Flattening', name: 'Flattening Department', shortName: 'Flattening (FT)' },
     { code: 'Spiral', name: 'Spiral Department', shortName: 'Spiral (SP/SR)' },
     { code: 'PVC', name: 'PVC Coating Department', shortName: 'PVC (PV)' },
     { code: 'Packing', name: 'Packing Department', shortName: 'Packing (CPK)' },
   ],
   'DIV-SPD': [
-    { code: 'ALL', name: 'All Departments', shortName: 'All Depts' },
     { code: 'Spoke', name: 'Spoke Heading & Threading', shortName: 'Spoke (SPK)' },
     { code: 'Straightener', name: 'Wire Straightening', shortName: 'Straightener (ST)' },
     { code: 'Swagging', name: 'Swagging Department', shortName: 'Swagging (SW)' },
@@ -154,19 +152,18 @@ export const DIVISION_DEPARTMENTS: Record<string, DepartmentMeta[]> = {
     { code: 'Spoke Packing', name: 'Packing & Boxing', shortName: 'Packing (PKS)' },
   ],
   'DIV-PWI': [
-    { code: 'ALL', name: 'All Departments', shortName: 'All Depts' },
     { code: 'Drawing', name: 'Wire Drawing Line', shortName: 'Drawing' },
     { code: 'Galvanizing', name: 'Hot Dip Galvanizing Line', shortName: 'Galvanizing' },
     { code: 'Annealing', name: 'Annealing Furnace', shortName: 'Annealing' },
     { code: 'Packing', name: 'Finished Coils Packaging', shortName: 'Packing' },
   ],
   'DIV-NB': [
-    { code: 'ALL', name: 'All Departments', shortName: 'All Depts' },
     { code: 'Heading', name: 'Cold Heading Department', shortName: 'Heading' },
     { code: 'Threading', name: 'Roll Threading Department', shortName: 'Threading' },
     { code: 'Plating', name: 'Surface Finishing & Plating', shortName: 'Plating' },
     { code: 'Packing', name: 'Automated Bagging & Packing', shortName: 'Packing' },
   ],
+  'DIV-WRD': [],
 };
 
 const DEFAULT_DIVISIONS: DivisionMeta[] = [
@@ -223,6 +220,7 @@ const AiAssistantPage: React.FC = () => {
   const [divisionsList, setDivisionsList] = useState<DivisionMeta[]>(DEFAULT_DIVISIONS);
   const [selectedDivisionCode, setSelectedDivisionCode] = useState<string>('DIV-CCD');
   const [selectedDepartment, setSelectedDepartment] = useState<string>('ALL');
+  const [liveDepartmentsByDivision, setLiveDepartmentsByDivision] = useState<Record<string, DepartmentMeta[]>>({});
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [uomOverride, setUomOverride] = useState<string>('AUTO');
 
@@ -242,7 +240,24 @@ const AiAssistantPage: React.FC = () => {
     } catch {}
     return `session-${Date.now()}`;
   });
-  const [sidebarOpen, setSidebarOpen] = useState<boolean>(true);
+  // Responsive layout: mobile (< 768px) turns the left sidebar into a slide-over drawer.
+  const [isMobile, setIsMobile] = useState<boolean>(() => typeof window !== 'undefined' && window.innerWidth < 768);
+  const isMobileRef = useRef<boolean>(isMobile);
+  const [sidebarOpen, setSidebarOpen] = useState<boolean>(
+    () => !(typeof window !== 'undefined' && window.innerWidth < 768),
+  );
+  useEffect(() => {
+    const onResize = () => {
+      const mobile = window.innerWidth < 768;
+      if (mobile !== isMobileRef.current) {
+        isMobileRef.current = mobile;
+        setIsMobile(mobile);
+        setSidebarOpen(!mobile);
+      }
+    };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
   const [historySearch, setHistorySearch] = useState<string>('');
   const [settingsOpen, setSettingsOpen] = useState<boolean>(false);
 
@@ -291,10 +306,10 @@ const AiAssistantPage: React.FC = () => {
     });
   };
 
-  // Is server-side Speech-to-Text (Whisper / Gemini) or Text-to-SQL configured?
-  // When not configured, questions route directly through client-side natural-language & speech engines.
+  // Is server-side Speech-to-Text (Whisper) or Text-to-SQL (BYOK Gemini / LLM) configured & active?
   const serverSttAvailableRef = useRef<boolean | null>(null);
   const serverLlmAvailableRef = useRef<boolean | null>(null);
+  const [activeLlmLabel, setActiveLlmLabel] = useState<string | null>(null);
   useEffect(() => {
     let alive = true;
     aiAssistantService
@@ -302,13 +317,21 @@ const AiAssistantPage: React.FC = () => {
       .then((h: any) => {
         if (alive) {
           serverSttAvailableRef.current = Boolean(h?.providers?.whisper);
-          serverLlmAvailableRef.current = Boolean(h?.providers?.textToSql);
+          const dbReady = Boolean(h?.database?.ready ?? h?.database?.ok);
+          const llmReady = Boolean(h?.providers?.textToSql ?? (dbReady && h?.providers?.gemini));
+          serverLlmAvailableRef.current = llmReady;
+          if (llmReady && h?.providers?.activeProvider?.model) {
+            setActiveLlmLabel(`${h.providers.activeProvider.label || 'Gemini'} · ${h.providers.activeProvider.model}`);
+          } else {
+            setActiveLlmLabel(null);
+          }
         }
       })
       .catch(() => {
         if (alive) {
           serverSttAvailableRef.current = false;
           serverLlmAvailableRef.current = false;
+          setActiveLlmLabel(null);
         }
       });
     return () => {
@@ -352,7 +375,10 @@ const AiAssistantPage: React.FC = () => {
             DEFAULT_DIVISIONS[0],
             ...activeList.map((d: any) => {
               const code = d.divisionCode || d.code || 'DIV';
-              const existing = DEFAULT_DIVISIONS.find((x) => x.code === code || x.id === d.id);
+              const canon = canonicalizeDivisionCode(code, d.id);
+              const existing = DEFAULT_DIVISIONS.find(
+                (x) => x.code === code || x.id === d.id || canonicalizeDivisionCode(x.code, x.id) === canon,
+              );
               return {
                 id: d.id,
                 code: code,
@@ -363,6 +389,13 @@ const AiAssistantPage: React.FC = () => {
             }),
           ];
           setDivisionsList(merged);
+          // Sync selectedDivisionCode to exact API code if current value was canonical fallback (e.g. DIV-CCD -> DIV-002-CCD)
+          setSelectedDivisionCode((prev) => {
+            if (prev === 'ALL' || merged.some((m) => m.code === prev)) return prev;
+            const canonPrev = canonicalizeDivisionCode(prev);
+            const matched = merged.find((m) => canonicalizeDivisionCode(m.code, m.id) === canonPrev);
+            return matched ? matched.code : prev;
+          });
         }
       } catch {}
     })();
@@ -409,7 +442,15 @@ const AiAssistantPage: React.FC = () => {
   }, [messages, loading, currentSessionId, selectedDivisionCode, selectedDepartment]);
 
   const baseDivisionMeta = useMemo(() => {
-    return divisionsList.find((d) => d.code === selectedDivisionCode) || DEFAULT_DIVISIONS[1];
+    const canonSel = canonicalizeDivisionCode(selectedDivisionCode);
+    return (
+      divisionsList.find(
+        (d) =>
+          d.code === selectedDivisionCode ||
+          d.id === selectedDivisionCode ||
+          canonicalizeDivisionCode(d.code, d.id) === canonSel,
+      ) || DEFAULT_DIVISIONS[1]
+    );
   }, [divisionsList, selectedDivisionCode]);
 
   const activeDivisionMeta = useMemo<DivisionMeta>(() => {
@@ -417,13 +458,91 @@ const AiAssistantPage: React.FC = () => {
     return { ...baseDivisionMeta, uom: uomOverride };
   }, [baseDivisionMeta, uomOverride]);
 
+  // Fetch active production departments strictly scoped to the selected division
+  useEffect(() => {
+    if (!baseDivisionMeta || baseDivisionMeta.code === 'ALL' || !baseDivisionMeta.id || baseDivisionMeta.id === 'ALL') {
+      return;
+    }
+    const targetDivId = baseDivisionMeta.id;
+    let isMounted = true;
+    (async () => {
+      try {
+        const res: any = await apiService.get('/departments', {
+          divisionId: targetDivId,
+          status: 'ACTIVE',
+          departmentType: 'PRODUCTION',
+          limit: 100,
+        });
+        const list = res?.data || res?.items || (Array.isArray(res) ? res : []);
+        if (!isMounted) return;
+        const scoped = (list as any[])
+          .filter((d) => {
+            const matchesDirect = d.divisionId && String(d.divisionId).toLowerCase() === targetDivId.toLowerCase();
+            const matchesParent = d.division?.id && String(d.division.id).toLowerCase() === targetDivId.toLowerCase();
+            const matchesScope =
+              Array.isArray(d.divisionScopes) &&
+              d.divisionScopes.some((s: any) => String(s?.divisionId || s?.division?.id || '').toLowerCase() === targetDivId.toLowerCase());
+            return Boolean(matchesDirect || matchesParent || matchesScope);
+          })
+          .filter(
+            (d) =>
+              !isStoreOrWarehouseDepartment(
+                d.name,
+                d.departmentCode,
+                d.departmentType === 'PRODUCTION' ? undefined : d.departmentType,
+              ),
+          )
+          .map((d): DepartmentMeta => {
+            const name = String(d.name || d.departmentCode || 'Department').trim();
+            return {
+              id: d.id,
+              code: name,
+              name,
+              shortName: d.departmentCode ? `${name} (${d.departmentCode})` : name,
+              divisionId: d.divisionId || targetDivId,
+            };
+          });
+        setLiveDepartmentsByDivision((prev) => ({
+          ...prev,
+          [targetDivId]: scoped,
+        }));
+      } catch {}
+    })();
+    return () => { isMounted = false; };
+  }, [baseDivisionMeta]);
+
   const activeDepartments = useMemo(() => {
-    return DIVISION_DEPARTMENTS[selectedDivisionCode] || [];
-  }, [selectedDivisionCode]);
+    if (selectedDivisionCode === 'ALL' || baseDivisionMeta.code === 'ALL') return [];
+    const live = liveDepartmentsByDivision[baseDivisionMeta.id];
+    if (Array.isArray(live) && live.length > 0) {
+      return live;
+    }
+    const canonKey = canonicalizeDivisionCode(selectedDivisionCode, baseDivisionMeta.id);
+    return DIVISION_DEPARTMENTS[canonKey] || [];
+  }, [selectedDivisionCode, baseDivisionMeta, liveDepartmentsByDivision]);
+
+  // Guard: ensure selectedDepartment never holds a stale value from another division
+  useEffect(() => {
+    if (selectedDivisionCode === 'ALL') {
+      if (selectedDepartment !== 'ALL') setSelectedDepartment('ALL');
+      return;
+    }
+    if (selectedDepartment !== 'ALL' && activeDepartments.length > 0) {
+      const stillValid = activeDepartments.some(
+        (d) =>
+          d.code === selectedDepartment ||
+          d.name === selectedDepartment ||
+          (d.id && d.id === selectedDepartment),
+      );
+      if (!stillValid) {
+        setSelectedDepartment('ALL');
+      }
+    }
+  }, [selectedDivisionCode, activeDepartments, selectedDepartment]);
 
   // Contextual smart suggestions
   const currentSuggestions = useMemo(() => {
-    if (activeDivisionMeta.code === 'DIV-CCD') {
+    if (canonicalizeDivisionCode(activeDivisionMeta.code, activeDivisionMeta.id) === 'DIV-CCD') {
       if (selectedDepartment === 'Flattening') {
         return [
           {
@@ -531,14 +650,21 @@ const AiAssistantPage: React.FC = () => {
       localStorage.setItem('pwi_ai_active_session_id', newId);
       sessionStorage.removeItem('pwi_erp_ai_chat');
     } catch {}
+    if (isMobile) setSidebarOpen(false);
     message.success('Started a new chat session');
   };
 
   const handleSelectSession = (session: ChatSession) => {
     setCurrentSessionId(session.id);
     setMessages(session.messages || []);
-    if (session.divisionCode) setSelectedDivisionCode(session.divisionCode);
-    if (session.departmentCode) setSelectedDepartment(session.departmentCode);
+    if (isMobile) setSidebarOpen(false);
+    const nextDiv = session.divisionCode || 'DIV-CCD';
+    const nextDept =
+      session.divisionCode && canonicalizeDivisionCode(session.divisionCode) === canonicalizeDivisionCode(nextDiv)
+        ? session.departmentCode || 'ALL'
+        : 'ALL';
+    setSelectedDivisionCode(nextDiv);
+    setSelectedDepartment(nextDept);
     try {
       localStorage.setItem('pwi_ai_active_session_id', session.id);
     } catch {}
@@ -850,7 +976,7 @@ const AiAssistantPage: React.FC = () => {
                 marginBottom: 6,
               }}
             >
-              Section Tabs ({activeDivisionMeta.name})
+              Departments ({activeDivisionMeta.name})
             </div>
             <div
               style={{
@@ -859,7 +985,7 @@ const AiAssistantPage: React.FC = () => {
                 gap: 5,
               }}
             >
-              {activeDepartments.map((dept) => {
+              {[{ code: 'ALL', name: 'All Departments', shortName: 'All Depts' }, ...activeDepartments].map((dept) => {
                 const isSelected = selectedDepartment === dept.code;
                 return (
                   <button
@@ -1087,7 +1213,7 @@ const AiAssistantPage: React.FC = () => {
   // QUERY PIPELINE — backend Text-to-SQL first, legacy engine as fallback
   // ══════════════════════════════════════════════════════════════════════════
 
-  /** Map a backend AiAnswer into a chat bubble message. */
+  /** Map a backend AiAnswer into a chat bubble message (clean professional English only). */
   const buildAssistantMessage = (answer: AiAnswer, divisionCode: string): ChatMessage => {
     const dimension = answer.chart && answer.chart.dimension !== 'none' ? answer.chart.dimension : null;
     const dimensionLabel = dimension
@@ -1096,18 +1222,24 @@ const AiAssistantPage: React.FC = () => {
     return {
       id: `b-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       sender: 'assistant',
-      text: [answer.explanation?.en, answer.explanation?.ur].filter(Boolean).join('\n'),
+      text: answer.explanation?.en || 'Query completed successfully.',
       timestamp: dayjs().format('hh:mm A'),
       divisionScope: divisionCode,
-      reportTitle: answer.mode === 'voice'
-        ? `🎙️ Voice Answer${dimensionLabel ? ` — ${dimensionLabel}` : ''}`
-        : `${dimensionLabel || 'AI Query'} Report`,
+      reportTitle:
+        answer.status === 'clarification'
+          ? 'Clarification Needed'
+          : answer.mode === 'voice'
+          ? `🎙️ Voice Answer${dimensionLabel ? ` — ${dimensionLabel}` : ''}`
+          : `${dimensionLabel || 'AI Query'} Report`,
       backendAnswer: answer,
     };
   };
 
   const handleSend = async (customText?: string, overrideCode?: string, overrideDept?: string) => {
     if (loading) return;
+
+    // On mobile, close the slide-over drawer so the report gets the full screen.
+    if (isMobile) setSidebarOpen(false);
 
     // If the user clicked Send (→) while the voice microphone is still recording, stop the mic & capture the spoken transcript!
     let voiceCapturedText = '';
@@ -1118,8 +1250,21 @@ const AiAssistantPage: React.FC = () => {
 
     const effectiveCode = overrideCode || selectedDivisionCode;
     const effectiveDept = overrideDept !== undefined ? overrideDept : selectedDepartment;
-    const divMeta = divisionsList.find((d) => d.code === effectiveCode) || DEFAULT_DIVISIONS[1];
-    const deptMeta = activeDepartments.find((d) => d.code === effectiveDept);
+    const canonEffective = canonicalizeDivisionCode(effectiveCode);
+    const divMeta =
+      divisionsList.find(
+        (d) =>
+          d.code === effectiveCode ||
+          d.id === effectiveCode ||
+          canonicalizeDivisionCode(d.code, d.id) === canonEffective,
+      ) || DEFAULT_DIVISIONS[1];
+    const divDepartments =
+      effectiveCode === 'ALL' || divMeta.code === 'ALL'
+        ? []
+        : (liveDepartmentsByDivision[divMeta.id]?.length
+            ? liveDepartmentsByDivision[divMeta.id]
+            : DIVISION_DEPARTMENTS[canonicalizeDivisionCode(divMeta.code, divMeta.id)] || []);
+    const deptMeta = divDepartments.find((d) => d.code === effectiveDept || d.name === effectiveDept || d.id === effectiveDept);
     const deptLabel = effectiveDept !== 'ALL' ? (deptMeta?.name || effectiveDept) : '';
     const dateSuffix = selectedDate ? ` — ${dayjs(selectedDate).format('DD MMMM YYYY')}` : '';
 
@@ -1284,15 +1429,35 @@ const AiAssistantPage: React.FC = () => {
         lastDimension: intent.dimension,
       };
 
-      // 2. SPECIFIC-DATE GRANULAR LEDGER & GROSS UNIT CONVERSION PRIORITY:
+      // 2. ACTIVE BACKEND GEMINI LLM (TextToSqlService) PRIORITY:
+      // Forward open-ended, multi-table, Urdu/Roman Urdu, Raw Material Receiving, and general business queries
+      // directly to our active BYOK Gemini LLM with full Division / Department / Date context.
+      // Reserve local deterministic reportGenerator strictly for high-confidence specialized ERP layouts
+      // (specific-date granular ledger, Gross=144 PCS conversion, or automatic fallback when LLM is unavailable).
       const isGrossActive = effectiveUnit.toLowerCase() === 'gross';
-      if (serverLlmAvailableRef.current === true && intent.dimension !== 'daily_granular_ledger' && !isGrossActive) {
+      const shouldPreferLocalSpecialized =
+        intent.dimension === 'daily_granular_ledger' ||
+        isGrossActive ||
+        (intent.confidence === 'high' &&
+          (intent.dimension === 'last_entry' || intent.dimension === 'customer'));
+
+      if (serverLlmAvailableRef.current === true && !shouldPreferLocalSpecialized) {
         try {
-          const answer = await aiAssistantService.askQuestion(query);
+          const answer = await aiAssistantService.askQuestion(query, {
+            divisionId: divMeta.id,
+            departmentId: deptMeta?.id,
+            departmentName: effectiveDept !== 'ALL' ? (deptMeta?.name || effectiveDept) : undefined,
+            dateFrom: intent.period.startDate,
+            dateTo: intent.period.endDate,
+            periodLabel: intent.period.label,
+            language: voiceLang === 'ur-PK' ? 'ur' : 'en',
+          });
           const isCollapsedGrandTotalOnly =
+            answer.status === 'success' &&
             answer.rows.length <= 1 &&
             answer.columns.length <= 3 &&
-            !/\b(count|how many|total only)\b/i.test(query);
+            intent.confidence === 'high' &&
+            !/\b(count|how many|total only|when|last|which|who|what|supplier|most|highest|lowest)\b/i.test(query);
           if (!isCollapsedGrandTotalOnly) {
             const msgWithIntent = {
               ...buildAssistantMessage(answer, effectiveCode),
@@ -1302,7 +1467,9 @@ const AiAssistantPage: React.FC = () => {
             return;
           }
         } catch (aiErr) {
-          if (!isAiBackendUnavailable(aiErr)) {
+          // If query had a high-confidence local ERP handler (e.g. Raw Material Receiving), fall back seamlessly;
+          // otherwise surface Gemini's error/clarification instead of fabricating an unrelated production report.
+          if (!isAiBackendUnavailable(aiErr) && intent.confidence !== 'high') {
             setMessages((prev) => [
               ...prev,
               {
@@ -1323,6 +1490,7 @@ const AiAssistantPage: React.FC = () => {
         divisionsList,
         isDark,
         effectiveUnit,
+        divDepartments,
       );
 
       const botMsg: ChatMessage = {
@@ -1426,10 +1594,18 @@ const AiAssistantPage: React.FC = () => {
     try {
       // Compress and encode audio payload client-side to prevent 413 Request Entity Too Large
       const audioBase64 = await blobToBase64(blob);
+      const voiceDeptMeta = activeDepartments.find(
+        (d) => d.code === selectedDepartment || d.name === selectedDepartment || d.id === selectedDepartment,
+      );
       const answer = await aiAssistantService.voiceQuery(
         audioBase64,
         mimeType || 'audio/webm',
         'ur', // Whisper auto-detects English inside Urdu speech anyway
+        {
+          divisionId: activeDivisionMeta.id,
+          departmentId: voiceDeptMeta?.id,
+          departmentName: selectedDepartment !== 'ALL' ? (voiceDeptMeta?.name || selectedDepartment) : undefined,
+        },
       );
       lastQuestionRef.current = answer.transcript || answer.question || '';
       setMessages((prev) => [
@@ -1507,6 +1683,10 @@ const AiAssistantPage: React.FC = () => {
         handleSend(`Show me production data for ${div.name}`, div.code, 'ALL');
         return;
       }
+    }
+    if (suggestion.type === 'filter' && suggestion.value) {
+      handleSend(suggestion.value);
+      return;
     }
     const base = lastQuestionRef.current;
     handleSend(base ? `${base} — try ${suggestion.label}` : suggestion.label);
@@ -1647,7 +1827,7 @@ const AiAssistantPage: React.FC = () => {
             ? 'linear-gradient(90deg, #1e3a8a 0%, #0f172a 100%)'
             : 'linear-gradient(90deg, #1d4ed8 0%, #1e40af 100%)',
           color: '#ffffff',
-          padding: '8px 16px',
+          padding: isMobile ? '6px 10px' : '8px 16px',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
@@ -1659,10 +1839,19 @@ const AiAssistantPage: React.FC = () => {
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Tooltip title={sidebarOpen ? 'Hide History & Prompts' : 'Show History & Prompts'}>
+          <Tooltip
+            title={
+              isMobile
+                ? 'History & Quick Prompts'
+                : sidebarOpen
+                ? 'Hide History & Prompts'
+                : 'Show History & Prompts'
+            }
+          >
             <Button
               type="text"
-              icon={sidebarOpen ? <MenuFoldOutlined /> : <MenuUnfoldOutlined />}
+              aria-label="History & Quick Prompts"
+              icon={isMobile ? <HistoryOutlined /> : sidebarOpen ? <MenuFoldOutlined /> : <MenuUnfoldOutlined />}
               onClick={() => setSidebarOpen((prev) => !prev)}
               style={{
                 color: '#ffffff',
@@ -1693,7 +1882,7 @@ const AiAssistantPage: React.FC = () => {
             <div style={{ fontWeight: 800, fontSize: 15, letterSpacing: '0.2px', lineHeight: 1.2 }}>
               PWI AI Assistant & Analytics
             </div>
-            <div style={{ fontSize: 10, color: 'rgba(255, 255, 255, 0.85)', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ fontSize: 10, color: 'rgba(255, 255, 255, 0.85)', display: isMobile ? 'none' : 'flex', alignItems: 'center', gap: 6 }}>
               <span>Live Manufacturing Intelligence</span>
               <span>•</span>
               <Badge status="processing" color="#10b981" text={<span style={{ color: '#a7f3d0', fontSize: 10 }}>Supabase Live</span>} />
@@ -1716,7 +1905,7 @@ const AiAssistantPage: React.FC = () => {
               backdropFilter: 'blur(4px)',
             }}
           >
-            AI Providers (BYOK)
+            {!isMobile && 'AI Providers (BYOK)'}
           </Button>
           <Button
             type="primary"
@@ -1733,26 +1922,52 @@ const AiAssistantPage: React.FC = () => {
               boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
             }}
           >
-            New Chat
+            {!isMobile && 'New Chat'}
           </Button>
         </div>
       </div>
 
       {/* ── Main Body: Left Sidebar + Central Chat Area ───────────────── */}
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden', position: 'relative', minHeight: 0 }}>
+        {/* Mobile backdrop: tap outside the slide-over drawer to close it */}
+        {isMobile && sidebarOpen && (
+          <div
+            onClick={() => setSidebarOpen(false)}
+            style={{
+              position: 'absolute',
+              inset: 0,
+              background: 'rgba(15, 23, 42, 0.45)',
+              zIndex: 20,
+            }}
+          />
+        )}
         {/* ── Left Sidebar (Chat History & Quick Prompts) ─────────────── */}
         <div
           style={{
-            width: sidebarOpen ? 260 : 0,
-            minWidth: sidebarOpen ? 260 : 0,
-            transition: 'width 0.22s cubic-bezier(0.4, 0, 0.2, 1)',
+            ...(isMobile
+              ? {
+                  position: 'absolute' as const,
+                  top: 0,
+                  bottom: 0,
+                  left: 0,
+                  width: 'min(320px, 86vw)',
+                  minWidth: 0,
+                  transform: sidebarOpen ? 'translateX(0)' : 'translateX(-102%)',
+                  transition: 'transform 0.22s ease, visibility 0.22s',
+                  boxShadow: sidebarOpen ? '4px 0 24px rgba(0, 0, 0, 0.35)' : 'none',
+                }
+              : {
+                  width: sidebarOpen ? 260 : 0,
+                  minWidth: sidebarOpen ? 260 : 0,
+                  transition: 'width 0.22s cubic-bezier(0.4, 0, 0.2, 1)',
+                }),
             background: isDark ? '#0f172a' : '#ffffff',
             borderRight: isDark ? '1px solid #1e293b' : '1px solid #e2e8f0',
             display: 'flex',
             flexDirection: 'column',
             overflow: 'hidden',
             visibility: sidebarOpen ? 'visible' : 'hidden',
-            zIndex: 5,
+            zIndex: isMobile ? 30 : 5,
           }}
         >
           {/* Sidebar Top: New Chat & Search */}
@@ -1944,20 +2159,21 @@ const AiAssistantPage: React.FC = () => {
         </div>
 
         {/* ── Main Workspace: Messages & Bottom Dock ──────────────────── */}
-        <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', minWidth: 0, width: '100%' }}>
 
       {/* ── Chat Messages Body ───────────────────────────────────────────── */}
       <div
         style={{
           flex: 1,
           overflowY: 'auto',
-          padding: '20px 20px',
+          padding: isMobile ? '10px 8px' : '16px 20px',
           display: 'flex',
           flexDirection: 'column',
-          alignItems: 'center',
+          alignItems: 'stretch',
+          minWidth: 0,
         }}
       >
-        <div style={{ width: '100%', maxWidth: 980 }}>
+        <div style={{ width: '100%', maxWidth: '100%', minWidth: 0 }}>
           {/* Welcome Screen */}
           {messages.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '30px 10px 10px', animation: 'fadeIn 0.3s ease' }}>
@@ -2083,13 +2299,13 @@ const AiAssistantPage: React.FC = () => {
                     style={{
                       display: 'flex',
                       gap: 10,
-                      maxWidth: msg.sender === 'user' ? '80%' : '100%',
+                      maxWidth: msg.sender === 'user' ? (isMobile ? '92%' : '80%') : '100%',
                       alignItems: 'flex-start',
                       flexDirection: msg.sender === 'user' ? 'row-reverse' : 'row',
                       width: msg.sender === 'assistant' ? '100%' : undefined,
                     }}
                   >
-                    {msg.sender === 'assistant' && (
+                    {msg.sender === 'assistant' && !isMobile && (
                       <div
                         style={{
                           width: 36,
@@ -2118,7 +2334,7 @@ const AiAssistantPage: React.FC = () => {
                         color: msg.sender === 'user'
                           ? '#ffffff'
                           : (isDark ? '#f8fafc' : '#0f172a'),
-                        padding: '14px 18px',
+                        padding: isMobile ? '10px 10px' : '14px 18px',
                         borderRadius: msg.sender === 'user' ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
                         fontSize: 14,
                         lineHeight: 1.6,
@@ -2216,9 +2432,9 @@ const AiAssistantPage: React.FC = () => {
                         </div>
                       )}
 
-                      {/* Text Summary */}
-                      <div style={{ whiteSpace: 'pre-line', color: msg.sender === 'user' ? '#ffffff' : (isDark ? '#f8fafc' : '#0f172a') }}>
-                        {msg.text}
+                      {/* Text Summary (renders **bold** and `code` cleanly without raw asterisks) */}
+                      <div style={{ color: msg.sender === 'user' ? '#ffffff' : (isDark ? '#f8fafc' : '#0f172a') }}>
+                        {msg.sender === 'assistant' ? renderRichText(msg.text) : msg.text}
                       </div>
 
                       {/* Inline WhatsApp Formatted Report Box (when requested via chat/voice) */}
@@ -2346,7 +2562,10 @@ const AiAssistantPage: React.FC = () => {
                           style={{
                             marginTop: 14,
                             borderRadius: 8,
-                            overflow: 'hidden',
+                            overflowX: 'auto',
+                            overflowY: 'hidden',
+                            WebkitOverflowScrolling: 'touch',
+                            maxWidth: '100%',
                             border: isDark ? '1px solid #334155' : '1px solid #e2e8f0',
                             background: isDark ? '#0f172a' : '#ffffff',
                           }}
@@ -2594,20 +2813,20 @@ const AiAssistantPage: React.FC = () => {
         style={{
           background: isDark ? '#0f172a' : '#ffffff',
           borderTop: isDark ? '1px solid #1e293b' : '1px solid #e2e8f0',
-          padding: '10px 16px',
+          padding: isMobile ? '8px 8px calc(8px + env(safe-area-inset-bottom, 0px))' : '10px 20px',
           boxShadow: isDark
             ? '0 -4px 18px rgba(0,0,0,0.5)'
             : '0 -2px 14px rgba(0,0,0,0.04)',
           zIndex: 10,
         }}
       >
-        <div style={{ maxWidth: 1120, margin: '0 auto' }}>
+        <div style={{ width: '100%', maxWidth: '100%' }}>
           {/* Unified Zero-Scroll Bottom Dock: Division Dropdown + Dept/Section Dropdown + Chat Input + Sticky Settings Gear + Mic + Send */}
           <div
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: 8,
+              gap: isMobile ? 6 : 8,
               flexWrap: 'wrap',
               background: isDark ? '#1e293b' : '#f8fafc',
               border: isListening
@@ -2615,8 +2834,8 @@ const AiAssistantPage: React.FC = () => {
                 : isDark
                 ? '1.5px solid #3b82f6'
                 : '1.5px solid #bfdbfe',
-              borderRadius: 28,
-              padding: '6px 8px 6px 12px',
+              borderRadius: isMobile ? 18 : 28,
+              padding: isMobile ? '8px' : '6px 8px 6px 12px',
               transition: 'all 0.2s ease',
               boxShadow: isListening
                 ? '0 0 14px rgba(239, 68, 68, 0.45)'
@@ -2626,13 +2845,21 @@ const AiAssistantPage: React.FC = () => {
             }}
           >
             {/* Bottom-Anchored Division Selector (inline next to chat input) */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+                order: 1,
+                ...(isMobile ? { flex: '1 1 calc(50% - 4px)', minWidth: 0 } : { flexShrink: 0 }),
+              }}
+            >
               <ApartmentOutlined style={{ color: '#3b82f6', fontSize: 13 }} />
               <Select
                 size="small"
                 value={selectedDivisionCode}
                 onChange={handleDivisionSwitch}
-                style={{ width: 155, fontSize: 12 }}
+                style={{ width: isMobile ? '100%' : 155, minWidth: 0, flex: isMobile ? 1 : undefined, fontSize: 12 }}
                 popupMatchSelectWidth={200}
                 options={divisionsList.map((div) => ({
                   value: div.code,
@@ -2647,7 +2874,8 @@ const AiAssistantPage: React.FC = () => {
                 display: 'flex',
                 alignItems: 'center',
                 gap: 4,
-                flexShrink: 0,
+                order: 2,
+                ...(isMobile ? { flex: '1 1 calc(50% - 4px)', minWidth: 0 } : { flexShrink: 0 }),
               }}
             >
               <FilterOutlined style={{ color: '#0284c7', fontSize: 12 }} />
@@ -2655,11 +2883,11 @@ const AiAssistantPage: React.FC = () => {
                 size="small"
                 value={selectedDepartment}
                 onChange={handleDepartmentSwitch}
-                style={{ width: 135, fontSize: 12 }}
-                popupMatchSelectWidth={210}
+                style={{ width: isMobile ? '100%' : 155, minWidth: 0, flex: isMobile ? 1 : undefined, fontSize: 12 }}
+                popupMatchSelectWidth={220}
                 disabled={selectedDivisionCode === 'ALL'}
                 options={[
-                  { value: 'ALL', label: 'All Dept / Sections' },
+                  { value: 'ALL', label: 'All Departments' },
                   ...activeDepartments.map((dept) => ({
                     value: dept.code,
                     label: dept.name,
@@ -2674,9 +2902,14 @@ const AiAssistantPage: React.FC = () => {
                 display: 'flex',
                 alignItems: 'center',
                 gap: 4,
-                flexShrink: 0,
-                paddingRight: 6,
-                borderRight: isDark ? '1px solid #334155' : '1px solid #cbd5e1',
+                order: 3,
+                ...(isMobile
+                  ? { flex: '1 1 100%', minWidth: 0 }
+                  : {
+                      flexShrink: 0,
+                      paddingRight: 6,
+                      borderRight: isDark ? '1px solid #334155' : '1px solid #cbd5e1',
+                    }),
               }}
             >
               <Tooltip title="Select Date (then type your question or click Send →)">
@@ -2693,7 +2926,7 @@ const AiAssistantPage: React.FC = () => {
                       message.info(`Date selected: ${d.format('DD-MMM-YYYY')}. Type your question or click Send (→) to run.`);
                     }
                   }}
-                  style={{ width: 128, fontSize: 12 }}
+                  style={{ width: isMobile ? '100%' : 128, fontSize: 12 }}
                 />
               </Tooltip>
             </div>
@@ -2704,6 +2937,8 @@ const AiAssistantPage: React.FC = () => {
               placeholder={
                 isListening
                   ? `Recording ${elapsedSeconds}s${liveTranscript ? ` — "${liveTranscript}"` : '… click mic to stop & send'}`
+                  : isMobile
+                  ? `Ask about ${activeDivisionMeta.name}...`
                   : `Ask anything about ${activeDivisionMeta.name} (items, rejection, downtime, machines, operators)...`
               }
               value={inputText}
@@ -2715,8 +2950,9 @@ const AiAssistantPage: React.FC = () => {
                 }
               }}
               style={{
-                flex: 1,
-                minWidth: 200,
+                flex: '1 1 0',
+                minWidth: isMobile ? 0 : 200,
+                order: 4,
                 fontSize: 13.5,
                 color: isDark ? '#f8fafc' : '#0f172a',
               }}
@@ -2724,6 +2960,7 @@ const AiAssistantPage: React.FC = () => {
             />
 
             {/* Sticky Settings Gear Icon (Packs PCS/Gross/Unit toggles, Section pills, & Clear Chat inside the bottom dock) */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, order: 5 }}>
             <Popover
               content={renderSettingsPopoverContent()}
               trigger="click"
@@ -2835,6 +3072,7 @@ const AiAssistantPage: React.FC = () => {
                 }}
               />
             </Tooltip>
+            </div>
           </div>
 
           <div
@@ -2842,6 +3080,8 @@ const AiAssistantPage: React.FC = () => {
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: 4,
               marginTop: 5,
               padding: '0 8px',
               fontSize: 11,
@@ -2849,7 +3089,7 @@ const AiAssistantPage: React.FC = () => {
             }}
           >
             <div>
-              💡 <span>Active Scope: <strong>{activeDivisionMeta.name}</strong> • Section: <strong>{selectedDepartment === 'ALL' ? 'All Sections' : selectedDepartment}</strong> • Unit: <strong>{activeDivisionMeta.uom}</strong> • Supabase PostgreSQL Live</span>
+              💡 <span>Active Scope: <strong>{activeDivisionMeta.name}</strong> • Department: <strong>{selectedDepartment === 'ALL' ? 'All Departments' : selectedDepartment}</strong> • Unit: <strong>{activeDivisionMeta.uom}</strong>{!isMobile && (activeLlmLabel ? ` • ${activeLlmLabel}` : ' • Supabase PostgreSQL Live')}</span>
             </div>
             <div style={{ display: 'flex', gap: 6 }}>
               <Tooltip title="Helpful">

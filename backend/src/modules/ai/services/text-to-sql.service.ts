@@ -19,6 +19,15 @@ export interface AskInput {
   question: string;
   /** `undefined` = unrestricted; `[]` = deny-all; otherwise allowed division UUIDs. */
   allowedDivisionIds: string[] | undefined;
+  /** Optional UI-selected department UUID / name to narrow queries further. */
+  departmentId?: string;
+  departmentName?: string;
+  /** Optional UI-selected date window (YYYY-MM-DD). */
+  dateFrom?: string;
+  dateTo?: string;
+  periodLabel?: string;
+  /** Preferred response language ('en' default; 'ur' if user requested Urdu/Roman Urdu). */
+  language?: 'en' | 'ur';
   mode: 'text' | 'voice';
   userId?: string;
   userEmail?: string;
@@ -60,7 +69,7 @@ export class TextToSqlService {
     private readonly db: ReadOnlyDataSourceService,
     private readonly advisor: EmptyResultAdvisorService,
     private readonly activityLog: ActivityLogService,
-  ) {}
+  ) { }
 
   async ask(input: AskInput): Promise<AiAnswer> {
     const question = (input.question ?? '').trim();
@@ -81,6 +90,8 @@ export class TextToSqlService {
     await this.db.ensureReady();
 
     const catalog = await this.catalogService.getCatalog();
+    const activeProvider = await this.llm.getActiveProviderInfo().catch(() => null);
+    const activeModelLabel = activeProvider?.model || this.cfg.gemini.model;
     const guardCtx = {
       catalog,
       allowedDivisionIds: input.allowedDivisionIds,
@@ -98,12 +109,55 @@ export class TextToSqlService {
       let candidate: GeminiSqlResponse;
       try {
         candidate = await this.llm.generateJson<GeminiSqlResponse>(
-          this.buildSystemPrompt(catalog, input.allowedDivisionIds),
+          this.buildSystemPrompt(catalog, input.allowedDivisionIds, {
+            departmentId: input.departmentId,
+            departmentName: input.departmentName,
+            dateFrom: input.dateFrom,
+            dateTo: input.dateTo,
+            periodLabel: input.periodLabel,
+            language: input.language,
+          }),
           this.buildUserPrompt(question, previousSql, lastIssue),
           0,
         );
       } finally {
         llmMs += Date.now() - llmStarted;
+      }
+
+      // ── 1b. Polite clarification instead of guessing an unrelated table ───
+      if (candidate?.needs_clarification && candidate?.clarification_question?.trim()) {
+        const totalMs = Date.now() - startedAt;
+        const clarificationText = candidate.clarification_question.trim();
+        const options = Array.isArray(candidate.clarification_options)
+          ? candidate.clarification_options.map((o) => String(o || '').trim()).filter(Boolean).slice(0, 4)
+          : undefined;
+        const answer: AiAnswer = {
+          status: 'clarification',
+          mode: input.mode,
+          question,
+          transcript: input.transcript,
+          detectedLanguage: input.detectedLanguage,
+          sql: '',
+          assumption: candidate.assumption,
+          explanation: { en: clarificationText, ur: '' },
+          clarificationOptions: options,
+          confidence: candidate.confidence ?? 0.5,
+          columns: [],
+          rows: [],
+          rowCount: 0,
+          truncated: false,
+          meta: {
+            model: activeModelLabel,
+            attempts: attempt,
+            llmMs,
+            dbMs: 0,
+            totalMs,
+            divisionsScopedTo:
+              input.allowedDivisionIds === undefined ? ('ALL' as const) : input.allowedDivisionIds.length,
+          },
+        };
+        this.audit(input, answer);
+        return answer;
       }
 
       const sql = (candidate?.sql ?? '').trim();
@@ -149,7 +203,7 @@ export class TextToSqlService {
       // ── 4. Interpret ──────────────────────────────────────────────────────
       const totalMs = Date.now() - startedAt;
       const meta = {
-        model: this.cfg.gemini.model,
+        model: activeModelLabel,
         attempts: attempt,
         llmMs,
         dbMs,
@@ -175,8 +229,8 @@ export class TextToSqlService {
           sql: validation.sql,
           assumption: candidate.assumption,
           explanation: {
-            en: candidate.explanation_en ?? 'The query executed successfully.',
-            ur: candidate.explanation_ur ?? 'کوئری درست چلی لیکن کوئی ریکارڈ نہیں ملا۔',
+            en: candidate.explanation_en ?? 'The query ran successfully, but no matching records were found.',
+            ur: '',
           },
           confidence: candidate.confidence,
           columns: execution.columns,
@@ -194,12 +248,12 @@ export class TextToSqlService {
           );
         const filteredRows = isCustomerOrSalesAsk
           ? execution.rows.filter((row) => {
-              const nameCandidate = String(
-                row.customer_name ?? row.customer ?? row.company_name ?? row.name ?? '',
-              ).trim();
-              if (!nameCandidate) return true;
-              return !/pakistan\s*wire(\s*industries)?|\bpwi\b/i.test(nameCandidate);
-            })
+            const nameCandidate = String(
+              row.customer_name ?? row.customer ?? row.company_name ?? row.name ?? '',
+            ).trim();
+            if (!nameCandidate) return true;
+            return !/pakistan\s*wire(\s*industries)?|\bpwi\b/i.test(nameCandidate);
+          })
           : execution.rows;
 
         answer = {
@@ -211,8 +265,8 @@ export class TextToSqlService {
           sql: validation.sql,
           assumption: candidate.assumption,
           explanation: {
-            en: candidate.explanation_en ?? 'Here are the matching records.',
-            ur: candidate.explanation_ur ?? 'مندرجہ ذیل ریکارڈز موجود ہیں۔',
+            en: candidate.explanation_en ?? 'Here are the matching ERP records.',
+            ur: '',
           },
           confidence: candidate.confidence,
           columns: execution.columns,
@@ -244,10 +298,51 @@ export class TextToSqlService {
 
   // ── prompt engineering ─────────────────────────────────────────────────────
 
-  private buildSystemPrompt(catalog: SchemaCatalog, allowedDivisionIds?: string[]): string {
+  private buildSystemPrompt(
+    catalog: SchemaCatalog,
+    allowedDivisionIds?: string[],
+    activeScope?: {
+      departmentId?: string;
+      departmentName?: string;
+      dateFrom?: string;
+      dateTo?: string;
+      periodLabel?: string;
+      language?: 'en' | 'ur';
+    },
+  ): string {
     const today = new Date().toISOString().slice(0, 10);
+    const activeDivPrompt =
+      Array.isArray(allowedDivisionIds) && allowedDivisionIds.length === 1
+        ? `STRICT UI DIVISION LOCK: You MUST restrict EVERY query exclusively to division_id = '${allowedDivisionIds[0]}'. Never include rows from other divisions.`
+        : 'Respect caller division scope rules strictly.';
+    const safeDeptId = (activeScope?.departmentId ?? '').replace(/'/g, "''");
+    const safeDeptName = (activeScope?.departmentName ?? '').replace(/'/g, "''");
+    const activeDeptPrompt =
+      safeDeptId || safeDeptName
+        ? `STRICT UI DEPARTMENT FILTER: Also filter operational queries to department (${safeDeptId ? `department_id = '${safeDeptId}'` : `d.name ILIKE '%${safeDeptName}%'`}).`
+        : 'If no department filter is active, show department breakdowns cleanly.';
+    const activeDatePrompt =
+      activeScope?.dateFrom && activeScope?.dateTo
+        ? `ACTIVE UI DATE WINDOW: Default date range is ${activeScope.dateFrom} to ${activeScope.dateTo}${activeScope.periodLabel ? ` (${activeScope.periodLabel})` : ''} unless the user explicitly specifies another date or asks for all-time / current stock balance.`
+        : `ACTIVE UI DATE WINDOW: Today is ${today}. If user says "this month", use DATE_TRUNC('month', CURRENT_DATE)::date to CURRENT_DATE.`;
+    const languageRule =
+      activeScope?.language === 'ur'
+        ? 'If the user wrote in Urdu or Roman Urdu, you may reply in polite Urdu/Roman Urdu inside explanation_en; otherwise write strictly in clean, professional English.'
+        : 'All explanations, headings, and labels MUST be written strictly in clean, professional English (reply in Urdu/Roman Urdu only if the user explicitly writes in Urdu/Roman Urdu).';
+
     return `You are the SQL engine of "PWI ERP", a manufacturing ERP/MRP system (NestJS + PostgreSQL) 
-used by a Pakistani factory with multiple divisions/business units (SPT, PL, City/CT...).
+used by a Pakistani factory with multiple divisions/business units.
+${languageRule}
+
+# ACTIVE UI FILTER SCOPE
+- ${activeDivPrompt}
+- ${activeDeptPrompt}
+- ${activeDatePrompt}
+
+# CLARIFYING FOLLOW-UPS (NEVER GUESS AN UNRELATED TABLE)
+- If the user's question is genuinely ambiguous or missing critical intent (for example, simply typing "raw material" or "stock" without making clear whether they mean *Raw Material Received* vs *Current Closing RM Stock*, or an underspecified query whose target metric is unclear), DO NOT fabricate an unrelated production table!
+- Instead, return JSON with \`"needs_clarification": true\`, a concise, polite \`"clarification_question"\`, 2–3 short clickable \`"clarification_options"\` strings, and \`"sql": ""\`.
+- When the user's intent IS clear (such as "Show item-wise raw material received this month in this division", "Which supplier delivered the most wire?", or "When was the last entry made?"), set \`"needs_clarification": false\` and produce the exact read-only SELECT query immediately.
 
 # TASK
 Translate the user's question (English, Urdu, or mixed) into ONE PostgreSQL read-only SELECT statement.
@@ -323,10 +418,10 @@ C) "shift-wise", "per shift" → GROUP BY shift (shifts.shift_name via pe.shift_
 D) "division-wise", "per division", "compare divisions" → GROUP BY division (divisions.division_code/name).
 E) "day-wise"/"daily"/"by date" → GROUP BY pe.entry_date (date_trunc for wider ranges).
 F) "department-wise" → GROUP BY departments.name via pe.department_id.
-G) "top customers", "customers by sales volume", "customer sales", "client sales" → GROUP BY CUSTOMER:
-   • JOIN customers c ON c.id = so.customer_id (so = sales_orders or si = sales_invoices).
+G) "top customers", "customers by sales volume", "customer sales", "client sales", "dispatched to <customer>" → CUSTOMER DISPATCH & ORDER BALANCE:
+   • JOIN erp_sales.customers c (or customers c) on customer_id across sales_orders / sales_deliveries.
    • ALWAYS filter out our company: WHERE c.name NOT ILIKE '%Pakistan Wire%' AND c.name NOT ILIKE '%PWI%'.
-   • Aggregate SUM(so.total_amount) AS total_sales, COUNT(so.id) AS order_count.
+   • If the user names a specific customer (e.g., "Crown", "Crown Fit", "Ali Shah", "SSD Autos"), strictly filter WHERE c.name ILIKE '%<name>%' OR c.customer_code ILIKE '%<name>%' and return item-wise dispatch & pending order breakdown (date/doc #, item code & name, ordered, dispatched, pending balance) instead of listing unrelated customers.
    • NEVER query production_entries, suppliers, or company records.
 H) "department production", "spoke division production", "operational production" → PRODUCTION LOGS:
    • Query production_entries pe, join departments d ON d.id = pe.department_id.
@@ -386,12 +481,77 @@ J) MAINTENANCE JOB CARDS, BREAKDOWNS & SPARE PARTS COST (e.g. "How many job card
       ORDER BY total_job_cards DESC
       LIMIT 100
 
+K) LAST ENTRY / LATEST ACTIVITY ("when was the last entry made", "last entry", "latest production entry", "recent activity"):
+   • Return a Department-Wise Last Production Entry report for the scoped division(s) — NEVER fall back to an undated Machine Performance summary!
+   • Query active production departments scoped to the allowed division(s) and join their latest row from \`production_entries pe\` ordered by \`pe.entry_date DESC, pe.created_at DESC\`:
+     SELECT d.division_id,
+            d.name AS "DEPARTMENT / SECTION",
+            COALESCE(TO_CHAR(latest.entry_date, 'YYYY-MM-DD'), 'No entries recorded') AS "LAST ENTRY DATE",
+            COALESCE(latest.entry_number, '—') AS "LAST ENTRY #",
+            CASE
+              WHEN latest.entry_number IS NOT NULL THEN CONCAT(COALESCE(latest.item_name, 'Production Item'), ' — ', ROUND(COALESCE(latest.actual_quantity, 0)::numeric, 2), COALESCE(' ' || latest.uom_code, ''))
+              ELSE '—'
+            END AS "LAST ITEM & QTY",
+            CASE
+              WHEN latest.entry_date IS NULL THEN 'Inactive'
+              WHEN (CURRENT_DATE - latest.entry_date) <= 0 THEN 'Today'
+              WHEN (CURRENT_DATE - latest.entry_date) = 1 THEN '1 day ago'
+              ELSE (CURRENT_DATE - latest.entry_date)::text || ' days ago'
+            END AS "STATUS / RECENCY"
+       FROM departments d
+       LEFT JOIN LATERAL (
+         SELECT pe.entry_date, pe.entry_number, pe.actual_quantity,
+                i.name AS item_name, u.code AS uom_code
+           FROM production_entries pe
+           LEFT JOIN items i ON i.id = pe.item_id
+           LEFT JOIN uoms u ON u.id = pe.uom_id
+          WHERE pe.department_id = d.id
+            AND pe.division_id = d.division_id
+          ORDER BY pe.entry_date DESC, pe.created_at DESC
+          LIMIT 1
+       ) latest ON TRUE
+      WHERE d.status = 'ACTIVE'
+        AND d.department_type = 'PRODUCTION'
+        AND d.division_id IS NOT NULL
+        AND d.name NOT ILIKE '%store%'
+        AND d.name NOT ILIKE '%warehouse%'
+        AND d.name NOT ILIKE '%raw material%'
+        AND d.name NOT ILIKE '%finished goods%'
+        AND d.department_code NOT ILIKE '%-GS-%'
+      ORDER BY latest.entry_date DESC NULLS LAST, d.name ASC
+      LIMIT 100
+   • Set "chartType": "table" in the response JSON.
+   • Store / warehouse departments (General Store, Raw Material (RM), Finished Goods Store, anything named store/warehouse) are NOT production floors: always exclude them from production activity reports.
+
+L) RAW MATERIAL RECEIVING & RAW MATERIAL STOCK BALANCE ("raw material received", "item-wise raw material received", "rm received", "material received", "receiving", "grn", "gate pass", "raw material stock balance"):
+   • NEVER query \`production_entries\` for raw material receiving or raw material stock questions!
+   • For Raw Material Receiving queries, query \`raw_material_receipts r JOIN raw_material_receipt_lines l ON l.receipt_id = r.id JOIN items i ON i.id = l.item_id LEFT JOIN uoms u ON u.id = l.uom_id\`:
+     SELECT r.division_id,
+            i.item_code AS "ITEM CODE",
+            i.name AS "RAW MATERIAL ITEM NAME",
+            COUNT(DISTINCT r.id) AS "RECEIPTS / GATE PASSES",
+            ROUND(SUM(l.received_quantity)::numeric, 2) AS "TOTAL RECEIVED QTY / WEIGHT (KG)",
+            TO_CHAR(MAX(r.receipt_date), 'YYYY-MM-DD') AS "LAST RECEIVED DATE"
+       FROM raw_material_receipts r
+       JOIN raw_material_receipt_lines l ON l.receipt_id = r.id
+       JOIN items i ON i.id = l.item_id
+      WHERE r.is_active = true
+        AND r.status NOT IN ('DRAFT', 'CANCELLED', 'VOID', 'REJECTED')
+      GROUP BY r.division_id, i.item_code, i.name
+      ORDER BY SUM(l.received_quantity) DESC
+      LIMIT 100
+   • For Raw Material Stock Balance queries ("current raw material stock balance item-wise"), query \`inventory_balances b JOIN items i ON i.id = b.item_id JOIN warehouses w ON w.id = b.warehouse_id\` with \`i.item_type = 'RAW_MATERIAL'\` and expose \`w.division_id AS division_id\` as the first column.
+   • Note: The receiving line table is named \`raw_material_receipt_lines\` (never invent \`raw_material_receipt_items\`).
+
 # RESPONSE FORMAT (JSON only, no prose)
 {
+  "needs_clarification": false,
+  "clarification_question": "",
+  "clarification_options": [],
   "sql": "SELECT ...",
-  "assumption": "one line",
-  "explanation_en": "one line",
-  "explanation_ur": "one line in Urdu script",
+  "assumption": "one line in English",
+  "explanation_en": "concise summary strictly in clean professional English only",
+  "explanation_ur": "",
   "confidence": 0.0,
   "chart": {
     "chartType": "bar",                  // bar for wise/per-x comparisons, line for time series,
@@ -448,135 +608,182 @@ ${this.catalogService.renderDepartmentsPrompt(catalog, allowedDivisionIds)}`;
     /** Fed back to the LLM on violation. */
     repairHint: string;
   }> = [
-    {
-      // Maintenance Job Cards, Breakdowns & Spare Parts Cost
-      pattern: /\b(job[\s-]?cards?|maintenance(\s+cost|\s+spend|\s+report|\s+history)?|spare[\s-]?parts?\s+cost|repair\s+cost)\b|جاب\s*کارڈ|مینٹیننس/i,
-      requireAll: [
-        /\bFROM\s+maintenance_job_cards\b/i,
-      ],
-      forbidAny: [
-        /\bFROM\s+production_entries\b/i,
-      ],
-      repairHint:
-        'SHAPE REPAIR REQUIRED: The user asked about Maintenance Job Cards or Maintenance/Repair Cost. ' +
-        'You MUST query FROM maintenance_job_cards jc (with jc.division_id as the FIRST column in SELECT), ' +
-        'LEFT JOIN machines m ON m.id = jc.machine_id, LEFT JOIN departments d ON d.id = COALESCE(jc.assigned_department_id, m.department_id), ' +
-        'and LEFT JOIN maintenance_job_card_parts jcp ON jcp.job_card_id = jc.id AND jcp.deleted_at IS NULL. ' +
-        'NEVER query production_entries for job card or maintenance questions.',
-    },
-    {
-      // "machine-wise production", "machine target", "machine average", "target/average", "per machine", "machine ka production"
-      pattern: /^(?!.*(\bjob[\s-]?cards?\b|\bmaintenance\b|\brepair\b|\bbreakdown\b|جاب\s*کارڈ|مینٹیننس|خرچہ)).*(\b(machine[\s-]?(wise|wise production|target|average|performance|report|efficiency)|target[\s/&-]+average|average[\s/&-]+target|per[\s-]?machine|each machine|all machines|machine production|by machine|machine ka (production|output|target|average)|machineon ka)\b|مشین)/i,
-      requireAll: [
-        /\bJOIN\s+machines\b/i, // must join the machines dimension table
-        /\bm\.id\s*=\s*pe\.machine_id\b|\bpe\.machine_id\s*=\s*m\.id\b/i, // correct FK
-        /\bmachine_(name|code|id)\b|\bm\.(name|code|id)\b/i, // must expose the machine label/id
-        /\bFROM\s+production_entries\b/i,
-      ],
-      forbidAny: [
-        // group by the item dimension = wrong report for a machine-wise ask
-        /\bGROUP\s+BY\b[\s\S]*\b(item_id|production_in_item_id|item_name|item_code|sku)\b/i,
-        /\bFROM\s+items\b/i,
-      ],
-      repairHint:
-        'SHAPE REPAIR REQUIRED: the user asked for a MACHINE-wise / Target-Average report. The SQL must ' +
-        'aggregate rows directly from operational machine execution logs (FROM production_entries pe ' +
-        'JOIN machines m ON m.id = pe.machine_id), GROUP BY pe.division_id, m.id, m.machine_name, m.machine_code and ' +
-        'aggregate SUM(pe.actual_quantity) AS total_production / AVG(pe.actual_quantity) AS avg_production ' +
-        '/ SUM(pe.target_quantity) AS target_quantity. Do NOT return master product/item catalog layouts.',
-    },
-    {
-      // "item-wise", "product-wise", "per item/product"
-      pattern: /\b((item|product)[\s-]?wise|per[\s-]?(item|product)|by item|by product|کس پروڈکٹ)\b/i,
-      requireAll: [/\bFROM\s+production_entries\b/i, /\bitem/i],
-      forbidAny: [
-        /\bGROUP\s+BY\b[\s\S]*\bmachine_(name|code|id)\b/i,
-        /\bJOIN\s+machines\b[\s\S]*\bGROUP\s+BY\b[\s\S]*\bm\./i,
-      ],
-      repairHint:
-        'SHAPE REPAIR REQUIRED: the user asked for an ITEM/PRODUCT-wise report. Group by the item ' +
-        'dimension (item name/SKU), not by machine.',
-    },
-    {
-      // "shift-wise", "per shift"
-      pattern: /\b(shift[\s-]?wise|per[\s-]?shift|by shift)\b/i,
-      requireAll: [/shift/i],
-      forbidAny: [],
-      repairHint: 'SHAPE REPAIR REQUIRED: the user asked for a SHIFT-wise report — group by shift (pe.shift_id → shifts).',
-    },
-    {
-      // "division-wise", "compare divisions"
-      pattern: /\b(division[\s-]?wise|per[\s-]?division|by division|compare divisions?)\b/i,
-      requireAll: [/division/i],
-      forbidAny: [],
-      repairHint:
-        'SHAPE REPAIR REQUIRED: the user asked for a DIVISION-wise report — group by division_id / division_code.',
-    },
-    {
-      // "day-wise", "daily", "by date"
-      pattern: /\b(day[\s-]?wise|daily|day[\s-]?wise report|by date)\b/i,
-      requireAll: [/entry_date|created_at|date/i],
-      forbidAny: [],
-      repairHint: 'SHAPE REPAIR REQUIRED: the user asked for a DAY-wise report — group by the date column (pe.entry_date).',
-    },
-    {
-      // "customer", "top customers", "customers by sales volume", "sales volume", "client"
-      pattern: /\b(top\s+customers?|customer(\s+sales|\s+volume)?|sales\s+volume|client\s+sales|customers?|clients?|گاہک)\b/i,
-      requireAll: [
-        /\b(customers|sales_orders|sales_invoices|sales_order_items)\b/i,
-      ],
-      forbidAny: [
-        /\b(suppliers|purchase_orders|goods_receipt_notes|grn|production_entries|items)\b/i,
-      ],
-      repairHint:
-        'SHAPE REPAIR REQUIRED: Customers and Suppliers/Production are distinct entities. For Customer/Sales volume questions, ' +
-        'strictly query client-facing invoice/order tables (sales_orders, sales_invoices, customers). NEVER query production_entries, suppliers, or procurement records, ' +
-        'and ALWAYS omit our own manufacturing registry name "Pakistan Wire Industries" via WHERE c.name NOT ILIKE \'%Pakistan Wire Industries%\' AND c.name NOT ILIKE \'%Pakistan Wire%\'.',
-    },
-    {
-      // "department production", "spoke division production", "machine production"
-      pattern: /\b((machine|department|division|spoke(\s+division|\s+department)?)\s+production|production\s+(today|this\s+week|this\s+month))\b/i,
-      requireAll: [
-        /\bFROM\s+production_entries\b/i,
-      ],
-      forbidAny: [
-        /\bFROM\s+items\b(?!\s*JOIN\s+production_entries)/i,
-      ],
-      repairHint:
-        'SHAPE REPAIR REQUIRED: The user asked for operational production logs. ' +
-        'Query production_entries (joined with machines/departments as needed), NOT the static items master table.',
-    },
-    {
-      // Specific date production report / data (e.g. "23rd production report", "22nd data")
-      pattern: /\b(([12]?\d|3[01])(?:st|nd|rd|th)\s+(?:production|report|data)|(?:production\s+report|production\s+data)\s+(?:for|on)\s+([12]?\d|3[01])(?:st|nd|rd|th)?)\b/i,
-      requireAll: [
-        /\bFROM\s+production_entries\b/i,
-        /\b(machine_code|machine_no)\b/i,
-        /\b(item_code|item_name|i\.name)\b/i,
-        /\b(scrap_quantity|process_scrap_kg)\b/i,
-      ],
-      forbidAny: [],
-      repairHint:
-        'SHAPE REPAIR REQUIRED: The user asked for a specific-date production report. Do NOT return a single cumulative ' +
-        'Grand Total row. Return a granular item-wise, machine-wise, and department-wise ledger from production_entries pe ' +
-        'joined with divisions dv, departments d, machines m, items i, and LEFT JOIN downtime_reasons dr, ordered by ' +
-        'dv.name ASC, d.name ASC, COALESCE(m.machine_code, pe.machine_no) ASC, including target_per_hour, runtime_dynamic_target, ' +
-        'actual_production, achievement_pct, product_scrap_pcs, product_scrap_kg, process_scrap_pcs, process_scrap_kg, and downtime_details.',
-    },
-    {
-      // Gross unit conversion (1 Gross = 144 Pieces / PCS)
-      pattern: /\b(in\s+gross|gross[\s-]?wise|per\s+gross|into\s+gross|gross\s+production|production\s+in\s+gross|gross\s+unit)\b|گراس/i,
-      requireAll: [
-        /\bFROM\s+production_entries\b/i,
-        /\/\s*144(\.0+)?\b/i,
-      ],
-      forbidAny: [],
-      repairHint:
-        'SHAPE REPAIR REQUIRED: The user requested production values in "Gross" (1 Gross = 144 Pieces / PCS). ' +
-        'You MUST divide piece quantities from production_entries by 144.0 (e.g. ROUND(SUM(pe.actual_quantity) / 144.0, 2) AS total_production, ' +
-        'ROUND(AVG(pe.actual_quantity) / 144.0, 2) AS avg_production, ROUND(SUM(pe.target_quantity) / 144.0, 2) AS target_quantity).',
-    },
-  ];
+      {
+        // Raw material receiving / gate passes / GRN (must never fall back to production_entries)
+        pattern: /\b(raw\s+material(?:s)?\s+(?:receiv(?:ed|ing)|grn|gate\s+pass)|rm\s+receiv(?:ed|ing)|material\s+receiv(?:ed|ing)|goods\s+receipt|gate\s+pass(?:es)?|grns?)\b|(?=\braw\s+material(?:s)?\b)(?=.*\breceiv(?:ed|ing)\b)/i,
+        requireAll: [
+          /\braw_material_receipts\b/i,
+          /\braw_material_receipt_lines\b/i,
+        ],
+        forbidAny: [
+          /\bFROM\s+production_entries\b/i,
+        ],
+        repairHint:
+          'SHAPE REPAIR REQUIRED: The user asked for Raw Material Receiving (GRN / Gate Passes). ' +
+          'You MUST query FROM raw_material_receipts r JOIN raw_material_receipt_lines l ON l.receipt_id = r.id ' +
+          'JOIN items i ON i.id = l.item_id (with r.division_id as the FIRST column in SELECT), grouped by ' +
+          'r.division_id, i.item_code, i.name. NEVER query production_entries for raw material receiving.',
+      },
+      {
+        // Current raw material stock balance (must never fall back to production_entries)
+        pattern: /^(?!.*\breceiv(?:ed|ing)\b)(?=.*\b(raw\s+material(?:s)?|rm)\b)(?=.*\b(stock|balance|balances|inventory|on[\s-]?hand)\b).*/i,
+        requireAll: [
+          /\b(inventory_balances|stock_ledger)\b/i,
+          /\bRAW_MATERIAL\b/i,
+        ],
+        forbidAny: [
+          /\bFROM\s+production_entries\b/i,
+        ],
+        repairHint:
+          'SHAPE REPAIR REQUIRED: The user asked for current Raw Material Stock Balance. ' +
+          'Query FROM inventory_balances b JOIN items i ON i.id = b.item_id JOIN warehouses w ON w.id = b.warehouse_id ' +
+          'WHERE i.item_type = \'RAW_MATERIAL\' (exposing w.division_id AS division_id first). NEVER query production_entries.',
+      },
+      {
+        // Last entry / latest production activity
+        pattern: /\b(last\s+(?:production\s+)?entr(?:y|ies)|latest\s+(?:production\s+)?entr(?:y|ies)|recent\s+(?:production\s+)?entr(?:y|ies)|most\s+recent\s+(?:production\s+)?entr(?:y|ies)|when\s+was\s+(?:the\s+)?last\s+(?:production\s+)?entr(?:y|ies)(?:\s+made)?|recent\s+activity|last\s+activity)\b|آخری\s*انٹری/i,
+        requireAll: [
+          /\bFROM\s+production_entries\b/i,
+          /\bentry_date\b/i,
+        ],
+        forbidAny: [
+          /\bFROM\s+items\b(?!\s*JOIN)/i,
+        ],
+        repairHint:
+          'SHAPE REPAIR REQUIRED: The user asked about the LAST/LATEST production entry. ' +
+          'You MUST query FROM departments d LEFT JOIN LATERAL (SELECT ... FROM production_entries pe ... ORDER BY pe.entry_date DESC, pe.created_at DESC LIMIT 1) ' +
+          'and expose d.division_id, "DEPARTMENT / SECTION", "LAST ENTRY DATE" (pe.entry_date), "LAST ENTRY #", "LAST ITEM & QTY", and "STATUS / RECENCY". ' +
+          'Never return a machine performance aggregate without entry_date.',
+      },
+      {
+        // Maintenance Job Cards, Breakdowns & Spare Parts Cost
+        pattern: /\b(job[\s-]?cards?|maintenance(\s+cost|\s+spend|\s+report|\s+history)?|spare[\s-]?parts?\s+cost|repair\s+cost)\b|جاب\s*کارڈ|مینٹیننس/i,
+        requireAll: [
+          /\bFROM\s+maintenance_job_cards\b/i,
+        ],
+        forbidAny: [
+          /\bFROM\s+production_entries\b/i,
+        ],
+        repairHint:
+          'SHAPE REPAIR REQUIRED: The user asked about Maintenance Job Cards or Maintenance/Repair Cost. ' +
+          'You MUST query FROM maintenance_job_cards jc (with jc.division_id as the FIRST column in SELECT), ' +
+          'LEFT JOIN machines m ON m.id = jc.machine_id, LEFT JOIN departments d ON d.id = COALESCE(jc.assigned_department_id, m.department_id), ' +
+          'and LEFT JOIN maintenance_job_card_parts jcp ON jcp.job_card_id = jc.id AND jcp.deleted_at IS NULL. ' +
+          'NEVER query production_entries for job card or maintenance questions.',
+      },
+      {
+        // "machine-wise production", "machine target", "machine average", "target/average", "per machine", "machine ka production"
+        pattern: /^(?!.*(\bjob[\s-]?cards?\b|\bmaintenance\b|\brepair\b|\bbreakdown\b|جاب\s*کارڈ|مینٹیننس|خرچہ)).*(\b(machine[\s-]?(wise|wise production|target|average|performance|report|efficiency)|target[\s/&-]+average|average[\s/&-]+target|per[\s-]?machine|each machine|all machines|machine production|by machine|machine ka (production|output|target|average)|machineon ka)\b|مشین)/i,
+        requireAll: [
+          /\bJOIN\s+machines\b/i, // must join the machines dimension table
+          /\bm\.id\s*=\s*pe\.machine_id\b|\bpe\.machine_id\s*=\s*m\.id\b/i, // correct FK
+          /\bmachine_(name|code|id)\b|\bm\.(name|code|id)\b/i, // must expose the machine label/id
+          /\bFROM\s+production_entries\b/i,
+        ],
+        forbidAny: [
+          // group by the item dimension = wrong report for a machine-wise ask
+          /\bGROUP\s+BY\b[\s\S]*\b(item_id|production_in_item_id|item_name|item_code|sku)\b/i,
+          /\bFROM\s+items\b/i,
+        ],
+        repairHint:
+          'SHAPE REPAIR REQUIRED: the user asked for a MACHINE-wise / Target-Average report. The SQL must ' +
+          'aggregate rows directly from operational machine execution logs (FROM production_entries pe ' +
+          'JOIN machines m ON m.id = pe.machine_id), GROUP BY pe.division_id, m.id, m.machine_name, m.machine_code and ' +
+          'aggregate SUM(pe.actual_quantity) AS total_production / AVG(pe.actual_quantity) AS avg_production ' +
+          '/ SUM(pe.target_quantity) AS target_quantity. Do NOT return master product/item catalog layouts.',
+      },
+      {
+        // "item-wise", "product-wise", "per item/product" (production only — excludes raw material receiving/stock & customer dispatch)
+        pattern: /^(?!.*(\braw\s+material|\brm\s+receiv|\breceiv(?:ed|ing)\b|\bgrn\b|\bgate\s+pass|\bstock\s+balance|\binventory\b|\bcustomer|\bdispatch)).*\b((item|product)[\s-]?wise|per[\s-]?(item|product)|by item|by product|کس پروڈکٹ)\b/i,
+        requireAll: [/\bFROM\s+production_entries\b/i, /\bitem/i],
+        forbidAny: [
+          /\bGROUP\s+BY\b[\s\S]*\bmachine_(name|code|id)\b/i,
+          /\bJOIN\s+machines\b[\s\S]*\bGROUP\s+BY\b[\s\S]*\bm\./i,
+        ],
+        repairHint:
+          'SHAPE REPAIR REQUIRED: the user asked for an ITEM/PRODUCT-wise report. Group by the item ' +
+          'dimension (item name/SKU), not by machine.',
+      },
+      {
+        // "shift-wise", "per shift"
+        pattern: /\b(shift[\s-]?wise|per[\s-]?shift|by shift)\b/i,
+        requireAll: [/shift/i],
+        forbidAny: [],
+        repairHint: 'SHAPE REPAIR REQUIRED: the user asked for a SHIFT-wise report — group by shift (pe.shift_id → shifts).',
+      },
+      {
+        // "division-wise", "compare divisions"
+        pattern: /\b(division[\s-]?wise|per[\s-]?division|by division|compare divisions?)\b/i,
+        requireAll: [/division/i],
+        forbidAny: [],
+        repairHint:
+          'SHAPE REPAIR REQUIRED: the user asked for a DIVISION-wise report — group by division_id / division_code.',
+      },
+      {
+        // "day-wise", "daily", "by date"
+        pattern: /\b(day[\s-]?wise|daily|day[\s-]?wise report|by date)\b/i,
+        requireAll: [/entry_date|created_at|date/i],
+        forbidAny: [],
+        repairHint: 'SHAPE REPAIR REQUIRED: the user asked for a DAY-wise report — group by the date column (pe.entry_date).',
+      },
+      {
+        // "customer", "top customers", "customers by sales volume", "sales volume", "client"
+        pattern: /\b(top\s+customers?|customer(\s+sales|\s+volume)?|sales\s+volume|client\s+sales|customers?|clients?|گاہک)\b/i,
+        requireAll: [
+          /\b(customers|sales_orders|sales_invoices|sales_order_items)\b/i,
+        ],
+        forbidAny: [
+          /\b(suppliers|purchase_orders|goods_receipt_notes|grn|production_entries|items)\b/i,
+        ],
+        repairHint:
+          'SHAPE REPAIR REQUIRED: Customers and Suppliers/Production are distinct entities. For Customer/Sales volume questions, ' +
+          'strictly query client-facing invoice/order tables (sales_orders, sales_invoices, customers). NEVER query production_entries, suppliers, or procurement records, ' +
+          'and ALWAYS omit our own manufacturing registry name "Pakistan Wire Industries" via WHERE c.name NOT ILIKE \'%Pakistan Wire Industries%\' AND c.name NOT ILIKE \'%Pakistan Wire%\'.',
+      },
+      {
+        // "department production", "spoke division production", "machine production"
+        pattern: /\b((machine|department|division|spoke(\s+division|\s+department)?)\s+production|production\s+(today|this\s+week|this\s+month))\b/i,
+        requireAll: [
+          /\bFROM\s+production_entries\b/i,
+        ],
+        forbidAny: [
+          /\bFROM\s+items\b(?!\s*JOIN\s+production_entries)/i,
+        ],
+        repairHint:
+          'SHAPE REPAIR REQUIRED: The user asked for operational production logs. ' +
+          'Query production_entries (joined with machines/departments as needed), NOT the static items master table.',
+      },
+      {
+        // Specific date production report / data (e.g. "23rd production report", "22nd data")
+        pattern: /\b(([12]?\d|3[01])(?:st|nd|rd|th)\s+(?:production|report|data)|(?:production\s+report|production\s+data)\s+(?:for|on)\s+([12]?\d|3[01])(?:st|nd|rd|th)?)\b/i,
+        requireAll: [
+          /\bFROM\s+production_entries\b/i,
+          /\b(machine_code|machine_no)\b/i,
+          /\b(item_code|item_name|i\.name)\b/i,
+          /\b(scrap_quantity|process_scrap_kg)\b/i,
+        ],
+        forbidAny: [],
+        repairHint:
+          'SHAPE REPAIR REQUIRED: The user asked for a specific-date production report. Do NOT return a single cumulative ' +
+          'Grand Total row. Return a granular item-wise, machine-wise, and department-wise ledger from production_entries pe ' +
+          'joined with divisions dv, departments d, machines m, items i, and LEFT JOIN downtime_reasons dr, ordered by ' +
+          'dv.name ASC, d.name ASC, COALESCE(m.machine_code, pe.machine_no) ASC, including target_per_hour, runtime_dynamic_target, ' +
+          'actual_production, achievement_pct, product_scrap_pcs, product_scrap_kg, process_scrap_pcs, process_scrap_kg, and downtime_details.',
+      },
+      {
+        // Gross unit conversion (1 Gross = 144 Pieces / PCS)
+        pattern: /\b(in\s+gross|gross[\s-]?wise|per\s+gross|into\s+gross|gross\s+production|production\s+in\s+gross|gross\s+unit)\b|گراس/i,
+        requireAll: [
+          /\bFROM\s+production_entries\b/i,
+          /\/\s*144(\.0+)?\b/i,
+        ],
+        forbidAny: [],
+        repairHint:
+          'SHAPE REPAIR REQUIRED: The user requested production values in "Gross" (1 Gross = 144 Pieces / PCS). ' +
+          'You MUST divide piece quantities from production_entries by 144.0 (e.g. ROUND(SUM(pe.actual_quantity) / 144.0, 2) AS total_production, ' +
+          'ROUND(AVG(pe.actual_quantity) / 144.0, 2) AS avg_production, ROUND(SUM(pe.target_quantity) / 144.0, 2) AS target_quantity).',
+      },
+    ];
 
   /** Returns a repair-hint string when the SQL shape contradicts the question, else null. */
   private assertKeyphraseShape(question: string, sql: string): string | null {
@@ -611,6 +818,20 @@ ${this.catalogService.renderDepartmentsPrompt(catalog, allowedDivisionIds)}`;
 
     const seriesOf = (...candidates: Array<[string, string]>): AiChartSeries[] =>
       candidates.filter(([column]) => has(column)).map(([column, label]) => ({ column, label }));
+
+    // ── last entry / latest activity → clean table ────────────────────────
+    if (
+      /\b(last\s+(?:production\s+)?entr(?:y|ies)|latest\s+(?:production\s+)?entr(?:y|ies)|recent\s+(?:production\s+)?entr(?:y|ies)|when\s+was\s+(?:the\s+)?last\s+(?:production\s+)?entr(?:y|ies)(?:\s+made)?)\b/i.test(
+        question,
+      )
+    ) {
+      return {
+        chartType: 'table',
+        dimension: 'none',
+        x: { column: columns[1] ?? columns[0] ?? '', label: 'Department / Section' },
+        series: [],
+      };
+    }
 
     // ── machine-wise → bar chart on machine names ──────────────────────────
     if (/\bmachine[\s-]?(wise|target|average|performance|report)?\b|\bper[\s-]?machine\b|\beach machine\b|all machines|مشین/i.test(question)) {

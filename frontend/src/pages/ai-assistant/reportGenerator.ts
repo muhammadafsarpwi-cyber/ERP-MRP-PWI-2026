@@ -23,9 +23,11 @@ import {
   QueryIntent,
   NormalizedReportResult,
   DivisionMeta,
+  DepartmentMeta,
   AiColumn,
   KpiCardData,
 } from './types';
+import { canonicalizeDivisionCode } from './nlQueryParser';
 
 /**
  * Enriches a raw ProductionEntry record with the exact authoritative ERP metrics
@@ -134,19 +136,126 @@ export const getDivisionUom = (divCodeOrName?: string): string => {
 const CCD_DEPT_ORDER = ['Flattening', 'Spiral', 'PVC', 'Packing'];
 const SPD_DEPT_ORDER = ['Spoke', 'Straightener', 'Swagging', 'Spoke Plating', 'Spoke Packing'];
 
+/**
+ * Store / warehouse departments (General Store, Raw Material (RM), Finished Goods Store, WIP store,
+ * departments typed STORE / WAREHOUSE) are inventory locations, not production floors, so they must
+ * never be listed as (in)active production departments.
+ */
+export function isStoreOrWarehouseDepartment(
+  name?: string,
+  code?: string,
+  type?: string,
+): boolean {
+  const n = String(name || '').toLowerCase();
+  const c = String(code || '').toLowerCase();
+  const t = String(type || '').toLowerCase();
+  if (t === 'store' || t === 'warehouse' || t === 'storage') return true;
+  if (/\b(stores?|warehouses?|storage)\b/.test(n)) return true;
+  if (/raw\s*material|finished\s*goods?|\(rm\)|\brm\s+store\b|\bwip\s+store\b/.test(n)) return true;
+  if (/(^|-)gs(-|$)|(^|-)(store|wh|rm|fg)(-|$)/.test(c)) return true;
+  return false;
+}
+
+/** Strict fail-closed division matcher supporting both canonical and numbered division codes (e.g. DIV-002-CCD). */
+export function matchesEntryDivision(entry: any, targetDivision?: DivisionMeta): boolean {
+  if (!targetDivision || targetDivision.code === 'ALL' || targetDivision.id === 'ALL') {
+    return true;
+  }
+  const eId = String(entry?.divisionId || entry?.division?.id || '').trim().toLowerCase();
+  const targetId = String(targetDivision.id || '').trim().toLowerCase();
+  const targetCanon = canonicalizeDivisionCode(targetDivision.code, targetDivision.id);
+  const mNo = String(entry?.machine?.machineCode || entry?.machineCode || entry?.machineNo || '').trim().toUpperCase();
+
+  // Fail-closed machine prefix exclusion for Control Cable vs Spoke divisions
+  if (targetCanon === 'DIV-CCD') {
+    if (
+      mNo.startsWith('ST-') ||
+      mNo.startsWith('SPK-') ||
+      mNo.startsWith('SW-') ||
+      mNo.startsWith('BL-') ||
+      mNo.startsWith('SPL-') ||
+      mNo.startsWith('APS-') ||
+      mNo.startsWith('NP-') ||
+      mNo.startsWith('PKS-') ||
+      mNo.startsWith('HAND-PACK')
+    ) {
+      return false;
+    }
+  } else if (targetCanon === 'DIV-SPD') {
+    if (
+      mNo.startsWith('FT-') ||
+      mNo.startsWith('FL-') ||
+      mNo.startsWith('PV-') ||
+      mNo.startsWith('PVC') ||
+      mNo.startsWith('CPK-') ||
+      mNo.startsWith('PK-') ||
+      mNo.startsWith('SP-') ||
+      mNo.startsWith('SR-')
+    ) {
+      return false;
+    }
+  }
+
+  if (targetId && targetId !== 'all' && eId) {
+    return eId === targetId;
+  }
+
+  const eCode = String(entry?.division?.divisionCode || entry?.divisionCode || '').trim();
+  const eName = String(entry?.division?.name || entry?.divisionName || '').trim();
+  if (eCode || eName) {
+    return canonicalizeDivisionCode(eCode || eName, eId) === targetCanon;
+  }
+
+  if (targetCanon === 'DIV-CCD') {
+    return (
+      mNo.startsWith('FT-') ||
+      mNo.startsWith('FL-') ||
+      mNo.startsWith('PV-') ||
+      mNo.startsWith('PVC') ||
+      mNo.startsWith('CPK-') ||
+      mNo.startsWith('PK-') ||
+      mNo.startsWith('SP-') ||
+      mNo.startsWith('SR-')
+    );
+  }
+  if (targetCanon === 'DIV-SPD') {
+    return (
+      mNo.startsWith('SPK-') ||
+      mNo.startsWith('ST-') ||
+      mNo.startsWith('SW-') ||
+      mNo.startsWith('BL-') ||
+      mNo.startsWith('SPL-') ||
+      mNo.startsWith('APS-') ||
+      mNo.startsWith('NP-') ||
+      mNo.startsWith('PKS-') ||
+      mNo.startsWith('HAND-PACK')
+    );
+  }
+  return false;
+}
+
 export async function generateReportData(
   intent: QueryIntent,
   divisionsList: DivisionMeta[],
   isDark = false,
   uomOverride = 'AUTO',
+  divisionDepartments: DepartmentMeta[] = [],
 ): Promise<NormalizedReportResult> {
-  const baseDivision = divisionsList.find((d) => d.code === intent.divisionCode) || divisionsList[1] || {
-    id: 'd1000000-0000-0000-0000-000000000002',
-    code: 'DIV-CCD',
-    name: 'Control Cable Division',
-    uom: 'MTR / KG',
-    color: '#10b981',
-  };
+  const intentCanon = canonicalizeDivisionCode(intent.divisionCode);
+  const baseDivision =
+    divisionsList.find(
+      (d) =>
+        d.code === intent.divisionCode ||
+        d.id === intent.divisionCode ||
+        canonicalizeDivisionCode(d.code, d.id) === intentCanon,
+    ) ||
+    divisionsList[1] || {
+      id: 'd1000000-0000-0000-0000-000000000002',
+      code: 'DIV-CCD',
+      name: 'Control Cable Division',
+      uom: 'MTR / KG',
+      color: '#10b981',
+    };
 
   const effectiveUnit =
     intent.requestedUnit && intent.requestedUnit !== 'AUTO'
@@ -164,6 +273,14 @@ export async function generateReportData(
 
   const isSpecificDivision = targetDivision.code !== 'ALL';
   const filterDept = intent.departmentCode || 'ALL';
+
+  // ── SPECIAL ROUTE: RAW MATERIAL RECEIVING & RM STOCK BALANCE ───────────────
+  if (intent.dimension === 'raw_material_receiving') {
+    return handleRawMaterialReceivingReport(intent, targetDivision, isDark);
+  }
+  if (intent.dimension === 'raw_material_stock') {
+    return handleRawMaterialStockReport(intent, targetDivision, isDark);
+  }
 
   // ── SPECIAL ROUTE: CUSTOMER / DISPATCH ──────────────────────────────────────
   if (intent.dimension === 'customer') {
@@ -185,6 +302,7 @@ export async function generateReportData(
 
   if (
     isSpecificSingleDate &&
+    intent.dimension !== 'last_entry' &&
     intent.dimension !== 'rejection' &&
     intent.dimension !== 'downtime' &&
     intent.dimension !== 'overtime' &&
@@ -208,6 +326,14 @@ export async function generateReportData(
   let entries: any[] = [];
   try {
     const queryParams: any = { limit: 5000 };
+    if (isSpecificDivision && targetDivision.id && targetDivision.id !== 'ALL') {
+      queryParams.divisionId = targetDivision.id;
+    }
+    if (intent.dimension === 'last_entry' || intent.period.type === 'all') {
+      queryParams.allDates = 'true';
+      queryParams.sortBy = 'entryDate';
+      queryParams.sortDir = 'DESC';
+    }
     if (intent.period.startDate && intent.period.endDate && intent.period.type !== 'all') {
       queryParams.dateFrom = intent.period.startDate;
       queryParams.dateTo = intent.period.endDate;
@@ -215,74 +341,20 @@ export async function generateReportData(
     const res: any = await apiService.get('/production/entries', queryParams);
     let allEntries = Array.isArray(res) ? res : res?.data || res?.items || [];
 
-    // If initial query with date filters was empty, fetch all available entries
+    // If initial query with date filters was empty, fetch all available entries within division scope
     if (allEntries.length === 0 && (queryParams.dateFrom || queryParams.dateTo)) {
       try {
-        const fallbackRes: any = await apiService.get('/production/entries', { limit: 5000 });
+        const fallbackParams: any = { limit: 5000, allDates: 'true', sortBy: 'entryDate', sortDir: 'DESC' };
+        if (isSpecificDivision && targetDivision.id && targetDivision.id !== 'ALL') {
+          fallbackParams.divisionId = targetDivision.id;
+        }
+        const fallbackRes: any = await apiService.get('/production/entries', fallbackParams);
         allEntries = Array.isArray(fallbackRes) ? fallbackRes : fallbackRes?.data || fallbackRes?.items || [];
       } catch { }
     }
 
-    // STRICT DIVISION ISOLATION
-    entries = allEntries.filter((e: any) => {
-      const eCode = e.division?.divisionCode || e.divisionCode || '';
-      const eId = e.divisionId || e.division?.id || '';
-      const mNo = (e.machine?.machineCode || e.machineNo || '').toUpperCase();
-
-      if (targetDivision.code === 'DIV-CCD') {
-        // Exclude Spoke division machines (ST-, SPK-, SW-, BL-, HAND-PACK, PKS-)
-        if (eCode === 'DIV-SPD' || eId.includes('0001')) return false;
-        if (
-          mNo.startsWith('ST-') ||
-          mNo.startsWith('SPK-') ||
-          mNo.startsWith('SW-') ||
-          mNo.startsWith('BL-') ||
-          mNo.startsWith('HAND-PACK') ||
-          mNo.startsWith('PKS-')
-        ) {
-          return false;
-        }
-        return (
-          eCode === 'DIV-CCD' ||
-          eId.includes('0002') ||
-          mNo.startsWith('FT-') ||
-          mNo.startsWith('FL-') ||
-          mNo.startsWith('PV-') ||
-          mNo.startsWith('PVC') ||
-          mNo.startsWith('CPK-') ||
-          mNo.startsWith('PK-') ||
-          mNo.startsWith('SP-') ||
-          mNo.startsWith('SR-')
-        );
-      }
-
-      if (targetDivision.code === 'DIV-SPD') {
-        if (eCode === 'DIV-CCD' || eId.includes('0002')) return false;
-        return (
-          eCode === 'DIV-SPD' ||
-          eId.includes('0001') ||
-          mNo.startsWith('SPK-') ||
-          mNo.startsWith('ST-') ||
-          mNo.startsWith('SW-') ||
-          mNo.startsWith('BL-') ||
-          mNo.startsWith('SPL-') ||
-          mNo.startsWith('APS-') ||
-          mNo.startsWith('NP-') ||
-          mNo.startsWith('PKS-') ||
-          mNo.startsWith('HAND-PACK')
-        );
-      }
-
-      if (targetDivision.code === 'DIV-PWI') {
-        return eCode === 'DIV-PWI' || eId.includes('83ecd746');
-      }
-
-      if (targetDivision.code === 'DIV-NB') {
-        return eCode === 'DIV-NB' || eId.includes('0653339b');
-      }
-
-      return true;
-    });
+    // STRICT DIVISION ISOLATION (fail-closed across canonical & numbered division codes)
+    entries = allEntries.filter((e: any) => matchesEntryDivision(e, targetDivision));
 
     // Apply Date Range / Period filter on client side (since /production/entries returns all dates)
     if (intent.period.startDate && intent.period.endDate && intent.period.type !== 'all') {
@@ -345,6 +417,9 @@ export async function generateReportData(
   }
 
   if (entries.length === 0) {
+    if (intent.dimension === 'last_entry') {
+      return aggregateLastEntryByDepartment([], targetDivision, filterDept, intent, isDark, divisionDepartments);
+    }
     return {
       title: `${targetDivision.name} — No Records Found`,
       summaryText: `No production records found for **${targetDivision.name}**${filterDept !== 'ALL' ? ` [${filterDept} Department]` : ''} in **${intent.period.label}**.\n\n• **Division:** ${targetDivision.name}\n• **Department:** ${filterDept}\n• **Period:** ${intent.period.label}${intent.specificMachine ? `\n• **Machine Filter:** ${intent.specificMachine}` : ''}${intent.specificItem ? `\n• **Item Filter:** ${intent.specificItem}` : ''}`,
@@ -370,6 +445,8 @@ export async function generateReportData(
 
   // Route to the appropriate dimensional aggregator
   switch (intent.dimension) {
+    case 'last_entry':
+      return aggregateLastEntryByDepartment(entries, targetDivision, filterDept, intent, isDark, divisionDepartments);
     case 'rejection':
       return aggregateByRejection(rawEntries, targetDivision, filterDept, intent, isDark);
     case 'downtime':
@@ -448,15 +525,16 @@ function normalizeMachineDisplayCode(raw: string): string {
 function resolveRecordDepartment(row: any, divCode: string, machineCode: string): string {
   if (row.department?.name) return row.department.name;
   if (row.department?.code) return row.department.code;
+  const canonicalDiv = canonicalizeDivisionCode(divCode, row.divisionId || row.division?.id);
   const m = machineCode.toUpperCase();
-  if (divCode === 'DIV-CCD') {
+  if (canonicalDiv === 'DIV-CCD') {
     if (m.startsWith('FT-') || m.startsWith('FL-')) return 'Flattening';
     if (m.startsWith('SP-') || m.startsWith('SR-')) return 'Spiral';
     if (m.startsWith('PV-') || m.startsWith('PVC')) return 'PVC';
     if (m.startsWith('CPK-') || m.startsWith('PK-')) return 'Packing';
     return 'Flattening';
   }
-  if (divCode === 'DIV-SPD') {
+  if (canonicalDiv === 'DIV-SPD') {
     if (m.startsWith('SPK-')) return 'Spoke';
     if (m.startsWith('ST-')) return 'Straightener';
     if (m.startsWith('SW-')) return 'Swagging';
@@ -762,9 +840,7 @@ function aggregateByOperator(
       recordsExamined: entries.length,
     },
   };
-}
-
-// ═════════════════════════════════════════════════════════════════════════════
+}// ═════════════════════════════════════════════════════════════════════════════
 // 2. OPERATOR + MACHINE-WISE REPORTING (COMBINED DIMENSION)
 // ═════════════════════════════════════════════════════════════════════════════
 function aggregateByOperatorMachine(
@@ -949,9 +1025,7 @@ function aggregateByOperatorMachine(
       recordsExamined: entries.length,
     },
   };
-}
-
-// ═════════════════════════════════════════════════════════════════════════════
+}// ═════════════════════════════════════════════════════════════════════════════
 // 3. OPERATOR + SHIFT REPORTING
 // ═════════════════════════════════════════════════════════════════════════════
 function aggregateByOperatorShift(
@@ -1090,9 +1164,7 @@ function aggregateByOperatorShift(
       recordsExamined: entries.length,
     },
   };
-}
-
-// ═════════════════════════════════════════════════════════════════════════════
+}// ═════════════════════════════════════════════════════════════════════════════
 // 4. OPERATOR + DEPARTMENT / ITEM / DATE / MONTH REPORTING
 // ═════════════════════════════════════════════════════════════════════════════
 function aggregateByOperatorDepartment(
@@ -1167,9 +1239,7 @@ function aggregateByOperatorItem(
       recordsExamined: entries.length,
     },
   };
-}
-
-function aggregateByOperatorDate(
+}function aggregateByOperatorDate(
   entries: any[],
   division: DivisionMeta,
   department: string,
@@ -1210,9 +1280,7 @@ function aggregateByOperatorDate(
       recordsExamined: entries.length,
     },
   };
-}
-
-function aggregateByOperatorMonth(
+}function aggregateByOperatorMonth(
   entries: any[],
   division: DivisionMeta,
   department: string,
@@ -1253,9 +1321,7 @@ function aggregateByOperatorMonth(
       recordsExamined: entries.length,
     },
   };
-}
-
-// ═════════════════════════════════════════════════════════════════════════════
+}// ═════════════════════════════════════════════════════════════════════════════
 // 5. MACHINE-WISE REPORTING (OPERATIONAL LOGS GROUPED STRICTLY BY MACHINE ID)
 // ═════════════════════════════════════════════════════════════════════════════
 function aggregateByMachine(
@@ -1329,8 +1395,10 @@ function aggregateByMachine(
   });
 
   const allDepts = Array.from(new Set(rawMachineRows.map((r) => r.department)));
-  const sortedDeptNames = (division.code === 'DIV-CCD' ? CCD_DEPT_ORDER : division.code === 'DIV-SPD' ? SPD_DEPT_ORDER : allDepts)
-    .filter((d) => allDepts.includes(d));
+  const canonicalDiv = canonicalizeDivisionCode(division.code, division.id);
+  const sortedDeptNames = (canonicalDiv === 'DIV-CCD' ? CCD_DEPT_ORDER : canonicalDiv === 'DIV-SPD' ? SPD_DEPT_ORDER : allDepts)
+    .filter((d) => allDepts.includes(d))
+    .concat(allDepts.filter((d) => !(canonicalDiv === 'DIV-CCD' ? CCD_DEPT_ORDER : canonicalDiv === 'DIV-SPD' ? SPD_DEPT_ORDER : allDepts).includes(d)));
 
   const finalRows: any[] = [];
   const chartData: any[] = [];
@@ -1517,9 +1585,7 @@ function aggregateByMachine(
       recordsExamined: entries.length,
     },
   };
-}
-
-// ═════════════════════════════════════════════════════════════════════════════
+}// ═════════════════════════════════════════════════════════════════════════════
 // 6. MACHINE + ITEM REPORTING
 // ═════════════════════════════════════════════════════════════════════════════
 function aggregateByMachineItem(
@@ -1567,9 +1633,7 @@ function aggregateByMachineItem(
       recordsExamined: entries.length,
     },
   };
-}
-
-// ═════════════════════════════════════════════════════════════════════════════
+}// ═════════════════════════════════════════════════════════════════════════════
 // 7. DEPARTMENT-WISE REPORTING
 // ═════════════════════════════════════════════════════════════════════════════
 function aggregateByDepartment(
@@ -1694,8 +1758,300 @@ function aggregateByDepartment(
       recordsExamined: entries.length,
     },
   };
-}
+}// ═════════════════════════════════════════════════════════════════════════════
+// 7B. DEPARTMENT-WISE LAST PRODUCTION ENTRY / LATEST ACTIVITY REPORTING
+// ═════════════════════════════════════════════════════════════════════════════
+export function aggregateLastEntryByDepartment(
+  entries: any[],
+  division: DivisionMeta,
+  department: string,
+  intent: QueryIntent,
+  isDark: boolean,
+  divisionDepartments: DepartmentMeta[] = [],
+  referenceToday?: dayjs.Dayjs,
+): NormalizedReportResult {
+  const today = (referenceToday || dayjs()).startOf('day');
+  const canonicalDiv = canonicalizeDivisionCode(division.code, division.id);
 
+  interface LastEntryBucket {
+    key: string;
+    id?: string;
+    code: string;
+    department: string;
+    latestEntry: any | null;
+    latestSortKey: string;
+  }
+
+  const buckets: LastEntryBucket[] = [];
+
+  const canonicalFallbackDepts =
+    canonicalDiv === 'DIV-CCD'
+      ? CCD_DEPT_ORDER
+      : canonicalDiv === 'DIV-SPD'
+        ? SPD_DEPT_ORDER
+        : canonicalDiv === 'DIV-PWI'
+          ? ['Drawing', 'Galvanizing', 'Annealing', 'Packing']
+          : canonicalDiv === 'DIV-NB'
+            ? ['Heading', 'Threading', 'Plating', 'Packing']
+            : [];
+
+  // 1. Seed configured departments for the active division (never from other divisions)
+  const seedList: DepartmentMeta[] = (
+    divisionDepartments.filter((d) => d.code !== 'ALL').length > 0
+      ? divisionDepartments.filter((d) => d.code !== 'ALL')
+      : canonicalFallbackDepts.map((name) => ({ code: name, name }))
+  ).filter((d) => !isStoreOrWarehouseDepartment(d.name, d.code));
+
+  seedList.forEach((dept) => {
+    const label = (dept.name || dept.code || '').trim();
+    if (!label) return;
+    if (department !== 'ALL' && !matchesDepartmentFilter(label, dept.code, department)) {
+      return;
+    }
+    const alreadyExists = buckets.some(
+      (b) =>
+        (dept.id && b.id && b.id.toLowerCase() === dept.id.toLowerCase()) ||
+        b.department.toLowerCase() === label.toLowerCase(),
+    );
+    if (!alreadyExists) {
+      buckets.push({
+        key: dept.id || `dept-${label.toLowerCase()}`,
+        id: dept.id,
+        code: dept.code || label,
+        department: label,
+        latestEntry: null,
+        latestSortKey: '',
+      });
+    }
+  });
+
+  // 2. Match strictly division-scoped entries to their department bucket and track latest entry
+  entries.forEach((e) => {
+    if (!matchesEntryDivision(e, division)) return;
+    const rawMachine = String(e.machine?.machineCode || e.machineCode || e.machineNo || '').toUpperCase();
+    const recDept = resolveRecordDepartment(e, division.code, rawMachine);
+    const recCat = String(e.machine?.category || '');
+
+    if (department !== 'ALL' && !matchesDepartmentFilter(recDept, recCat, department)) {
+      return;
+    }
+
+    const rawDate = e.entryDate || e.productionDate || e.date || e.createdAt;
+    const entryDateStr = rawDate && dayjs(rawDate).isValid() ? dayjs(rawDate).format('YYYY-MM-DD') : '';
+    const createdStr = e.createdAt && dayjs(e.createdAt).isValid() ? dayjs(e.createdAt).toISOString() : entryDateStr;
+    const entryNum = String(e.entryNumber || e.entryNo || e.entry_number || '');
+    const sortKey = `${entryDateStr}|${createdStr}|${entryNum}`;
+
+    const entryDivDisplay =
+      division.code === 'ALL'
+        ? `${e.division?.name || e.division?.divisionCode || canonicalizeDivisionCode(e.divisionCode || '', e.divisionId || e.division?.id)} — `
+        : '';
+
+    const eDeptId = String(e.departmentId || e.department?.id || '').trim().toLowerCase();
+    const targetName = division.code === 'ALL' ? `${entryDivDisplay}${recDept}` : recDept;
+
+    // 1) Exact department UUID match first (prevents e.g. 'Packing' colliding with 'Cutting & Packing')
+    let bucket =
+      (eDeptId && buckets.find((b) => b.id && b.id.toLowerCase() === eDeptId)) ||
+      // 2) Exact department label/code match
+      buckets.find(
+        (b) =>
+          b.department.toLowerCase() === targetName.toLowerCase() ||
+          b.code.toLowerCase() === recDept.toLowerCase(),
+      ) ||
+      // 3) Fuzzy normalized match within the same division only if exact match absent
+      (division.code !== 'ALL'
+        ? buckets.find(
+            (b) =>
+              matchesDepartmentFilter(recDept, recCat, b.code) ||
+              matchesDepartmentFilter(b.department, b.code, recDept),
+          )
+        : undefined);
+
+    if (!bucket) {
+      const displayName = `${entryDivDisplay}${recDept}`;
+      bucket = {
+        key: e.departmentId || `dept-${displayName.toLowerCase()}`,
+        id: e.departmentId || e.department?.id,
+        code: recDept,
+        department: displayName,
+        latestEntry: null,
+        latestSortKey: '',
+      };
+      buckets.push(bucket);
+    }
+
+    if (!bucket.latestEntry || sortKey.localeCompare(bucket.latestSortKey) > 0) {
+      bucket.latestEntry = e;
+      bucket.latestSortKey = sortKey;
+    }
+  });
+
+  const formatEntryItemAndQty = (e: any): string => {
+    if (!e) return '—';
+    const nested = Array.isArray(e.nestedItems) && e.nestedItems.length > 0 ? e.nestedItems : null;
+    if (nested) {
+      const firstLine = nested[0];
+      const itemLabel = firstLine?.itemName || firstLine?.itemCode || e.item?.name || e.itemName || 'Production Item';
+      const totalQty = nested.reduce((sum: number, l: any) => sum + Number(l.actualQuantity ?? l.producedQty ?? 0), 0);
+      const lineUom = firstLine?.uomCode || e.uom?.code || e.uomCode || division.uom || '';
+      const extraSuffix = nested.length > 1 ? ` (+${nested.length - 1} items)` : '';
+      return `${itemLabel}${extraSuffix} — ${formatQty(totalQty)}${lineUom ? ` ${lineUom}` : ''}`;
+    }
+    const itemLabel = String(e.item?.name || e.itemName || e.item?.itemCode || 'Production Item').trim();
+    const qty = Number(e.actualQuantity ?? e.producedQty ?? 0);
+    const uom = String(e.uom?.code || e.uomCode || division.uom || '').trim();
+    return `${itemLabel} — ${formatQty(qty)}${uom ? ` ${uom}` : ''}`;
+  };
+
+  const rows = buckets
+    .map((b) => {
+      const e = b.latestEntry;
+      const rawDate = e ? e.entryDate || e.productionDate || e.date || e.createdAt : null;
+      const lastDateStr = rawDate && dayjs(rawDate).isValid() ? dayjs(rawDate).format('YYYY-MM-DD') : '';
+      const hasEntry = Boolean(e && lastDateStr);
+
+      let statusRecency = 'Inactive';
+      let recencyTagColor = 'default';
+      if (hasEntry) {
+        const diffDays = today.diff(dayjs(lastDateStr).startOf('day'), 'day');
+        if (diffDays <= 0) {
+          statusRecency = 'Today';
+          recencyTagColor = 'green';
+        } else if (diffDays === 1) {
+          statusRecency = '1 day ago';
+          recencyTagColor = 'cyan';
+        } else if (diffDays <= 7) {
+          statusRecency = `${diffDays} days ago`;
+          recencyTagColor = 'blue';
+        } else if (diffDays <= 30) {
+          statusRecency = `${diffDays} days ago`;
+          recencyTagColor = 'gold';
+        } else {
+          statusRecency = `${diffDays} days ago`;
+          recencyTagColor = 'orange';
+        }
+      }
+
+      const lastEntryNo = e
+        ? String(e.entryNumber || e.entryNo || e.entry_number || e.referenceNo || 'Recorded').trim()
+        : '—';
+
+      return {
+        id: `last-entry-${b.key}`,
+        department: b.department,
+        lastEntryDate: hasEntry ? lastDateStr : 'No entries recorded',
+        lastEntryNo,
+        lastItemQty: formatEntryItemAndQty(e),
+        statusRecency,
+        recencyTagColor,
+        _sortDate: hasEntry ? lastDateStr : '',
+      };
+    })
+    .sort((a, b) => {
+      if (a._sortDate && !b._sortDate) return -1;
+      if (!a._sortDate && b._sortDate) return 1;
+      if (a._sortDate !== b._sortDate) return b._sortDate.localeCompare(a._sortDate);
+      return a.department.localeCompare(b.department);
+    });
+
+  const activeDepts = rows.filter((r) => r.lastEntryDate !== 'No entries recorded');
+  const latestOverall = activeDepts[0];
+  const deptScopeLabel = department !== 'ALL' ? `${department} Department` : 'All Departments';
+
+  const columns: AiColumn[] = [
+    {
+      title: 'DEPARTMENT / SECTION',
+      dataIndex: 'department',
+      key: 'department',
+      render: (v: string) => React.createElement('strong', null, v),
+    },
+    {
+      title: 'LAST ENTRY DATE',
+      dataIndex: 'lastEntryDate',
+      key: 'lastEntryDate',
+      render: (v: string) =>
+        v === 'No entries recorded'
+          ? React.createElement('span', { style: { color: isDark ? '#94a3b8' : '#64748b' } }, v)
+          : React.createElement('strong', { style: { color: '#3b82f6' } }, v),
+    },
+    {
+      title: 'LAST ENTRY #',
+      dataIndex: 'lastEntryNo',
+      key: 'lastEntryNo',
+      render: (v: string) => React.createElement('span', { style: { fontFamily: 'monospace' } }, v),
+    },
+    {
+      title: 'LAST ITEM & QTY',
+      dataIndex: 'lastItemQty',
+      key: 'lastItemQty',
+    },
+    {
+      title: 'STATUS / RECENCY',
+      dataIndex: 'statusRecency',
+      key: 'statusRecency',
+      render: (v: string, r: any) =>
+        React.createElement(Tag, { color: r?.recencyTagColor || 'default', style: { fontWeight: 600 } }, v),
+    },
+  ];
+
+  const kpiCards: KpiCardData[] = [
+    {
+      title: 'Latest Entry Date',
+      value: latestOverall ? latestOverall.lastEntryDate : 'No entries recorded',
+      subtitle: latestOverall ? `${latestOverall.department} (${latestOverall.statusRecency})` : division.name,
+      color: '#3b82f6',
+    },
+    {
+      title: 'Latest Entry #',
+      value: latestOverall ? latestOverall.lastEntryNo : '—',
+      subtitle: latestOverall ? latestOverall.department : 'No entry number',
+      color: '#10b981',
+    },
+    {
+      title: 'Active Departments',
+      value: `${activeDepts.length} / ${rows.length}`,
+      subtitle: 'Departments with entries',
+      color: '#06b6d4',
+    },
+    {
+      title: 'Division Scope',
+      value: division.name,
+      subtitle: deptScopeLabel,
+      color: '#8b5cf6',
+    },
+  ];
+
+  const summaryText = latestOverall
+    ? `**${division.name} — Last Production Entry Summary (${deptScopeLabel}):**\n\n` +
+      `• **Most Recent Entry Date:** ${latestOverall.lastEntryDate} (${latestOverall.statusRecency})\n` +
+      `• **Department / Section:** ${latestOverall.department}\n` +
+      `• **Last Entry #:** ${latestOverall.lastEntryNo}\n` +
+      `• **Last Item & Qty:** ${latestOverall.lastItemQty}\n` +
+      `• **Departments Covered:** ${activeDepts.length} active of ${rows.length} total departments in ${division.name}`
+    : `**${division.name} — Last Production Entry Summary (${deptScopeLabel}):**\n\n` +
+      `• **Most Recent Entry Date:** No production entries recorded\n` +
+      `• **Division Scope:** ${division.name} (${division.code})\n` +
+      `• **Department Scope:** ${deptScopeLabel}`;
+
+  return {
+    title: `Department-Wise Last Production Entry — ${division.name}`,
+    summaryText,
+    divisionScope: division.code,
+    departmentScope: department,
+    periodLabel: intent.period.label || 'Latest Activity',
+    recordsCount: entries.length,
+    kpiCards,
+    tableData: { columns, rows },
+    auditTrail: {
+      dataSource: 'Production Entries (Live ERP Database)',
+      filters: [`Division: ${division.name} (${division.code})`, `Department: ${deptScopeLabel}`],
+      period: intent.period.label || 'All Time (Latest Activity)',
+      timestamp: dayjs().format('YYYY-MM-DD HH:mm:ss'),
+      recordsExamined: entries.length,
+    },
+  };
+}
 // ═════════════════════════════════════════════════════════════════════════════
 // 8. ITEM / PRODUCT-WISE REPORTING (Supports Specific Item Queries + Multi-Item Machines)
 // ═════════════════════════════════════════════════════════════════════════════
@@ -1945,9 +2301,7 @@ function aggregateByItem(
       recordsExamined: entries.length,
     },
   };
-}
-
-// ═════════════════════════════════════════════════════════════════════════════
+}// ═════════════════════════════════════════════════════════════════════════════
 // 8B. REJECTION & SCRAP ANALYTICS REPORTING (EXACT MATCH WITH DAILY PRODUCTION ENTRY)
 // ═════════════════════════════════════════════════════════════════════════════
 function aggregateByRejection(
@@ -2271,9 +2625,7 @@ function aggregateByRejection(
       recordsExamined: entries.length,
     },
   };
-}
-
-// ═════════════════════════════════════════════════════════════════════════════
+}// ═════════════════════════════════════════════════════════════════════════════
 // 8C. DOWNTIME & STOPPAGE ANALYTICS REPORTING (AUTHORITATIVE ERP ENGINE)
 // ═════════════════════════════════════════════════════════════════════════════
 function aggregateByDowntime(
@@ -2510,9 +2862,7 @@ function aggregateByDowntime(
       recordsExamined: entries.length,
     },
   };
-}
-
-// ═════════════════════════════════════════════════════════════════════════════
+}// ═════════════════════════════════════════════════════════════════════════════
 // 8D. OVERTIME (OT) ANALYTICS REPORTING (AUTHORITATIVE ERP ENGINE)
 // ═════════════════════════════════════════════════════════════════════════════
 function aggregateByOvertime(
@@ -2700,9 +3050,7 @@ function aggregateByOvertime(
       recordsExamined: entries.length,
     },
   };
-}
-
-// ═════════════════════════════════════════════════════════════════════════════
+}// ═════════════════════════════════════════════════════════════════════════════
 // 9. SHIFT-WISE REPORTING
 // ═════════════════════════════════════════════════════════════════════════════
 function aggregateByShift(
@@ -2760,9 +3108,7 @@ function aggregateByShift(
       recordsExamined: entries.length,
     },
   };
-}
-
-// ═════════════════════════════════════════════════════════════════════════════
+}// ═════════════════════════════════════════════════════════════════════════════
 // 10. DATE / DAY-WISE & TIME-SERIES REPORTING
 // ═════════════════════════════════════════════════════════════════════════════
 function aggregateByDate(
@@ -2824,9 +3170,7 @@ function aggregateByDate(
       recordsExamined: entries.length,
     },
   };
-}
-
-function aggregateByWeek(
+}function aggregateByWeek(
   entries: any[],
   division: DivisionMeta,
   department: string,
@@ -2881,9 +3225,7 @@ function aggregateByWeek(
       recordsExamined: entries.length,
     },
   };
-}
-
-function aggregateByMonth(
+}function aggregateByMonth(
   entries: any[],
   division: DivisionMeta,
   department: string,
@@ -2940,9 +3282,7 @@ function aggregateByMonth(
       recordsExamined: entries.length,
     },
   };
-}
-
-// ═════════════════════════════════════════════════════════════════════════════
+}// ═════════════════════════════════════════════════════════════════════════════
 // 11. PERIOD COMPARISON (e.g. August vs September Production)
 // ═════════════════════════════════════════════════════════════════════════════
 async function handlePeriodComparisonReport(
@@ -2958,22 +3298,16 @@ async function handlePeriodComparisonReport(
 
   let allEntries: any[] = [];
   try {
-    const res: any = await apiService.get('/production/entries', { limit: 5000 });
+    const compParams: any = { limit: 5000, allDates: 'true' };
+    if (division.id && division.id !== 'ALL' && division.code !== 'ALL') {
+      compParams.divisionId = division.id;
+    }
+    const res: any = await apiService.get('/production/entries', compParams);
     allEntries = Array.isArray(res) ? res : res?.data || res?.items || [];
   } catch { }
 
   const divEntries = convertEntriesForUnit(
-    allEntries.filter((e) => {
-      const eCode = e.division?.divisionCode || e.divisionCode || '';
-      const m = (e.machine?.machineCode || e.machineNo || '').toUpperCase();
-      if (division.code === 'DIV-CCD') {
-        return eCode === 'DIV-CCD' || m.startsWith('FT-') || m.startsWith('FL-') || m.startsWith('SP-') || m.startsWith('PV-');
-      }
-      if (division.code === 'DIV-SPD') {
-        return eCode === 'DIV-SPD' || m.startsWith('ST-') || m.startsWith('SPK-');
-      }
-      return true;
-    }),
+    allEntries.filter((e) => matchesEntryDivision(e, division)),
     isGrossMode,
   );
 
@@ -3143,6 +3477,1023 @@ function resolveGenuineCustomerCode(c: any, fallbackCode = ''): string {
   return fallbackCode || '';
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// 11B. ITEM-WISE RAW MATERIAL RECEIVING & CURRENT RAW MATERIAL STOCK BALANCE
+// ═════════════════════════════════════════════════════════════════════════════
+export function aggregateRawMaterialReceiving(params: {
+  receipts: any[];
+  division: DivisionMeta;
+  intent: QueryIntent;
+  isDark: boolean;
+}): NormalizedReportResult {
+  const { receipts, division, intent, isDark } = params;
+
+  const isValidStatus = (status: any): boolean => {
+    const s = String(status || '').toUpperCase().trim();
+    return s !== 'DRAFT' && s !== 'CANCELLED' && s !== 'VOID' && s !== 'REJECTED';
+  };
+
+  const hasDateFilter =
+    intent.period.type !== 'all' && Boolean(intent.period.startDate && intent.period.endDate);
+
+  const filteredReceipts = receipts.filter((r: any) => {
+    if (!r || r.isActive === false || !isValidStatus(r.status)) return false;
+    if (!matchesEntryDivision(r, division)) return false;
+    if (hasDateFilter) {
+      const rawDate = r.receiptDate || r.receipt_date || r.createdAt;
+      if (!rawDate || !dayjs(rawDate).isValid()) return false;
+      const dStr = dayjs(rawDate).format('YYYY-MM-DD');
+      if (dStr < intent.period.startDate! || dStr > intent.period.endDate!) return false;
+    }
+    return true;
+  });
+
+  interface RmRecvBucket {
+    itemCode: string;
+    itemName: string;
+    uom: string;
+    receiptIds: Set<string>;
+    gatePasses: Set<string>;
+    totalReceivedQty: number;
+    lastReceivedDate: string;
+  }
+
+  const itemMap = new Map<string, RmRecvBucket>();
+  const distinctReceiptIds = new Set<string>();
+
+  filteredReceipts.forEach((r: any, rIdx: number) => {
+    const rId = String(r.id || r.receiptCode || `rmr-${rIdx}`);
+    const gpNo = String(r.gatePassNo || r.gate_pass_no || r.receiptCode || r.receipt_code || '').trim();
+    const rawDate = r.receiptDate || r.receipt_date || r.createdAt;
+    const rDateStr = rawDate && dayjs(rawDate).isValid() ? dayjs(rawDate).format('YYYY-MM-DD') : '';
+    const lines = Array.isArray(r.lines) ? r.lines : [];
+
+    lines.forEach((l: any) => {
+      const itemCode = String(l.item?.itemCode || l.itemCode || l.item_code || 'RM-ITEM').trim().toUpperCase();
+      const itemName = String(l.item?.name || l.itemName || l.item_name || 'Raw Material').trim();
+      if (intent.specificItem && !matchesSpecificItem(itemCode, itemName, intent.specificItem)) {
+        return;
+      }
+
+      const qty = Number(l.receivedQuantity ?? l.received_quantity ?? l.quantity ?? 0);
+      if (!Number.isFinite(qty) || qty <= 0) return;
+      const uom = String(l.uom?.code || l.uomCode || l.uom_code || 'KG').trim().toUpperCase();
+
+      distinctReceiptIds.add(rId);
+      const existing = itemMap.get(itemCode);
+      if (!existing) {
+        itemMap.set(itemCode, {
+          itemCode,
+          itemName,
+          uom,
+          receiptIds: new Set([rId]),
+          gatePasses: new Set(gpNo ? [gpNo] : []),
+          totalReceivedQty: qty,
+          lastReceivedDate: rDateStr,
+        });
+      } else {
+        existing.receiptIds.add(rId);
+        if (gpNo) existing.gatePasses.add(gpNo);
+        existing.totalReceivedQty += qty;
+        if (rDateStr && (!existing.lastReceivedDate || rDateStr > existing.lastReceivedDate)) {
+          existing.lastReceivedDate = rDateStr;
+        }
+      }
+    });
+  });
+
+  const rows: any[] = Array.from(itemMap.values())
+    .map((b) => ({
+      id: `rm-recv-${b.itemCode}`,
+      itemCode: b.itemCode,
+      itemName: b.itemName,
+      receiptsCount: b.receiptIds.size,
+      gatePassSample: Array.from(b.gatePasses).slice(0, 3).join(', '),
+      totalReceivedQty: Math.round(b.totalReceivedQty * 100) / 100,
+      uom: b.uom || 'KG',
+      lastReceivedDate: b.lastReceivedDate || '—',
+    }))
+    .sort((a, b) => b.totalReceivedQty - a.totalReceivedQty);
+
+  const totalReceipts = distinctReceiptIds.size;
+  const distinctItemsCount = rows.length;
+  const grandTotalWeight = Math.round(rows.reduce((s, r) => s + r.totalReceivedQty, 0) * 100) / 100;
+  const latestOverallDate = rows
+    .map((r) => r.lastReceivedDate)
+    .filter((d) => d && d !== '—')
+    .sort((a, b) => b.localeCompare(a))[0] || '—';
+
+  if (rows.length > 0) {
+    rows.push({
+      id: 'rm-recv-grand-total',
+      isGrandTotal: true,
+      itemCode: 'TOTAL',
+      itemName: `${distinctItemsCount} Distinct Raw Material Items`,
+      receiptsCount: totalReceipts,
+      gatePassSample: '',
+      totalReceivedQty: grandTotalWeight,
+      uom: 'KG',
+      lastReceivedDate: latestOverallDate,
+    });
+  }
+
+  const columns: AiColumn[] = [
+    {
+      title: 'ITEM CODE',
+      dataIndex: 'itemCode',
+      key: 'itemCode',
+      width: 150,
+      render: (v: string, r: any) =>
+        r?.isGrandTotal
+          ? React.createElement('strong', { style: { fontWeight: 800 } }, 'GRAND TOTAL')
+          : React.createElement(
+              Tag,
+              { color: 'orange', style: { margin: 0, fontWeight: 700, fontFamily: 'monospace', fontSize: 11.5 } },
+              v,
+            ),
+    },
+    {
+      title: 'RAW MATERIAL ITEM NAME',
+      dataIndex: 'itemName',
+      key: 'itemName',
+      render: (v: string, r: any) =>
+        React.createElement('strong', { style: { fontWeight: r?.isGrandTotal ? 700 : 600 } }, v),
+    },
+    {
+      title: 'RECEIPTS / GATE PASSES',
+      dataIndex: 'receiptsCount',
+      key: 'receiptsCount',
+      width: 185,
+      render: (v: number, r: any) =>
+        React.createElement(
+          Tag,
+          { color: r?.isGrandTotal ? 'cyan' : 'blue', style: { margin: 0, fontWeight: 600 } },
+          `${v} ${v === 1 ? 'Receipt' : 'Receipts'}`,
+        ),
+    },
+    {
+      title: 'TOTAL RECEIVED QTY / WEIGHT (KG)',
+      dataIndex: 'totalReceivedQty',
+      key: 'totalReceivedQty',
+      width: 220,
+      render: (v: number, r: any) =>
+        React.createElement(
+          'span',
+          { style: { fontWeight: r?.isGrandTotal ? 800 : 700, color: '#059669' } },
+          `${formatQty(v)} ${r?.uom || 'KG'}`,
+        ),
+    },
+    {
+      title: 'LAST RECEIVED DATE',
+      dataIndex: 'lastReceivedDate',
+      key: 'lastReceivedDate',
+      width: 165,
+      render: (v: string) =>
+        React.createElement(
+          'strong',
+          {
+            style: {
+              fontFamily: 'monospace',
+              fontWeight: 700,
+              color: isDark ? '#60a5fa' : '#1e3a8a',
+            },
+          },
+          v,
+        ),
+    },
+  ];
+
+  const chartData = rows
+    .filter((r) => !r.isGrandTotal)
+    .slice(0, 15)
+    .map((r) => ({
+      name: r.itemCode,
+      'Received (KG)': r.totalReceivedQty,
+    }));
+
+  const summaryText =
+    distinctItemsCount > 0
+      ? `**${division.name} — Item-Wise Raw Material Receiving Report (${intent.period.label})**\n\n` +
+        `• **Total Gate Passes / Receipts:** **${totalReceipts}** confirmed receipts\n` +
+        `• **Distinct RM Items:** **${distinctItemsCount}** raw material items\n` +
+        `• **Total Received Weight (KG):** **${formatQty(grandTotalWeight)} KG**\n` +
+        `• **Latest Receiving Date:** **${latestOverallDate}**`
+      : `**${division.name} — Item-Wise Raw Material Receiving Report (${intent.period.label})**\n\n` +
+        `• **Total Gate Passes / Receipts:** **0**\n` +
+        `• **Distinct RM Items:** **0**\n` +
+        `• **Total Received Weight (KG):** **0 KG**\n` +
+        `• No confirmed raw material receiving gate passes were found for **${division.name}** in **${intent.period.label}**.`;
+
+  return {
+    title: `Item-Wise Raw Material Receiving Report — ${division.name} (${intent.period.label})`,
+    summaryText,
+    divisionScope: division.code,
+    departmentScope: 'ALL',
+    periodLabel: intent.period.label,
+    recordsCount: distinctItemsCount,
+    kpiCards: [
+      { title: 'Total Gate Passes / Receipts', value: totalReceipts, subtitle: division.name, color: '#3b82f6' },
+      { title: 'Distinct RM Items', value: distinctItemsCount, subtitle: 'Raw Material SKUs', color: '#f97316' },
+      { title: 'Total Received Weight', value: `${formatQty(grandTotalWeight)} KG`, subtitle: intent.period.label, color: '#10b981' },
+      { title: 'Last Received Date', value: latestOverallDate, subtitle: 'Most recent gate pass', color: '#1d4ed8' },
+    ],
+    chartData:
+      chartData.length > 0
+        ? {
+            type: 'bar',
+            data: chartData,
+            xKey: 'name',
+            title: `${division.name} — Raw Material Received by Item Code (KG)`,
+            dataKeys: [{ key: 'Received (KG)', color: '#10b981', name: 'Total Received (KG)' }],
+          }
+        : undefined,
+    tableData: { columns, rows },
+    auditTrail: {
+      dataSource: 'Raw Material Receiving Gate Passes (/inventory/receipts/gate-pass)',
+      filters: [`Division: ${division.name} (${division.code})`, `Period: ${intent.period.label}`],
+      period: intent.period.label,
+      timestamp: dayjs().format('YYYY-MM-DD HH:mm:ss'),
+      recordsExamined: filteredReceipts.length,
+    },
+  };
+}
+
+async function handleRawMaterialReceivingReport(
+  intent: QueryIntent,
+  division: DivisionMeta,
+  isDark: boolean,
+): Promise<NormalizedReportResult> {
+  let receipts: any[] = [];
+  try {
+    const params: Record<string, any> = { page: 1, limit: 500 };
+    if (division.code !== 'ALL' && division.id && division.id !== 'ALL') {
+      params.divisionId = division.id;
+    }
+    if (intent.period.type !== 'all' && intent.period.startDate && intent.period.endDate) {
+      params.dateFrom = intent.period.startDate;
+      params.dateTo = intent.period.endDate;
+    }
+    const res: any = await apiService.get('/inventory/receipts/gate-pass', params);
+    receipts = Array.isArray(res) ? res : res?.data || res?.items || [];
+  } catch {
+    receipts = [];
+  }
+
+  return aggregateRawMaterialReceiving({ receipts, division, intent, isDark });
+}
+
+export function aggregateRawMaterialStock(params: {
+  balances: any[];
+  division: DivisionMeta;
+  intent: QueryIntent;
+  isDark: boolean;
+}): NormalizedReportResult {
+  const { balances, division, intent } = params;
+
+  const targetDivId = String(division.id || '').trim().toLowerCase();
+  const isSpecificDiv = division.code !== 'ALL' && targetDivId && targetDivId !== 'all';
+
+  const isRmBalance = (b: any): boolean => {
+    const iType = String(b?.item?.itemType || b?.itemType || '').toUpperCase();
+    const code = String(b?.item?.itemCode || b?.itemCode || '').toUpperCase();
+    if (iType) return iType === 'RAW_MATERIAL';
+    return code.startsWith('RM-');
+  };
+
+  const belongsToDivision = (b: any): boolean => {
+    if (!isSpecificDiv) return true;
+    const whDivId = String(b?.warehouse?.divisionId || b?.warehouse?.division?.id || '').trim().toLowerCase();
+    const itemDivId = String(b?.item?.divisionId || b?.divisionId || '').trim().toLowerCase();
+    if (whDivId) return whDivId === targetDivId;
+    if (itemDivId) return itemDivId === targetDivId;
+    return false;
+  };
+
+  interface RmStockBucket {
+    itemCode: string;
+    itemName: string;
+    uom: string;
+    warehouses: Set<string>;
+    onHand: number;
+    reserved: number;
+    available: number;
+  }
+
+  const map = new Map<string, RmStockBucket>();
+  balances.forEach((b: any) => {
+    if (!isRmBalance(b) || !belongsToDivision(b)) return;
+    const itemCode = String(b?.item?.itemCode || b?.itemCode || 'RM-ITEM').trim().toUpperCase();
+    const itemName = String(b?.item?.name || b?.itemName || 'Raw Material').trim();
+    if (intent.specificItem && !matchesSpecificItem(itemCode, itemName, intent.specificItem)) return;
+
+    const onHand = Number(b?.onHand ?? b?.on_hand ?? 0);
+    const reserved = Number(b?.reserved ?? 0);
+    const available = Number(b?.available ?? Math.max(0, onHand - reserved));
+    if (onHand <= 0 && available <= 0) return;
+
+    const whName = String(b?.warehouse?.name || b?.warehouse?.warehouseCode || 'RM Store').trim();
+    const uom = String(b?.uom?.code || b?.item?.baseUom?.code || 'KG').trim().toUpperCase();
+
+    const ex = map.get(itemCode);
+    if (!ex) {
+      map.set(itemCode, {
+        itemCode,
+        itemName,
+        uom,
+        warehouses: new Set([whName]),
+        onHand,
+        reserved,
+        available,
+      });
+    } else {
+      ex.warehouses.add(whName);
+      ex.onHand += onHand;
+      ex.reserved += reserved;
+      ex.available += available;
+    }
+  });
+
+  const rows: any[] = Array.from(map.values())
+    .map((b) => ({
+      id: `rm-stock-${b.itemCode}`,
+      itemCode: b.itemCode,
+      itemName: b.itemName,
+      warehouse: Array.from(b.warehouses).join(', '),
+      onHand: Math.round(b.onHand * 100) / 100,
+      reserved: Math.round(b.reserved * 100) / 100,
+      available: Math.round(b.available * 100) / 100,
+      uom: b.uom || 'KG',
+    }))
+    .sort((a, b) => b.onHand - a.onHand);
+
+  const totalOnHand = Math.round(rows.reduce((s, r) => s + r.onHand, 0) * 100) / 100;
+  const totalReserved = Math.round(rows.reduce((s, r) => s + r.reserved, 0) * 100) / 100;
+  const totalAvailable = Math.round(rows.reduce((s, r) => s + r.available, 0) * 100) / 100;
+  const distinctItems = rows.length;
+
+  if (rows.length > 0) {
+    rows.push({
+      id: 'rm-stock-grand-total',
+      isGrandTotal: true,
+      itemCode: 'TOTAL',
+      itemName: `${distinctItems} Raw Material Items in Stock`,
+      warehouse: division.name,
+      onHand: totalOnHand,
+      reserved: totalReserved,
+      available: totalAvailable,
+      uom: 'KG',
+    });
+  }
+
+  const columns: AiColumn[] = [
+    {
+      title: 'ITEM CODE',
+      dataIndex: 'itemCode',
+      key: 'itemCode',
+      width: 150,
+      render: (v: string, r: any) =>
+        r?.isGrandTotal
+          ? React.createElement('strong', { style: { fontWeight: 800 } }, 'GRAND TOTAL')
+          : React.createElement(
+              Tag,
+              { color: 'orange', style: { margin: 0, fontWeight: 700, fontFamily: 'monospace', fontSize: 11.5 } },
+              v,
+            ),
+    },
+    {
+      title: 'RAW MATERIAL ITEM NAME',
+      dataIndex: 'itemName',
+      key: 'itemName',
+      render: (v: string, r: any) =>
+        React.createElement('strong', { style: { fontWeight: r?.isGrandTotal ? 700 : 600 } }, v),
+    },
+    {
+      title: 'WAREHOUSE',
+      dataIndex: 'warehouse',
+      key: 'warehouse',
+      render: (v: string) => React.createElement(Tag, { color: 'geekblue', style: { margin: 0 } }, v),
+    },
+    {
+      title: 'ON-HAND STOCK (KG)',
+      dataIndex: 'onHand',
+      key: 'onHand',
+      render: (v: number, r: any) =>
+        React.createElement('strong', { style: { color: '#3b82f6' } }, `${formatQty(v)} ${r?.uom || 'KG'}`),
+    },
+    {
+      title: 'RESERVED (KG)',
+      dataIndex: 'reserved',
+      key: 'reserved',
+      render: (v: number, r: any) => `${formatQty(v)} ${r?.uom || 'KG'}`,
+    },
+    {
+      title: 'AVAILABLE BALANCE (KG)',
+      dataIndex: 'available',
+      key: 'available',
+      render: (v: number, r: any) =>
+        React.createElement(
+          'strong',
+          { style: { color: v > 0 ? '#059669' : '#d97706' } },
+          `${formatQty(v)} ${r?.uom || 'KG'}`,
+        ),
+    },
+  ];
+
+  const chartData = rows
+    .filter((r) => !r.isGrandTotal)
+    .slice(0, 15)
+    .map((r) => ({
+      name: r.itemCode,
+      'On-Hand (KG)': r.onHand,
+      'Available (KG)': r.available,
+    }));
+
+  const summaryText =
+    distinctItems > 0
+      ? `**${division.name} — Current Raw Material Stock Balance (Item-Wise)**\n\n` +
+        `• **Distinct RM Items in Stock:** **${distinctItems}** items\n` +
+        `• **Total On-Hand Stock:** **${formatQty(totalOnHand)} KG**\n` +
+        `• **Total Reserved Stock:** **${formatQty(totalReserved)} KG**\n` +
+        `• **Total Available Balance:** **${formatQty(totalAvailable)} KG**`
+      : `**${division.name} — Current Raw Material Stock Balance (Item-Wise)**\n\n` +
+        `• No positive raw material stock balances were found for **${division.name}**.`;
+
+  return {
+    title: `Current Raw Material Stock Balance (Item-Wise) — ${division.name}`,
+    summaryText,
+    divisionScope: division.code,
+    departmentScope: 'ALL',
+    periodLabel: 'Current Stock Balance',
+    recordsCount: distinctItems,
+    kpiCards: [
+      { title: 'Distinct RM Items', value: distinctItems, subtitle: division.name, color: '#f97316' },
+      { title: 'Total On-Hand Stock', value: `${formatQty(totalOnHand)} KG`, subtitle: 'Physical inventory', color: '#3b82f6' },
+      { title: 'Reserved Stock', value: `${formatQty(totalReserved)} KG`, subtitle: 'Allocated to orders', color: '#f59e0b' },
+      { title: 'Available Balance', value: `${formatQty(totalAvailable)} KG`, subtitle: 'Ready for production', color: '#10b981' },
+    ],
+    chartData:
+      chartData.length > 0
+        ? {
+            type: 'bar',
+            data: chartData,
+            xKey: 'name',
+            title: `${division.name} — Raw Material On-Hand vs Available Balance (KG)`,
+            dataKeys: [
+              { key: 'On-Hand (KG)', color: '#3b82f6', name: 'On-Hand (KG)' },
+              { key: 'Available (KG)', color: '#10b981', name: 'Available (KG)' },
+            ],
+          }
+        : undefined,
+    tableData: { columns, rows },
+    auditTrail: {
+      dataSource: 'Live ERP Raw Material Inventory Balances (/inventory/balances)',
+      filters: [`Division: ${division.name} (${division.code})`, `Item Type: RAW_MATERIAL`],
+      period: 'Current Stock Balance',
+      timestamp: dayjs().format('YYYY-MM-DD HH:mm:ss'),
+      recordsExamined: distinctItems,
+    },
+  };
+}
+
+async function handleRawMaterialStockReport(
+  intent: QueryIntent,
+  division: DivisionMeta,
+  isDark: boolean,
+): Promise<NormalizedReportResult> {
+  let balances: any[] = [];
+  try {
+    const params: Record<string, any> = { page: 1, limit: 500, consolidate: 'true' };
+    if (division.code !== 'ALL' && division.id && division.id !== 'ALL') {
+      params.divisionId = division.id;
+    }
+    const res: any = await apiService.get('/inventory/balances', params);
+    balances = Array.isArray(res) ? res : res?.data || res?.items || [];
+  } catch {
+    balances = [];
+  }
+
+  return aggregateRawMaterialStock({ balances, division, intent, isDark });
+}
+
+const GENERIC_CUSTOMER_STOP_WORDS = new Set([
+  'customer', 'customers', 'client', 'clients', 'dispatch', 'dispatches', 'dispatched',
+  'material', 'materials', 'order', 'orders', 'sales', 'month', 'this', 'last', 'report',
+  'volume', 'pending', 'balance', 'summary', 'top', 'show', 'how', 'much', 'was', 'for',
+  'the', 'all', 'autos', 'auto', 'motors', 'motor', 'pakistan', 'traders', 'trading',
+  'corporation', 'corp', 'pvt', 'ltd', 'limited', 'company', 'enterprises', 'enterprise',
+  'industries', 'industry', 'wire', 'spoke', 'cable', 'division', 'department', 'store',
+  'engineering', 'works', 'group', 'parts', 'international', 'impex', 'exports', 'imports',
+  'deliveries', 'delivery', 'delivered', 'shipped', 'invoice', 'invoices', 'today', 'year',
+]);
+
+function stripDeliveryLineMeta(desc: string): string {
+  return String(desc || '')
+    .replace(/\s*\(\s*\d+(?:\.\d+)?\s*Cartons?\s*[×x*]\s*\d+(?:\.\d+)?\s*GRS\s*\)/gi, '')
+    .replace(/\s*\[SOC:[^\]]+\]/gi, '')
+    .trim();
+}
+
+export function buildCustomerSpecificDispatchReport(params: {
+  intent: QueryIntent;
+  division: DivisionMeta;
+  isDark: boolean;
+  matchedCustomers: Array<{ id: string; name: string; code: string }>;
+  rawOrders: any[];
+  rawDeliveries: any[];
+}): NormalizedReportResult {
+  const { intent, division, isDark, matchedCustomers, rawOrders, rawDeliveries } = params;
+
+  const matchedIdSet = new Set(matchedCustomers.map((c) => c.id.toLowerCase()).filter(Boolean));
+  const matchedCodeSet = new Set(matchedCustomers.map((c) => c.code.toLowerCase()).filter(Boolean));
+  const matchedNameSet = new Set(matchedCustomers.map((c) => c.name.toLowerCase()).filter(Boolean));
+
+  const belongsToMatched = (rec: any): boolean => {
+    const cid = String(rec?.customerId || rec?.customer_id || rec?.customer?.id || '').trim().toLowerCase();
+    if (cid && matchedIdSet.has(cid)) return true;
+    const ccode = resolveGenuineCustomerCode(rec?.customer, rec?.customerCode || rec?.customer_code).toLowerCase();
+    if (ccode && matchedCodeSet.has(ccode)) return true;
+    const cname = String(rec?.customer?.name || rec?.customerName || '').trim().toLowerCase();
+    if (cname && matchedNameSet.has(cname)) return true;
+    return false;
+  };
+
+  const isCommittedStatus = (status: any): boolean => {
+    const s = String(status || '').toUpperCase().trim();
+    return s !== 'DRAFT' && s !== 'CANCELLED' && s !== 'VOID';
+  };
+
+  const hasDateFilter =
+    intent.period.type !== 'all' && Boolean(intent.period.startDate && intent.period.endDate);
+  const inRequestedPeriod = (rawDate: any): boolean => {
+    if (!hasDateFilter) return true;
+    if (!rawDate) return false;
+    const dStr = dayjs(rawDate).format('YYYY-MM-DD');
+    return dStr >= intent.period.startDate! && dStr <= intent.period.endDate!;
+  };
+
+  const custOrders = rawOrders.filter((o) => isCommittedStatus(o?.status) && belongsToMatched(o));
+  const custDeliveries = rawDeliveries.filter((d) => isCommittedStatus(d?.status) && belongsToMatched(d));
+
+  const periodDeliveries = hasDateFilter
+    ? custDeliveries.filter((d) =>
+        inRequestedPeriod(d?.deliveryDate || d?.delivery_date || d?.dispatchDate || d?.createdAt || d?.created_at),
+      )
+    : custDeliveries;
+
+  // Collect SOC IDs & numbers referenced by deliveries in this period
+  const linkedOrderIds = new Set<string>();
+  const linkedSocNumbers = new Set<string>();
+  periodDeliveries.forEach((d) => {
+    const soId = String(d?.salesOrderId || d?.sales_order_id || d?.salesOrder?.id || '').trim().toLowerCase();
+    if (soId) linkedOrderIds.add(soId);
+    const soNo = String(d?.salesOrder?.orderNumber || d?.salesOrder?.order_number || '').trim().toUpperCase();
+    if (soNo) linkedSocNumbers.add(soNo);
+    const lines = Array.isArray(d?.lines) ? d.lines : Array.isArray(d?.items) ? d.items : [];
+    lines.forEach((ln: any) => {
+      const m = String(ln?.description || '').match(/\[SOC:\s*([^\]]+)\]/i);
+      if (m && m[1]) linkedSocNumbers.add(m[1].trim().toUpperCase());
+    });
+  });
+
+  const orderHasPending = (o: any): boolean => {
+    const st = String(o?.status || '').toLowerCase();
+    if (st === 'delivered' || st === 'completed' || st === 'closed') return false;
+    const items = o?.items || o?.orderItems || o?.lines || [];
+    if (!Array.isArray(items) || items.length === 0) return st === 'processing' || st === 'pending' || st === 'confirmed';
+    return items.some((it: any) => {
+      const q = Number(it?.quantity ?? it?.qty ?? 0);
+      const s = Number(it?.shippedQuantity ?? it?.shipped_quantity ?? it?.deliveredQuantity ?? 0);
+      return q - s > 0.001;
+    });
+  };
+
+  const relevantOrders = custOrders.filter((o) => {
+    if (!hasDateFilter) return true;
+    const oId = String(o?.id || '').trim().toLowerCase();
+    const oNo = String(o?.orderNumber || o?.order_number || o?.socNumber || '').trim().toUpperCase();
+    return (
+      inRequestedPeriod(o?.orderDate || o?.order_date || o?.createdAt || o?.created_at) ||
+      (oId && linkedOrderIds.has(oId)) ||
+      (oNo && linkedSocNumbers.has(oNo)) ||
+      orderHasPending(o)
+    );
+  });
+
+  interface SoLineInfo {
+    key: string;
+    orderId: string;
+    orderNumber: string;
+    orderDate: string;
+    orderStatus: string;
+    itemId: string;
+    itemCode: string;
+    itemName: string;
+    pkgSize: number;
+    orderedGross: number;
+    shippedGross: number;
+    pendingGross: number;
+  }
+
+  const soLines: SoLineInfo[] = [];
+  const soLineByKey = new Map<string, SoLineInfo>();
+  const soLineByOrderAndItemId = new Map<string, SoLineInfo>();
+
+  relevantOrders.forEach((order) => {
+    const orderId = String(order?.id || '').trim().toLowerCase();
+    const orderNumber = String(order?.orderNumber || order?.order_number || order?.socNumber || 'SOC').trim();
+    const rawOrderDate = order?.orderDate || order?.order_date || order?.createdAt;
+    const orderDate = rawOrderDate && dayjs(rawOrderDate).isValid() ? dayjs(rawOrderDate).format('YYYY-MM-DD') : '—';
+    const orderStatus = String(order?.status || 'Active');
+    const items = Array.isArray(order?.items)
+      ? order.items
+      : Array.isArray(order?.orderItems)
+      ? order.orderItems
+      : [];
+
+    items.forEach((it: any, idx: number) => {
+      const itemId = String(it?.itemId || it?.item_id || it?.item?.id || '').trim().toLowerCase();
+      const itemCode = String(it?.item?.itemCode || it?.itemCode || it?.item_code || `LINE-${idx + 1}`).trim().toUpperCase();
+      const itemName = String(it?.item?.name || it?.itemName || stripDeliveryLineMeta(it?.description) || 'Product').trim();
+      const pkgSize = Number(it?.item?.packagingSize ?? it?.packageQuantity ?? it?.packagingSize ?? 10) || 10;
+      const orderedGross = Math.round(Number(it?.quantity ?? it?.qty ?? 0) * 100) / 100;
+      const shippedGross = Math.round(Number(it?.shippedQuantity ?? it?.shipped_quantity ?? it?.deliveredQuantity ?? 0) * 100) / 100;
+      const pendingGross = Math.max(0, Math.round((orderedGross - shippedGross) * 100) / 100);
+      const key = `${orderNumber.toUpperCase()}::${itemCode}`;
+      const info: SoLineInfo = {
+        key,
+        orderId,
+        orderNumber,
+        orderDate,
+        orderStatus,
+        itemId,
+        itemCode,
+        itemName,
+        pkgSize,
+        orderedGross,
+        shippedGross,
+        pendingGross,
+      };
+      soLines.push(info);
+      soLineByKey.set(key, info);
+      if (orderId && itemId) {
+        soLineByOrderAndItemId.set(`${orderId}::${itemId}`, info);
+      }
+    });
+  });
+
+  interface BreakdownRow {
+    id: string;
+    isGrandTotal?: boolean;
+    docDate: string;
+    docNumber: string;
+    linkedSoc?: string;
+    docBadge: 'DISPATCH' | 'PENDING SOC' | 'SOC' | 'TOTAL';
+    itemCode: string;
+    itemName: string;
+    orderedGross: number;
+    orderedCartons: number;
+    dispatchedGross: number;
+    dispatchedCartons: number;
+    dispatchedNote?: string;
+    pendingGross: number;
+    pendingCartons: number;
+  }
+
+  const breakdownRows: BreakdownRow[] = [];
+  const representedSoKeys = new Set<string>();
+  let periodDispatchedGrossTotal = 0;
+  let periodDispatchedCartonsTotal = 0;
+
+  // 1. Dispatched lines in the requested period (newest date first)
+  const sortedDeliveries = [...periodDeliveries].sort((a, b) => {
+    const da = dayjs(a?.deliveryDate || a?.delivery_date || a?.createdAt).valueOf() || 0;
+    const db = dayjs(b?.deliveryDate || b?.delivery_date || b?.createdAt).valueOf() || 0;
+    return db - da;
+  });
+
+  sortedDeliveries.forEach((delivery, dIdx) => {
+    const rawDelDate = delivery?.deliveryDate || delivery?.delivery_date || delivery?.dispatchDate || delivery?.createdAt;
+    const docDate = rawDelDate && dayjs(rawDelDate).isValid() ? dayjs(rawDelDate).format('YYYY-MM-DD') : '—';
+    const docNumber = String(
+      delivery?.deliveryNumber || delivery?.delivery_number || delivery?.gatePassNumber || delivery?.invoiceNumber || `DN-${dIdx + 1}`,
+    ).trim();
+    const deliveryOrderId = String(delivery?.salesOrderId || delivery?.sales_order_id || delivery?.salesOrder?.id || '').trim().toLowerCase();
+    const deliverySocNo = String(delivery?.salesOrder?.orderNumber || delivery?.salesOrder?.order_number || '').trim();
+    const lines = Array.isArray(delivery?.lines) ? delivery.lines : Array.isArray(delivery?.items) ? delivery.items : [];
+
+    lines.forEach((ln: any, lIdx: number) => {
+      const socMatch = String(ln?.description || '').match(/\[SOC:\s*([^\]]+)\]/i);
+      const lineSoc = (socMatch?.[1] || deliverySocNo || '').trim();
+      const itemId = String(ln?.itemId || ln?.item_id || ln?.item?.id || '').trim().toLowerCase();
+      const itemCode = String(ln?.item?.itemCode || ln?.itemCode || ln?.item_code || 'ITEM').trim().toUpperCase();
+      const itemName = String(ln?.item?.name || ln?.itemName || stripDeliveryLineMeta(ln?.description) || 'Dispatched Material').trim();
+      const pkgSize = Number(ln?.item?.packagingSize ?? ln?.packageQuantity ?? ln?.packagingSize ?? 10) || 10;
+      const dispatchedGross = Math.round(Number(ln?.quantity ?? ln?.qty ?? 0) * 100) / 100;
+      const dispatchedCartons = Math.round(dispatchedGross / pkgSize);
+
+      periodDispatchedGrossTotal += dispatchedGross;
+      periodDispatchedCartonsTotal += dispatchedCartons;
+
+      const matchedSoLine =
+        (lineSoc && soLineByKey.get(`${lineSoc.toUpperCase()}::${itemCode}`)) ||
+        (deliveryOrderId && itemId && soLineByOrderAndItemId.get(`${deliveryOrderId}::${itemId}`)) ||
+        soLines.find((sl) => sl.itemCode === itemCode);
+
+      if (matchedSoLine) {
+        representedSoKeys.add(matchedSoLine.key);
+      }
+
+      const orderedGross = matchedSoLine ? matchedSoLine.orderedGross : dispatchedGross;
+      const orderedCartons = Math.round(orderedGross / pkgSize);
+      const pendingGross = matchedSoLine ? matchedSoLine.pendingGross : 0;
+      const pendingCartons = Math.round(pendingGross / pkgSize);
+
+      breakdownRows.push({
+        id: `del-${delivery.id || dIdx}-${lIdx}`,
+        docDate,
+        docNumber,
+        linkedSoc: lineSoc || matchedSoLine?.orderNumber,
+        docBadge: 'DISPATCH',
+        itemCode,
+        itemName,
+        orderedGross,
+        orderedCartons,
+        dispatchedGross,
+        dispatchedCartons,
+        pendingGross,
+        pendingCartons,
+      });
+    });
+  });
+
+  // 2. Remaining open / pending SOC item lines not already dispatched in this period
+  soLines.forEach((sl, idx) => {
+    if (representedSoKeys.has(sl.key)) return;
+    if (sl.pendingGross <= 0 && !inRequestedPeriod(sl.orderDate)) return;
+
+    const orderedCartons = Math.round(sl.orderedGross / sl.pkgSize);
+    const shippedCartons = Math.round(sl.shippedGross / sl.pkgSize);
+    const pendingCartons = Math.round(sl.pendingGross / sl.pkgSize);
+
+    breakdownRows.push({
+      id: `soc-${sl.orderId || idx}-${sl.itemCode}-${idx}`,
+      docDate: sl.orderDate,
+      docNumber: sl.orderNumber,
+      docBadge: sl.pendingGross > 0 ? 'PENDING SOC' : 'SOC',
+      itemCode: sl.itemCode,
+      itemName: sl.itemName,
+      orderedGross: sl.orderedGross,
+      orderedCartons,
+      dispatchedGross: sl.shippedGross,
+      dispatchedCartons: shippedCartons,
+      dispatchedNote: hasDateFilter && sl.shippedGross > 0 ? 'Prior' : undefined,
+      pendingGross: sl.pendingGross,
+      pendingCartons,
+    });
+  });
+
+  // Compute authoritative customer totals without double-counting SO lines
+  const totalOpenOrderedGross = Math.round(soLines.reduce((s, l) => s + l.orderedGross, 0) * 100) / 100;
+  const totalOpenOrderedCartons = soLines.reduce((s, l) => s + Math.round(l.orderedGross / l.pkgSize), 0);
+  const totalPendingGross = Math.round(soLines.reduce((s, l) => s + l.pendingGross, 0) * 100) / 100;
+  const totalPendingCartons = soLines.reduce((s, l) => s + Math.round(l.pendingGross / l.pkgSize), 0);
+  const totalShippedAcrossOpenGross = Math.round(soLines.reduce((s, l) => s + l.shippedGross, 0) * 100) / 100;
+  const periodDispatchedGross = Math.round(periodDispatchedGrossTotal * 100) / 100;
+  const periodDispatchedCartons = periodDispatchedCartonsTotal;
+
+  const fulfillmentPct =
+    totalOpenOrderedGross > 0
+      ? Math.min(100, Math.round((totalShippedAcrossOpenGross / totalOpenOrderedGross) * 100))
+      : periodDispatchedGross > 0
+      ? 100
+      : 0;
+
+  if (breakdownRows.length > 0) {
+    breakdownRows.push({
+      id: 'cust-breakdown-total',
+      isGrandTotal: true,
+      docDate: '',
+      docNumber: 'TOTAL',
+      docBadge: 'TOTAL',
+      itemCode: `${breakdownRows.length} Items`,
+      itemName: hasDateFilter ? `Dispatched in ${intent.period.label} & Open Pending Balance` : 'Total Ordered, Dispatched & Pending',
+      orderedGross: totalOpenOrderedGross > 0 ? totalOpenOrderedGross : periodDispatchedGross,
+      orderedCartons: totalOpenOrderedCartons > 0 ? totalOpenOrderedCartons : periodDispatchedCartons,
+      dispatchedGross: periodDispatchedGross,
+      dispatchedCartons: periodDispatchedCartons,
+      pendingGross: totalPendingGross,
+      pendingCartons: totalPendingCartons,
+    });
+  }
+
+  const primaryCust = matchedCustomers[0];
+  const customerHeadline =
+    matchedCustomers.length === 1
+      ? `${primaryCust.name} (${primaryCust.code})`
+      : matchedCustomers.map((c) => `${c.name} (${c.code})`).join(', ');
+
+  // Chart data aggregated by Item Code (excluding Grand Total)
+  const itemChartMap = new Map<string, { name: string; Ordered: number; Dispatched: number; Pending: number }>();
+  breakdownRows
+    .filter((r) => !r.isGrandTotal)
+    .forEach((r) => {
+      const existing = itemChartMap.get(r.itemCode);
+      if (existing) {
+        existing.Dispatched += r.dispatchedGross;
+      } else {
+        itemChartMap.set(r.itemCode, {
+          name: r.itemCode,
+          Ordered: r.orderedGross,
+          Dispatched: r.dispatchedGross,
+          Pending: r.pendingGross,
+        });
+      }
+    });
+  const chartData = Array.from(itemChartMap.values());
+
+  const columns: AiColumn[] = [
+    {
+      title: 'DATE / DOC #',
+      dataIndex: 'docNumber',
+      key: 'docNumber',
+      width: 175,
+      render: (v: string, r: any) => {
+        if (r?.isGrandTotal) {
+          return React.createElement('strong', { style: { fontWeight: 800 } }, 'GRAND TOTAL');
+        }
+        return React.createElement(
+          'div',
+          { style: { display: 'flex', flexDirection: 'column', gap: 2 } },
+          React.createElement('span', { style: { fontSize: 11.5, color: 'var(--theme-text-secondary, #64748b)' } }, r.docDate),
+          React.createElement(
+            'div',
+            { style: { display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' } },
+            React.createElement('strong', { style: { fontFamily: 'monospace', fontSize: 12.5 } }, v),
+            React.createElement(
+              Tag,
+              {
+                color: r.docBadge === 'DISPATCH' ? 'green' : r.docBadge === 'PENDING SOC' ? 'gold' : 'blue',
+                style: { margin: 0, fontSize: 10, lineHeight: '16px', padding: '0 5px' },
+              },
+              r.docBadge,
+            ),
+          ),
+          r.linkedSoc && r.linkedSoc !== v
+            ? React.createElement('span', { style: { fontSize: 11, color: 'var(--theme-text-muted, #64748b)' } }, `Ref: ${r.linkedSoc}`)
+            : null,
+        );
+      },
+    },
+    {
+      title: 'ITEM CODE & NAME',
+      dataIndex: 'itemCode',
+      key: 'itemCode',
+      render: (v: string, r: any) => {
+        if (r?.isGrandTotal) {
+          return React.createElement(
+            'div',
+            null,
+            React.createElement('strong', null, v),
+            React.createElement('div', { style: { fontSize: 11.5, color: 'var(--theme-text-secondary, #64748b)' } }, r.itemName),
+          );
+        }
+        return React.createElement(
+          'div',
+          { style: { display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 3 } },
+          React.createElement(
+            Tag,
+            { color: 'orange', style: { margin: 0, fontWeight: 700, fontFamily: 'monospace', fontSize: 11 } },
+            v,
+          ),
+          React.createElement('span', { style: { fontSize: 12.5, fontWeight: 500, lineHeight: 1.35 } }, r.itemName),
+        );
+      },
+    },
+    {
+      title: 'ORDERED (GROSS / CTN)',
+      dataIndex: 'orderedGross',
+      key: 'orderedGross',
+      render: (v: number, r: any) =>
+        React.createElement(
+          'span',
+          { style: { fontWeight: r?.isGrandTotal ? 800 : 600, color: '#3b82f6' } },
+          `${formatQty(v)} Gross (${formatQty(r.orderedCartons)} CTN)`,
+        ),
+    },
+    {
+      title: 'DISPATCHED (GROSS / CTN)',
+      dataIndex: 'dispatchedGross',
+      key: 'dispatchedGross',
+      render: (v: number, r: any) =>
+        React.createElement(
+          'div',
+          null,
+          React.createElement(
+            'span',
+            { style: { fontWeight: r?.isGrandTotal ? 800 : 700, color: v > 0 ? '#10b981' : undefined } },
+            `${formatQty(v)} Gross (${formatQty(r.dispatchedCartons)} CTN)`,
+          ),
+          r?.dispatchedNote
+            ? React.createElement(
+                Tag,
+                { color: 'default', style: { marginLeft: 6, fontSize: 10, lineHeight: '16px', padding: '0 4px' } },
+                r.dispatchedNote,
+              )
+            : null,
+        ),
+    },
+    {
+      title: 'PENDING BALANCE (GROSS / CTN)',
+      dataIndex: 'pendingGross',
+      key: 'pendingGross',
+      render: (v: number, r: any) =>
+        React.createElement(
+          'span',
+          { style: { fontWeight: r?.isGrandTotal ? 800 : 700, color: v > 0 ? '#f59e0b' : '#10b981' } },
+          `${formatQty(v)} Gross (${formatQty(r.pendingCartons)} CTN)`,
+        ),
+    },
+  ];
+
+  const deliveryNumbers = sortedDeliveries
+    .map((d) => String(d?.deliveryNumber || d?.delivery_number || '').trim())
+    .filter(Boolean);
+  const socNumbers = relevantOrders
+    .map((o) => String(o?.orderNumber || o?.order_number || '').trim())
+    .filter(Boolean);
+
+  const summaryLines = [
+    `**${customerHeadline} — Customer Dispatch & Pending Order Balance (${intent.period.label})**`,
+    '',
+    `• **Dispatched in ${intent.period.label}:** **${formatQty(periodDispatchedGross)} Gross** (${formatQty(periodDispatchedCartons)} CTN across ${periodDeliveries.length} ${periodDeliveries.length === 1 ? 'delivery' : 'deliveries'}${deliveryNumbers.length > 0 ? `: \`${deliveryNumbers.join('`, `')}\`` : ''})`,
+    `• **Active / Referenced SOC Orders:** **${formatQty(totalOpenOrderedGross)} Gross** (${formatQty(totalOpenOrderedCartons)} CTN across ${relevantOrders.length} ${relevantOrders.length === 1 ? 'SOC' : 'SOCs'}${socNumbers.length > 0 ? `: \`${socNumbers.join('`, `')}\`` : ''})`,
+    `• **Remaining Pending Order Balance:** **${formatQty(totalPendingGross)} Gross** (${formatQty(totalPendingCartons)} CTN · Overall Fulfillment: **${fulfillmentPct}%**)`,
+  ];
+
+  if (breakdownRows.length === 0) {
+    summaryLines.push(
+      `• **Status:** No dispatches or open pending sales order lines were found for **${customerHeadline}** in **${intent.period.label}**.`,
+    );
+  }
+
+  return {
+    title: `Customer Dispatch & Pending Order Balance — ${primaryCust.name} (${primaryCust.code})`,
+    summaryText: summaryLines.join('\n'),
+    divisionScope: division.code,
+    departmentScope: 'ALL',
+    periodLabel: intent.period.label,
+    recordsCount: breakdownRows.filter((r) => !r.isGrandTotal).length,
+    kpiCards: [
+      {
+        title: 'Customer',
+        value: primaryCust.name,
+        subtitle: primaryCust.code,
+        color: '#3b82f6',
+      },
+      {
+        title: `Dispatched (${intent.period.label})`,
+        value: `${formatQty(periodDispatchedGross)} Gross`,
+        subtitle: `${formatQty(periodDispatchedCartons)} CTN · ${periodDeliveries.length} Deliveries`,
+        color: '#10b981',
+      },
+      {
+        title: 'Open SOC Ordered',
+        value: `${formatQty(totalOpenOrderedGross)} Gross`,
+        subtitle: `${formatQty(totalOpenOrderedCartons)} CTN · ${relevantOrders.length} SOCs`,
+        color: '#6366f1',
+      },
+      {
+        title: 'Pending Balance',
+        value: `${formatQty(totalPendingGross)} Gross`,
+        subtitle: `${formatQty(totalPendingCartons)} CTN (${fulfillmentPct}% Fulfilled)`,
+        color: '#f59e0b',
+      },
+    ],
+    chartData:
+      chartData.length > 0
+        ? {
+            type: 'bar',
+            data: chartData,
+            xKey: 'name',
+            title: `${primaryCust.name} (${primaryCust.code}) — Item-Wise Ordered vs Dispatched & Pending (Gross)`,
+            dataKeys: [
+              { key: 'Ordered', color: '#3b82f6', name: 'Ordered (Gross)' },
+              { key: 'Dispatched', color: '#10b981', name: 'Dispatched (Gross)' },
+              { key: 'Pending', color: '#f59e0b', name: 'Pending Balance (Gross)' },
+            ],
+          }
+        : undefined,
+    tableData: { columns, rows: breakdownRows },
+    auditTrail: {
+      dataSource: 'Live ERP Sales Orders, Deliveries & Customer Master',
+      filters: [`Customer: ${customerHeadline}`, `Period: ${intent.period.label}`],
+      period: intent.period.label,
+      timestamp: dayjs().format('YYYY-MM-DD HH:mm:ss'),
+      recordsExamined: breakdownRows.filter((r) => !r.isGrandTotal).length,
+    },
+  };
+}
+
 async function handleCustomerDispatchReport(
   intent: QueryIntent,
   division: DivisionMeta,
@@ -3215,6 +4566,80 @@ async function handleCustomerDispatchReport(
   rawDeliveries.forEach((d) => {
     if (d?.customer) registerCustomer(d.customer);
   });
+
+  // Deduplicate genuine registered customers for customer-specific query matching
+  const uniqueCustomersMap = new Map<string, { id: string; name: string; code: string }>();
+  customerDirectory.forEach((c) => {
+    const key = (c.id || c.code || c.name).toLowerCase();
+    if (!uniqueCustomersMap.has(key)) {
+      uniqueCustomersMap.set(key, c);
+    }
+  });
+  const allRegisteredCustomers = Array.from(uniqueCustomersMap.values());
+
+  // Check if the user asked about a specific customer (e.g. "Crown", "Crown Fit", "Ali Shah", "CUS-CFP-001")
+  const explicitCustomerTerm = (intent.specificCustomer || '').trim();
+  const rawQueryLower = (intent.rawQuery || '').toLowerCase();
+  const isGenericAllCustomersAsk =
+    typeof intent.limit === 'number' ||
+    /\b(all\s+customers?|customer[\s-]?wise|every\s+customer|top\s+\d*\s*customers?)\b/i.test(rawQueryLower);
+
+  let matchedCustomers: Array<{ id: string; name: string; code: string }> = [];
+  if (explicitCustomerTerm) {
+    const termLow = explicitCustomerTerm.toLowerCase();
+    const termTokens = termLow.split(/\s+/).filter((t) => t.length >= 2);
+    matchedCustomers = allRegisteredCustomers.filter((c) => {
+      const hay = `${c.name} ${c.code}`.toLowerCase();
+      if (hay.includes(termLow)) return true;
+      if (termTokens.length > 0 && termTokens.every((t) => hay.includes(t))) return true;
+      return false;
+    });
+  } else if (rawQueryLower && !isGenericAllCustomersAsk) {
+    matchedCustomers = allRegisteredCustomers.filter((c) => {
+      const codeLow = c.code.toLowerCase();
+      const nameLow = c.name.toLowerCase();
+      if (codeLow && codeLow.length >= 4 && rawQueryLower.includes(codeLow)) return true;
+      if (nameLow && rawQueryLower.includes(nameLow)) return true;
+      const distinctiveTokens = nameLow
+        .split(/[^a-z0-9]+/)
+        .filter((t) => t.length >= 4 && !GENERIC_CUSTOMER_STOP_WORDS.has(t));
+      if (distinctiveTokens.length === 0) return false;
+      const firstBrandToken = distinctiveTokens[0];
+      return new RegExp(`\\b${firstBrandToken.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(rawQueryLower);
+    });
+  }
+
+  if (matchedCustomers.length > 0) {
+    return buildCustomerSpecificDispatchReport({
+      intent,
+      division,
+      isDark,
+      matchedCustomers,
+      rawOrders,
+      rawDeliveries,
+    });
+  }
+
+  if (explicitCustomerTerm) {
+    return {
+      title: `Customer Dispatch & Pending Order Balance — ${explicitCustomerTerm}`,
+      summaryText:
+        `**No Matching Customer Found for "${explicitCustomerTerm}"**\n\n` +
+        `• No registered customer name or customer code matched **${explicitCustomerTerm}**.\n` +
+        `• Please verify the customer name or code (e.g., \`CUS-CFP-001\`, \`Crown Fit Pakistan\`, \`Ali Shah Autos\`) and try again.`,
+      divisionScope: division.code,
+      departmentScope: 'ALL',
+      periodLabel: intent.period.label,
+      recordsCount: 0,
+      auditTrail: {
+        dataSource: 'Live ERP Customer Master',
+        filters: [`Customer Search: ${explicitCustomerTerm}`, `Period: ${intent.period.label}`],
+        period: intent.period.label,
+        timestamp: dayjs().format('YYYY-MM-DD HH:mm:ss'),
+        recordsExamined: 0,
+      },
+    };
+  }
 
   // Optional date range filtering when user asked for a specific month/date
   const hasDateFilter =
@@ -3653,8 +5078,13 @@ async function handleMaintenanceToolingReport(
   let fallbackDowntimeCount = 0;
   if (filteredCards.length === 0) {
     try {
-      const prodRes: any = await apiService.get('/production/entries', { limit: 5000 });
-      const pEntries = Array.isArray(prodRes) ? prodRes : prodRes?.data || prodRes?.items || [];
+      const pParams: any = { limit: 5000, allDates: 'true' };
+      if (division.id && division.id !== 'ALL' && division.code !== 'ALL') {
+        pParams.divisionId = division.id;
+      }
+      const prodRes: any = await apiService.get('/production/entries', pParams);
+      const pEntries = (Array.isArray(prodRes) ? prodRes : prodRes?.data || prodRes?.items || [])
+        .filter((pe: any) => matchesEntryDivision(pe, division));
       const relatedEntries = pEntries.filter((pe: any) => {
         const mc = (pe.machine?.machineCode || pe.machineCode || pe.machine?.name || '').toLowerCase();
         const hasDowntime = Number(pe.downtimeMinutes || pe.downtime_minutes || 0) > 0 || pe.remarks;
@@ -3900,10 +5330,7 @@ async function handleAllDivisionsComparisonReport(
       recordsExamined: entries.length,
     },
   };
-}
-
-
-// ═════════════════════════════════════════════════════════════════════════════
+}// ═════════════════════════════════════════════════════════════════════════════
 // 15. SPECIFIC-DATE GRANULAR PRODUCTION LEDGER (ITEM, MACHINE & DEPARTMENT)
 // ═════════════════════════════════════════════════════════════════════════════
 function resolveEntryDivisionDisplay(row: any): { code: string; name: string; uom: string } {
@@ -4004,11 +5431,15 @@ async function handleGranularDailyLedgerReport(
 
   try {
     // 1. Query exact date first
-    const exactRes: any = await apiService.get('/production/entries', {
+    const exactParams: any = {
       dateFrom: requestedDateStr,
       dateTo: requestedDateStr,
       limit: 5000,
-    });
+    };
+    if (targetDivision.code !== 'ALL' && targetDivision.id && targetDivision.id !== 'ALL') {
+      exactParams.divisionId = targetDivision.id;
+    }
+    const exactRes: any = await apiService.get('/production/entries', exactParams);
     const exactList = Array.isArray(exactRes) ? exactRes : exactRes?.data || exactRes?.items || [];
     matchedEntries = exactList.filter(
       (e: any) => dayjs(e.entryDate || e.entry_date || e.createdAt).format('YYYY-MM-DD') === requestedDateStr,
@@ -4017,7 +5448,11 @@ async function handleGranularDailyLedgerReport(
     // 2. If user asked for an ordinal day like "23rd production report" or "22nd data" without specifying
     //    the month, and current month's day has no records yet, find the most recent month with that exact day!
     if (matchedEntries.length === 0) {
-      const allRes: any = await apiService.get('/production/entries', { limit: 5000 });
+      const fallbackParams: any = { limit: 5000, allDates: 'true' };
+      if (targetDivision.code !== 'ALL' && targetDivision.id && targetDivision.id !== 'ALL') {
+        fallbackParams.divisionId = targetDivision.id;
+      }
+      const allRes: any = await apiService.get('/production/entries', fallbackParams);
       const allList = Array.isArray(allRes) ? allRes : allRes?.data || allRes?.items || [];
 
       const exactIsoMatches = allList.filter(
@@ -4053,29 +5488,20 @@ async function handleGranularDailyLedgerReport(
     matchedEntries = [];
   }
 
-  // Apply Division filter if user explicitly scoped to a single division
-  if (intent.divisionCode && intent.divisionCode !== 'ALL') {
-    const divFiltered = matchedEntries.filter((e: any) => {
-      const divInfo = resolveEntryDivisionDisplay(e);
-      return divInfo.code === intent.divisionCode;
-    });
-    if (divFiltered.length > 0) {
-      matchedEntries = divFiltered;
-    }
+  // Strictly enforce Division filter when scoped to a single division
+  if (targetDivision.code !== 'ALL') {
+    matchedEntries = matchedEntries.filter((e: any) => matchesEntryDivision(e, targetDivision));
   }
 
-  // Apply Department filter if specified
+  // Strictly apply Department filter if specified
   if (filterDept && filterDept !== 'ALL') {
-    const deptFiltered = matchedEntries.filter((e: any) => {
+    matchedEntries = matchedEntries.filter((e: any) => {
       const m = (e.machine?.machineCode || e.machineCode || e.machineNo || '').toUpperCase();
       const divInfo = resolveEntryDivisionDisplay(e);
       const cat = resolveGranularCategoryDepartment(e, divInfo.code, m);
       const recDept = resolveRecordDepartment(e, divInfo.code, m);
       return matchesDepartmentFilter(recDept, cat, filterDept);
     });
-    if (deptFiltered.length > 0) {
-      matchedEntries = deptFiltered;
-    }
   }
 
   // Filter by specific machine if requested
@@ -4097,7 +5523,7 @@ async function handleGranularDailyLedgerReport(
   if (matchedEntries.length === 0) {
     return {
       title: `Machine-Wise & Item-Wise Production Report — ${formattedDateLabel}`,
-      summaryText: `No production entries were found for exact date **${formattedDateLabel}**.\n\nTry querying another date (e.g. "05 November 2026", "5 نومبر کی رپورٹ") or check the division/department scope.`,
+      summaryText: `No production entries were found for exact date **${formattedDateLabel}**.\n\nTry querying another date (e.g. "05 November 2026") or verify the selected division and department scope.`,
       divisionScope: intent.divisionCode || targetDivision.code,
       departmentScope: filterDept,
       periodLabel: formattedDateLabel,

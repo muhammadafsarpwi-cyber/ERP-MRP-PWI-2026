@@ -137,4 +137,86 @@ describe('TextToSqlService — machine-wise shape enforcement & chart payload', 
     expect(chart.x).toEqual({ column: 'customer_name', label: 'Customers' });
     expect(chart.series.map((s: any) => s.column)).toEqual(['total_sales', 'order_count']);
   });
+
+  it('accepts department-wise last entry SQL and rejects undated machine summaries', () => {
+    const validLastEntrySql = `SELECT d.division_id, d.name AS "DEPARTMENT / SECTION",
+      COALESCE(TO_CHAR(latest.entry_date, 'YYYY-MM-DD'), 'No entries recorded') AS "LAST ENTRY DATE"
+      FROM departments d
+      LEFT JOIN LATERAL (
+        SELECT pe.entry_date, pe.entry_number FROM production_entries pe WHERE pe.department_id = d.id ORDER BY pe.entry_date DESC LIMIT 1
+      ) latest ON TRUE`;
+    expect(service.assertKeyphraseShape('When was the last entry made?', validLastEntrySql)).toBeNull();
+
+    const issue = service.assertKeyphraseShape('When was the last entry made?', machineWiseSql);
+    expect(issue).toMatch(/LAST\/LATEST production entry/);
+
+    const chart = service.buildChartMetadata(
+      'When was the last entry made?',
+      ['division_id', 'DEPARTMENT / SECTION', 'LAST ENTRY DATE'],
+      undefined,
+    );
+    expect(chart.chartType).toBe('table');
+  });
+
+  it('routes item-wise raw material receiving to raw_material_receipts and rejects production_entries', () => {
+    const validRmSql = `SELECT r.division_id, i.item_code AS "ITEM CODE", i.name AS "RAW MATERIAL ITEM NAME",
+      COUNT(DISTINCT r.id) AS "RECEIPTS / GATE PASSES",
+      ROUND(SUM(l.received_quantity)::numeric, 2) AS "TOTAL RECEIVED QTY / WEIGHT (KG)",
+      TO_CHAR(MAX(r.receipt_date), 'YYYY-MM-DD') AS "LAST RECEIVED DATE"
+      FROM raw_material_receipts r
+      JOIN raw_material_receipt_lines l ON l.receipt_id = r.id
+      JOIN items i ON i.id = l.item_id
+      GROUP BY r.division_id, i.item_code, i.name`;
+
+    expect(
+      service.assertKeyphraseShape('Show item-wise raw material received this month in this division', validRmSql),
+    ).toBeNull();
+
+    const wrongProdIssue = service.assertKeyphraseShape(
+      'Show item-wise raw material received this month in this division',
+      itemWiseSql,
+    );
+    expect(wrongProdIssue).toMatch(/Raw Material Receiving/i);
+  });
+
+  it('returns a polite clarification response without executing SQL when LLM flags needs_clarification', async () => {
+    const fakeConfig = { get: (_key: string, fallback: unknown) => fallback };
+    const runSelect = jest.fn();
+    const clarifyService = new TextToSqlService(
+      fakeConfig as any,
+      {
+        getActiveProviderInfo: jest.fn().mockResolvedValue({ model: 'gemini-2.0-flash', source: 'database' }),
+        generateJson: jest.fn().mockResolvedValue({
+          needs_clarification: true,
+          clarification_question: 'Would you like to see Raw Material Received this month or Current Closing Raw Material Stock?',
+          clarification_options: [
+            'Show item-wise raw material received this month in this division',
+            'Show current raw material stock balance item-wise',
+          ],
+          sql: '',
+        }),
+      } as any,
+      {
+        getCatalog: jest.fn().mockResolvedValue({ tables: [], divisions: [], departments: [], schema: 'public', generatedAt: '' }),
+        renderSchemaPrompt: jest.fn().mockReturnValue(''),
+        renderDivisionsPrompt: jest.fn().mockReturnValue(''),
+        renderDepartmentsPrompt: jest.fn().mockReturnValue(''),
+      } as any,
+      {} as any,
+      { ensureReady: jest.fn().mockResolvedValue(undefined), runSelect } as any,
+      {} as any,
+      { log: jest.fn().mockResolvedValue(undefined) } as any,
+    );
+
+    const ans = await clarifyService.ask({
+      question: 'raw material?',
+      allowedDivisionIds: ['d1000000-0000-0000-0000-000000000001'],
+      mode: 'text',
+    });
+    expect(ans.status).toBe('clarification');
+    expect(ans.explanation.en).toContain('Raw Material Received');
+    expect(ans.clarificationOptions).toHaveLength(2);
+    expect(ans.meta.model).toBe('gemini-2.0-flash');
+    expect(runSelect).not.toHaveBeenCalled();
+  });
 });

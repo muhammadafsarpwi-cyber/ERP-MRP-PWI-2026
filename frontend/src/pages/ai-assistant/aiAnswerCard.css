@@ -6,6 +6,8 @@
 
 .ai-ans-root {
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
   margin-top: 10px;
   color: var(--theme-text, #0f172a);
   font-size: 13px;
@@ -29,9 +31,38 @@
 
 .ai-ans-table-wrap {
   width: 100%;
+  max-width: 100%;
   max-height: 340px;
   overflow: auto;
+  -webkit-overflow-scrolling: touch;
   /* intentionally unframed: no border, no shadow, no radius (edge-to-edge) */
+}
+
+/* Mobile (< 768px): compact, readable, smooth horizontal scrolling */
+@media (max-width: 767px) {
+  .ai-ans-table-wrap {
+    max-height: 60vh;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+  }
+
+  .ai-ans-table {
+    font-size: 12px;
+  }
+
+  .ai-ans-table thead th {
+    font-size: 10px;
+    padding: 6px 8px;
+  }
+
+  .ai-ans-table td {
+    padding: 6px 8px;
+    max-width: 240px;
+  }
+
+  .ai-ans-meta {
+    font-size: 10px;
+  }
 }
 
 .ai-ans-table {
