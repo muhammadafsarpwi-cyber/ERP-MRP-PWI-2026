@@ -92,16 +92,27 @@ const NotificationBell: React.FC = () => {
   const refresh = useCallback(async () => {
     const seq = ++countReqRef.current;
     try {
-      const [countRes, alerts] = await Promise.all([
-        apiService.get<UnreadCountResponse>('/notifications/unread-count', undefined, { silent: true }),
-        fetchNippleImportAlerts(),
-      ]);
+      const countRes = await apiService.get<UnreadCountResponse>(
+        '/notifications/unread-count',
+        undefined,
+        { silent: true, useEtag: true },
+      );
       if (mountedRef.current && seq === countReqRef.current) {
         setUnreadCount(countRes.data?.count ?? 0);
-        setNippleAlerts(alerts);
       }
     } catch {
       /* polling failure is non-fatal */
+    }
+  }, []);
+
+  const refreshAlerts = useCallback(async () => {
+    try {
+      const alerts = await fetchNippleImportAlerts();
+      if (mountedRef.current) {
+        setNippleAlerts(alerts);
+      }
+    } catch {
+      /* non-fatal */
     }
   }, []);
 
@@ -109,7 +120,7 @@ const NotificationBell: React.FC = () => {
     setLoading(true);
     try {
       const [res, alerts] = await Promise.all([
-        apiService.get<ListResponse>('/notifications', { limit: 20 }, { silent: true }),
+        apiService.get<ListResponse>('/notifications', { limit: 20 }, { silent: true, useEtag: true }),
         fetchNippleImportAlerts(),
       ]);
       if (mountedRef.current) {
@@ -125,13 +136,24 @@ const NotificationBell: React.FC = () => {
 
   useEffect(() => {
     mountedRef.current = true;
-    refresh();
-    const timer = setInterval(refresh, POLL_INTERVAL_MS);
+    void refresh();
+    void refreshAlerts();
+    const timer = setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      void refresh();
+    }, POLL_INTERVAL_MS);
+    const onVisibilityChange = () => {
+      if (typeof document !== 'undefined' && !document.hidden) {
+        void refresh();
+      }
+    };
+    document?.addEventListener?.('visibilitychange', onVisibilityChange);
     return () => {
       mountedRef.current = false;
       clearInterval(timer);
+      document?.removeEventListener?.('visibilitychange', onVisibilityChange);
     };
-  }, [refresh]);
+  }, [refresh, refreshAlerts]);
 
   const handleOpenChange = (next: boolean) => {
     setOpen(next);

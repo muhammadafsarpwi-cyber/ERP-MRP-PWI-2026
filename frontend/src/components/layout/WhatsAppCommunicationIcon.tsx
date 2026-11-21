@@ -66,9 +66,22 @@ const WhatsAppCommunicationIcon: React.FC = () => {
 
   useEffect(() => {
     mountedRef.current = true;
-    refresh();
-    const timer = setInterval(refresh, POLL_INTERVAL_MS);
-    return () => { mountedRef.current = false; clearInterval(timer); };
+    void refresh();
+    const timer = setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      void refresh();
+    }, POLL_INTERVAL_MS);
+    const onVisibilityChange = () => {
+      if (typeof document !== 'undefined' && !document.hidden) {
+        void refresh();
+      }
+    };
+    document?.addEventListener?.('visibilitychange', onVisibilityChange);
+    return () => {
+      mountedRef.current = false;
+      clearInterval(timer);
+      document?.removeEventListener?.('visibilitychange', onVisibilityChange);
+    };
   }, [refresh]);
 
   const handleOpenChange = (next: boolean) => {

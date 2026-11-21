@@ -8,6 +8,7 @@ import * as path from 'path';
 import * as net from 'net';
 import * as https from 'https';
 import express, { json, urlencoded } from 'express';
+import compression = require('compression');
 
 function checkTcpReachable(host: string, port: number, timeoutMs = 3500): Promise<boolean> {
   return new Promise((resolve) => {
@@ -35,6 +36,7 @@ async function startCloudFallbackGateway(port: number | string) {
   const lanFrontendPattern =
     /^http:\/\/(localhost|127\.0\.0\.1|\[::1\]|192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}):(3000|4174)$/;
   const app = express();
+  app.use(compression({ threshold: 1024 }));
 
   app.use((req, res, next) => {
     const origin = req.headers.origin;
@@ -147,6 +149,7 @@ async function bootstrap() {
     }
   }
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { bodyParser: false });
+  app.use(compression({ threshold: 1024 }));
 
   // Increase payload limit for base64 audio/voice queries and bulk uploads to prevent 413 Payload Too Large
   app.use(json({ limit: '50mb' }));
@@ -193,6 +196,7 @@ async function bootstrap() {
       }
     },
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
+    exposedHeaders: ['ETag', 'X-Cache'],
     credentials: true,
   });
 

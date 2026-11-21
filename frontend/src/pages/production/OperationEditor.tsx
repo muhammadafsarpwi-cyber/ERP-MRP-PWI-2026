@@ -70,6 +70,8 @@ export interface RoutingOperation {
   remarks?: string;
   inputs?: RoutingInput[];
   outputs?: RoutingOutput[];
+  inputMaterials?: RoutingInput[];
+  outputProducts?: RoutingOutput[];
 }
 
 export interface Routing {
@@ -255,16 +257,30 @@ const OperationEditor: React.FC<OperationEditorProps> = ({
     const map = new Map<string, Item>();
     (lookups.items || []).forEach(i => map.set(i.id, i));
     if (operation) {
-      (operation.inputs || []).forEach(inp => {
-        if (inp.itemId && inp.item && !map.has(inp.itemId)) {
-          map.set(inp.itemId, { id: inp.itemId, itemCode: inp.item.itemCode, name: inp.item.name } as Item);
+      const allOpInputs = [
+        ...(operation.inputs || []),
+        ...(operation.inputMaterials || []),
+      ];
+      allOpInputs.forEach(inp => {
+        if (inp?.itemId && inp?.item && !map.has(inp.itemId)) {
+          map.set(inp.itemId, { id: inp.itemId, itemCode: inp.item.itemCode, name: inp.item.name, uomId: (inp.item as any).baseUomId || inp.uomId } as Item);
         }
       });
-      (operation.outputs || []).forEach(out => {
-        if (out.itemId && out.item && !map.has(out.itemId)) {
-          map.set(out.itemId, { id: out.itemId, itemCode: out.item.itemCode, name: out.item.name } as Item);
+      if (operation.inputItemId && operation.inputItem && !map.has(operation.inputItemId)) {
+        map.set(operation.inputItemId, { id: operation.inputItemId, itemCode: operation.inputItem.itemCode, name: operation.inputItem.name, uomId: (operation.inputItem as any).baseUomId || operation.uomId } as Item);
+      }
+      const allOpOutputs = [
+        ...(operation.outputs || []),
+        ...(operation.outputProducts || []),
+      ];
+      allOpOutputs.forEach(out => {
+        if (out?.itemId && out?.item && !map.has(out.itemId)) {
+          map.set(out.itemId, { id: out.itemId, itemCode: out.item.itemCode, name: out.item.name, uomId: (out.item as any).baseUomId || out.uomId } as Item);
         }
       });
+      if (operation.outputItemId && operation.outputItem && !map.has(operation.outputItemId)) {
+        map.set(operation.outputItemId, { id: operation.outputItemId, itemCode: operation.outputItem.itemCode, name: operation.outputItem.name, uomId: (operation.outputItem as any).baseUomId || operation.uomId } as Item);
+      }
     }
     setAllItems(Array.from(map.values()));
   }, [lookups.items, operation]);
@@ -468,39 +484,63 @@ const OperationEditor: React.FC<OperationEditorProps> = ({
         laborRequired: operation.laborRequired,
         machineRequired: operation.machineRequired,
         machineId: operation.machineId,
-        inputs: (operation.inputs && operation.inputs.length > 0)
-          ? operation.inputs.map(i => ({
+        inputs: (() => {
+          const fallbackUom = resolveItemUomId(lookups.items.find(it => it.id === operation.inputItemId)) || operation.uomId;
+          const rawIn = (operation.inputs && operation.inputs.length > 0)
+            ? operation.inputs
+            : (operation.inputMaterials && operation.inputMaterials.length > 0 ? operation.inputMaterials : []);
+          if (rawIn.length > 0) {
+            return rawIn.map((i, idx) => ({
               itemId: i.itemId,
-              quantity: i.quantity,
-              uomId: i.uomId,
-              sourceWarehouseId: i.sourceWarehouseId,
+              quantity: toNum(i.quantity) || 1,
+              uomId: i.uomId || (i.item as any)?.baseUomId || (i.item as any)?.baseUom?.id || resolveItemUomId(lookups.items.find(it => it.id === i.itemId) || allItems.find(it => it.id === i.itemId)) || fallbackUom,
+              sourceWarehouseId: i.sourceWarehouseId || undefined,
               scrapBasis: i.scrapBasis || 'WITH_SCRAP',
-              isPrimary: i.isPrimary,
-            }))
-          : (operation.inputItemId ? [{
+              isPrimary: i.isPrimary ?? (idx === 0),
+              lineNumber: i.lineNumber ?? (idx + 1) * 10,
+            }));
+          }
+          if (operation.inputItemId) {
+            return [{
               itemId: operation.inputItemId,
-              quantity: operation.inputQuantity || 1,
-              uomId: operation.uomId,
+              quantity: toNum(operation.inputQuantity) || 1,
+              uomId: fallbackUom,
               scrapBasis: 'WITH_SCRAP',
               isPrimary: true,
-            }] : []),
-        outputs: (operation.outputs && operation.outputs.length > 0)
-          ? operation.outputs.map(o => ({
+              lineNumber: 10,
+            }];
+          }
+          return [];
+        })(),
+        outputs: (() => {
+          const fallbackUom = resolveItemUomId(lookups.items.find(it => it.id === operation.outputItemId)) || operation.uomId;
+          const rawOut = (operation.outputs && operation.outputs.length > 0)
+            ? operation.outputs
+            : (operation.outputProducts && operation.outputProducts.length > 0 ? operation.outputProducts : []);
+          if (rawOut.length > 0) {
+            return rawOut.map((o, idx) => ({
               itemId: o.itemId,
-              quantity: o.quantity,
-              uomId: o.uomId,
+              quantity: toNum(o.quantity) || 1,
+              uomId: o.uomId || (o.item as any)?.baseUomId || (o.item as any)?.baseUom?.id || resolveItemUomId(lookups.items.find(it => it.id === o.itemId) || allItems.find(it => it.id === o.itemId)) || fallbackUom,
               outputType: o.outputType || 'MAIN',
-              yieldPercentage: o.yieldPercentage,
-              isPrimary: o.isPrimary,
-            }))
-          : (operation.outputItemId ? [{
+              yieldPercentage: o.yieldPercentage != null ? toNum(o.yieldPercentage) : 100,
+              isPrimary: o.isPrimary ?? (idx === 0),
+              lineNumber: o.lineNumber ?? (idx + 1) * 10,
+            }));
+          }
+          if (operation.outputItemId) {
+            return [{
               itemId: operation.outputItemId,
-              quantity: operation.outputQuantity || 1,
-              uomId: operation.uomId,
+              quantity: toNum(operation.outputQuantity) || 1,
+              uomId: fallbackUom,
               outputType: 'MAIN',
               yieldPercentage: 100,
               isPrimary: true,
-            }] : []),
+              lineNumber: 10,
+            }];
+          }
+          return [];
+        })(),
         scrapPercentage: operation.scrapPercentage,
         setupScrapPercentage: operation.setupScrapPercentage,
         status: operation.status,
@@ -861,24 +901,31 @@ const OperationEditor: React.FC<OperationEditorProps> = ({
     }
     payload.machineId = values.machineRequired ? (values.machineId ?? null) : null;
     payload.inputItemId = primaryIn?.itemId ?? values.inputItemId ?? null;
-    payload.inputQuantity = primaryIn?.quantity ?? values.inputQuantity ?? 1;
+    payload.inputQuantity = toNum(primaryIn?.quantity ?? values.inputQuantity ?? 1);
     payload.outputItemId = primaryOut?.itemId ?? values.outputItemId ?? null;
-    payload.outputQuantity = primaryOut?.quantity ?? values.outputQuantity ?? 1;
+    payload.outputQuantity = toNum(primaryOut?.quantity ?? values.outputQuantity ?? 1);
     payload.uomId = primaryIn?.uomId ?? primaryOut?.uomId ?? values.uomId ?? null;
 
     payload.inputs = inputs.map((r, idx) => {
       const row: any = pickFields(r, INPUT_MATERIAL_FIELDS);
-      if (typeof row.uomId === 'string' && !row.uomId.trim()) delete row.uomId;
-      if (typeof row.sourceWarehouseId === 'string' && !row.sourceWarehouseId.trim()) delete row.sourceWarehouseId;
-      if (row.lineNumber === undefined) row.lineNumber = (idx + 1) * 10;
+      row.quantity = toNum(row.quantity);
+      if (row.uomId == null || (typeof row.uomId === 'string' && !row.uomId.trim())) delete row.uomId;
+      if (row.sourceWarehouseId == null || (typeof row.sourceWarehouseId === 'string' && !row.sourceWarehouseId.trim())) {
+        delete row.sourceWarehouseId;
+      }
+      if (row.lineNumber == null) row.lineNumber = (idx + 1) * 10;
+      else row.lineNumber = Number(row.lineNumber);
       if (row.isPrimary === undefined) row.isPrimary = (idx === 0);
       return row;
     });
 
     payload.outputs = outputs.map((r, idx) => {
       const row: any = pickFields(r, OUTPUT_PRODUCT_FIELDS);
-      if (typeof row.uomId === 'string' && !row.uomId.trim()) delete row.uomId;
-      if (row.lineNumber === undefined) row.lineNumber = (idx + 1) * 10;
+      row.quantity = toNum(row.quantity);
+      if (row.yieldPercentage != null) row.yieldPercentage = toNum(row.yieldPercentage);
+      if (row.uomId == null || (typeof row.uomId === 'string' && !row.uomId.trim())) delete row.uomId;
+      if (row.lineNumber == null) row.lineNumber = (idx + 1) * 10;
+      else row.lineNumber = Number(row.lineNumber);
       if (row.isPrimary === undefined) row.isPrimary = (idx === 0);
       return row;
     });

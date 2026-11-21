@@ -424,4 +424,144 @@ describe('ProductionRoutingService - Graph & Connections', () => {
       expect(graph.edges[1].toOperationId).toBe('op-4');
     });
   });
+
+  describe('Input Materials Hydration & Copy Routing Preservation', () => {
+    it('hydrates inputs and inputMaterials from Item Master productionInItem* and clones them into copyRouting', async () => {
+      const savedInputs: any[] = [];
+      const savedOutputs: any[] = [];
+      const localRoutingRepo: any = {
+        findOne: jest.fn(),
+        find: jest.fn().mockResolvedValue([{ routingCode: 'RTG-138' }]),
+        create: jest.fn((d) => ({ ...d })),
+        save: jest.fn(async (d) => ({ id: 'copied-routing-id', ...d })),
+        update: jest.fn().mockResolvedValue({ affected: 1 }),
+      };
+      const localOpRepo: any = {
+        findOne: jest.fn(async ({ where }: any) => ({
+          id: where?.id || 'copied-op-1',
+          setupTimeMinutes: 10,
+          runTimeMinutes: 5,
+          queueTimeMinutes: 0,
+          waitTimeMinutes: 0,
+          inputs: savedInputs.slice(),
+          outputs: savedOutputs.slice(),
+        })),
+        find: jest.fn().mockResolvedValue([
+          {
+            id: 'copied-op-1',
+            setupTimeMinutes: 10,
+            runTimeMinutes: 5,
+            queueTimeMinutes: 0,
+            waitTimeMinutes: 0,
+          },
+        ]),
+        create: jest.fn((d) => ({ ...d })),
+        save: jest.fn(async (d) => ({ id: 'copied-op-1', ...d })),
+        update: jest.fn().mockResolvedValue({ affected: 1 }),
+      };
+      const localInputRepo: any = {
+        create: jest.fn((d) => (Array.isArray(d) ? d : { ...d })),
+        save: jest.fn(async (rows) => {
+          const list = Array.isArray(rows) ? rows : [rows];
+          savedInputs.push(...list);
+          return list;
+        }),
+        delete: jest.fn().mockResolvedValue({ affected: 1 }),
+      };
+      const localOutputRepo: any = {
+        create: jest.fn((d) => (Array.isArray(d) ? d : { ...d })),
+        save: jest.fn(async (rows) => {
+          const list = Array.isArray(rows) ? rows : [rows];
+          savedOutputs.push(...list);
+          return list;
+        }),
+        delete: jest.fn().mockResolvedValue({ affected: 1 }),
+      };
+
+      const sourceRouting = {
+        id: 'src-routing-id',
+        companyId,
+        routingCode: 'RTG-010-DS29',
+        name: 'SPI-FG-SPK-010',
+        productId: 'prod-1',
+        bomId: 'bom-1',
+        status: RoutingStatus.ACTIVE,
+        operations: [
+          {
+            id: 'src-op-20',
+            companyId,
+            sequenceNo: 20,
+            operationCode: 'OP-STRAIGHT-020',
+            operationName: 'Straightener',
+            setupTimeMinutes: 10,
+            runTimeMinutes: 5,
+            queueTimeMinutes: 0,
+            waitTimeMinutes: 0,
+            laborRequired: true,
+            machineRequired: false,
+            inputItemId: null,
+            outputItemId: 'wip-st-015',
+            outputItem: {
+              id: 'wip-st-015',
+              itemCode: 'WIP-ST-015',
+              name: 'DS 225*17 Inner Straight',
+              baseUomId: 'uom-pcs',
+              productionInItemId: 'rm-wire-013',
+              productionInItem: { id: 'rm-wire-013', itemCode: 'RM-WIRE-013', name: 'Steel Wire Coil 2.85mm SR', baseUomId: 'uom-kg' },
+            },
+            inputs: [],
+            outputs: [],
+            status: 'ACTIVE',
+            isActive: true,
+          },
+        ],
+        connections: [],
+      };
+
+      localRoutingRepo.findOne
+        .mockResolvedValueOnce(sourceRouting)
+        .mockResolvedValue({
+          ...sourceRouting,
+          id: 'copied-routing-id',
+          routingCode: 'RTG-139',
+          status: RoutingStatus.DRAFT,
+          operations: [
+            {
+              ...sourceRouting.operations[0],
+              id: 'copied-op-1',
+              inputItemId: 'rm-wire-013',
+              inputs: savedInputs,
+              outputs: savedOutputs,
+            },
+          ],
+        });
+
+      const localSvc = new ProductionRoutingService(
+        localRoutingRepo,
+        localOpRepo,
+        localInputRepo,
+        localOutputRepo,
+        { find: jest.fn().mockResolvedValue([]) } as any,
+        { find: jest.fn().mockResolvedValue([]), findOne: jest.fn() } as any,
+        { findOne: jest.fn() } as any,
+        { findOne: jest.fn() } as any,
+        { findOne: jest.fn() } as any,
+        { findOne: jest.fn() } as any,
+        { findOne: jest.fn() } as any,
+        { find: jest.fn().mockResolvedValue([]) } as any,
+        { find: jest.fn().mockResolvedValue([]) } as any,
+        { find: jest.fn().mockResolvedValue([]), findOne: jest.fn() } as any,
+        { find: jest.fn().mockResolvedValue([]), findOne: jest.fn() } as any,
+      );
+
+      const copied = await localSvc.copyRouting('src-routing-id', companyId, 'user-1');
+
+      expect(savedInputs).toHaveLength(1);
+      expect(savedInputs[0]).toMatchObject({ itemId: 'rm-wire-013', isPrimary: true });
+      expect(savedOutputs).toHaveLength(1);
+      expect(savedOutputs[0]).toMatchObject({ itemId: 'wip-st-015', isPrimary: true });
+      expect(copied.operations[0].inputs).toHaveLength(1);
+      expect((copied.operations[0] as any).inputMaterials).toHaveLength(1);
+    });
+  });
 });

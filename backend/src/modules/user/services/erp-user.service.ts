@@ -263,7 +263,10 @@ export class ErpUserService {
     queryBuilder.take(limit);
 
     const [data, total] = await queryBuilder.getManyAndCount();
-    return { data, total };
+    const sanitized = data.map((u) =>
+      u.avatarUrl && u.avatarUrl.startsWith('data:') ? { ...u, avatarUrl: null } : u,
+    );
+    return { data: sanitized, total };
   }
 
   async findOne(id: string): Promise<ErpUser> {

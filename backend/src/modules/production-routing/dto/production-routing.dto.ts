@@ -11,10 +11,13 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { RoutingStatus, RoutingInputScrapBasis, RoutingOutputType, RoutingConnectionType } from '../entities';
 import { IsUUID } from '../../../common/uuid-loose.validator';
+
+const emptyToUndefined = ({ value }: { value: unknown }) =>
+  value === null || (typeof value === 'string' && !value.trim()) ? undefined : value;
 
 /**
  * Version-agnostic UUID check. Org seed data uses synthetic UUIDs
@@ -33,17 +36,20 @@ export class RoutingOperationInputDto {
   itemId: string;
 
   @ApiPropertyOptional({ description: 'Quantity consumed per routing base quantity', default: 0 })
+  @Type(() => Number)
   @IsNumber()
   @IsOptional()
   @Min(0)
   quantity?: number;
 
   @ApiPropertyOptional({ description: 'UOM ID' })
+  @Transform(emptyToUndefined)
   @IsUUID()
   @IsOptional()
   uomId?: string;
 
   @ApiPropertyOptional({ description: 'Optional source store (procured items entered via store)' })
+  @Transform(emptyToUndefined)
   @IsUUID()
   @IsOptional()
   sourceWarehouseId?: string | null;
@@ -73,12 +79,14 @@ export class RoutingOperationOutputDto {
   itemId: string;
 
   @ApiPropertyOptional({ description: 'Quantity produced per routing base quantity', default: 0 })
+  @Type(() => Number)
   @IsNumber()
   @IsOptional()
   @Min(0)
   quantity?: number;
 
   @ApiPropertyOptional({ description: 'UOM ID' })
+  @Transform(emptyToUndefined)
   @IsUUID()
   @IsOptional()
   uomId?: string;
@@ -89,6 +97,7 @@ export class RoutingOperationOutputDto {
   outputType?: RoutingOutputType;
 
   @ApiPropertyOptional({ description: 'Expected yield percentage (0-100)', default: 100 })
+  @Type(() => Number)
   @IsNumber()
   @IsOptional()
   @Min(0)
@@ -252,6 +261,30 @@ export class CreateRoutingOperationDto {
   @Type(() => RoutingOperationOutputDto)
   @IsOptional()
   outputs?: RoutingOperationOutputDto[];
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => RoutingOperationInputDto)
+  @IsOptional()
+  inputMaterials?: RoutingOperationInputDto[];
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => RoutingOperationInputDto)
+  @IsOptional()
+  input_materials?: RoutingOperationInputDto[];
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => RoutingOperationOutputDto)
+  @IsOptional()
+  outputProducts?: RoutingOperationOutputDto[];
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => RoutingOperationOutputDto)
+  @IsOptional()
+  output_products?: RoutingOperationOutputDto[];
 }
 
 export class UpdateRoutingOperationDto {
@@ -401,6 +434,30 @@ export class UpdateRoutingOperationDto {
   @Type(() => RoutingOperationOutputDto)
   @IsOptional()
   outputs?: RoutingOperationOutputDto[];
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => RoutingOperationInputDto)
+  @IsOptional()
+  inputMaterials?: RoutingOperationInputDto[];
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => RoutingOperationInputDto)
+  @IsOptional()
+  input_materials?: RoutingOperationInputDto[];
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => RoutingOperationOutputDto)
+  @IsOptional()
+  outputProducts?: RoutingOperationOutputDto[];
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => RoutingOperationOutputDto)
+  @IsOptional()
+  output_products?: RoutingOperationOutputDto[];
 }
 
 export class CreateRoutingDto {

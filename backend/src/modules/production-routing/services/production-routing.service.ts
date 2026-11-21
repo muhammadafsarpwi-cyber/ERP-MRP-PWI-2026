@@ -44,16 +44,32 @@ const RELATIONS = [
   'operations.section',
   'operations.department',
   'operations.inputItem',
+  'operations.inputItem.baseUom',
   'operations.outputItem',
+  'operations.outputItem.baseUom',
+  'operations.outputItem.productionInItem',
+  'operations.outputItem.productionInItem.baseUom',
+  'operations.outputItem.productionInItem2',
+  'operations.outputItem.productionInItem2.baseUom',
+  'operations.outputItem.productionInItem3',
+  'operations.outputItem.productionInItem3.baseUom',
   'operations.uom',
   'operations.operation',
   'operations.machine',
   'operations.inputs',
   'operations.inputs.item',
+  'operations.inputs.item.baseUom',
   'operations.inputs.uom',
   'operations.inputs.sourceWarehouse',
   'operations.outputs',
   'operations.outputs.item',
+  'operations.outputs.item.baseUom',
+  'operations.outputs.item.productionInItem',
+  'operations.outputs.item.productionInItem.baseUom',
+  'operations.outputs.item.productionInItem2',
+  'operations.outputs.item.productionInItem2.baseUom',
+  'operations.outputs.item.productionInItem3',
+  'operations.outputs.item.productionInItem3.baseUom',
   'operations.outputs.uom',
   'connections',
   'connections.fromOperation',
@@ -136,12 +152,151 @@ export class ProductionRoutingService {
     return routings;
   }
 
-  async findAll(companyId: string): Promise<ProductionRouting[]> {
-    const routings = await this.routingRepo.find({
-      where: { companyId, isActive: true },
-      relations: RELATIONS,
-      order: { routingCode: 'ASC' },
-    });
+  async findAll(companyId: string, limit?: number): Promise<ProductionRouting[]> {
+    const safeLimit = Math.min(Math.max(Number(limit) || 200, 1), 500);
+    let routings: ProductionRouting[];
+    if (typeof this.routingRepo.createQueryBuilder === 'function') {
+      routings = await this.routingRepo
+        .createQueryBuilder('r')
+        .select([
+          'r.id',
+          'r.companyId',
+          'r.routingCode',
+          'r.name',
+          'r.status',
+          'r.isDefault',
+          'r.productId',
+          'r.bomId',
+          'r.routeTypeId',
+          'r.baseQuantity',
+          'r.effectiveFrom',
+          'r.effectiveTo',
+          'r.createdBy',
+          'r.updatedBy',
+          'r.createdAt',
+          'r.updatedAt',
+        ])
+        .leftJoin('r.routeType', 'routeType')
+        .addSelect(['routeType.id', 'routeType.routeCode', 'routeType.name'])
+        .leftJoin('r.product', 'product')
+        .addSelect(['product.id', 'product.itemCode', 'product.name', 'product.baseUomId'])
+        .leftJoin('r.bom', 'bom')
+        .addSelect(['bom.id', 'bom.bomCode'])
+        .leftJoin('r.operations', 'op')
+        .addSelect([
+          'op.id',
+          'op.routingId',
+          'op.sequenceNo',
+          'op.operationCode',
+          'op.operationName',
+          'op.divisionId',
+          'op.sectionId',
+          'op.departmentId',
+          'op.machineId',
+          'op.operationId',
+          'op.uomId',
+          'op.inputItemId',
+          'op.outputItemId',
+          'op.inputQuantity',
+          'op.outputQuantity',
+          'op.setupTimeMinutes',
+          'op.runTimeMinutes',
+          'op.status',
+          'op.isActive',
+          'op.laborRequired',
+          'op.machineRequired',
+        ])
+        .leftJoin('op.division', 'division')
+        .addSelect(['division.id', 'division.name', 'division.divisionCode'])
+        .leftJoin('op.section', 'section')
+        .addSelect(['section.id', 'section.name'])
+        .leftJoin('op.department', 'department')
+        .addSelect(['department.id', 'department.name', 'department.departmentCode'])
+        .leftJoin('op.machine', 'machine')
+        .addSelect(['machine.id', 'machine.machineCode', 'machine.name'])
+        .leftJoin('op.operation', 'operation')
+        .addSelect(['operation.id', 'operation.operationCode', 'operation.name'])
+        .leftJoin('op.uom', 'opUom')
+        .addSelect(['opUom.id', 'opUom.code', 'opUom.symbol'])
+        .leftJoin('op.inputItem', 'inputItem')
+        .addSelect(['inputItem.id', 'inputItem.itemCode', 'inputItem.name', 'inputItem.baseUomId'])
+        .leftJoin('inputItem.baseUom', 'inputItemUom')
+        .addSelect(['inputItemUom.id', 'inputItemUom.code', 'inputItemUom.symbol'])
+        .leftJoin('op.outputItem', 'outputItem')
+        .addSelect([
+          'outputItem.id',
+          'outputItem.itemCode',
+          'outputItem.name',
+          'outputItem.baseUomId',
+          'outputItem.productionInItemId',
+          'outputItem.productionInItemId2',
+          'outputItem.productionInItemId3',
+        ])
+        .leftJoin('outputItem.baseUom', 'outputItemUom')
+        .addSelect(['outputItemUom.id', 'outputItemUom.code', 'outputItemUom.symbol'])
+        .leftJoin('outputItem.productionInItem', 'outIn1')
+        .addSelect(['outIn1.id', 'outIn1.itemCode', 'outIn1.name', 'outIn1.baseUomId'])
+        .leftJoin('outIn1.baseUom', 'outIn1Uom')
+        .addSelect(['outIn1Uom.id', 'outIn1Uom.code', 'outIn1Uom.symbol'])
+        .leftJoin('outputItem.productionInItem2', 'outIn2')
+        .addSelect(['outIn2.id', 'outIn2.itemCode', 'outIn2.name', 'outIn2.baseUomId'])
+        .leftJoin('outIn2.baseUom', 'outIn2Uom')
+        .addSelect(['outIn2Uom.id', 'outIn2Uom.code', 'outIn2Uom.symbol'])
+        .leftJoin('outputItem.productionInItem3', 'outIn3')
+        .addSelect(['outIn3.id', 'outIn3.itemCode', 'outIn3.name', 'outIn3.baseUomId'])
+        .leftJoin('outIn3.baseUom', 'outIn3Uom')
+        .addSelect(['outIn3Uom.id', 'outIn3Uom.code', 'outIn3Uom.symbol'])
+        .leftJoin('op.inputs', 'inputs')
+        .addSelect(['inputs.id', 'inputs.routingOperationId', 'inputs.sequenceNo', 'inputs.itemId', 'inputs.quantity', 'inputs.uomId', 'inputs.isPrimary', 'inputs.scrapBasis'])
+        .leftJoin('inputs.item', 'inItem')
+        .addSelect(['inItem.id', 'inItem.itemCode', 'inItem.name', 'inItem.baseUomId'])
+        .leftJoin('inItem.baseUom', 'inItemUom')
+        .addSelect(['inItemUom.id', 'inItemUom.code', 'inItemUom.symbol'])
+        .leftJoin('inputs.uom', 'inUom')
+        .addSelect(['inUom.id', 'inUom.code', 'inUom.symbol'])
+        .leftJoin('op.outputs', 'outputs')
+        .addSelect(['outputs.id', 'outputs.routingOperationId', 'outputs.sequenceNo', 'outputs.itemId', 'outputs.quantity', 'outputs.uomId', 'outputs.outputType', 'outputs.yieldPercentage'])
+        .leftJoin('outputs.item', 'outItem')
+        .addSelect([
+          'outItem.id',
+          'outItem.itemCode',
+          'outItem.name',
+          'outItem.baseUomId',
+          'outItem.productionInItemId',
+          'outItem.productionInItemId2',
+          'outItem.productionInItemId3',
+        ])
+        .leftJoin('outItem.baseUom', 'outItemUom')
+        .addSelect(['outItemUom.id', 'outItemUom.code', 'outItemUom.symbol'])
+        .leftJoin('outItem.productionInItem', 'oIn1')
+        .addSelect(['oIn1.id', 'oIn1.itemCode', 'oIn1.name', 'oIn1.baseUomId'])
+        .leftJoin('oIn1.baseUom', 'oIn1Uom')
+        .addSelect(['oIn1Uom.id', 'oIn1Uom.code', 'oIn1Uom.symbol'])
+        .leftJoin('outItem.productionInItem2', 'oIn2')
+        .addSelect(['oIn2.id', 'oIn2.itemCode', 'oIn2.name', 'oIn2.baseUomId'])
+        .leftJoin('oIn2.baseUom', 'oIn2Uom')
+        .addSelect(['oIn2Uom.id', 'oIn2Uom.code', 'oIn2Uom.symbol'])
+        .leftJoin('outItem.productionInItem3', 'oIn3')
+        .addSelect(['oIn3.id', 'oIn3.itemCode', 'oIn3.name', 'oIn3.baseUomId'])
+        .leftJoin('oIn3.baseUom', 'oIn3Uom')
+        .addSelect(['oIn3Uom.id', 'oIn3Uom.code', 'oIn3Uom.symbol'])
+        .leftJoin('outputs.uom', 'outUom')
+        .addSelect(['outUom.id', 'outUom.code', 'outUom.symbol'])
+        .leftJoin('r.connections', 'connections')
+        .addSelect(['connections.id', 'connections.fromOperationId', 'connections.toOperationId', 'connections.connectionType'])
+        .where('r.companyId = :companyId', { companyId })
+        .andWhere('r.isActive = true')
+        .orderBy('r.routingCode', 'ASC')
+        .take(safeLimit)
+        .getMany();
+    } else {
+      routings = await this.routingRepo.find({
+        where: { companyId, isActive: true },
+        relations: RELATIONS,
+        order: { routingCode: 'ASC' },
+        take: safeLimit,
+      });
+    }
     routings.forEach((r) => this.sortOperations(r));
     await this.populateAuditNames(routings);
     return routings;
@@ -441,11 +596,7 @@ export class ProductionRoutingService {
       await this.validateProductExists(targetProductId, companyId);
     }
 
-    const sourceOps = await this.operationRepo.find({
-      where: { routingId: id, isActive: true },
-      relations: ['inputs', 'outputs'],
-      order: { sequenceNo: 'ASC' },
-    });
+    const sourceOps = source.operations || [];
 
     const copy = await this.routingRepo.save(
       this.routingRepo.create({
@@ -466,54 +617,57 @@ export class ProductionRoutingService {
       }),
     );
 
-    const opDtos = sourceOps.map((op) => ({
-      sequenceNo: op.sequenceNo,
-      operationId: op.operationId || undefined,
-      operationCode: op.operationCode,
-      operationName: op.operationName,
-      description: op.description,
-      divisionId: op.divisionId,
-      sectionId: op.sectionId,
-      departmentId: op.departmentId,
-      setupTimeMinutes: Number(op.setupTimeMinutes) || 0,
-      runTimeMinutes: Number(op.runTimeMinutes) || 0,
-      queueTimeMinutes: Number(op.queueTimeMinutes) || 0,
-      waitTimeMinutes: Number(op.waitTimeMinutes) || 0,
-      laborRequired: op.laborRequired,
-      machineRequired: op.machineRequired,
-      machineId: op.machineId,
-      scrapPercentage: Number(op.scrapPercentage) || 0,
-      setupScrapPercentage: Number(op.setupScrapPercentage) || 0,
-      status: op.status,
-      remarks: op.remarks,
-      inputItemId: op.inputItemId,
-      outputItemId: op.outputItemId,
-      inputQuantity: Number(op.inputQuantity) || 0,
-      outputQuantity: Number(op.outputQuantity) || 0,
-      uomId: op.uomId,
-      inputs: [...(op.inputs || [])]
-        .sort((a, b) => Number(a.lineNumber) - Number(b.lineNumber))
-        .map((i) => ({
-          itemId: i.itemId,
-          quantity: Number(i.quantity) || 0,
-          uomId: i.uomId || undefined,
-          sourceWarehouseId: i.sourceWarehouseId ?? null,
-          scrapBasis: i.scrapBasis,
-          isPrimary: i.isPrimary,
-          lineNumber: i.lineNumber,
-        })),
-      outputs: [...(op.outputs || [])]
-        .sort((a, b) => Number(a.lineNumber) - Number(b.lineNumber))
-        .map((o) => ({
-          itemId: o.itemId,
-          quantity: Number(o.quantity) || 0,
-          uomId: o.uomId || undefined,
-          outputType: o.outputType,
-          yieldPercentage: Number(o.yieldPercentage) || 100,
-          isPrimary: o.isPrimary,
-          lineNumber: o.lineNumber,
-        })),
-    }));
+    const opDtos = sourceOps.map((op) => {
+      const resolvedInputs = this.resolveOperationInputs(op).map((i, idx) => ({
+        itemId: i.itemId,
+        quantity: Number(i.quantity) || 0,
+        uomId: i.uomId || undefined,
+        sourceWarehouseId: i.sourceWarehouseId ?? null,
+        scrapBasis: i.scrapBasis || RoutingInputScrapBasis.WITH_SCRAP,
+        isPrimary: i.isPrimary ?? (idx === 0),
+        lineNumber: i.lineNumber ?? (idx + 1) * 10,
+      }));
+      const resolvedOutputs = this.resolveOperationOutputs(op).map((o, idx) => ({
+        itemId: o.itemId,
+        quantity: Number(o.quantity) || 0,
+        uomId: o.uomId || undefined,
+        outputType: o.outputType || RoutingOutputType.MAIN,
+        yieldPercentage: Number(o.yieldPercentage) || 100,
+        isPrimary: o.isPrimary ?? (idx === 0),
+        lineNumber: o.lineNumber ?? (idx + 1) * 10,
+      }));
+      const primaryIn = resolvedInputs.find((i) => i.isPrimary) || resolvedInputs[0];
+      const primaryOut = resolvedOutputs.find((o) => o.isPrimary) || resolvedOutputs[0];
+
+      return {
+        sequenceNo: op.sequenceNo,
+        operationId: op.operationId || undefined,
+        operationCode: op.operationCode,
+        operationName: op.operationName,
+        description: op.description,
+        divisionId: op.divisionId,
+        sectionId: op.sectionId,
+        departmentId: op.departmentId,
+        setupTimeMinutes: Number(op.setupTimeMinutes) || 0,
+        runTimeMinutes: Number(op.runTimeMinutes) || 0,
+        queueTimeMinutes: Number(op.queueTimeMinutes) || 0,
+        waitTimeMinutes: Number(op.waitTimeMinutes) || 0,
+        laborRequired: op.laborRequired,
+        machineRequired: op.machineRequired,
+        machineId: op.machineId,
+        scrapPercentage: Number(op.scrapPercentage) || 0,
+        setupScrapPercentage: Number(op.setupScrapPercentage) || 0,
+        status: op.status,
+        remarks: op.remarks,
+        inputItemId: primaryIn?.itemId ?? op.inputItemId ?? null,
+        outputItemId: primaryOut?.itemId ?? op.outputItemId ?? null,
+        inputQuantity: primaryIn?.quantity ?? (Number(op.inputQuantity) || 0),
+        outputQuantity: primaryOut?.quantity ?? (Number(op.outputQuantity) || 0),
+        uomId: op.uomId ?? primaryIn?.uomId ?? primaryOut?.uomId ?? null,
+        inputs: resolvedInputs,
+        outputs: resolvedOutputs,
+      };
+    });
 
     if (opDtos.length) {
       await this.createOperations(copy.id, companyId, opDtos, userId);
@@ -582,9 +736,19 @@ export class ProductionRoutingService {
     };
     await this.validateOrgHierarchy([merged as CreateRoutingOperationDto], companyId);
 
-    if (Array.isArray(dto.inputs) || Array.isArray(dto.outputs)) {
-      await this.validateOperationIO([dto as CreateRoutingOperationDto]);
-      await this.validateOperationReferences([dto as CreateRoutingOperationDto], companyId);
+    const hasInputsPayload =
+      Array.isArray(dto.inputs) ||
+      Array.isArray((dto as any).inputMaterials) ||
+      Array.isArray((dto as any).input_materials);
+    const hasOutputsPayload =
+      Array.isArray(dto.outputs) ||
+      Array.isArray((dto as any).outputProducts) ||
+      Array.isArray((dto as any).output_products);
+
+    if (hasInputsPayload || hasOutputsPayload) {
+      const normalizedForValidation = this.normalizeOperationIO(dto);
+      await this.validateOperationIO([normalizedForValidation as CreateRoutingOperationDto]);
+      await this.validateOperationReferences([normalizedForValidation as CreateRoutingOperationDto], companyId);
     }
 
     const nextOperationId = dto.operationId !== undefined ? dto.operationId : operation.operationId;
@@ -641,7 +805,7 @@ export class ProductionRoutingService {
       remarks: dto.remarks ?? operation.remarks,
     });
 
-    if (Array.isArray(dto.inputs) || Array.isArray(dto.outputs)) {
+    if (hasInputsPayload || hasOutputsPayload) {
       await this.replaceOperationIO(operation, dto as CreateRoutingOperationDto, companyId, userId);
     } else if (dto.inputItemId !== undefined || dto.inputQuantity !== undefined || dto.outputItemId !== undefined || dto.outputQuantity !== undefined || dto.uomId !== undefined) {
       const primaryIn = operation.inputs?.find((i) => i.isPrimary) ?? operation.inputs?.[0];
@@ -885,8 +1049,23 @@ export class ProductionRoutingService {
    * single fields become the primary input/output rows.
    */
   private normalizeOperationIO(op: any): any {
-    let inputs: RoutingOperationInputDto[] = Array.isArray(op.inputs) ? [...op.inputs] : [];
-    let outputs: RoutingOperationOutputDto[] = Array.isArray(op.outputs) ? [...op.outputs] : [];
+    const rawIn = Array.isArray(op.inputs)
+      ? op.inputs
+      : (Array.isArray(op.inputMaterials)
+          ? op.inputMaterials
+          : (Array.isArray(op.input_materials) ? op.input_materials : undefined));
+    const rawOut = Array.isArray(op.outputs)
+      ? op.outputs
+      : (Array.isArray(op.outputProducts)
+          ? op.outputProducts
+          : (Array.isArray(op.output_products) ? op.output_products : undefined));
+
+    let inputs: RoutingOperationInputDto[] = rawIn
+      ? rawIn.map((i: any) => ({ ...i, quantity: Number(i?.quantity ?? 0) }))
+      : [];
+    let outputs: RoutingOperationOutputDto[] = rawOut
+      ? rawOut.map((o: any) => ({ ...o, quantity: Number(o?.quantity ?? 0) }))
+      : [];
 
     const hasLegacyInput = !!op.inputItemId;
     const hasLegacyOutput = !!op.outputItemId;
@@ -1020,42 +1199,54 @@ export class ProductionRoutingService {
     userId?: string,
   ): Promise<void> {
     const normalized = this.normalizeOperationIO(opDto);
+    const hasInputs =
+      Array.isArray(opDto.inputs) ||
+      Array.isArray((opDto as any).inputMaterials) ||
+      Array.isArray((opDto as any).input_materials);
+    const hasOutputs =
+      Array.isArray(opDto.outputs) ||
+      Array.isArray((opDto as any).outputProducts) ||
+      Array.isArray((opDto as any).output_products);
 
-    if (Array.isArray(opDto.inputs)) {
+    if (hasInputs) {
       await this.inputRepo.delete({ routingOperationId: operation.id });
-      const inputs = normalized.inputs.map((i: RoutingOperationInputDto, idx: number) =>
-        this.inputRepo.create({
-          companyId,
-          routingOperationId: operation.id,
-          itemId: i.itemId,
-          quantity: i.quantity ?? 0,
-          uomId: i.uomId ?? null,
-          sourceWarehouseId: i.sourceWarehouseId ?? null,
-          scrapBasis: i.scrapBasis ?? RoutingInputScrapBasis.WITH_SCRAP,
-          isPrimary: i.isPrimary ?? (idx === 0),
-          lineNumber: i.lineNumber ?? (idx + 1) * 10,
-          createdBy: userId || null,
-        }),
-      );
+      const inputs = normalized.inputs
+        .filter((i: RoutingOperationInputDto) => !!i?.itemId)
+        .map((i: RoutingOperationInputDto, idx: number) =>
+          this.inputRepo.create({
+            companyId,
+            routingOperationId: operation.id,
+            itemId: i.itemId,
+            quantity: Number(i.quantity) || 0,
+            uomId: i.uomId ?? null,
+            sourceWarehouseId: i.sourceWarehouseId ?? null,
+            scrapBasis: i.scrapBasis ?? RoutingInputScrapBasis.WITH_SCRAP,
+            isPrimary: i.isPrimary ?? (idx === 0),
+            lineNumber: i.lineNumber ?? (idx + 1) * 10,
+            createdBy: userId || null,
+          }),
+        );
       if (inputs.length) await this.inputRepo.save(inputs);
     }
 
-    if (Array.isArray(opDto.outputs)) {
+    if (hasOutputs) {
       await this.outputRepo.delete({ routingOperationId: operation.id });
-      const outputs = normalized.outputs.map((o: RoutingOperationOutputDto, idx: number) =>
-        this.outputRepo.create({
-          companyId,
-          routingOperationId: operation.id,
-          itemId: o.itemId,
-          quantity: o.quantity ?? 0,
-          uomId: o.uomId ?? null,
-          outputType: o.outputType ?? RoutingOutputType.MAIN,
-          yieldPercentage: o.yieldPercentage ?? 100,
-          isPrimary: o.isPrimary ?? (idx === 0),
-          lineNumber: o.lineNumber ?? (idx + 1) * 10,
-          createdBy: userId || null,
-        }),
-      );
+      const outputs = normalized.outputs
+        .filter((o: RoutingOperationOutputDto) => !!o?.itemId)
+        .map((o: RoutingOperationOutputDto, idx: number) =>
+          this.outputRepo.create({
+            companyId,
+            routingOperationId: operation.id,
+            itemId: o.itemId,
+            quantity: Number(o.quantity) || 0,
+            uomId: o.uomId ?? null,
+            outputType: o.outputType ?? RoutingOutputType.MAIN,
+            yieldPercentage: o.yieldPercentage ?? 100,
+            isPrimary: o.isPrimary ?? (idx === 0),
+            lineNumber: o.lineNumber ?? (idx + 1) * 10,
+            createdBy: userId || null,
+          }),
+        );
       if (outputs.length) await this.outputRepo.save(outputs);
     }
 
@@ -1073,22 +1264,19 @@ export class ProductionRoutingService {
     });
     if (!op) return;
 
-    const primaryIn = (op.inputs || []).find((i) => i.isPrimary) ?? (op.inputs || [])[0];
-    const primaryOut = (op.outputs || []).find((o) => o.isPrimary) ?? (op.outputs || [])[0];
+    const activeInputs = (op.inputs || []).filter((i) => i.isActive !== false);
+    const activeOutputs = (op.outputs || []).filter((o) => o.isActive !== false);
+    const primaryIn = activeInputs.find((i) => i.isPrimary) ?? activeInputs[0];
+    const primaryOut = activeOutputs.find((o) => o.isPrimary) ?? activeOutputs[0];
 
-    const patch: any = {};
-    if (primaryIn) {
-      patch.inputItemId = primaryIn.itemId;
-      patch.inputQuantity = primaryIn.quantity;
-    }
-    if (primaryOut) {
-      patch.outputItemId = primaryOut.itemId;
-      patch.outputQuantity = primaryOut.quantity;
-    }
-    if (primaryIn || primaryOut) {
-      patch.uomId = primaryIn?.uomId ?? primaryOut?.uomId ?? op.uomId;
-      await this.operationRepo.update(operationId, patch);
-    }
+    const patch: any = {
+      inputItemId: primaryIn ? primaryIn.itemId : null,
+      inputQuantity: primaryIn ? primaryIn.quantity : 0,
+      outputItemId: primaryOut ? primaryOut.itemId : null,
+      outputQuantity: primaryOut ? primaryOut.quantity : 0,
+      uomId: primaryIn?.uomId ?? primaryOut?.uomId ?? op.uomId,
+    };
+    await this.operationRepo.update(operationId, patch);
   }
 
   private calculateTotalTime(operations: RoutingOperation[]): number {
@@ -1387,17 +1575,145 @@ export class ProductionRoutingService {
     return { operationId, operationCode, operationName };
   }
 
+  /**
+   * Resolves effective input materials for an operation in priority order:
+   * 1) Active `routing_operation_inputs` rows
+   * 2) Legacy single `input_item_id` / `input_quantity` columns
+   * 3) Configured Item Master upstream materials (`production_in_item_id`, `_2`, `_3`)
+   *    on the stage's output item when neither (1) nor (2) has been saved yet.
+   */
+  private resolveOperationInputs(op: RoutingOperation): any[] {
+    const activeRows = (op.inputs || [])
+      .filter((i) => i.isActive !== false && !!i.itemId)
+      .sort((a, b) => (Number(a.lineNumber) || 0) - (Number(b.lineNumber) || 0));
+    if (activeRows.length > 0) {
+      return activeRows;
+    }
+
+    if (op.inputItemId) {
+      return [
+        {
+          id: `legacy-in-${op.id}`,
+          companyId: op.companyId,
+          routingOperationId: op.id,
+          itemId: op.inputItemId,
+          item: op.inputItem ?? undefined,
+          quantity: Number(op.inputQuantity) || 1,
+          uomId: op.uomId ?? op.inputItem?.baseUomId ?? null,
+          uom: op.uom ?? op.inputItem?.baseUom ?? null,
+          sourceWarehouseId: null,
+          scrapBasis: RoutingInputScrapBasis.WITH_SCRAP,
+          isPrimary: true,
+          lineNumber: 10,
+          isActive: true,
+        },
+      ];
+    }
+
+    const activeOutputs = (op.outputs || []).filter((o) => o.isActive !== false && !!o.itemId);
+    const outItem =
+      op.outputItem ||
+      activeOutputs.find((o) => o.isPrimary)?.item ||
+      activeOutputs[0]?.item;
+
+    if (outItem) {
+      const candidates = [
+        { id: outItem.productionInItemId, item: (outItem as any).productionInItem },
+        { id: outItem.productionInItemId2, item: (outItem as any).productionInItem2 },
+        { id: outItem.productionInItemId3, item: (outItem as any).productionInItem3 },
+      ].filter((c) => !!c.id);
+
+      const seen = new Set<string>();
+      const derived: any[] = [];
+      for (const c of candidates) {
+        if (!c.id || seen.has(c.id)) continue;
+        seen.add(c.id);
+        const idx = derived.length;
+        derived.push({
+          id: `item-in-${op.id}-${idx + 1}`,
+          companyId: op.companyId,
+          routingOperationId: op.id,
+          itemId: c.id,
+          item: c.item ?? undefined,
+          quantity: 1,
+          uomId: c.item?.baseUomId ?? op.uomId ?? null,
+          uom: c.item?.baseUom ?? null,
+          sourceWarehouseId: null,
+          scrapBasis: RoutingInputScrapBasis.WITH_SCRAP,
+          isPrimary: idx === 0,
+          lineNumber: (idx + 1) * 10,
+          isActive: true,
+        });
+      }
+      if (derived.length > 0) return derived;
+    }
+
+    return [];
+  }
+
+  /**
+   * Resolves effective output products for an operation (junction rows or legacy `output_item_id`).
+   */
+  private resolveOperationOutputs(op: RoutingOperation): any[] {
+    const activeRows = (op.outputs || [])
+      .filter((o) => o.isActive !== false && !!o.itemId)
+      .sort((a, b) => (Number(a.lineNumber) || 0) - (Number(b.lineNumber) || 0));
+    if (activeRows.length > 0) {
+      return activeRows;
+    }
+
+    if (op.outputItemId) {
+      return [
+        {
+          id: `legacy-out-${op.id}`,
+          companyId: op.companyId,
+          routingOperationId: op.id,
+          itemId: op.outputItemId,
+          item: op.outputItem ?? undefined,
+          quantity: Number(op.outputQuantity) || 1,
+          uomId: op.uomId ?? op.outputItem?.baseUomId ?? null,
+          uom: op.uom ?? op.outputItem?.baseUom ?? null,
+          outputType: RoutingOutputType.MAIN,
+          yieldPercentage: 100,
+          isPrimary: true,
+          lineNumber: 10,
+          isActive: true,
+        },
+      ];
+    }
+
+    return [];
+  }
+
   private sortOperations(routing: ProductionRouting): void {
     if (routing.operations) {
       routing.operations = routing.operations.filter((o) => o.isActive !== false);
       routing.operations.sort((a, b) => a.sequenceNo - b.sequenceNo);
       for (const op of routing.operations) {
-        if (op.inputs) {
-          op.inputs = op.inputs.filter((i) => i.isActive !== false);
+        const hydratedInputs = this.resolveOperationInputs(op);
+        const hydratedOutputs = this.resolveOperationOutputs(op);
+        op.inputs = hydratedInputs as RoutingOperationInput[];
+        op.outputs = hydratedOutputs as RoutingOperationOutput[];
+        if (!op.inputItemId && hydratedInputs[0]?.itemId) {
+          op.inputItemId = hydratedInputs[0].itemId;
+          if (!op.inputItem && hydratedInputs[0]?.item) {
+            op.inputItem = hydratedInputs[0].item;
+          }
+          if (!Number(op.inputQuantity) && hydratedInputs[0]?.quantity != null) {
+            op.inputQuantity = Number(hydratedInputs[0].quantity);
+          }
         }
-        if (op.outputs) {
-          op.outputs = op.outputs.filter((o) => o.isActive !== false);
+        if (!op.outputItemId && hydratedOutputs[0]?.itemId) {
+          op.outputItemId = hydratedOutputs[0].itemId;
+          if (!op.outputItem && hydratedOutputs[0]?.item) {
+            op.outputItem = hydratedOutputs[0].item;
+          }
+          if (!Number(op.outputQuantity) && hydratedOutputs[0]?.quantity != null) {
+            op.outputQuantity = Number(hydratedOutputs[0].quantity);
+          }
         }
+        (op as any).inputMaterials = op.inputs;
+        (op as any).outputProducts = op.outputs;
       }
     }
   }
@@ -1645,29 +1961,7 @@ export class ProductionRoutingService {
   async getRoutingGraph(routingId: string, companyId: string): Promise<any> {
     const routing = await this.routingRepo.findOne({
       where: { id: routingId, companyId, isActive: true },
-      relations: [
-        'product',
-        'product.baseUom',
-        'bom',
-        'routeType',
-        'operations',
-        'operations.division',
-        'operations.section',
-        'operations.department',
-        'operations.machine',
-        'operations.uom',
-        'operations.inputs',
-        'operations.inputs.item',
-        'operations.inputs.item.baseUom',
-        'operations.inputs.uom',
-        'operations.outputs',
-        'operations.outputs.item',
-        'operations.outputs.item.baseUom',
-        'operations.outputs.uom',
-        'connections',
-        'connections.fromOperation',
-        'connections.toOperation',
-      ],
+      relations: Array.from(new Set([...RELATIONS, 'product.baseUom'])),
     });
 
     if (!routing) {

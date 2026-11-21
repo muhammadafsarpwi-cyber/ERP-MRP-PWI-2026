@@ -55,15 +55,36 @@ export class ComponentChangeService {
       sortDir = 'DESC',
     } = query || {};
 
-    const qb = this.changeRepo
-      .createQueryBuilder('cc')
-      .leftJoinAndSelect('cc.machine', 'machine')
-      .leftJoinAndSelect('cc.component', 'component')
-      .leftJoinAndSelect('component.item', 'componentItem')
-      .leftJoinAndSelect('component.uom', 'componentUom')
-      .leftJoinAndSelect('cc.jobCard', 'jobCard')
-      .leftJoinAndSelect('cc.changedByUser', 'changedByUser')
-      .where('cc.companyId = :companyId', { companyId })
+    const qb = this.changeRepo.createQueryBuilder('cc');
+    const canNarrowSelect =
+      typeof (qb as any).leftJoin === 'function' &&
+      typeof (qb as any).select === 'function' &&
+      typeof (qb as any).addSelect === 'function';
+
+    if (canNarrowSelect) {
+      qb.select(['cc'])
+        .leftJoin('cc.machine', 'machine')
+        .addSelect(['machine.id', 'machine.machineCode', 'machine.machineNumber', 'machine.name', 'machine.departmentId'])
+        .leftJoin('cc.component', 'component')
+        .addSelect(['component.id', 'component.componentCode', 'component.componentName', 'component.componentType', 'component.expectedLifeQuantity', 'component.uomId', 'component.itemId'])
+        .leftJoin('component.item', 'componentItem')
+        .addSelect(['componentItem.id', 'componentItem.itemCode', 'componentItem.name', 'componentItem.itemType'])
+        .leftJoin('component.uom', 'componentUom')
+        .addSelect(['componentUom.id', 'componentUom.code', 'componentUom.symbol'])
+        .leftJoin('cc.jobCard', 'jobCard')
+        .addSelect(['jobCard.id', 'jobCard.jobCardNo'])
+        .leftJoin('cc.changedByUser', 'changedByUser')
+        .addSelect(['changedByUser.id', 'changedByUser.displayName', 'changedByUser.firstName', 'changedByUser.lastName', 'changedByUser.username', 'changedByUser.email']);
+    } else {
+      qb.leftJoinAndSelect('cc.machine', 'machine')
+        .leftJoinAndSelect('cc.component', 'component')
+        .leftJoinAndSelect('component.item', 'componentItem')
+        .leftJoinAndSelect('component.uom', 'componentUom')
+        .leftJoinAndSelect('cc.jobCard', 'jobCard')
+        .leftJoinAndSelect('cc.changedByUser', 'changedByUser');
+    }
+
+    qb.where('cc.companyId = :companyId', { companyId })
       .andWhere('cc.isActive = true');
 
     if (machineId) qb.andWhere('cc.machineId = :machineId', { machineId });

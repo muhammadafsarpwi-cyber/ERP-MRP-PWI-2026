@@ -78,7 +78,7 @@ export class StoreLogisticsService {
 
   async findAllScrapDisposals(
     companyId: string,
-    query?: { status?: string; storeId?: string },
+    query?: { status?: string; storeId?: string; dateFrom?: string; dateTo?: string; limit?: number | string; allDates?: boolean | string },
     allowedDivisionIds?: DivisionAccess,
   ) {
     const qb = this.scrapDisposalRepo
@@ -87,7 +87,17 @@ export class StoreLogisticsService {
     applyDivisionScopeFilter(qb, 'sd.division_id', allowedDivisionIds);
     if (query?.status) qb.andWhere('sd.status = :status', { status: query.status });
     if (query?.storeId) qb.andWhere('sd.store_id = :storeId', { storeId: query.storeId });
+    if (query?.dateFrom) qb.andWhere('sd.created_at >= :dateFrom', { dateFrom: query.dateFrom });
+    if (query?.dateTo) qb.andWhere('sd.created_at <= :dateTo', { dateTo: query.dateTo });
+    const hasExplicitWindow = Boolean(query?.dateFrom || query?.dateTo || query?.status || query?.allDates === true || query?.allDates === 'true');
+    if (!hasExplicitWindow) {
+      qb.andWhere("(sd.created_at >= :recentSince OR sd.status = 'DRAFT')", {
+        recentSince: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000),
+      });
+    }
     qb.orderBy('sd.created_at', 'DESC');
+    const safeLimit = Math.min(Math.max(Number(query?.limit) || 200, 1), 500);
+    if (typeof (qb as any).take === 'function') (qb as any).take(safeLimit);
     return qb.getMany();
   }
 
@@ -205,7 +215,7 @@ export class StoreLogisticsService {
 
   async findAllGatePasses(
     companyId: string,
-    query?: { passType?: string; status?: string; storeId?: string },
+    query?: { passType?: string; status?: string; storeId?: string; dateFrom?: string; dateTo?: string; limit?: number | string; allDates?: boolean | string },
     allowedDivisionIds?: DivisionAccess,
   ) {
     const qb = this.gatePassRepo
@@ -216,7 +226,17 @@ export class StoreLogisticsService {
     if (query?.passType) qb.andWhere('gp.pass_type = :passType', { passType: query.passType });
     if (query?.status) qb.andWhere('gp.status = :status', { status: query.status });
     if (query?.storeId) qb.andWhere('gp.store_id = :storeId', { storeId: query.storeId });
+    if (query?.dateFrom) qb.andWhere('gp.created_at >= :dateFrom', { dateFrom: query.dateFrom });
+    if (query?.dateTo) qb.andWhere('gp.created_at <= :dateTo', { dateTo: query.dateTo });
+    const hasExplicitWindow = Boolean(query?.dateFrom || query?.dateTo || query?.status || query?.allDates === true || query?.allDates === 'true');
+    if (!hasExplicitWindow) {
+      qb.andWhere("(gp.created_at >= :recentSince OR gp.status IN ('DRAFT', 'DISPATCHED', 'PARTIALLY_RETURNED'))", {
+        recentSince: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000),
+      });
+    }
     qb.orderBy('gp.created_at', 'DESC');
+    const safeLimit = Math.min(Math.max(Number(query?.limit) || 200, 1), 500);
+    if (typeof (qb as any).take === 'function') (qb as any).take(safeLimit);
 
     const rows = await qb.getMany();
     const todayStr = new Date().toISOString().slice(0, 10);
@@ -341,7 +361,7 @@ export class StoreLogisticsService {
 
   async findAllTransferNotes(
     companyId: string,
-    query?: { status?: string; storeId?: string },
+    query?: { status?: string; storeId?: string; dateFrom?: string; dateTo?: string; limit?: number | string; allDates?: boolean | string },
     allowedDivisionIds?: DivisionAccess,
   ) {
     const qb = this.transferNoteRepo
@@ -353,7 +373,17 @@ export class StoreLogisticsService {
     if (query?.storeId) {
       qb.andWhere('(mtn.from_store_id = :storeId OR mtn.to_store_id = :storeId)', { storeId: query.storeId });
     }
+    if (query?.dateFrom) qb.andWhere('mtn.created_at >= :dateFrom', { dateFrom: query.dateFrom });
+    if (query?.dateTo) qb.andWhere('mtn.created_at <= :dateTo', { dateTo: query.dateTo });
+    const hasExplicitWindow = Boolean(query?.dateFrom || query?.dateTo || query?.status || query?.allDates === true || query?.allDates === 'true');
+    if (!hasExplicitWindow) {
+      qb.andWhere("(mtn.created_at >= :recentSince OR mtn.status = 'DRAFT')", {
+        recentSince: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000),
+      });
+    }
     qb.orderBy('mtn.created_at', 'DESC');
+    const safeLimit = Math.min(Math.max(Number(query?.limit) || 200, 1), 500);
+    if (typeof (qb as any).take === 'function') (qb as any).take(safeLimit);
     return qb.getMany();
   }
 

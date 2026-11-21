@@ -25,7 +25,7 @@ interface UnreadSummaryResponse {
   data: UnreadSummaryPayload;
 }
 
-const POLL_BACKGROUND_MS = 15000;
+const POLL_BACKGROUND_MS = 30000;
 const SOUND_MUTE_STORAGE_KEY = 'pwi_team_chat_sound_muted';
 
 /** Plays a subtle, gentle two-tone chime via Web Audio API when a new chat message arrives. */
@@ -97,7 +97,7 @@ const TeamChatHeaderIcon: React.FC = () => {
       const res = await apiService.get<UnreadSummaryResponse>(
         '/team-chat/unread-summary',
         undefined,
-        { silent: true },
+        { silent: true, useEtag: true },
       );
       if (!mountedRef.current || !res?.data) return;
 
@@ -135,17 +135,25 @@ const TeamChatHeaderIcon: React.FC = () => {
     mountedRef.current = true;
     void refreshUnread();
     const timer = window.setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return;
       void refreshUnread();
     }, POLL_BACKGROUND_MS);
 
+    const onVisibilityChange = () => {
+      if (typeof document !== 'undefined' && !document.hidden) {
+        void refreshUnread();
+      }
+    };
     const onSync = () => {
       void refreshUnread();
     };
+    document?.addEventListener?.('visibilitychange', onVisibilityChange);
     window.addEventListener('erp-team-chat-sync', onSync);
 
     return () => {
       mountedRef.current = false;
       window.clearInterval(timer);
+      document?.removeEventListener?.('visibilitychange', onVisibilityChange);
       window.removeEventListener('erp-team-chat-sync', onSync);
     };
   }, [refreshUnread]);

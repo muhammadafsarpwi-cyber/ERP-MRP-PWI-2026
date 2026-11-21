@@ -75,6 +75,8 @@ export class ProductionEntryController {
   @ApiQuery({ name: 'productionOrderId', required: false })
   @ApiQuery({ name: 'sortBy', required: false })
   @ApiQuery({ name: 'sortDir', required: false, enum: ['ASC', 'DESC'] })
+  @ApiQuery({ name: 'status', required: false })
+  @ApiQuery({ name: 'allDates', required: false })
   @ApiOperation({ summary: 'List daily production entries with organization/date/shift/machine/item/UOM/search filters' })
   async findAll(
     @Req() req: any,
@@ -97,11 +99,12 @@ export class ProductionEntryController {
     @Query('status') status?: string,
     @Query('chevronKey') chevronKey?: string,
     @Query('warehouseId') warehouseId?: string,
+    @Query('allDates') allDates?: string,
   ) {
     const companyId = this.getCompanyId(req);
     const result = await this.entryService.findAll(companyId, {
       page: Number(page) || 1,
-      limit: Math.min(Number(limit) || 50, 10000),
+      limit: limit !== undefined ? Math.min(Number(limit) || 50, 10000) : undefined,
       divisionId,
       sectionId,
       departmentId,
@@ -119,6 +122,7 @@ export class ProductionEntryController {
       status,
       chevronKey,
       warehouseId,
+      allDates: allDates === 'true' || allDates === '1',
       allowedDivisionIds: this.divisions(req),
     });
     return { success: true, ...result };

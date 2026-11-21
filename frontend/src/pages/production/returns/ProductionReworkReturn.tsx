@@ -107,6 +107,7 @@ const CANONICAL_DIVISIONS = [
   { id: 'd1000000-0000-0000-0000-000000000002', divisionCode: 'DIV-CCD', name: 'Control Cable Division' },
   { id: '83ecd746-1cc9-4849-bec4-d00bcc3ceeec', divisionCode: 'DIV-PWI', name: 'Main Division E-51' },
   { id: '0653339b-94d0-4cc5-b880-e07908b2015f', divisionCode: 'DIV-NB', name: 'NB Division' },
+  { id: 'd1000000-0000-0000-0000-000000000005', divisionCode: 'DIV-005-WRD', name: 'WRD Division' },
 ];
 
 const CANONICAL_DEPARTMENTS = [

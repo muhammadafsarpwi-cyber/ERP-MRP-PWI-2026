@@ -1,9 +1,12 @@
 import { Module } from '@nestjs/common';
+import { APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { databaseConfig } from './config/database.config';
+import { ResponseCacheService } from './common/cache/response-cache.service';
+import { ResponseCacheInterceptor } from './common/cache/response-cache.interceptor';
 import { OrganizationModule } from './modules/organization/organization.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UserModule } from './modules/user/user.module';
@@ -122,6 +125,13 @@ function isDatabaseAvailable(host: string, port: number, timeout = 3000): Promis
     TeamChatModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    ResponseCacheService,
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: ResponseCacheInterceptor,
+    },
+  ],
 })
 export class AppModule {}

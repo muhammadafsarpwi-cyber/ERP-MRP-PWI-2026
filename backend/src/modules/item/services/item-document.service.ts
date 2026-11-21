@@ -17,7 +17,29 @@ export class ItemDocumentService {
   }
 
   async findAllByItem(itemId: string): Promise<ItemDocument[]> {
-    return this.docRepository.find({ where: { itemId }, order: { createdAt: 'DESC' } });
+    const docs = await this.docRepository.find({
+      select: [
+        'id',
+        'itemId',
+        'documentName',
+        'documentType',
+        'fileUrl',
+        'fileSize',
+        'mimeType',
+        'description',
+        'status',
+        'createdAt',
+        'updatedAt',
+      ],
+      where: { itemId },
+      order: { createdAt: 'DESC' },
+    });
+    return docs.map((d) => {
+      if (d.fileUrl && d.fileUrl.startsWith('data:')) {
+        return { ...d, fileUrl: '' as any, hasInlineBlob: true } as any;
+      }
+      return d;
+    });
   }
 
   async findOne(id: string): Promise<ItemDocument> {

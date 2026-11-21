@@ -896,18 +896,53 @@ export class ProductionOpenStockService {
       .map((wh) => {
         const code = (wh.warehouseCode || '').toUpperCase();
         const name = (wh.name || '').toUpperCase();
-        let inferredDivision: 'SPI' | 'CCD' | 'GENERAL' = 'GENERAL';
+        let inferredDivision: 'SPI' | 'CCD' | 'PWI' | 'NB' | 'WRD' | 'GENERAL' = 'GENERAL';
         let divisionCode = 'DIV-GEN';
         let divisionName = 'General Division';
 
-        if (code.includes('CCD') || name.includes('CCD') || code.includes('FT') || code.includes('PVC')) {
+        // Match WRD before SPI because WRD-*-STORE contains "ST" in "STORE".
+        if (
+          wh.divisionId === 'd1000000-0000-0000-0000-000000000005' ||
+          code.startsWith('WRD') ||
+          code.includes('WRD-') ||
+          name.includes('WRD') ||
+          name.includes('WIRE ROPE')
+        ) {
+          inferredDivision = 'WRD';
+          divisionCode = 'DIV-005-WRD';
+          divisionName = 'WRD Division';
+        } else if (
+          wh.divisionId === 'd1000000-0000-0000-0000-000000000002' ||
+          code.includes('CCD') ||
+          name.includes('CCD') ||
+          code.includes('FT') ||
+          code.includes('PVC')
+        ) {
           inferredDivision = 'CCD';
           divisionCode = 'DIV-CCD';
           divisionName = 'Control Cable Division';
         } else if (
+          wh.divisionId === '0653339b-94d0-4cc5-b880-e07908b2015f' ||
+          code.includes('NIP') ||
+          name.includes('NB ') ||
+          code.startsWith('NB-')
+        ) {
+          inferredDivision = 'NB';
+          divisionCode = 'DIV-NB';
+          divisionName = 'NB Division';
+        } else if (
+          wh.divisionId === '83ecd746-1cc9-4849-bec4-d00bcc3ceeec' ||
+          code.includes('MAIN')
+        ) {
+          inferredDivision = 'PWI';
+          divisionCode = 'DIV-PWI';
+          divisionName = 'Main Division E-51';
+        } else if (
+          wh.divisionId === 'd1000000-0000-0000-0000-000000000001' ||
           code.includes('SPI') ||
           name.includes('SPI') ||
-          code.includes('ST') ||
+          code.includes('-ST-') ||
+          code.startsWith('ST-') ||
           code.includes('SW') ||
           code.includes('PL') ||
           code.includes('SP')
@@ -915,19 +950,20 @@ export class ProductionOpenStockService {
           inferredDivision = 'SPI';
           divisionCode = 'DIV-SPD';
           divisionName = 'Spoke Division';
-        } else if (code.includes('MAIN')) {
-          divisionCode = 'DIV-PWI';
-          divisionName = 'Main Division E-51';
         }
 
         const balList = whMap.get(wh.id) || [];
 
-        // If filtering by divisionId, check if warehouse matches inferred or if it has items of that division
+        // If filtering by divisionId, check direct warehouse divisionId, inferred division, or matching items
         if (filter.divisionId && filter.divisionId !== 'ALL') {
           const hasMatchingItems = balList.length > 0;
           const matchesInferred =
+            wh.divisionId === filter.divisionId ||
             (filter.divisionId === 'd1000000-0000-0000-0000-000000000001' && inferredDivision === 'SPI') ||
-            (filter.divisionId === 'd1000000-0000-0000-0000-000000000002' && inferredDivision === 'CCD');
+            (filter.divisionId === 'd1000000-0000-0000-0000-000000000002' && inferredDivision === 'CCD') ||
+            (filter.divisionId === '83ecd746-1cc9-4849-bec4-d00bcc3ceeec' && inferredDivision === 'PWI') ||
+            (filter.divisionId === '0653339b-94d0-4cc5-b880-e07908b2015f' && inferredDivision === 'NB') ||
+            (filter.divisionId === 'd1000000-0000-0000-0000-000000000005' && inferredDivision === 'WRD');
 
           if (!hasMatchingItems && !matchesInferred) {
             return null;

@@ -32,6 +32,7 @@ import {
   DeleteOutlined,
   FileTextOutlined,
   LinkOutlined,
+  LoadingOutlined,
   MessageOutlined,
   PaperClipOutlined,
   PauseCircleOutlined,
@@ -117,6 +118,8 @@ export interface ChatMessageItem {
   isOwn: boolean;
   content: string;
   attachmentUrl: string | null;
+  hasAttachment?: boolean;
+  attachmentMimePrefix?: string | null;
   attachmentName: string | null;
   erpRefCode: string | null;
   messageType?: 'TEXT' | 'VOICE' | 'ATTACHMENT';
@@ -124,7 +127,7 @@ export interface ChatMessageItem {
   createdAt: string;
 }
 
-const ACTIVE_POLL_INTERVAL_MS = 5000;
+const ACTIVE_POLL_INTERVAL_MS = 10000;
 const SOUND_MUTE_STORAGE_KEY = 'pwi_team_chat_sound_muted';
 
 const SAMPLE_VOUCHER_SUGGESTIONS = [
@@ -222,15 +225,17 @@ function resolveErpReferenceRoute(code: string): { route: string; moduleName: st
   return { route: '/production/entries', moduleName: 'ERP Record' };
 }
 
-function isImageAttachment(url?: string | null, name?: string | null): boolean {
-  if (!url) return false;
-  if (url.startsWith('data:image/')) return true;
-  const target = (name || url).toLowerCase();
+function isImageAttachment(url?: string | null, name?: string | null, mimePrefix?: string | null): boolean {
+  if (mimePrefix?.startsWith('data:image/')) return true;
+  if (url?.startsWith('data:image/')) return true;
+  const target = (name || url || '').toLowerCase();
+  if (!target) return false;
   return /\.(png|jpe?g|gif|webp|bmp|svg)$/.test(target);
 }
 
 function isAudioMessage(msg: ChatMessageItem): boolean {
   if (msg.messageType === 'VOICE') return true;
+  if (msg.attachmentMimePrefix?.startsWith('data:audio/')) return true;
   if (msg.attachmentUrl?.startsWith('data:audio/')) return true;
   const target = (msg.attachmentName || msg.attachmentUrl || '').toLowerCase();
   return /\.(webm|ogg|mp3|wav|m4a)$/.test(target);
@@ -264,17 +269,25 @@ const STUDIO_PREVIEW_BAR_HEIGHTS = [
 
 /** Compact custom-styled inline Audio Player for Voice Notes inside chat bubbles. */
 const InlineVoiceNotePlayer: React.FC<{
-  src: string;
+  src: string | null;
   durationSec?: number | null;
   isOwn: boolean;
-}> = ({ src, durationSec, isOwn }) => {
+  loading?: boolean;
+  onLoadSrc?: () => Promise<string | null>;
+}> = ({ src, durationSec, isOwn, loading = false, onLoadSrc }) => {
   const { token } = theme.useToken();
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [playing, setPlaying] = useState(false);
+  const [fetching, setFetching] = useState(false);
+  const [localSrc, setLocalSrc] = useState<string | null>(src);
   const [currentTime, setCurrentTime] = useState(0);
   const [totalDuration, setTotalDuration] = useState<number>(
     durationSec && durationSec > 0 ? durationSec : 0,
   );
+
+  useEffect(() => {
+    if (src) setLocalSrc(src);
+  }, [src]);
 
   useEffect(() => {
     if (durationSec && durationSec > 0) {
@@ -282,7 +295,30 @@ const InlineVoiceNotePlayer: React.FC<{
     }
   }, [durationSec]);
 
-  const togglePlay = () => {
+  const effectiveSrc = src || localSrc;
+
+  const togglePlay = async () => {
+    if (!effectiveSrc) {
+      if (!onLoadSrc || fetching) return;
+      setFetching(true);
+      try {
+        const fetched = await onLoadSrc();
+        if (fetched) {
+          setLocalSrc(fetched);
+          window.setTimeout(() => {
+            const audio = audioRef.current;
+            if (audio) {
+              Promise.resolve(audio.play())
+                .then(() => setPlaying(true))
+                .catch(() => setPlaying(false));
+            }
+          }, 40);
+        }
+      } finally {
+        setFetching(false);
+      }
+      return;
+    }
     const audio = audioRef.current;
     if (!audio) return;
     if (playing) {
@@ -328,8 +364,8 @@ const InlineVoiceNotePlayer: React.FC<{
     >
       <audio
         ref={audioRef}
-        src={src}
-        preload="metadata"
+        src={effectiveSrc || undefined}
+        preload="none"
         onLoadedMetadata={(e) => {
           const d = e.currentTarget.duration;
           if (Number.isFinite(d) && d > 0) {
@@ -352,7 +388,8 @@ const InlineVoiceNotePlayer: React.FC<{
 
       <button
         type="button"
-        onClick={togglePlay}
+        onClick={() => void togglePlay()}
+        disabled={loading || fetching}
         aria-label={playing ? 'Pause voice note' : 'Play voice note'}
         style={{
           width: 32,
@@ -370,7 +407,7 @@ const InlineVoiceNotePlayer: React.FC<{
           boxShadow: token.boxShadowTertiary,
         }}
       >
-        {playing ? <PauseOutlined /> : <CaretRightOutlined style={{ marginLeft: 2 }} />}
+        {loading || fetching ? <LoadingOutlined /> : playing ? <PauseOutlined /> : <CaretRightOutlined style={{ marginLeft: 2 }} />}
       </button>
 
       <div style={{ flex: 1, minWidth: 0 }}>
@@ -463,6 +500,8 @@ const TeamChat: React.FC = () => {
   const [initialLoading, setInitialLoading] = useState<boolean>(true);
   const [messagesLoading, setMessagesLoading] = useState<boolean>(false);
   const [sending, setSending] = useState<boolean>(false);
+  const [loadedAttachments, setLoadedAttachments] = useState<Record<string, string>>({});
+  const [loadingAttachmentIds, setLoadingAttachmentIds] = useState<Record<string, boolean>>({});
 
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [directoryFilter, setDirectoryFilter] = useState<'ALL' | 'UNREAD'>('ALL');
@@ -623,6 +662,32 @@ const TeamChat: React.FC = () => {
     }
   }, []);
 
+  const loadMessageAttachment = useCallback(
+    async (messageId: string): Promise<string | null> => {
+      if (loadedAttachments[messageId]) return loadedAttachments[messageId];
+      setLoadingAttachmentIds((prev) => ({ ...prev, [messageId]: true }));
+      try {
+        const res = await apiService.get<{
+          success: boolean;
+          data: { id: string; attachmentUrl: string | null };
+        }>(`/team-chat/messages/${messageId}/attachment`, undefined, { silent: true });
+        const url = res?.data?.attachmentUrl || null;
+        if (url && mountedRef.current) {
+          setLoadedAttachments((prev) => ({ ...prev, [messageId]: url }));
+        }
+        return url;
+      } catch {
+        message.error('Failed to load message attachment');
+        return null;
+      } finally {
+        if (mountedRef.current) {
+          setLoadingAttachmentIds((prev) => ({ ...prev, [messageId]: false }));
+        }
+      }
+    },
+    [loadedAttachments, message],
+  );
+
   const fetchActiveMessages = useCallback(
     async (convId: string, showSpinner = false) => {
       if (!convId) return;
@@ -635,7 +700,7 @@ const TeamChat: React.FC = () => {
             currentUserId: string;
             messages: ChatMessageItem[];
           };
-        }>(`/team-chat/conversations/${convId}/messages`, { limit: 150 }, { silent: true });
+        }>(`/team-chat/conversations/${convId}/messages`, { limit: 60 }, { silent: true, useEtag: true });
 
         if (!mountedRef.current || activeConvIdRef.current !== convId) return;
         const list = res?.data?.messages || [];
@@ -690,17 +755,26 @@ const TeamChat: React.FC = () => {
     void fetchActiveMessages(activeConversationId, true);
   }, [activeConversationId, fetchActiveMessages]);
 
-  // 5-second active polling for messages & directory
+  // 10-second active polling for messages & directory (paused when tab is hidden)
   useEffect(() => {
-    const timer = window.setInterval(() => {
+    const runPoll = () => {
+      if (typeof document !== 'undefined' && document.hidden) return;
       void fetchDirectoryAndConversations(false);
       if (activeConvIdRef.current) {
         void fetchActiveMessages(activeConvIdRef.current, false);
       }
-    }, ACTIVE_POLL_INTERVAL_MS);
+    };
+    const timer = window.setInterval(runPoll, ACTIVE_POLL_INTERVAL_MS);
+    const onVisibilityChange = () => {
+      if (typeof document !== 'undefined' && !document.hidden) {
+        runPoll();
+      }
+    };
+    document?.addEventListener?.('visibilitychange', onVisibilityChange);
 
     return () => {
       window.clearInterval(timer);
+      document?.removeEventListener?.('visibilitychange', onVisibilityChange);
     };
   }, [fetchDirectoryAndConversations, fetchActiveMessages]);
 
@@ -783,6 +857,9 @@ const TeamChat: React.FC = () => {
       });
 
       if (res?.data) {
+        if (res.data.attachmentUrl) {
+          setLoadedAttachments((prev) => ({ ...prev, [res.data.id]: res.data.attachmentUrl! }));
+        }
         setDraftText('');
         setDraftErpRef('');
         setDraftAttachment(null);
@@ -1107,6 +1184,9 @@ const TeamChat: React.FC = () => {
         });
 
         if (res?.data) {
+          if (res.data.attachmentUrl) {
+            setLoadedAttachments((prev) => ({ ...prev, [res.data.id]: res.data.attachmentUrl! }));
+          }
           setDraftText('');
           setDraftErpRef('');
           setMessages((prev) => {
@@ -2088,10 +2168,18 @@ const TeamChat: React.FC = () => {
 
                       {group.items.map((msg) => {
                         const isOwn = msg.isOwn || msg.senderId === currentUser?.id;
-                        const showVoicePlayer = isAudioMessage(msg) && Boolean(msg.attachmentUrl);
+                        const resolvedAttachmentUrl =
+                          msg.attachmentUrl || loadedAttachments[msg.id] || null;
+                        const hasAnyAttachment =
+                          Boolean(resolvedAttachmentUrl) || Boolean(msg.hasAttachment);
+                        const showVoicePlayer = isAudioMessage(msg) && hasAnyAttachment;
                         const showImage =
                           !showVoicePlayer &&
-                          isImageAttachment(msg.attachmentUrl, msg.attachmentName);
+                          isImageAttachment(
+                            resolvedAttachmentUrl,
+                            msg.attachmentName,
+                            msg.attachmentMimePrefix,
+                          );
 
                         return (
                           <div
@@ -2206,20 +2294,22 @@ const TeamChat: React.FC = () => {
                               )}
 
                               {/* Inline Voice Note Audio Player */}
-                              {showVoicePlayer && msg.attachmentUrl && (
+                              {showVoicePlayer && hasAnyAttachment && (
                                 <div style={{ marginBottom: msg.content ? 6 : 2 }}>
                                   <InlineVoiceNotePlayer
-                                    src={msg.attachmentUrl}
+                                    src={resolvedAttachmentUrl}
                                     durationSec={msg.audioDurationSec}
                                     isOwn={isOwn}
+                                    loading={Boolean(loadingAttachmentIds[msg.id])}
+                                    onLoadSrc={() => loadMessageAttachment(msg.id)}
                                   />
                                 </div>
                               )}
 
                               {/* Optional Image or File Attachment */}
-                              {!showVoicePlayer && msg.attachmentUrl && (
+                              {!showVoicePlayer && hasAnyAttachment && (
                                 <div style={{ marginBottom: msg.content ? 6 : 2 }}>
-                                  {showImage ? (
+                                  {showImage && resolvedAttachmentUrl ? (
                                     <div
                                       style={{
                                         borderRadius: 8,
@@ -2229,14 +2319,14 @@ const TeamChat: React.FC = () => {
                                       }}
                                     >
                                       <Image
-                                        src={msg.attachmentUrl}
+                                        src={resolvedAttachmentUrl}
                                         alt={msg.attachmentName || 'Attachment'}
                                         style={{ maxHeight: 210, objectFit: 'cover' }}
                                       />
                                     </div>
-                                  ) : (
+                                  ) : resolvedAttachmentUrl ? (
                                     <a
-                                      href={msg.attachmentUrl}
+                                      href={resolvedAttachmentUrl}
                                       download={msg.attachmentName || 'attachment'}
                                       target="_blank"
                                       rel="noreferrer"
@@ -2256,6 +2346,16 @@ const TeamChat: React.FC = () => {
                                       <FileTextOutlined />
                                       <span>{msg.attachmentName || 'Download Attachment'}</span>
                                     </a>
+                                  ) : (
+                                    <Button
+                                      size="small"
+                                      icon={loadingAttachmentIds[msg.id] ? <LoadingOutlined /> : <FileTextOutlined />}
+                                      onClick={() => void loadMessageAttachment(msg.id)}
+                                    >
+                                      {showImage
+                                        ? `Load Image (${msg.attachmentName || 'Attachment'})`
+                                        : `Load Attachment (${msg.attachmentName || 'File'})`}
+                                    </Button>
                                   )}
                                 </div>
                               )}

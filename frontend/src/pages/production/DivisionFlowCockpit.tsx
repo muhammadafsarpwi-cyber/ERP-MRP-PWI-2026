@@ -101,6 +101,21 @@ export const DEFAULT_DIVISION_FLOWS: DivisionFlow[] = [
       { id: 'n5', sequenceNo: 50, departmentCode: 'NB-PRT-005', departmentName: 'Sorting & Packing', operationName: 'Optical Camera Sorting & Count Packaging', primaryUom: 'PCS', secondaryUom: 'GRS', standardSetupMinutes: 10, standardRunMinutes: 1 },
     ],
   },
+  {
+    id: 'd1000000-0000-0000-0000-000000000005',
+    divisionCode: 'DIV-WRD',
+    divisionName: 'WRD Division',
+    routeCodeHint: 'Route WRD - Wire Rope',
+    accentColor: '#ec4899',
+    badgeBg: 'rgba(236, 72, 153, 0.12)',
+    description: 'Flexible Wire Rope (WRD) flow — edit, add, or reorder stages freely as departments and items are configured',
+    steps: [
+      { id: 'wr1', sequenceNo: 10, departmentCode: 'WRD-DEPT001', departmentName: 'Wire Drawing', operationName: 'Wire Rope Core & Strand Drawing', primaryUom: 'KG', secondaryUom: 'METER', standardSetupMinutes: 20, standardRunMinutes: 2 },
+      { id: 'wr2', sequenceNo: 20, departmentCode: 'WRD-DEPT002', departmentName: 'Stranding', operationName: 'Multi-Wire Strand Twisting', primaryUom: 'METER', secondaryUom: 'KG', standardSetupMinutes: 20, standardRunMinutes: 1.5 },
+      { id: 'wr3', sequenceNo: 30, departmentCode: 'WRD-DEPT003', departmentName: 'Closing', operationName: 'Wire Rope Closing & Laying', primaryUom: 'METER', secondaryUom: 'KG', standardSetupMinutes: 25, standardRunMinutes: 2 },
+      { id: 'wr4', sequenceNo: 40, departmentCode: 'WRD-DEPT004', departmentName: 'Packing', operationName: 'Final Inspection & Wire Rope Packing', primaryUom: 'KG', secondaryUom: 'PCS', standardSetupMinutes: 10, standardRunMinutes: 1 },
+    ],
+  },
 ];
 
 const STORAGE_KEY = 'pwi_division_dept_flows_v2';
@@ -110,7 +125,18 @@ export const loadStoredDivisionFlows = (): DivisionFlow[] => {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        // Migrate legacy DIV-SHD/Sheet Division slot to DIV-WRD/WRD Division and merge any new defaults
+        const wrdDefault = DEFAULT_DIVISION_FLOWS.find((d) => d.divisionCode === 'DIV-WRD');
+        const migrated = parsed.map((f: DivisionFlow) =>
+          f.id === 'd1000000-0000-0000-0000-000000000005' && (f.divisionCode === 'DIV-SHD' || f.divisionName === 'Sheet Division') && wrdDefault
+            ? wrdDefault
+            : f
+        );
+        const existingIds = new Set(migrated.map((f: DivisionFlow) => f.id));
+        const missing = DEFAULT_DIVISION_FLOWS.filter((d) => !existingIds.has(d.id));
+        return missing.length > 0 ? [...migrated, ...missing] : migrated;
+      }
     }
   } catch {}
   return DEFAULT_DIVISION_FLOWS;

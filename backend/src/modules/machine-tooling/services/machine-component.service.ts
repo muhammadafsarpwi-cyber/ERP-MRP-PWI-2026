@@ -286,7 +286,10 @@ export class MachineComponentService implements OnModuleInit {
 
     const machineList =
       allMachineIds.length > 0 && typeof this.machineRepo.find === 'function'
-        ? await this.machineRepo.find({ where: { companyId, id: In(allMachineIds), isActive: true } })
+        ? await this.machineRepo.find({
+            select: ['id', 'machineId', 'machineCode', 'machineNumber', 'name', 'departmentId', 'status'],
+            where: { companyId, id: In(allMachineIds), isActive: true },
+          })
         : [];
     const machineMap = new Map(machineList.map((m) => [m.id, m]));
 
@@ -325,12 +328,44 @@ export class MachineComponentService implements OnModuleInit {
       sortDir = 'ASC',
     } = query || {};
 
-    const qb = this.componentRepo
-      .createQueryBuilder('c')
-      .leftJoinAndSelect('c.machine', 'machine')
-      .leftJoinAndSelect('c.item', 'item')
-      .leftJoinAndSelect('c.uom', 'uom')
-      .where('c.companyId = :companyId', { companyId })
+    const qb = this.componentRepo.createQueryBuilder('c');
+    const canNarrowSelect =
+      typeof (qb as any).leftJoin === 'function' &&
+      typeof (qb as any).select === 'function' &&
+      typeof (qb as any).addSelect === 'function';
+
+    if (canNarrowSelect) {
+      qb.select([
+        'c.id',
+        'c.companyId',
+        'c.machineId',
+        'c.machineIds',
+        'c.itemId',
+        'c.componentType',
+        'c.componentName',
+        'c.componentCode',
+        'c.uomId',
+        'c.expectedLifeQuantity',
+        'c.minThreshold',
+        'c.maxThreshold',
+        'c.unitCost',
+        'c.isActive',
+        'c.createdAt',
+        'c.updatedAt',
+      ])
+        .leftJoin('c.machine', 'machine')
+        .addSelect(['machine.id', 'machine.machineCode', 'machine.machineNumber', 'machine.machineId', 'machine.name', 'machine.departmentId', 'machine.status'])
+        .leftJoin('c.item', 'item')
+        .addSelect(['item.id', 'item.itemCode', 'item.name', 'item.itemType', 'item.baseUomId'])
+        .leftJoin('c.uom', 'uom')
+        .addSelect(['uom.id', 'uom.code', 'uom.name', 'uom.symbol']);
+    } else {
+      qb.leftJoinAndSelect('c.machine', 'machine')
+        .leftJoinAndSelect('c.item', 'item')
+        .leftJoinAndSelect('c.uom', 'uom');
+    }
+
+    qb.where('c.companyId = :companyId', { companyId })
       .andWhere('c.isActive = true');
 
     if (machineId) {

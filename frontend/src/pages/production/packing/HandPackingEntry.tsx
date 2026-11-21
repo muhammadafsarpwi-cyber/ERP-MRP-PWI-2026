@@ -974,10 +974,29 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
   const pickDefaultPackingDept = useCallback((depts: any[], divId?: string, itemCode?: string) => {
     const active = (depts || []).filter((d: any) => d?.status === 'ACTIVE');
     const hasDivIds = active.some((d: any) => Boolean(d?.divisionId));
-    const divScoped = divId && hasDivIds
-      ? active.filter((d: any) => d.divisionId === divId)
-      : active;
-    const pool = divScoped.length > 0 ? divScoped : active;
+    if (divId && hasDivIds) {
+      const divScoped = active.filter((d: any) => d.divisionId === divId);
+      // Do not silently cross-assign another division's department (e.g. Spoke Packing) when this division has none yet
+      if (divScoped.length === 0) return undefined;
+      const upperCode = (itemCode || '').toUpperCase().trim();
+      const isLooseNipple = upperCode.startsWith('FG-NP-') || upperCode.startsWith('SPI-FG-NP-');
+      if (isLooseNipple) {
+        return (
+          divScoped.find((d: any) => (d.departmentCode || '').toUpperCase() === 'SPI-NP-002') ||
+          divScoped.find((d: any) => (d.name || '').toLowerCase().includes('nipple') && isPackingDepartment(d)) ||
+          divScoped.find(isPackingDepartment) ||
+          divScoped[0]
+        );
+      }
+      return (
+        divScoped.find((d: any) => (d.departmentCode || '').toUpperCase() === 'SPD-DEPT008' || d.id === SPD_PACKING_DEPT_ID) ||
+        divScoped.find((d: any) => isPackingDepartment(d) && (d.departmentCode || '').toUpperCase() !== 'SPI-NP-002') ||
+        divScoped.find(isPackingDepartment) ||
+        divScoped[0]
+      );
+    }
+
+    const pool = active;
     const upperCode = (itemCode || '').toUpperCase().trim();
     const isLooseNipple = upperCode.startsWith('FG-NP-') || upperCode.startsWith('SPI-FG-NP-');
 
@@ -1034,6 +1053,9 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       if (matched) {
         setSelectedPackingDeptId(matched.id);
         form.setFieldValue('departmentId', matched.id);
+      } else if (wrongDivision) {
+        setSelectedPackingDeptId('');
+        form.setFieldValue('departmentId', undefined);
       }
     }
   }, [departments, selectedDivisionId, selectedPackingDeptId, form, pickDefaultPackingDept]);
@@ -2315,7 +2337,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
     // Auto-select active division's packing department (Spoke Packing preferred in Spoke Division)
     const activeDiv = selectedDivisionId || SPD_DIVISION_ID;
     const divPackingDept = pickDefaultPackingDept(departments, activeDiv);
-    const chosenDeptId = divPackingDept?.id || SPD_PACKING_DEPT_ID;
+    const chosenDeptId = divPackingDept?.id || (activeDiv === SPD_DIVISION_ID ? SPD_PACKING_DEPT_ID : '');
     setSelectedPackingDeptId(chosenDeptId);
 
     form.setFieldsValue({
@@ -2324,7 +2346,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       customerSocNo: undefined,
       packagingStyle: undefined,
       packingStation: undefined,
-      departmentId: chosenDeptId,
+      departmentId: chosenDeptId || undefined,
     });
     setMasterItems((prev) => {
       const base = prev[0];
@@ -2918,6 +2940,9 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         const loadedDivs = cachedSnap.divisions.length > 0 ? cachedSnap.divisions : [
           { id: 'd1000000-0000-0000-0000-000000000001', divisionCode: 'DIV-SPD', name: 'Spoke Division' },
           { id: 'd1000000-0000-0000-0000-000000000002', divisionCode: 'DIV-CCD', name: 'Control Cable Division' },
+          { id: '83ecd746-1cc9-4849-bec4-d00bcc3ceeec', divisionCode: 'DIV-PWI', name: 'Main Division E-51' },
+          { id: '0653339b-94d0-4cc5-b880-e07908b2015f', divisionCode: 'DIV-NB', name: 'NB Division' },
+          { id: 'd1000000-0000-0000-0000-000000000005', divisionCode: 'DIV-005-WRD', name: 'WRD Division' },
         ];
         const loadedSecs = cachedSnap.sections.length > 0 ? cachedSnap.sections : [
           { id: 'd2000000-0000-0000-0000-000000000004', sectionCode: 'SEC-013', name: 'SPD Packing', divisionId: 'd1000000-0000-0000-0000-000000000001' },
@@ -3072,6 +3097,9 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         const loadedDivs = divList.length > 0 ? divList : [
           { id: 'd1000000-0000-0000-0000-000000000001', divisionCode: 'DIV-SPD', name: 'Spoke Division' },
           { id: 'd1000000-0000-0000-0000-000000000002', divisionCode: 'DIV-CCD', name: 'Control Cable Division' },
+          { id: '83ecd746-1cc9-4849-bec4-d00bcc3ceeec', divisionCode: 'DIV-PWI', name: 'Main Division E-51' },
+          { id: '0653339b-94d0-4cc5-b880-e07908b2015f', divisionCode: 'DIV-NB', name: 'NB Division' },
+          { id: 'd1000000-0000-0000-0000-000000000005', divisionCode: 'DIV-005-WRD', name: 'WRD Division' },
         ];
         // Sections
         const loadedSecs = secList.length > 0 ? secList : [

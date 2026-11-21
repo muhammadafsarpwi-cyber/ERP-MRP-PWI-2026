@@ -74,6 +74,7 @@ const CANONICAL_DIVISIONS: FilterOption[] = [
   { id: 'd1000000-0000-0000-0000-000000000002', name: 'Control Cable Division', divisionCode: 'DIV-CCD' },
   { id: '83ecd746-1cc9-4849-bec4-d00bcc3ceeec', name: 'Main Division E-51', divisionCode: 'DIV-PWI' },
   { id: '0653339b-94d0-4cc5-b880-e07908b2015f', name: 'NB Division', divisionCode: 'DIV-NB' },
+  { id: 'd1000000-0000-0000-0000-000000000005', name: 'WRD Division', divisionCode: 'DIV-005-WRD' },
 ];
 
 const DIVISION_UUID_ALIASES: Record<string, { canonicalId: string; name: string }> = {
@@ -83,6 +84,8 @@ const DIVISION_UUID_ALIASES: Record<string, { canonicalId: string; name: string 
   '10000000-0000-0000-0000-000000000002': { canonicalId: 'd1000000-0000-0000-0000-000000000002', name: 'Control Cable Division' },
   '83ecd746-1cc9-4849-bec4-d00bcc3ceeec': { canonicalId: '83ecd746-1cc9-4849-bec4-d00bcc3ceeec', name: 'Main Division E-51' },
   '0653339b-94d0-4cc5-b880-e07908b2015f': { canonicalId: '0653339b-94d0-4cc5-b880-e07908b2015f', name: 'NB Division' },
+  'd1000000-0000-0000-0000-000000000005': { canonicalId: 'd1000000-0000-0000-0000-000000000005', name: 'WRD Division' },
+  '10000000-0000-0000-0000-000000000005': { canonicalId: 'd1000000-0000-0000-0000-000000000005', name: 'WRD Division' },
 };
 
 function normalizeDivisionId(rawId?: string | null): string | undefined {
@@ -105,7 +108,7 @@ function resolveDivisionDisplayName(divId?: string | null, divList: FilterOption
   }
   const alias = DIVISION_UUID_ALIASES[divId.toLowerCase()] || DIVISION_UUID_ALIASES[normId.toLowerCase()];
   if (alias) return alias.name;
-  return 'Spoke Division';
+  return matched?.divisionCode || 'Selected Division';
 }
 
 function mergeDivisionOptions(fetched: FilterOption[]): FilterOption[] {

@@ -365,6 +365,7 @@ export class ProductionEntryService {
     status?: string;
     chevronKey?: string;
     warehouseId?: string;
+    allDates?: boolean;
   }): Promise<{
     data: ProductionEntry[];
     total: number;
@@ -395,7 +396,7 @@ export class ProductionEntryService {
   }> {
     const {
       page = 1,
-      limit = 50,
+      limit: rawLimit,
       divisionId,
       sectionId,
       departmentId,
@@ -414,19 +415,71 @@ export class ProductionEntryService {
       status,
       chevronKey,
       warehouseId,
+      allDates,
     } = filters || {};
 
-    const qb = this.entryRepo.createQueryBuilder('pe')
-      .leftJoinAndSelect('pe.division', 'division')
-      .leftJoinAndSelect('pe.section', 'section')
-      .leftJoinAndSelect('pe.department', 'department')
-      .leftJoinAndSelect('pe.shift', 'shift')
-      .leftJoinAndSelect('pe.item', 'item')
-      .leftJoinAndSelect('pe.uom', 'uom')
-      .leftJoinAndSelect('pe.machine', 'machine')
-      .leftJoinAndSelect('pe.rawMaterialWarehouse', 'rawMaterialWarehouse')
-      .leftJoinAndSelect('pe.warehouse', 'warehouse')
-      .where('pe.companyId = :companyId', { companyId })
+    const hasExplicitDateWindow = Boolean(dateFrom || dateTo);
+    const hasNarrowingFilter = Boolean(search?.trim() || productionOrderId || machineId || itemId);
+    const effectiveDateFrom =
+      dateFrom ||
+      (!hasExplicitDateWindow && !hasNarrowingFilter && !allDates
+        ? new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+        : undefined);
+    const requestedLimit = Number(rawLimit) || 50;
+    const limit = !hasExplicitDateWindow && !hasNarrowingFilter && !allDates
+      ? Math.min(requestedLimit, 200)
+      : Math.min(requestedLimit, 10000);
+
+    const qb = this.entryRepo.createQueryBuilder('pe');
+    const canNarrowSelect =
+      typeof (qb as any).leftJoin === 'function' &&
+      typeof (qb as any).select === 'function' &&
+      typeof (qb as any).addSelect === 'function';
+
+    if (canNarrowSelect) {
+      qb.select(['pe'])
+        .leftJoin('pe.division', 'division')
+        .addSelect(['division.id', 'division.name', 'division.divisionCode'])
+        .leftJoin('pe.section', 'section')
+        .addSelect(['section.id', 'section.name', 'section.sectionCode'])
+        .leftJoin('pe.department', 'department')
+        .addSelect(['department.id', 'department.name', 'department.departmentCode'])
+        .leftJoin('pe.shift', 'shift')
+        .addSelect(['shift.id', 'shift.name', 'shift.shiftCode', 'shift.plannedHours'])
+        .leftJoin('pe.item', 'item')
+        .addSelect([
+          'item.id',
+          'item.itemCode',
+          'item.name',
+          'item.itemType',
+          'item.baseUomId',
+          'item.weightPerPiece',
+          'item.piecesPerKg',
+          'item.weightPerMeter',
+          'item.lengthPerPiece',
+          'item.wireSizeMm',
+        ])
+        .leftJoin('pe.uom', 'uom')
+        .addSelect(['uom.id', 'uom.code', 'uom.symbol', 'uom.name'])
+        .leftJoin('pe.machine', 'machine')
+        .addSelect(['machine.id', 'machine.machineCode', 'machine.name'])
+        .leftJoin('pe.rawMaterialWarehouse', 'rawMaterialWarehouse')
+        .addSelect(['rawMaterialWarehouse.id', 'rawMaterialWarehouse.name', 'rawMaterialWarehouse.warehouseCode'])
+        .leftJoin('pe.warehouse', 'warehouse')
+        .addSelect(['warehouse.id', 'warehouse.name', 'warehouse.warehouseCode']);
+    } else {
+      qb.leftJoinAndSelect('pe.division', 'division')
+        .leftJoinAndSelect('pe.section', 'section')
+        .leftJoinAndSelect('pe.department', 'department')
+        .leftJoinAndSelect('pe.shift', 'shift')
+        .leftJoinAndSelect('pe.item', 'item')
+        .leftJoinAndSelect('pe.uom', 'uom')
+        .leftJoinAndSelect('pe.machine', 'machine')
+        .leftJoinAndSelect('pe.rawMaterialWarehouse', 'rawMaterialWarehouse')
+        .leftJoinAndSelect('pe.warehouse', 'warehouse');
+    }
+
+    qb.where('pe.companyId = :companyId', { companyId })
       .andWhere('pe.isActive = true');
 
     if (divisionId) qb.andWhere('pe.divisionId = :divisionId', { divisionId });
@@ -434,7 +487,7 @@ export class ProductionEntryService {
     applyDivisionScopeFilter(qb, 'pe.divisionId', allowedDivisionIds);
     if (sectionId) qb.andWhere('pe.sectionId = :sectionId', { sectionId });
     if (departmentId) qb.andWhere('pe.departmentId = :departmentId', { departmentId });
-    if (dateFrom) qb.andWhere('pe.entryDate >= :dateFrom', { dateFrom });
+    if (effectiveDateFrom) qb.andWhere('pe.entryDate >= :dateFrom', { dateFrom: effectiveDateFrom });
     if (dateTo) qb.andWhere('pe.entryDate <= :dateTo', { dateTo });
     if (shiftId) qb.andWhere('pe.shiftId = :shiftId', { shiftId });
     if (machineNo) qb.andWhere('pe.machineNo ILIKE :machineNo', { machineNo: `%${machineNo}%` });
@@ -467,7 +520,7 @@ export class ProductionEntryService {
     applyDivisionScopeFilter(summaryQb, 'pe.divisionId', allowedDivisionIds);
     if (sectionId) summaryQb.andWhere('pe.sectionId = :sectionId', { sectionId });
     if (departmentId) summaryQb.andWhere('pe.departmentId = :departmentId', { departmentId });
-    if (dateFrom) summaryQb.andWhere('pe.entryDate >= :dateFrom', { dateFrom });
+    if (effectiveDateFrom) summaryQb.andWhere('pe.entryDate >= :dateFrom', { dateFrom: effectiveDateFrom });
     if (dateTo) summaryQb.andWhere('pe.entryDate <= :dateTo', { dateTo });
     if (shiftId) summaryQb.andWhere('pe.shiftId = :shiftId', { shiftId });
     if (machineNo) summaryQb.andWhere('pe.machineNo ILIKE :machineNo', { machineNo: `%${machineNo}%` });
@@ -584,14 +637,17 @@ export class ProductionEntryService {
    * Ultra-fast query for Hand Packing & Packing Department Hub.
    * Directly fetches only packing entries without heavy audit/target joins.
    */
-  async findPackingEntries(companyId: string, limit = 1000, search?: string): Promise<any[]> {
+  async findPackingEntries(companyId: string, limit = 200, search?: string): Promise<any[]> {
+    const safeLimit = Math.min(Math.max(Number(limit) || 200, 1), 500);
     let searchClause = '';
     const params: any[] = [companyId];
     if (search?.trim()) {
       params.push(`%${search.trim()}%`);
       searchClause = ` AND (pe.remarks ILIKE $${params.length} OR pe.entry_number ILIKE $${params.length} OR it.item_code ILIKE $${params.length} OR it.name ILIKE $${params.length})`;
+    } else {
+      searchClause = ` AND pe.entry_date >= (CURRENT_DATE - INTERVAL '60 days')`;
     }
-    params.push(limit);
+    params.push(safeLimit);
     const limitParam = `$${params.length}`;
 
     const rows = await this.entryRepo.query(

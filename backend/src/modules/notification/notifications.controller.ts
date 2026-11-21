@@ -1,5 +1,6 @@
-import { Controller, Get, Post, Param, Query, Req, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Post, Param, Query, Req, Res, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import type { Request, Response } from 'express';
 import { NotificationsService } from './notifications.service';
 import { SupabaseJwtGuard } from '../auth/guards/supabase-jwt.guard';
 
@@ -16,8 +17,24 @@ export class NotificationsController {
 
   @Get()
   @ApiOperation({ summary: 'List recent notifications for the current user' })
-  async list(@Req() req: any, @Query('limit') limit?: string) {
-    const data = await this.notificationsService.listForUser(this.authUserId(req), Number(limit) || 20);
+  async list(
+    @Req() req: Request & { user?: any },
+    @Res({ passthrough: true }) res: Response,
+    @Query('limit') limit?: string,
+    @Query('all') all?: string,
+  ) {
+    const userId = this.authUserId(req);
+    const safeLimit = Math.min(Math.max(Number(limit) || 20, 1), 50);
+    const includeAll = all === 'true' || all === '1';
+    const delta = await this.notificationsService.listDelta(userId);
+    const etag = `W/"nl-${safeLimit}-${delta.count}-${delta.maxCreatedAt || '0'}-${delta.maxUpdatedAt || '0'}"`;
+    res.setHeader('ETag', etag);
+    res.setHeader('Cache-Control', 'private, no-cache');
+    if (req.headers['if-none-match'] === etag) {
+      res.status(HttpStatus.NOT_MODIFIED).end();
+      return;
+    }
+    const data = await this.notificationsService.listForUser(userId, safeLimit, includeAll);
     return { success: true, data };
   }
 
@@ -41,10 +58,17 @@ export class NotificationsController {
   }
 
   @Get('unread-count')
-  @ApiOperation({ summary: 'Unread notification count for the current user' })
-  async unreadCount(@Req() req: any) {
-    const count = await this.notificationsService.unreadCount(this.authUserId(req));
-    return { success: true, data: { count } };
+  @ApiOperation({ summary: 'Lightweight unread notification count and latest timestamp delta check' })
+  async unreadCount(@Req() req: Request & { user?: any }, @Res({ passthrough: true }) res: Response) {
+    const delta = await this.notificationsService.unreadDelta(this.authUserId(req));
+    const etag = `W/"nu-${delta.count}-${delta.maxCreatedAt || '0'}"`;
+    res.setHeader('ETag', etag);
+    res.setHeader('Cache-Control', 'private, no-cache');
+    if (req.headers['if-none-match'] === etag) {
+      res.status(HttpStatus.NOT_MODIFIED).end();
+      return;
+    }
+    return { success: true, data: delta };
   }
 
   @Post(':id/read')

@@ -261,9 +261,15 @@ export class StoreService implements OnModuleInit {
     // division through `store_id`. Asserting on the parent closes the indirect
     // path (TEST E — guessing another division's store id).
     this.assertDivisionOwned(store, allowedDivisionIds);
-    const qb = this.storeItemRepo.createQueryBuilder('si')
-      .leftJoinAndSelect('si.store', 's')
-      .where('si.store_id = :storeId', { storeId });
+    const qb = this.storeItemRepo.createQueryBuilder('si');
+    if (typeof (qb as any).leftJoin === 'function' && typeof (qb as any).addSelect === 'function') {
+      qb.leftJoin('si.store', 's')
+        .addSelect(['s.id', 's.storeCode', 's.storeName', 's.storeType', 's.warehouseId', 's.divisionId', 's.companyId'])
+        .where('si.store_id = :storeId', { storeId });
+    } else {
+      qb.leftJoinAndSelect('si.store', 's')
+        .where('si.store_id = :storeId', { storeId });
+    }
 
     if (query?.status) {
       qb.andWhere('si.status = :status', { status: query.status });
@@ -611,7 +617,19 @@ export class StoreService implements OnModuleInit {
 
   async findAllMaterialRequests(
     companyId: string,
-    query?: { status?: string; storeId?: string; departmentId?: string; mine?: boolean; userId?: string },
+    query?: {
+      status?: string;
+      storeId?: string;
+      departmentId?: string;
+      mine?: boolean;
+      userId?: string;
+      dateFrom?: string;
+      dateTo?: string;
+      search?: string;
+      limit?: number | string;
+      page?: number | string;
+      allDates?: boolean | string;
+    },
     allowedDivisionIds?: DivisionAccess,
   ) {
     const qb = this.materialRequestRepo.createQueryBuilder('mr')
@@ -629,12 +647,44 @@ export class StoreService implements OnModuleInit {
     if (query?.mine && query.userId) {
       qb.andWhere('mr.created_by = :userId', { userId: query.userId });
     }
+    if (query?.dateFrom) {
+      qb.andWhere('mr.created_at >= :dateFrom', { dateFrom: query.dateFrom });
+    }
+    if (query?.dateTo) {
+      qb.andWhere('mr.created_at <= :dateTo', { dateTo: query.dateTo });
+    }
+    if (query?.search?.trim()) {
+      qb.andWhere('(mr.request_number ILIKE :search OR mr.remarks ILIKE :search)', {
+        search: `%${query.search.trim()}%`,
+      });
+    }
+
+    const hasExplicitRange = Boolean(
+      query?.dateFrom || query?.dateTo || query?.status || query?.search?.trim() ||
+      query?.allDates === true || query?.allDates === 'true',
+    );
+    if (!hasExplicitRange) {
+      const recentSince = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
+      qb.andWhere(
+        "(mr.created_at >= :recentSince OR mr.status IN ('DRAFT', 'SUBMITTED', 'PENDING_APPROVAL', 'APPROVED'))",
+        { recentSince },
+      );
+    }
     // PROMPT #27 — `material_requests.division_id` is a real column, so the
     // request list is genuinely division-scoped.
     applyDivisionScopeFilter(qb as any, 'mr.division_id', allowedDivisionIds);
 
     qb.loadRelationCountAndMap('mr.lineCount', 'mr.lines', 'lines')
       .orderBy('mr.created_at', 'DESC');
+
+    const safeLimit = Math.min(Math.max(Number(query?.limit) || 200, 1), 500);
+    if (typeof (qb as any).take === 'function') {
+      (qb as any).take(safeLimit);
+    }
+    if (query?.page && typeof (qb as any).skip === 'function') {
+      const safePage = Math.max(Number(query.page) || 1, 1);
+      (qb as any).skip((safePage - 1) * safeLimit);
+    }
 
     return qb.getMany();
   }
@@ -1305,7 +1355,16 @@ export class StoreService implements OnModuleInit {
 
   async findAllMaterialIssues(
     companyId: string,
-    query?: { status?: string; storeId?: string },
+    query?: {
+      status?: string;
+      storeId?: string;
+      dateFrom?: string;
+      dateTo?: string;
+      search?: string;
+      limit?: number | string;
+      page?: number | string;
+      allDates?: boolean | string;
+    },
     allowedDivisionIds?: DivisionAccess,
   ) {
     const qb = this.materialIssueRepo.createQueryBuilder('mi')
@@ -1317,12 +1376,41 @@ export class StoreService implements OnModuleInit {
     if (query?.storeId) {
       qb.andWhere('mi.store_id = :storeId', { storeId: query.storeId });
     }
+    if (query?.dateFrom) {
+      qb.andWhere('mi.created_at >= :dateFrom', { dateFrom: query.dateFrom });
+    }
+    if (query?.dateTo) {
+      qb.andWhere('mi.created_at <= :dateTo', { dateTo: query.dateTo });
+    }
+    if (query?.search?.trim()) {
+      qb.andWhere('(mi.issue_number ILIKE :search OR mi.purpose ILIKE :search OR mi.remarks ILIKE :search)', {
+        search: `%${query.search.trim()}%`,
+      });
+    }
+
+    const hasExplicitRange = Boolean(
+      query?.dateFrom || query?.dateTo || query?.status || query?.search?.trim() ||
+      query?.allDates === true || query?.allDates === 'true',
+    );
+    if (!hasExplicitRange) {
+      const recentSince = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
+      qb.andWhere("(mi.created_at >= :recentSince OR mi.status = 'DRAFT')", { recentSince });
+    }
     // PROMPT #27 — issues move stock out of a store, so they are the most
     // sensitive store document of the three; scope is mandatory.
     applyDivisionScopeFilter(qb as any, 'mi.division_id', allowedDivisionIds);
 
     qb.loadRelationCountAndMap('mi.lineCount', 'mi.lines', 'lines')
       .orderBy('mi.created_at', 'DESC');
+
+    const safeLimit = Math.min(Math.max(Number(query?.limit) || 200, 1), 500);
+    if (typeof (qb as any).take === 'function') {
+      (qb as any).take(safeLimit);
+    }
+    if (query?.page && typeof (qb as any).skip === 'function') {
+      const safePage = Math.max(Number(query.page) || 1, 1);
+      (qb as any).skip((safePage - 1) * safeLimit);
+    }
 
     const issues = await qb.getMany();
     if (issues.length > 0) {
@@ -1869,7 +1957,16 @@ export class StoreService implements OnModuleInit {
 
   async findAllMaterialReturns(
     companyId: string,
-    query?: { status?: string; storeId?: string },
+    query?: {
+      status?: string;
+      storeId?: string;
+      dateFrom?: string;
+      dateTo?: string;
+      search?: string;
+      limit?: number | string;
+      page?: number | string;
+      allDates?: boolean | string;
+    },
     allowedDivisionIds?: DivisionAccess,
   ) {
     const qb = this.materialReturnRepo.createQueryBuilder('mr')
@@ -1881,11 +1978,40 @@ export class StoreService implements OnModuleInit {
     if (query?.storeId) {
       qb.andWhere('mr.store_id = :storeId', { storeId: query.storeId });
     }
+    if (query?.dateFrom) {
+      qb.andWhere('mr.created_at >= :dateFrom', { dateFrom: query.dateFrom });
+    }
+    if (query?.dateTo) {
+      qb.andWhere('mr.created_at <= :dateTo', { dateTo: query.dateTo });
+    }
+    if (query?.search?.trim()) {
+      qb.andWhere('(mr.return_number ILIKE :search OR mr.remarks ILIKE :search)', {
+        search: `%${query.search.trim()}%`,
+      });
+    }
+
+    const hasExplicitRange = Boolean(
+      query?.dateFrom || query?.dateTo || query?.status || query?.search?.trim() ||
+      query?.allDates === true || query?.allDates === 'true',
+    );
+    if (!hasExplicitRange) {
+      const recentSince = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
+      qb.andWhere("(mr.created_at >= :recentSince OR mr.status = 'DRAFT')", { recentSince });
+    }
     // PROMPT #27 — returns move stock back into a store; scope is mandatory.
     applyDivisionScopeFilter(qb as any, 'mr.division_id', allowedDivisionIds);
 
     qb.loadRelationCountAndMap('mr.lineCount', 'mr.lines', 'lines')
       .orderBy('mr.created_at', 'DESC');
+
+    const safeLimit = Math.min(Math.max(Number(query?.limit) || 200, 1), 500);
+    if (typeof (qb as any).take === 'function') {
+      (qb as any).take(safeLimit);
+    }
+    if (query?.page && typeof (qb as any).skip === 'function') {
+      const safePage = Math.max(Number(query.page) || 1, 1);
+      (qb as any).skip((safePage - 1) * safeLimit);
+    }
 
     return qb.getMany();
   }

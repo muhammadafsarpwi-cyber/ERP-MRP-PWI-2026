@@ -168,11 +168,8 @@ const RoutingManagement: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    // If the tab was already loaded in this session, DO NOT re-fetch when
-    // returning to it — the cached rows are already seeded into state.
-    if (!routings.length) {
-      fetchRoutings();
-    }
+    // Always refresh routings in background so inputs/outputs updated elsewhere stay synced
+    fetchRoutings();
     fetchLookupData();
     const params = new URLSearchParams(window.location.search);
     const targetId = routeParamId || params.get('id') || params.get('routingId');
@@ -234,6 +231,7 @@ const RoutingManagement: React.FC = () => {
       'DIV-CCD': 0,
       'DIV-PWI': 0,
       'DIV-NB': 0,
+      'DIV-WRD': 0,
     };
     (routings || []).forEach((r) => {
       const routeTypeCode = (r.routeType?.routeCode || '').toLowerCase();
@@ -257,6 +255,20 @@ const RoutingManagement: React.FC = () => {
         prodCode.includes('cable')
       ) {
         counts['DIV-CCD']++;
+      } else if (
+        routeTypeCode.includes('wrd') ||
+        routeTypeName.includes('wire rope') ||
+        routeTypeName.includes('wrd') ||
+        code.includes('wrd') ||
+        prodCode.includes('wrd') ||
+        r.operations?.some((op) =>
+          op.divisionId === 'd1000000-0000-0000-0000-000000000005' ||
+          op.division?.divisionCode === 'DIV-005-WRD' ||
+          op.division?.divisionCode === 'DIV-WRD' ||
+          op.department?.departmentCode?.startsWith('WRD')
+        )
+      ) {
+        counts['DIV-WRD']++;
       } else if (
         routeTypeCode.includes('pwi') ||
         routeTypeName.includes('wire') ||
@@ -334,6 +346,19 @@ const RoutingManagement: React.FC = () => {
           code.includes('nb') ||
           prodCode.includes('nip') ||
           r.operations?.some(op => (op.division?.divisionCode === 'DIV-NB' || op.department?.departmentCode?.startsWith('NB')));
+      } else if (filterDivision === 'DIV-WRD') {
+        matchDiv =
+          routeTypeCode.includes('wrd') ||
+          routeTypeName.includes('wire rope') ||
+          routeTypeName.includes('wrd') ||
+          code.includes('wrd') ||
+          prodCode.includes('wrd') ||
+          r.operations?.some((op) =>
+            op.divisionId === 'd1000000-0000-0000-0000-000000000005' ||
+            op.division?.divisionCode === 'DIV-005-WRD' ||
+            op.division?.divisionCode === 'DIV-WRD' ||
+            op.department?.departmentCode?.startsWith('WRD')
+          );
       } else {
         matchDiv = r.operations?.some((op) => op.divisionId === filterDivision);
       }
@@ -378,9 +403,22 @@ const RoutingManagement: React.FC = () => {
       const res = await apiService.get<any>(`/production/routings/${id}`);
       const raw = res?.data;
       const rtg = (raw && raw.id) ? raw : (raw?.data || res);
-      setSelectedRouting(rtg);
+      if (rtg && rtg.id) {
+        setSelectedRouting(rtg);
+        setRoutings((prev) => {
+          const exists = prev.some((r) => r.id === rtg.id);
+          const next = exists ? prev.map((r) => (r.id === rtg.id ? rtg : r)) : prev;
+          tabSessionCache.set<RoutingTabCache>(ROUTING_TAB_ID, {
+            routings: next,
+            search,
+            filterStatus,
+            filterDivision,
+          });
+          return next;
+        });
+      }
     } catch {}
-  }, []);
+  }, [search, filterStatus, filterDivision]);
 
   const handleSetDefault = async (r: Routing) => {
     try {
@@ -517,12 +555,14 @@ const RoutingManagement: React.FC = () => {
       onOk: async () => {
         try {
           const res = await apiService.post<any>(`/production/routings/${id}/copy`, {});
+          const copied = res?.data?.id ? res.data : (res?.id ? res : res?.data?.data);
           message.success('Routing duplicated successfully as a new Draft');
-          await fetchRoutings();
-          const newId = res?.data?.id || res?.id;
-          if (newId) {
-            await refreshDetail(newId);
+          if (copied?.id) {
+            setSelectedRouting(copied);
             setDetailVisible(true);
+            await Promise.all([refreshDetail(copied.id), fetchRoutings()]);
+          } else {
+            await fetchRoutings();
           }
         } catch (err: any) {
           modal.error({
@@ -796,50 +836,80 @@ const RoutingManagement: React.FC = () => {
     }
   };
 
-  const renderInputs = (r: RoutingOperation) => {
-    const list = r.inputs && r.inputs.length ? r.inputs : (r.inputItem || r.inputItemId ? [{ item: r.inputItem, itemId: r.inputItemId, quantity: r.inputQuantity, isPrimary: true }] : []);
-    if (!list.length) return <span style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>—</span>;
+  const renderIoRows = (
+    rows: Array<{ item?: { itemCode?: string; name?: string }; itemId?: string; quantity?: number; isPrimary?: boolean; outputType?: string }>,
+  ) => {
+    if (!rows.length) return <span style={{ color: token.colorTextTertiary }}>—</span>;
 
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-        {list.map((i: any, idx: number) => {
-          const itemText = i.item ? `${i.item.itemCode} · ${i.item.name}` : i.itemId || '-';
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {rows.map((row, idx) => {
+          const matchedItem = row.item || items.find((it) => it.id === row.itemId);
+          const itemCode = matchedItem?.itemCode || row.itemId || '—';
+          const itemName = matchedItem?.name || '';
+          const qtyVal = row.quantity != null ? formatDecimal(toNum(row.quantity)) : null;
+
           return (
             <div
-              key={idx}
+              key={`${row.itemId || idx}-${idx}`}
               style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                whiteSpace: 'nowrap',
-                maxWidth: 240,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'flex-start',
+                gap: 3,
+                paddingTop: idx > 0 ? 6 : 0,
+                borderTop: idx > 0 ? `1px dashed ${token.colorBorderSecondary}` : undefined,
               }}
-              title={itemText}
+              title={itemName ? `${itemCode} · ${itemName}` : itemCode}
             >
-              <Tag
-                color="blue"
-                style={{
-                  margin: 0,
-                  fontSize: 11,
-                  fontWeight: 600,
-                  borderRadius: 4,
-                  maxWidth: 180,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {itemText}
-              </Tag>
-              {i.quantity != null && (
-                <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text-secondary, #64748b)' }}>
-                  × {formatDecimal(toNum(i.quantity))}
+              <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 5 }}>
+                <span
+                  style={{
+                    display: 'inline-block',
+                    color: '#EA580C',
+                    background: '#FFF7ED',
+                    border: '1px solid #FED7AA',
+                    borderRadius: 4,
+                    padding: '1px 7px',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    fontFamily: 'monospace',
+                    lineHeight: '18px',
+                    letterSpacing: '0.02em',
+                  }}
+                >
+                  {itemCode}
                 </span>
-              )}
-              {i.isPrimary && (
-                <Tag color="cyan" style={{ margin: 0, fontSize: 10, padding: '0 4px', lineHeight: '18px' }}>
-                  Primary
-                </Tag>
+                {qtyVal != null && (
+                  <span style={{ fontSize: 11, fontWeight: 700, color: token.colorTextSecondary }}>
+                    × {qtyVal}
+                  </span>
+                )}
+                {row.isPrimary && rows.length > 1 && (
+                  <Tag color="cyan" style={{ margin: 0, fontSize: 10, padding: '0 4px', lineHeight: '16px' }}>
+                    Primary
+                  </Tag>
+                )}
+                {row.outputType && row.outputType !== 'MAIN' && (
+                  <Tag color="gold" style={{ margin: 0, fontSize: 10, padding: '0 4px', lineHeight: '16px' }}>
+                    {row.outputType}
+                  </Tag>
+                )}
+              </div>
+              {itemName && (
+                <div
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 500,
+                    color: token.colorText,
+                    lineHeight: 1.35,
+                    whiteSpace: 'normal',
+                    wordBreak: 'normal',
+                    overflowWrap: 'break-word',
+                  }}
+                >
+                  {itemName}
+                </div>
               )}
             </div>
           );
@@ -848,56 +918,24 @@ const RoutingManagement: React.FC = () => {
     );
   };
 
-  const renderOutputs = (r: RoutingOperation) => {
-    const list = r.outputs && r.outputs.length ? r.outputs : (r.outputItem || r.outputItemId ? [{ item: r.outputItem, itemId: r.outputItemId, quantity: r.outputQuantity, outputType: 'MAIN' }] : []);
-    if (!list.length) return <span style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>—</span>;
+  const renderInputs = (r: RoutingOperation) => {
+    const rawInputs = (r.inputs && r.inputs.length > 0)
+      ? r.inputs
+      : ((r as any).inputMaterials && (r as any).inputMaterials.length > 0 ? (r as any).inputMaterials : []);
+    const list = rawInputs.length
+      ? rawInputs
+      : (r.inputItem || r.inputItemId ? [{ item: r.inputItem, itemId: r.inputItemId, quantity: r.inputQuantity, isPrimary: true }] : []);
+    return renderIoRows(list);
+  };
 
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-        {list.map((o: any, idx: number) => {
-          const itemText = o.item ? `${o.item.itemCode} · ${o.item.name}` : o.itemId || '-';
-          return (
-            <div
-              key={idx}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                whiteSpace: 'nowrap',
-                maxWidth: 240,
-              }}
-              title={itemText}
-            >
-              <Tag
-                color="purple"
-                style={{
-                  margin: 0,
-                  fontSize: 11,
-                  fontWeight: 600,
-                  borderRadius: 4,
-                  maxWidth: 180,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {itemText}
-              </Tag>
-              {o.quantity != null && (
-                <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--theme-text-secondary, #64748b)' }}>
-                  × {formatDecimal(toNum(o.quantity))}
-                </span>
-              )}
-              {o.outputType && o.outputType !== 'MAIN' && (
-                <Tag color="orange" style={{ margin: 0, fontSize: 10, padding: '0 4px', lineHeight: '18px' }}>
-                  {o.outputType}
-                </Tag>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    );
+  const renderOutputs = (r: RoutingOperation) => {
+    const rawOutputs = (r.outputs && r.outputs.length > 0)
+      ? r.outputs
+      : ((r as any).outputProducts && (r as any).outputProducts.length > 0 ? (r as any).outputProducts : []);
+    const list = rawOutputs.length
+      ? rawOutputs
+      : (r.outputItem || r.outputItemId ? [{ item: r.outputItem, itemId: r.outputItemId, quantity: r.outputQuantity, outputType: 'MAIN' }] : []);
+    return renderIoRows(list);
   };
 
   const columns: ColumnsType<Routing> = [
@@ -1174,13 +1212,13 @@ const RoutingManagement: React.FC = () => {
     {
       title: 'Input Materials',
       key: 'inputs',
-      width: 240,
+      width: 265,
       render: (_, r) => renderInputs(r),
     },
     {
       title: 'Output Products',
       key: 'outputs',
-      width: 240,
+      width: 265,
       render: (_, r) => renderOutputs(r),
     },
     {
@@ -1512,6 +1550,7 @@ const RoutingManagement: React.FC = () => {
                   { label: 'Control Cable Flow (5 stages)', value: 'DIV-CCD' },
                   { label: 'Main Division E-51 Flow (6 stages)', value: 'DIV-PWI' },
                   { label: 'NB Division Flow (5 stages)', value: 'DIV-NB' },
+                  { label: 'WRD Division Flow (Customizable)', value: 'DIV-WRD' },
                 ]}
               />
               <Button
@@ -1747,6 +1786,7 @@ const RoutingManagement: React.FC = () => {
                   { label: `Control Cable (${routingCountsByDivision['DIV-CCD'] || 0})`, value: 'DIV-CCD' },
                   { label: `Main Division E-51 (${routingCountsByDivision['DIV-PWI'] || 0})`, value: 'DIV-PWI' },
                   { label: `NB Division (${routingCountsByDivision['DIV-NB'] || 0})`, value: 'DIV-NB' },
+                  { label: `WRD Division (${routingCountsByDivision['DIV-WRD'] || 0})`, value: 'DIV-WRD' },
                 ]}
               />
               <Select
@@ -1909,6 +1949,9 @@ const RoutingManagement: React.FC = () => {
                     </Select.Option>
                     <Select.Option value="DIV-NB">
                       NB Division (1. Cold Forging ➔ 2. Drilling ➔ 3. Threading ➔ 4. Plating ➔ 5. Packing)
+                    </Select.Option>
+                    <Select.Option value="DIV-WRD">
+                      WRD Division (Wire Rope — Flexible / Customizable Stages)
                     </Select.Option>
                   </Select>
                 </Form.Item>

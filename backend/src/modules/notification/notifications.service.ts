@@ -73,16 +73,65 @@ export class NotificationsService {
     }
   }
 
-  async listForUser(authUserId: string, limit = 20): Promise<Notification[]> {
-    return this.repo.find({
-      where: { userId: authUserId },
-      order: { createdAt: 'DESC' },
-      take: Math.min(Math.max(limit, 1), 50),
-    });
+  async listForUser(authUserId: string, limit = 20, includeAll = false): Promise<Notification[]> {
+    const safeLimit = Math.min(Math.max(Number(limit) || 20, 1), 50);
+    const qb = this.repo
+      .createQueryBuilder('n')
+      .select([
+        'n.id',
+        'n.type',
+        'n.title',
+        'n.message',
+        'n.entityType',
+        'n.entityId',
+        'n.isRead',
+        'n.readAt',
+        'n.createdAt',
+      ])
+      .where('n.userId = :authUserId', { authUserId });
+
+    if (!includeAll) {
+      const sixtyDaysAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
+      qb.andWhere('(n.createdAt >= :since OR n.isRead = false)', { since: sixtyDaysAgo });
+    }
+
+    return qb.orderBy('n.createdAt', 'DESC').take(safeLimit).getMany();
   }
 
   async unreadCount(authUserId: string): Promise<number> {
-    return this.repo.count({ where: { userId: authUserId, isRead: false } });
+    const delta = await this.unreadDelta(authUserId);
+    return delta.count;
+  }
+
+  /** Lightweight COUNT(*) / MAX(created_at) delta check for notification polling. */
+  async unreadDelta(authUserId: string): Promise<{ count: number; maxCreatedAt: string | null }> {
+    const row = await this.repo
+      .createQueryBuilder('n')
+      .select('COUNT(n.id)::int', 'count')
+      .addSelect('MAX(n.created_at)', 'maxCreatedAt')
+      .where('n.userId = :authUserId', { authUserId })
+      .andWhere('n.isRead = false')
+      .getRawOne();
+    return {
+      count: Number(row?.count || 0),
+      maxCreatedAt: row?.maxCreatedAt ? new Date(row.maxCreatedAt).toISOString() : null,
+    };
+  }
+
+  /** Lightweight COUNT(*) / MAX timestamps for list ETag conditional revalidation. */
+  async listDelta(authUserId: string): Promise<{ count: number; maxCreatedAt: string | null; maxUpdatedAt: string | null }> {
+    const row = await this.repo
+      .createQueryBuilder('n')
+      .select('COUNT(n.id)::int', 'count')
+      .addSelect('MAX(n.created_at)', 'maxCreatedAt')
+      .addSelect('MAX(n.updated_at)', 'maxUpdatedAt')
+      .where('n.userId = :authUserId', { authUserId })
+      .getRawOne();
+    return {
+      count: Number(row?.count || 0),
+      maxCreatedAt: row?.maxCreatedAt ? new Date(row.maxCreatedAt).toISOString() : null,
+      maxUpdatedAt: row?.maxUpdatedAt ? new Date(row.maxUpdatedAt).toISOString() : null,
+    };
   }
 
   async markRead(id: string, authUserId: string): Promise<boolean> {

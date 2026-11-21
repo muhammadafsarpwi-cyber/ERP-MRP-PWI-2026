@@ -3,9 +3,11 @@ import {
   Get,
   Post,
   Put,
+  Patch,
   Delete,
   Body,
   Param,
+  Query,
   UseGuards,
   Req,
   HttpCode,
@@ -48,9 +50,9 @@ export class ProductionRoutingController {
   @RequireOrgScope()
   @RequirePermission('manufacturing.routing.view')
   @ApiOperation({ summary: 'List all production routings' })
-  async findAll(@Req() req: any) {
+  async findAll(@Req() req: any, @Query('limit') limit?: string) {
     const companyId = this.getCompanyId(req);
-    const routings = await this.routingService.findAll(companyId);
+    const routings = await this.routingService.findAll(companyId, limit ? Number(limit) : undefined);
     return { data: routings, total: routings.length };
   }
 
@@ -122,6 +124,15 @@ export class ProductionRoutingController {
     const userId = req.erpUser?.id || req.user?.id;
     const routing = await this.routingService.update(id, dto, companyId, userId);
     return { data: routing, message: 'Routing updated successfully' };
+  }
+
+  @Patch(':id')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.routing.update')
+  @ApiOperation({ summary: 'Partially update a production routing' })
+  async patch(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateRoutingDto, @Req() req: any) {
+    return this.update(id, dto, req);
   }
 
   @Put(':id/status')

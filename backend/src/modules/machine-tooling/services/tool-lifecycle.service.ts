@@ -719,15 +719,36 @@ export class ToolLifecycleService implements OnModuleInit {
     query: { machineId?: string; componentId?: string; search?: string; page?: number; limit?: number } = {},
   ): Promise<{ data: any[]; total: number; page: number; limit: number }> {
     const { machineId, componentId, search, page = 1, limit = 50 } = query || {};
-    const qb = this.changeRepo
-      .createQueryBuilder('cc')
-      .leftJoinAndSelect('cc.machine', 'machine')
-      .leftJoinAndSelect('cc.component', 'component')
-      .leftJoinAndSelect('component.item', 'componentItem')
-      .leftJoinAndSelect('component.uom', 'componentUom')
-      .leftJoinAndSelect('cc.jobCard', 'jobCard')
-      .leftJoinAndSelect('cc.storeIssue', 'storeIssue')
-      .where('cc.companyId = :companyId', { companyId })
+    const qb = this.changeRepo.createQueryBuilder('cc');
+    const canNarrowSelect =
+      typeof (qb as any).leftJoin === 'function' &&
+      typeof (qb as any).select === 'function' &&
+      typeof (qb as any).addSelect === 'function';
+
+    if (canNarrowSelect) {
+      qb.select(['cc'])
+        .leftJoin('cc.machine', 'machine')
+        .addSelect(['machine.id', 'machine.machineCode', 'machine.machineNumber', 'machine.name'])
+        .leftJoin('cc.component', 'component')
+        .addSelect(['component.id', 'component.componentCode', 'component.componentName', 'component.componentType', 'component.expectedLifeQuantity', 'component.minThreshold', 'component.maxThreshold', 'component.uomId', 'component.itemId'])
+        .leftJoin('component.item', 'componentItem')
+        .addSelect(['componentItem.id', 'componentItem.itemCode', 'componentItem.name'])
+        .leftJoin('component.uom', 'componentUom')
+        .addSelect(['componentUom.id', 'componentUom.code'])
+        .leftJoin('cc.jobCard', 'jobCard')
+        .addSelect(['jobCard.id', 'jobCard.jobCardNo'])
+        .leftJoin('cc.storeIssue', 'storeIssue')
+        .addSelect(['storeIssue.id', 'storeIssue.issueNumber', 'storeIssue.operatorName', 'storeIssue.shiftInchargeName', 'storeIssue.issuedByName']);
+    } else {
+      qb.leftJoinAndSelect('cc.machine', 'machine')
+        .leftJoinAndSelect('cc.component', 'component')
+        .leftJoinAndSelect('component.item', 'componentItem')
+        .leftJoinAndSelect('component.uom', 'componentUom')
+        .leftJoinAndSelect('cc.jobCard', 'jobCard')
+        .leftJoinAndSelect('cc.storeIssue', 'storeIssue');
+    }
+
+    qb.where('cc.companyId = :companyId', { companyId })
       .andWhere('cc.isActive = true')
       .andWhere('cc.closedAt IS NULL');
 
@@ -742,7 +763,8 @@ export class ToolLifecycleService implements OnModuleInit {
     qb.orderBy('machine.machineCode', 'ASC').addOrderBy('component.componentCode', 'ASC');
 
     const total = await qb.getCount();
-    qb.skip((page - 1) * limit).take(limit);
+    const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 500);
+    qb.skip((page - 1) * safeLimit).take(safeLimit);
     const changes = await qb.getMany();
 
     // One derived counter per machine (all-time SUM of active non-deleted production entries)
@@ -755,24 +777,37 @@ export class ToolLifecycleService implements OnModuleInit {
       fetchComponentLifeSpecs(this.changeRepo.manager, companyId),
     ]);
 
-    // Also compute live Weight (Kg) produced on each machine since each active tool's installDate
+    // Batched query for live Weight (Kg) produced since each active tool's installDate (eliminates N+1 queries)
     const weightMap = new Map<string, number>();
-    for (const c of changes) {
+    if (changes.length > 0 && typeof this.changeRepo.manager?.query === 'function') {
       try {
+        const changeIds = changes.map((c) => c.id);
+        const machineIds = changes.map((c) => c.machineId);
+        const changeDates = changes.map((c) => c.changeDate);
         const wRows = await this.changeRepo.manager.query(
-          `SELECT COALESCE(SUM(pe.actual_quantity * COALESCE(i.weight_per_piece, 0)), 0)::numeric(19,4) AS weight_kg
-             FROM production_entries pe
-             LEFT JOIN items i ON i.id = pe.item_id
-            WHERE pe.company_id = $1
-              AND pe.machine_id = $2
+          `WITH targets AS (
+             SELECT * FROM UNNEST($2::uuid[], $3::uuid[], $4::date[]) AS t(change_id, machine_id, since_date)
+           )
+           SELECT t.change_id,
+                  COALESCE(SUM(pe.actual_quantity * COALESCE(i.weight_per_piece, 0)), 0)::numeric(19,4) AS weight_kg
+             FROM targets t
+             LEFT JOIN production_entries pe
+               ON pe.company_id = $1
+              AND pe.machine_id = t.machine_id
               AND pe.is_active = TRUE
               AND pe.deleted_at IS NULL
-              AND pe.entry_date >= $3`,
-          [companyId, c.machineId, c.changeDate],
+              AND pe.entry_date >= t.since_date
+             LEFT JOIN items i ON i.id = pe.item_id
+            GROUP BY t.change_id`,
+          [companyId, changeIds, machineIds, changeDates],
         );
-        weightMap.set(c.id, Number((numOrNull(wRows[0]?.weight_kg) ?? 0).toFixed(2)));
+        for (const r of wRows || []) {
+          if (r?.change_id) {
+            weightMap.set(r.change_id, Number((numOrNull(r.weight_kg) ?? 0).toFixed(2)));
+          }
+        }
       } catch {
-        weightMap.set(c.id, 0);
+        // fallback cleanly to 0s
       }
     }
 
@@ -1061,14 +1096,33 @@ export class ToolLifecycleService implements OnModuleInit {
       limit = 50,
     } = query || {};
 
-    const qb = this.changeRepo
-      .createQueryBuilder('cc')
-      .leftJoinAndSelect('cc.machine', 'machine')
-      .leftJoinAndSelect('cc.component', 'component')
-      .leftJoinAndSelect('component.uom', 'componentUom')
-      .leftJoinAndSelect('cc.jobCard', 'jobCard')
-      .leftJoinAndSelect('cc.storeIssue', 'storeIssue')
-      .where('cc.companyId = :companyId', { companyId })
+    const qb = this.changeRepo.createQueryBuilder('cc');
+    const canNarrowSelect =
+      typeof (qb as any).leftJoin === 'function' &&
+      typeof (qb as any).select === 'function' &&
+      typeof (qb as any).addSelect === 'function';
+
+    if (canNarrowSelect) {
+      qb.select(['cc'])
+        .leftJoin('cc.machine', 'machine')
+        .addSelect(['machine.id', 'machine.machineCode', 'machine.machineNumber', 'machine.name'])
+        .leftJoin('cc.component', 'component')
+        .addSelect(['component.id', 'component.componentCode', 'component.componentName', 'component.componentType', 'component.expectedLifeQuantity', 'component.minThreshold', 'component.maxThreshold', 'component.uomId', 'component.itemId'])
+        .leftJoin('component.uom', 'componentUom')
+        .addSelect(['componentUom.id', 'componentUom.code'])
+        .leftJoin('cc.jobCard', 'jobCard')
+        .addSelect(['jobCard.id', 'jobCard.jobCardNo'])
+        .leftJoin('cc.storeIssue', 'storeIssue')
+        .addSelect(['storeIssue.id', 'storeIssue.issueNumber', 'storeIssue.operatorName', 'storeIssue.shiftInchargeName', 'storeIssue.issuedByName']);
+    } else {
+      qb.leftJoinAndSelect('cc.machine', 'machine')
+        .leftJoinAndSelect('cc.component', 'component')
+        .leftJoinAndSelect('component.uom', 'componentUom')
+        .leftJoinAndSelect('cc.jobCard', 'jobCard')
+        .leftJoinAndSelect('cc.storeIssue', 'storeIssue');
+    }
+
+    qb.where('cc.companyId = :companyId', { companyId })
       .andWhere('cc.isActive = true');
 
     if (machineId) qb.andWhere('cc.machineId = :machineId', { machineId });

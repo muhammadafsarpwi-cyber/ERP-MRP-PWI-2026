@@ -56,6 +56,22 @@ function formatDurationLabel(sec?: number | null): string {
 export class TeamChatService implements OnModuleInit {
   private readonly logger = new Logger(TeamChatService.name);
   private readonly lastActiveMap = new Map<string, number>();
+  private readonly resolvedUserCache = new Map<
+    string,
+    {
+      user: {
+        id: string;
+        authUserId: string;
+        fullName: string;
+        email: string;
+        role: string;
+        department: string;
+        avatarUrl: string | null;
+      };
+      expiresAt: number;
+    }
+  >();
+  private readonly enrolledDefaultUsers = new Set<string>();
   private initialized = false;
 
   constructor(private readonly dataSource: DataSource) {}
@@ -199,12 +215,14 @@ export class TeamChatService implements OnModuleInit {
     message_type?: string | null;
     audio_duration_sec?: number | null;
     attachment_url?: string | null;
+    is_voice?: boolean | null;
     attachment_name?: string | null;
     erp_ref_code?: string | null;
   }): string | null {
     const text = (row.content || '').trim();
-    if (text) return text;
+    if (text) return text.length > 140 ? `${text.slice(0, 140)}…` : text;
     const isVoice =
+      Boolean(row.is_voice) ||
       row.message_type === 'VOICE' ||
       String(row.attachment_url || '').startsWith('data:audio/');
     if (isVoice) {
@@ -228,6 +246,14 @@ export class TeamChatService implements OnModuleInit {
 
     const rawId = reqUser?.id ? String(reqUser.id) : '';
     const rawEmail = reqUser?.email ? String(reqUser.email) : '';
+    const userCacheKey = rawId || rawEmail.toLowerCase();
+    if (userCacheKey) {
+      const cached = this.resolvedUserCache.get(userCacheKey);
+      if (cached && cached.expiresAt > Date.now()) {
+        this.lastActiveMap.set(cached.user.id, Date.now());
+        return cached.user;
+      }
+    }
 
     let rows: any[] = [];
     if (rawId || rawEmail) {
@@ -285,29 +311,38 @@ export class TeamChatService implements OnModuleInit {
     const u = rows[0];
     this.lastActiveMap.set(u.id, Date.now());
 
-    // Ensure current user is enrolled in the default factory GROUP channels
-    const defaultTitles = DEFAULT_GROUP_CHANNELS.map((c) => c.title.toLowerCase());
-    await this.dataSource.query(
-      `
-      INSERT INTO chat_participants (conversation_id, user_id, last_read_at, joined_at)
-      SELECT c.id, $1, NOW(), NOW()
-      FROM chat_conversations c
-      WHERE c.type = 'GROUP'
-        AND LOWER(c.title) = ANY($2)
-      ON CONFLICT (conversation_id, user_id) DO NOTHING
-      `,
-      [u.id, defaultTitles],
-    );
+    // Ensure current user is enrolled in the default factory GROUP channels (only once per server lifecycle)
+    if (!this.enrolledDefaultUsers.has(u.id)) {
+      const defaultTitles = DEFAULT_GROUP_CHANNELS.map((c) => c.title.toLowerCase());
+      await this.dataSource.query(
+        `
+        INSERT INTO chat_participants (conversation_id, user_id, last_read_at, joined_at)
+        SELECT c.id, $1, NOW(), NOW()
+        FROM chat_conversations c
+        WHERE c.type = 'GROUP'
+          AND LOWER(c.title) = ANY($2)
+        ON CONFLICT (conversation_id, user_id) DO NOTHING
+        `,
+        [u.id, defaultTitles],
+      );
+      this.enrolledDefaultUsers.add(u.id);
+    }
 
-    return {
+    const avatarUrl = u.avatar_url && !String(u.avatar_url).startsWith('data:') ? u.avatar_url : null;
+    const resolved = {
       id: u.id,
       authUserId: u.auth_user_id,
       fullName: this.formatFullName(u),
       email: u.email,
       role: u.role_name || (String(u.username || '').toLowerCase().includes('admin') ? 'System Administrator' : 'Factory Staff'),
       department: u.department_name || u.division_name || 'Factory Operations',
-      avatarUrl: u.avatar_url || null,
+      avatarUrl,
     };
+    if (userCacheKey) {
+      if (this.resolvedUserCache.size >= 200) this.resolvedUserCache.clear();
+      this.resolvedUserCache.set(userCacheKey, { user: resolved, expiresAt: Date.now() + 60_000 });
+    }
+    return resolved;
   }
 
   async getUsers(reqUser: any) {
@@ -323,7 +358,7 @@ export class TeamChatService implements OnModuleInit {
              u.last_name,
              u.email,
              u.phone,
-             u.avatar_url,
+             CASE WHEN LEFT(COALESCE(u.avatar_url, ''), 5) = 'data:' THEN NULL ELSE u.avatar_url END AS avatar_url,
              u.last_login_at,
              u.updated_at,
              (
@@ -341,7 +376,7 @@ export class TeamChatService implements OnModuleInit {
              dc.last_content AS last_message_content,
              dc.last_message_type AS last_message_type,
              dc.last_audio_duration_sec AS last_audio_duration_sec,
-             dc.last_attachment_url AS last_attachment_url,
+             dc.last_is_voice AS last_is_voice,
              dc.last_attachment_name AS last_attachment_name,
              dc.last_erp_ref AS last_erp_ref,
              dc.last_created_at AS last_message_at
@@ -357,10 +392,10 @@ export class TeamChatService implements OnModuleInit {
                    AND m.sender_id <> $1
                    AND (cp_me.last_read_at IS NULL OR m.created_at > cp_me.last_read_at)
                ) AS unread_count,
-               lm.content AS last_content,
+               LEFT(lm.content, 160) AS last_content,
                lm.message_type AS last_message_type,
                lm.audio_duration_sec AS last_audio_duration_sec,
-               lm.attachment_url AS last_attachment_url,
+               lm.last_is_voice AS last_is_voice,
                lm.attachment_name AS last_attachment_name,
                lm.erp_ref_code AS last_erp_ref,
                lm.created_at AS last_created_at
@@ -368,7 +403,13 @@ export class TeamChatService implements OnModuleInit {
         JOIN chat_participants cp_me ON cp_me.conversation_id = c.id AND cp_me.user_id = $1
         JOIN chat_participants cp_other ON cp_other.conversation_id = c.id AND cp_other.user_id = u.id
         LEFT JOIN LATERAL (
-          SELECT m.content, m.message_type, m.audio_duration_sec, m.attachment_url, m.attachment_name, m.erp_ref_code, m.created_at
+          SELECT m.content,
+                 m.message_type,
+                 m.audio_duration_sec,
+                 (m.message_type = 'VOICE' OR LEFT(COALESCE(m.attachment_url, ''), 11) = 'data:audio/') AS last_is_voice,
+                 m.attachment_name,
+                 m.erp_ref_code,
+                 m.created_at
           FROM chat_messages m
           WHERE m.conversation_id = c.id
           ORDER BY m.created_at DESC
@@ -420,7 +461,7 @@ export class TeamChatService implements OnModuleInit {
             content: r.last_message_content,
             message_type: r.last_message_type,
             audio_duration_sec: r.last_audio_duration_sec,
-            attachment_url: r.last_attachment_url,
+            is_voice: Boolean(r.last_is_voice),
             attachment_name: r.last_attachment_name,
             erp_ref_code: r.last_erp_ref,
           }),
@@ -456,12 +497,13 @@ export class TeamChatService implements OnModuleInit {
                  AND (cp.last_read_at IS NULL OR m.created_at > cp.last_read_at)
              ) AS unread_count,
              lm.id AS last_msg_id,
-             lm.content AS last_msg_content,
+             LEFT(lm.content, 160) AS last_msg_content,
              lm.message_type AS last_msg_type,
              lm.audio_duration_sec AS last_msg_audio_duration_sec,
              lm.sender_id AS last_msg_sender_id,
              lm.sender_name AS last_msg_sender_name,
-             lm.attachment_url AS last_msg_attachment_url,
+             lm.last_msg_is_voice AS last_msg_is_voice,
+             lm.last_msg_has_attachment AS last_msg_has_attachment,
              lm.attachment_name AS last_msg_attachment_name,
              lm.erp_ref_code AS last_msg_erp_ref_code,
              lm.created_at AS last_msg_created_at,
@@ -484,7 +526,8 @@ export class TeamChatService implements OnModuleInit {
                m.message_type,
                m.audio_duration_sec,
                m.sender_id,
-               m.attachment_url,
+               (m.message_type = 'VOICE' OR LEFT(COALESCE(m.attachment_url, ''), 11) = 'data:audio/') AS last_msg_is_voice,
+               (m.attachment_url IS NOT NULL AND m.attachment_url <> '') AS last_msg_has_attachment,
                m.attachment_name,
                m.erp_ref_code,
                m.created_at,
@@ -502,7 +545,7 @@ export class TeamChatService implements OnModuleInit {
                pu.last_name,
                pu.username,
                pu.email,
-               pu.avatar_url,
+               CASE WHEN LEFT(COALESCE(pu.avatar_url, ''), 5) = 'data:' THEN NULL ELSE pu.avatar_url END AS avatar_url,
                pu.last_login_at,
                pu.updated_at,
                (
@@ -576,7 +619,7 @@ export class TeamChatService implements OnModuleInit {
                   content: r.last_msg_content,
                   message_type: r.last_msg_type,
                   audio_duration_sec: r.last_msg_audio_duration_sec,
-                  attachment_url: r.last_msg_attachment_url,
+                  is_voice: Boolean(r.last_msg_is_voice),
                   attachment_name: r.last_msg_attachment_name,
                   erp_ref_code: r.last_msg_erp_ref_code,
                 }) || '',
@@ -587,7 +630,8 @@ export class TeamChatService implements OnModuleInit {
                   : null,
               senderId: r.last_msg_sender_id,
               senderName: r.last_msg_sender_name,
-              attachmentUrl: r.last_msg_attachment_url || null,
+              hasAttachment: Boolean(r.last_msg_has_attachment),
+              attachmentUrl: null,
               attachmentName: r.last_msg_attachment_name || null,
               erpRefCode: r.last_msg_erp_ref_code || null,
               createdAt: r.last_msg_created_at,
@@ -747,9 +791,54 @@ export class TeamChatService implements OnModuleInit {
     return all.find((c) => c.id === convId) || all[0];
   }
 
-  async getMessages(reqUser: any, conversationId: string, limit = 120) {
+  async getMessagesVersion(reqUser: any, conversationId: string): Promise<{ count: number; maxCreatedAt: string | null }> {
+    const convRows: any[] = await this.dataSource.query(
+      `SELECT COUNT(*)::int AS cnt, MAX(created_at) AS max_at FROM chat_messages WHERE conversation_id::text = $1`,
+      [String(conversationId || '').trim()],
+    );
+    const r = convRows[0];
+    return {
+      count: Number(r?.cnt || 0),
+      maxCreatedAt: r?.max_at ? new Date(r.max_at).toISOString() : null,
+    };
+  }
+
+  async getMessageAttachment(reqUser: any, messageId: string) {
     const currentUser = await this.resolveCurrentUser(reqUser);
-    const safeLimit = Math.min(Math.max(Number(limit) || 120, 20), 300);
+    const rows: any[] = await this.dataSource.query(
+      `
+      SELECT m.id,
+             m.conversation_id,
+             m.attachment_url,
+             m.attachment_name,
+             m.message_type,
+             m.audio_duration_sec
+      FROM chat_messages m
+      JOIN chat_conversations c ON c.id = m.conversation_id
+      LEFT JOIN chat_participants cp ON cp.conversation_id = c.id AND cp.user_id = $2
+      WHERE m.id::text = $1
+        AND (cp.id IS NOT NULL OR c.type = 'GROUP')
+      LIMIT 1
+      `,
+      [String(messageId || '').trim(), currentUser.id],
+    );
+    if (rows.length === 0) {
+      throw new NotFoundException('Message attachment not found');
+    }
+    const r = rows[0];
+    return {
+      id: r.id,
+      conversationId: r.conversation_id,
+      attachmentUrl: r.attachment_url || null,
+      attachmentName: r.attachment_name || null,
+      messageType: r.message_type || 'TEXT',
+      audioDurationSec: r.audio_duration_sec != null ? Number(r.audio_duration_sec) : null,
+    };
+  }
+
+  async getMessages(reqUser: any, conversationId: string, limit = 60) {
+    const currentUser = await this.resolveCurrentUser(reqUser);
+    const safeLimit = Math.min(Math.max(Number(limit) || 60, 10), 200);
 
     const convRows: any[] = await this.dataSource.query(
       `SELECT id, type, title, department_tag FROM chat_conversations WHERE id::text = $1 LIMIT 1`,
@@ -759,16 +848,33 @@ export class TeamChatService implements OnModuleInit {
       throw new NotFoundException('Conversation not found');
     }
 
+    // Only write last_read_at when missing or when there are actual unread messages
     await this.dataSource.query(
       `
       INSERT INTO chat_participants (conversation_id, user_id, last_read_at, joined_at)
       VALUES ($1, $2, NOW(), NOW())
-      ON CONFLICT (conversation_id, user_id)
-      DO UPDATE SET last_read_at = NOW()
+      ON CONFLICT (conversation_id, user_id) DO NOTHING
+      `,
+      [convRows[0].id, currentUser.id],
+    );
+    await this.dataSource.query(
+      `
+      UPDATE chat_participants cp
+      SET last_read_at = NOW()
+      WHERE cp.conversation_id = $1
+        AND cp.user_id = $2
+        AND EXISTS (
+          SELECT 1
+          FROM chat_messages m
+          WHERE m.conversation_id = $1
+            AND m.sender_id <> $2
+            AND (cp.last_read_at IS NULL OR m.created_at > cp.last_read_at)
+        )
       `,
       [convRows[0].id, currentUser.id],
     );
 
+    // Exclude base64 `data:` blobs from the list payload; fetch on demand via /messages/:id/attachment
     const rows: any[] = await this.dataSource.query(
       `
       SELECT sub.*
@@ -777,7 +883,13 @@ export class TeamChatService implements OnModuleInit {
                m.conversation_id,
                m.sender_id,
                m.content,
-               m.attachment_url,
+               CASE
+                 WHEN m.attachment_url IS NULL OR m.attachment_url = '' THEN NULL
+                 WHEN LEFT(m.attachment_url, 5) = 'data:' THEN NULL
+                 ELSE m.attachment_url
+               END AS attachment_url,
+               (m.attachment_url IS NOT NULL AND m.attachment_url <> '') AS has_attachment,
+               LEFT(COALESCE(m.attachment_url, ''), 32) AS attachment_mime_prefix,
                m.attachment_name,
                m.erp_ref_code,
                m.message_type,
@@ -788,7 +900,7 @@ export class TeamChatService implements OnModuleInit {
                u.last_name,
                u.username,
                u.email,
-               u.avatar_url,
+               CASE WHEN LEFT(COALESCE(u.avatar_url, ''), 5) = 'data:' THEN NULL ELSE u.avatar_url END AS avatar_url,
                (
                  SELECT r.name
                  FROM user_roles ur
@@ -815,8 +927,10 @@ export class TeamChatService implements OnModuleInit {
       conversationId: convRows[0].id,
       currentUserId: currentUser.id,
       messages: rows.map((r) => {
+        const mimePrefix = String(r.attachment_mime_prefix || '');
         const isVoice =
           r.message_type === 'VOICE' ||
+          mimePrefix.startsWith('data:audio/') ||
           String(r.attachment_url || '').startsWith('data:audio/');
         return {
           id: r.id,
@@ -831,6 +945,8 @@ export class TeamChatService implements OnModuleInit {
           isOwn: r.sender_id === currentUser.id,
           content: r.content || '',
           attachmentUrl: r.attachment_url || null,
+          hasAttachment: Boolean(r.has_attachment),
+          attachmentMimePrefix: mimePrefix || null,
           attachmentName: r.attachment_name || null,
           erpRefCode: r.erp_ref_code || null,
           messageType: isVoice ? 'VOICE' : r.message_type || 'TEXT',
@@ -942,30 +1058,28 @@ export class TeamChatService implements OnModuleInit {
   async getUnreadSummary(reqUser: any) {
     const currentUser = await this.resolveCurrentUser(reqUser);
 
-    const counts: any[] = await this.dataSource.query(
+    const aggRows: any[] = await this.dataSource.query(
       `
-      SELECT c.id AS conversation_id,
-             c.type,
-             COUNT(m.id)::int AS unread_count
-      FROM chat_conversations c
-      JOIN chat_participants cp ON cp.conversation_id = c.id AND cp.user_id = $1
+      SELECT COUNT(m.id)::int AS total_unread,
+             COUNT(CASE WHEN c.type = 'DIRECT' THEN 1 END)::int AS direct_unread,
+             COUNT(CASE WHEN c.type <> 'DIRECT' THEN 1 END)::int AS group_unread,
+             MAX(m.created_at) AS max_created_at
+      FROM chat_participants cp
+      JOIN chat_conversations c ON c.id = cp.conversation_id
       JOIN chat_messages m ON m.conversation_id = c.id
         AND m.sender_id <> $1
         AND (cp.last_read_at IS NULL OR m.created_at > cp.last_read_at)
-      GROUP BY c.id, c.type
+      WHERE cp.user_id = $1
       `,
       [currentUser.id],
     );
 
-    let totalUnread = 0;
-    let directUnread = 0;
-    let groupUnread = 0;
-    for (const row of counts) {
-      const n = Number(row.unread_count || 0);
-      totalUnread += n;
-      if (row.type === 'DIRECT') directUnread += n;
-      else groupUnread += n;
-    }
+    const totalUnread = Number(aggRows[0]?.total_unread || 0);
+    const directUnread = Number(aggRows[0]?.direct_unread || 0);
+    const groupUnread = Number(aggRows[0]?.group_unread || 0);
+    const maxCreatedAt = aggRows[0]?.max_created_at
+      ? new Date(aggRows[0].max_created_at).toISOString()
+      : null;
 
     const latestRows: any[] =
       totalUnread > 0
@@ -973,10 +1087,10 @@ export class TeamChatService implements OnModuleInit {
             `
             SELECT m.id,
                    m.conversation_id,
-                   m.content,
+                   LEFT(m.content, 100) AS content,
                    m.message_type,
                    m.audio_duration_sec,
-                   m.attachment_url,
+                   (m.message_type = 'VOICE' OR LEFT(COALESCE(m.attachment_url, ''), 11) = 'data:audio/') AS is_voice,
                    m.attachment_name,
                    m.erp_ref_code,
                    m.created_at,
@@ -1010,7 +1124,14 @@ export class TeamChatService implements OnModuleInit {
               : this.formatFullName(latestRows[0]),
           senderName: this.formatFullName(latestRows[0]),
           content:
-            this.formatMessagePreview(latestRows[0]) || 'New message',
+            this.formatMessagePreview({
+              content: latestRows[0].content,
+              message_type: latestRows[0].message_type,
+              audio_duration_sec: latestRows[0].audio_duration_sec,
+              is_voice: Boolean(latestRows[0].is_voice),
+              attachment_name: latestRows[0].attachment_name,
+              erp_ref_code: latestRows[0].erp_ref_code,
+            }) || 'New message',
           createdAt: latestRows[0].created_at,
         }
       : null;
@@ -1019,6 +1140,7 @@ export class TeamChatService implements OnModuleInit {
       totalUnread,
       directUnread,
       groupUnread,
+      maxCreatedAt,
       latestUnreadMessage: latest,
     };
   }

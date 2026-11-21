@@ -565,31 +565,31 @@ const EntryForm: React.FC<EntryFormProps> = ({
       (qMachineCode || '').toLowerCase().includes('ccd');
 
     if (isSpoke) {
-      // Return Spoke division warehouses, exclude any CCD/Cable warehouses
+      // Return Spoke division warehouses, exclude other divisions' warehouses (CCD, WRD, etc.)
       const spokeWhs = pool.filter((w) => {
         if (w.divisionId === 'd1000000-0000-0000-0000-000000000001') return true;
-        if (w.divisionId === 'd1000000-0000-0000-0000-000000000002') return false;
+        if (w.divisionId && w.divisionId !== 'd1000000-0000-0000-0000-000000000001') return false;
         const c = (w.warehouseCode || '').toLowerCase();
         const n = (w.name || '').toLowerCase();
-        if (c.startsWith('ccd') || n.includes('ccd') || n.includes('cable') || n.includes('spiral')) return false;
-        if (/\bspi\b/.test(n) || c.includes('spi') || c.includes('spk') || c.includes('spd') || n.includes('spoke') || c.includes('st-') || c.includes('sw-') || c.includes('pl-')) return true;
-        return !c.includes('ccd');
+        if (c.startsWith('ccd') || c.startsWith('wrd') || n.includes('ccd') || n.includes('cable') || n.includes('spiral') || n.includes('wire rope') || n.includes('wrd')) return false;
+        if (/\bspi\b/.test(n) || c.includes('spi') || c.includes('spk') || c.includes('spd') || n.includes('spoke') || c.includes('-st-') || c.includes('sw-') || c.includes('pl-')) return true;
+        return !c.includes('ccd') && !c.includes('wrd');
       });
-      return spokeWhs.length > 0 ? spokeWhs : pool.filter((w) => !(w.warehouseCode || '').toLowerCase().startsWith('ccd'));
+      return spokeWhs.length > 0 ? spokeWhs : pool.filter((w) => !(w.warehouseCode || '').toLowerCase().startsWith('ccd') && !(w.warehouseCode || '').toLowerCase().startsWith('wrd'));
     }
 
     if (isCables) {
-      // Return Control Cable warehouses, exclude Spoke/SPI warehouses (never match "spi" inside "spiral")
+      // Return Control Cable warehouses, exclude Spoke/SPI/WRD warehouses (never match "spi" inside "spiral")
       const ccdWhs = pool.filter((w) => {
         if (w.divisionId === 'd1000000-0000-0000-0000-000000000002') return true;
-        if (w.divisionId === 'd1000000-0000-0000-0000-000000000001') return false;
+        if (w.divisionId && w.divisionId !== 'd1000000-0000-0000-0000-000000000002') return false;
         const c = (w.warehouseCode || '').toLowerCase();
         const n = (w.name || '').toLowerCase();
-        if (c.startsWith('spi') || c.startsWith('spk') || /\bspi\b/.test(n) || n.includes('spoke')) return false;
+        if (c.startsWith('spi') || c.startsWith('spk') || c.startsWith('wrd') || /\bspi\b/.test(n) || n.includes('spoke') || n.includes('wire rope') || n.includes('wrd')) return false;
         if (c.includes('ccd') || n.includes('cable') || n.includes('spiral')) return true;
-        return !c.startsWith('spi');
+        return !c.startsWith('spi') && !c.startsWith('wrd');
       });
-      return ccdWhs.length > 0 ? ccdWhs : pool.filter((w) => !(w.warehouseCode || '').toLowerCase().startsWith('spi'));
+      return ccdWhs.length > 0 ? ccdWhs : pool.filter((w) => !(w.warehouseCode || '').toLowerCase().startsWith('spi') && !(w.warehouseCode || '').toLowerCase().startsWith('wrd'));
     }
 
     if (divId) {

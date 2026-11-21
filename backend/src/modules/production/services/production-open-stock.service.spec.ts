@@ -383,3 +383,52 @@ describe('ProductionOpenStockService.reverseTransaction — append-only reversal
     await expect(svc.reverseTransaction(COMPANY, 'nope')).rejects.toThrow('Transaction record not found.');
   });
 });
+
+describe('ProductionOpenStockService.getDepartmentStockMatrix — WRD Division classification', () => {
+  const makeQb = (rows: any[]) => ({
+    innerJoinAndSelect: jest.fn().mockReturnThis(),
+    leftJoinAndSelect: jest.fn().mockReturnThis(),
+    where: jest.fn().mockReturnThis(),
+    andWhere: jest.fn().mockReturnThis(),
+    orderBy: jest.fn().mockReturnThis(),
+    addOrderBy: jest.fn().mockReturnThis(),
+    getMany: jest.fn().mockResolvedValue(rows),
+  });
+
+  const sampleWarehouses = [
+    { id: 'w-wrd-rm', warehouseCode: 'WRD-RM-STORE', name: 'WRD Raw Material Store', warehouseType: 'RAW_MATERIAL', divisionId: 'd1000000-0000-0000-0000-000000000005', status: 'ACTIVE' },
+    { id: 'w-wrd-wip', warehouseCode: 'WRD-WIP-STORE', name: 'WRD WIP Store', warehouseType: 'WORK_IN_PROGRESS', divisionId: 'd1000000-0000-0000-0000-000000000005', status: 'ACTIVE' },
+    { id: 'w-wrd-fg', warehouseCode: 'WRD-FG-STORE', name: 'WRD Finished Goods Store', warehouseType: 'FINISHED_GOODS', divisionId: 'd1000000-0000-0000-0000-000000000005', status: 'ACTIVE' },
+    { id: 'w-wrd-gs', warehouseCode: 'WRD-GS-STORE', name: 'WRD General Store', warehouseType: 'GENERAL', divisionId: 'd1000000-0000-0000-0000-000000000005', status: 'ACTIVE' },
+    { id: 'w-spi-st', warehouseCode: 'SPI-ST-002', name: 'ST Straightener Department', warehouseType: 'WORK_IN_PROGRESS', divisionId: 'd1000000-0000-0000-0000-000000000001', status: 'ACTIVE' },
+  ];
+
+  it('classifies WRD-*-STORE under DIV-005-WRD WRD Division (not Spoke Division despite "ST" in STORE) and keeps SPI-ST-002 under Spoke Division', async () => {
+    const svc = build({
+      warehouseRepo: { createQueryBuilder: jest.fn(() => makeQb(sampleWarehouses)) },
+      balanceRepo: { createQueryBuilder: jest.fn(() => makeQb([])) },
+    });
+
+    const filtered = await svc.getDepartmentStockMatrix(COMPANY, {
+      divisionId: 'd1000000-0000-0000-0000-000000000005',
+    });
+
+    const rows = Array.isArray(filtered) ? filtered : (filtered as any)?.departments || (filtered as any)?.rows || [];
+    expect(rows).toHaveLength(4);
+    expect(rows.map((r: any) => r.warehouseCode)).toEqual([
+      'WRD-RM-STORE',
+      'WRD-WIP-STORE',
+      'WRD-FG-STORE',
+      'WRD-GS-STORE',
+    ]);
+    for (const r of rows) {
+      expect(r.divisionCode).toBe('DIV-005-WRD');
+      expect(r.divisionName).toBe('WRD Division');
+    }
+
+    const allRes = await svc.getDepartmentStockMatrix(COMPANY, { divisionId: 'ALL' });
+    const allRows = Array.isArray(allRes) ? allRes : (allRes as any)?.departments || (allRes as any)?.rows || [];
+    const spiSt = allRows.find((r: any) => r.warehouseCode === 'SPI-ST-002');
+    expect(spiSt).toMatchObject({ divisionCode: 'DIV-SPD', divisionName: 'Spoke Division' });
+  });
+});

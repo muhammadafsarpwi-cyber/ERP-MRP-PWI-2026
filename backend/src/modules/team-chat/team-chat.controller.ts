@@ -6,10 +6,12 @@ import {
   Body,
   Query,
   Req,
+  Res,
   UseGuards,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
+import type { Request, Response } from 'express';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { SupabaseJwtGuard } from '../auth/guards/supabase-jwt.guard';
 import {
@@ -55,13 +57,30 @@ export class TeamChatController {
   }
 
   @Get('conversations/:id/messages')
-  @ApiOperation({ summary: 'Fetch paginated conversation messages and mark conversation as read' })
+  @ApiOperation({ summary: 'Fetch paginated conversation messages without base64 blobs and mark conversation as read' })
   async getMessages(
-    @Req() req: any,
+    @Req() req: Request & { user?: any },
+    @Res({ passthrough: true }) res: Response,
     @Param('id') id: string,
     @Query('limit') limit?: string,
   ) {
-    const data = await this.teamChatService.getMessages(req.user, id, Number(limit) || 120);
+    const safeLimit = Number(limit) || 60;
+    const version = await this.teamChatService.getMessagesVersion(req.user, id);
+    const etag = `W/"tcm-${id}-${safeLimit}-${version.count}-${version.maxCreatedAt || '0'}"`;
+    res.setHeader('ETag', etag);
+    res.setHeader('Cache-Control', 'private, no-cache');
+    if (req.headers['if-none-match'] === etag) {
+      res.status(HttpStatus.NOT_MODIFIED).end();
+      return;
+    }
+    const data = await this.teamChatService.getMessages(req.user, id, safeLimit);
+    return { success: true, data };
+  }
+
+  @Get('messages/:messageId/attachment')
+  @ApiOperation({ summary: 'Lazy-load full attachment or voice audio payload for a specific message' })
+  async getMessageAttachment(@Req() req: any, @Param('messageId') messageId: string) {
+    const data = await this.teamChatService.getMessageAttachment(req.user, messageId);
     return { success: true, data };
   }
 
@@ -78,8 +97,18 @@ export class TeamChatController {
 
   @Get('unread-summary')
   @ApiOperation({ summary: 'Lightweight unread message count summary for sidebar and top header badges' })
-  async getUnreadSummary(@Req() req: any) {
+  async getUnreadSummary(
+    @Req() req: Request & { user?: any },
+    @Res({ passthrough: true }) res: Response,
+  ) {
     const data = await this.teamChatService.getUnreadSummary(req.user);
+    const etag = `W/"tcu-${data.totalUnread}-${data.directUnread}-${data.groupUnread}-${data.maxCreatedAt || '0'}-${data.latestUnreadMessage?.id || '0'}"`;
+    res.setHeader('ETag', etag);
+    res.setHeader('Cache-Control', 'private, no-cache');
+    if (req.headers['if-none-match'] === etag) {
+      res.status(HttpStatus.NOT_MODIFIED).end();
+      return;
+    }
     return { success: true, data };
   }
 }

@@ -146,6 +146,32 @@ export function markSessionActive(): void {
   refreshInFlight = null;
 }
 
+const etagResponseCache = new Map<string, { etag: string; data: unknown }>();
+const ETAG_CACHE_MAX_ENTRIES = 200;
+
+function getTokenScopeKey(): string {
+  try {
+    const token = localStorage.getItem('token') || localStorage.getItem('access_token') || '';
+    return token ? token.slice(-12) : 'anon';
+  } catch {
+    return 'anon';
+  }
+}
+
+function buildEtagCacheKey(url: string, params?: any): string {
+  const paramStr = params ? JSON.stringify(params) : '';
+  return `${getTokenScopeKey()}|${url}|${paramStr}`;
+}
+
+function invalidateEtagByPrefix(url: string): void {
+  const prefix = url.split('?')[0].split('/').slice(0, 3).join('/');
+  for (const key of Array.from(etagResponseCache.keys())) {
+    if (!prefix || key.includes(`|${prefix}`)) {
+      etagResponseCache.delete(key);
+    }
+  }
+}
+
 async function refreshAccessToken(): Promise<string | null> {
   if (refreshInFlight) return refreshInFlight;
 
@@ -362,11 +388,46 @@ class ApiService {
    * is armed again for the new session. See {@link markSessionActive}.
    */
   markSessionActive(): void {
+    etagResponseCache.clear();
     markSessionActive();
   }
 
   async get<T>(url: string, params?: any, config?: any): Promise<T> {
-    const response = await this.api.get<T>(url, { params, ...config });
+    const useEtag = Boolean(config?.useEtag);
+    const cacheKey = useEtag ? buildEtagCacheKey(url, params) : '';
+    const cached = useEtag ? etagResponseCache.get(cacheKey) : undefined;
+    const mergedHeaders = { ...(config?.headers || {}) };
+    if (useEtag && cached?.etag) {
+      mergedHeaders['If-None-Match'] = cached.etag;
+    }
+
+    const requestConfig: any = {
+      params,
+      ...config,
+      headers: mergedHeaders,
+      ...(useEtag
+        ? {
+            validateStatus: (status: number) =>
+              (status >= 200 && status < 300) || status === 304,
+          }
+        : {}),
+    };
+    delete requestConfig.useEtag;
+
+    const response = await this.api.get<T>(url, requestConfig);
+    if (useEtag && response.status === 304 && cached) {
+      return cached.data as T;
+    }
+    if (useEtag) {
+      const nextEtag = response.headers?.etag || response.headers?.ETag;
+      if (nextEtag) {
+        if (etagResponseCache.size >= ETAG_CACHE_MAX_ENTRIES && !etagResponseCache.has(cacheKey)) {
+          const oldest = etagResponseCache.keys().next().value;
+          if (oldest !== undefined) etagResponseCache.delete(oldest);
+        }
+        etagResponseCache.set(cacheKey, { etag: String(nextEtag), data: response.data });
+      }
+    }
     return response.data;
   }
 
@@ -389,11 +450,13 @@ class ApiService {
   }
 
   async post<T>(url: string, data?: any, config?: any): Promise<T> {
+    invalidateEtagByPrefix(url);
     const response = await this.api.post<T>(url, data, config);
     return response.data;
   }
 
   async upload<T>(url: string, formData: FormData): Promise<T> {
+    invalidateEtagByPrefix(url);
     const response = await this.api.post<T>(url, formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
@@ -401,16 +464,19 @@ class ApiService {
   }
 
   async put<T>(url: string, data?: any): Promise<T> {
+    invalidateEtagByPrefix(url);
     const response = await this.api.put<T>(url, data);
     return response.data;
   }
 
   async patch<T>(url: string, data?: any): Promise<T> {
+    invalidateEtagByPrefix(url);
     const response = await this.api.patch<T>(url, data);
     return response.data;
   }
 
   async delete<T>(url: string): Promise<T> {
+    invalidateEtagByPrefix(url);
     const response = await this.api.delete<T>(url);
     return response.data;
   }

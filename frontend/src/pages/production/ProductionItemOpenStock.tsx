@@ -3635,6 +3635,7 @@ export const ProductionItemOpenStock: React.FC = () => {
                               <Option value="d1000000-0000-0000-0000-000000000002">DIV-CCD - Control Cable Division</Option>
                               <Option value="83ecd746-1cc9-4849-bec4-d00bcc3ceeec">DIV-PWI - Main Division E-51</Option>
                               <Option value="0653339b-94d0-4cc5-b880-e07908b2015f">DIV-NB - NB Division</Option>
+                              <Option value="d1000000-0000-0000-0000-000000000005">DIV-005-WRD - WRD Division</Option>
                             </Select>
                           </div>
 
