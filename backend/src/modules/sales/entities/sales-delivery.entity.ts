@@ -64,6 +64,9 @@ export class SalesDelivery {
   @Column({ name: 'tracking_number', type: 'varchar', length: 255, nullable: true })
   trackingNumber: string | null;
 
+  @Column({ name: 'gate_pass_number', type: 'varchar', length: 60, nullable: true })
+  gatePassNumber: string | null;
+
   @Column({ type: 'decimal', precision: 15, scale: 4, default: 0 })
   subtotal: number;
 

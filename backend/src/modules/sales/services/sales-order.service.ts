@@ -188,6 +188,7 @@ export class SalesOrderService {
 
     if (validItems.length > 0) {
       let subtotal = 0;
+      let lineTaxTotal = 0;
       let lineNumber = 1;
       for (const itemDto of validItems) {
         let uomId = itemDto.uomId;
@@ -198,7 +199,16 @@ export class SalesOrderService {
           }
         }
 
-        const lineTotal = itemDto.lineTotal || itemDto.quantity * itemDto.unitPrice * (1 - (itemDto.discountPercent || 0) / 100);
+        const baseAmount =
+          Number(itemDto.quantity || 0) *
+          Number(itemDto.unitPrice || 0) *
+          (1 - Number(itemDto.discountPercent || 0) / 100);
+        const roundedBase = Math.round(baseAmount * 100) / 100;
+        const itemTax = Math.round(Number(itemDto.taxAmount || 0) * 100) / 100;
+        const lineTotal =
+          itemDto.lineTotal !== undefined && itemDto.lineTotal !== null
+            ? Math.round(Number(itemDto.lineTotal) * 100) / 100
+            : Math.round((roundedBase + itemTax) * 100) / 100;
         const item = this.itemRepo.create({
           salesOrderId: saved.id,
           lineNumber: lineNumber++,
@@ -208,15 +218,26 @@ export class SalesOrderService {
           uomId: uomId || 'b932052f-141f-4d78-9baf-7025e5302442',
           unitPrice: itemDto.unitPrice,
           discountPercent: itemDto.discountPercent || 0,
-          taxAmount: itemDto.taxAmount || 0,
+          taxAmount: itemTax,
           lineTotal,
           deliveryDate: itemDto.deliveryDate || null,
         });
         await this.itemRepo.save(item);
-        subtotal += lineTotal;
+        subtotal += roundedBase;
+        lineTaxTotal += itemTax;
       }
-      saved.subtotal = Number(subtotal);
-      saved.totalAmount = Number(subtotal) - Number(saved.discountAmount || 0) + Number(saved.taxAmount || 0) + Number(saved.freightAmount || 0);
+      saved.subtotal = Math.round(subtotal * 100) / 100;
+      if (lineTaxTotal > 0 || dto.taxAmount === undefined) {
+        saved.taxAmount = Math.round(lineTaxTotal * 100) / 100;
+      }
+      saved.totalAmount =
+        Math.round(
+          (Number(saved.subtotal) -
+            Number(saved.discountAmount || 0) +
+            Number(saved.taxAmount || 0) +
+            Number(saved.freightAmount || 0)) *
+            100,
+        ) / 100;
       await this.repo.save(saved);
     }
 
@@ -525,6 +546,7 @@ export class SalesOrderService {
       await this.itemRepo.delete({ salesOrderId: order.id });
       if (validItems.length > 0) {
         let subtotal = 0;
+        let lineTaxTotal = 0;
         let lineNumber = 1;
         for (const itemDto of validItems) {
           let uomId = itemDto.uomId;
@@ -535,7 +557,16 @@ export class SalesOrderService {
             }
           }
 
-          const lineTotal = itemDto.lineTotal || itemDto.quantity * itemDto.unitPrice * (1 - (itemDto.discountPercent || 0) / 100);
+          const baseAmount =
+            Number(itemDto.quantity || 0) *
+            Number(itemDto.unitPrice || 0) *
+            (1 - Number(itemDto.discountPercent || 0) / 100);
+          const roundedBase = Math.round(baseAmount * 100) / 100;
+          const itemTax = Math.round(Number(itemDto.taxAmount || 0) * 100) / 100;
+          const lineTotal =
+            itemDto.lineTotal !== undefined && itemDto.lineTotal !== null
+              ? Math.round(Number(itemDto.lineTotal) * 100) / 100
+              : Math.round((roundedBase + itemTax) * 100) / 100;
           const item = this.itemRepo.create({
             salesOrderId: order.id,
             lineNumber: lineNumber++,
@@ -545,15 +576,26 @@ export class SalesOrderService {
             uomId: uomId || 'b932052f-141f-4d78-9baf-7025e5302442',
             unitPrice: itemDto.unitPrice,
             discountPercent: itemDto.discountPercent || 0,
-            taxAmount: itemDto.taxAmount || 0,
+            taxAmount: itemTax,
             lineTotal,
             deliveryDate: sanitizeDate(itemDto.deliveryDate) || null,
           });
           await this.itemRepo.save(item);
-          subtotal += lineTotal;
+          subtotal += roundedBase;
+          lineTaxTotal += itemTax;
         }
-        order.subtotal = Number(subtotal);
-        order.totalAmount = Number(subtotal) - Number(order.discountAmount || 0) + Number(order.taxAmount || 0) + Number(order.freightAmount || 0);
+        order.subtotal = Math.round(subtotal * 100) / 100;
+        if (lineTaxTotal > 0 || dto.taxAmount === undefined) {
+          order.taxAmount = Math.round(lineTaxTotal * 100) / 100;
+        }
+        order.totalAmount =
+          Math.round(
+            (Number(order.subtotal) -
+              Number(order.discountAmount || 0) +
+              Number(order.taxAmount || 0) +
+              Number(order.freightAmount || 0)) *
+              100,
+          ) / 100;
       }
     }
 

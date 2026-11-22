@@ -10,18 +10,10 @@ import {
   SettingOutlined,
 } from '@ant-design/icons';
 import { apiService } from '../../services/api';
+import { fetchCommunicationSummary, type ChannelSummary } from '../../services/communicationSummaryService';
 import { useNavigate } from 'react-router-dom';
 
-interface WhatsAppSummary {
-  configured: boolean;
-  provider: string;
-  status: string;
-  queued: number;
-  sending: number;
-  sent: number;
-  failed: number;
-  lastDeliveryAt: string | null;
-}
+type WhatsAppSummary = ChannelSummary;
 
 interface DeliveryRow {
   id: string;
@@ -32,12 +24,7 @@ interface DeliveryRow {
   renderedSubject: string | null;
 }
 
-interface SummaryResponse {
-  success: boolean;
-  data: { whatsapp: WhatsAppSummary };
-}
-
-const POLL_INTERVAL_MS = 30000;
+const POLL_INTERVAL_MS = 60000;
 
 const WhatsAppCommunicationIcon: React.FC = () => {
   const [summary, setSummary] = useState<WhatsAppSummary | null>(null);
@@ -47,10 +34,10 @@ const WhatsAppCommunicationIcon: React.FC = () => {
   const mountedRef = useRef(true);
   const navigate = useNavigate();
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (force = false) => {
     try {
-      const res = await apiService.get<SummaryResponse>('/communication/settings/summary', undefined, { silent: true });
-      if (mountedRef.current && res?.data?.whatsapp) setSummary(res.data.whatsapp);
+      const data = await fetchCommunicationSummary(force);
+      if (mountedRef.current && data?.whatsapp) setSummary(data.whatsapp);
     } catch { /* non-fatal */ }
   }, []);
 
@@ -86,7 +73,7 @@ const WhatsAppCommunicationIcon: React.FC = () => {
 
   const handleOpenChange = (next: boolean) => {
     setOpen(next);
-    if (next) { loadRecent(); refresh(); }
+    if (next) { void loadRecent(); void refresh(true); }
   };
 
   const totalPending = (summary?.queued || 0) + (summary?.sending || 0);

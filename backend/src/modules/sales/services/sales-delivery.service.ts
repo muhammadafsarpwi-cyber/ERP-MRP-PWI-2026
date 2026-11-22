@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SalesDelivery, SalesDeliveryLine, SalesCustomer, SalesOrder, SalesOrderItem, SalesInvoice } from '../entities';
@@ -15,7 +15,7 @@ const isUuid = (val?: string | null): boolean =>
   typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
 
 @Injectable()
-export class SalesDeliveryService {
+export class SalesDeliveryService implements OnModuleInit {
   private readonly logger = new Logger(SalesDeliveryService.name);
 
   constructor(
@@ -40,6 +40,58 @@ export class SalesDeliveryService {
     private readonly balanceService: InventoryBalanceService,
     private readonly ledgerService: StockLedgerService,
   ) {}
+
+  async onModuleInit() {
+    try {
+      await this.repo.manager.query(
+        `ALTER TABLE erp_sales.sales_deliveries ADD COLUMN IF NOT EXISTS gate_pass_number VARCHAR(60) NULL`,
+      );
+    } catch (err: any) {
+      this.logger.warn(`Could not auto-verify gate_pass_number column: ${err?.message || err}`);
+    }
+  }
+
+  /**
+   * Computes the next sequential Gate Pass Book serial number from the last recorded value.
+   * Examples: "GP-1045" -> "GP-1046", "1045" -> "1046", "0045" -> "0046", null -> "GP-0001".
+   */
+  computeNextGatePassNumber(lastValue?: string | null): string {
+    const trimmed = String(lastValue || '').trim();
+    if (!trimmed) return 'GP-0001';
+    const match = trimmed.match(/^(.*?)(\d+)([^0-9]*)$/);
+    if (!match) return `${trimmed}-1`;
+    const [, prefix, digits, suffix] = match;
+    const nextInt = parseInt(digits, 10) + 1;
+    const padded = String(nextInt).padStart(digits.length, '0');
+    return `${prefix}${padded}${suffix}`;
+  }
+
+  async getNextGatePassNumber(companyId?: string): Promise<{ lastGatePassNumber: string | null; nextGatePassNumber: string }> {
+    try {
+      const params: any[] = [];
+      let where = `WHERE gate_pass_number IS NOT NULL AND TRIM(gate_pass_number) <> '' AND deleted_at IS NULL`;
+      if (companyId) {
+        params.push(companyId);
+        where += ` AND company_id = $1`;
+      }
+      const rows = await this.repo.manager.query(
+        `SELECT gate_pass_number
+         FROM erp_sales.sales_deliveries
+         ${where}
+         ORDER BY created_at DESC, updated_at DESC
+         LIMIT 1`,
+        params,
+      );
+      const lastGatePassNumber = rows?.[0]?.gate_pass_number ? String(rows[0].gate_pass_number).trim() : null;
+      return {
+        lastGatePassNumber,
+        nextGatePassNumber: this.computeNextGatePassNumber(lastGatePassNumber),
+      };
+    } catch (err: any) {
+      this.logger.warn(`Failed to compute next gate pass number: ${err?.message || err}`);
+      return { lastGatePassNumber: null, nextGatePassNumber: 'GP-0001' };
+    }
+  }
 
   async create(dto: any, userId?: string): Promise<SalesDelivery> {
     const customer = await this.customerRepo.findOne({
@@ -73,6 +125,7 @@ export class SalesDeliveryService {
       shipToAddress: dto.shipToAddress || null,
       carrier: dto.carrier || null,
       trackingNumber: dto.trackingNumber || null,
+      gatePassNumber: dto.gatePassNumber ? String(dto.gatePassNumber).trim() : null,
       notes: dto.notes || null,
       status: 'DRAFT',
       createdBy: safeUserId,
@@ -82,26 +135,38 @@ export class SalesDeliveryService {
 
     if (dto.lines && dto.lines.length > 0) {
       let subtotal = 0;
+      let taxAmount = 0;
+      let totalAmount = 0;
       let lineNumber = 1;
       for (const lineDto of dto.lines) {
-        const lineTotal = lineDto.lineTotal || lineDto.quantity * lineDto.unitPrice;
+        const qty = Number(lineDto.quantity || 0);
+        const rate = Number(lineDto.unitPrice ?? lineDto.rate ?? 0);
+        const lSub = Math.round(qty * rate * 100) / 100;
+        const lTax = Math.round(Number(lineDto.taxAmount || 0) * 100) / 100;
+        const lineTotal =
+          lineDto.lineTotal !== undefined && lineDto.lineTotal !== null
+            ? Math.round(Number(lineDto.lineTotal) * 100) / 100
+            : Math.round((lSub + lTax) * 100) / 100;
         const line = this.lineRepo.create({
           deliveryId: saved.id,
           lineNumber: lineNumber++,
           itemId: isUuid(lineDto.itemId) ? lineDto.itemId : null,
           description: lineDto.description || null,
-          quantity: lineDto.quantity,
+          quantity: qty,
           uomId: isUuid(lineDto.uomId) ? lineDto.uomId : null,
           warehouseId: isUuid(lineDto.warehouseId) ? lineDto.warehouseId : (isUuid(saved.warehouseId) ? saved.warehouseId : null),
-          unitPrice: lineDto.unitPrice,
-          taxAmount: lineDto.taxAmount || 0,
+          unitPrice: rate,
+          taxAmount: lTax,
           lineTotal,
         });
         await this.lineRepo.save(line);
-        subtotal += lineTotal;
+        subtotal += lSub;
+        taxAmount += lTax;
+        totalAmount += lineTotal;
       }
-      saved.subtotal = Number(subtotal);
-      saved.totalAmount = Number(subtotal);
+      saved.subtotal = Math.round(subtotal * 100) / 100;
+      saved.taxAmount = Math.round(taxAmount * 100) / 100;
+      saved.totalAmount = Math.round(totalAmount * 100) / 100;
       await this.repo.save(saved);
     }
 
@@ -129,7 +194,7 @@ export class SalesDeliveryService {
     let hasWhere = false;
     if (companyId) { qb.where('sd.companyId = :companyId', { companyId }); hasWhere = true; }
     if (status && status.toLowerCase() !== 'all') { qb[hasWhere ? 'andWhere' : 'where']('sd.status ILIKE :status', { status }); hasWhere = true; }
-    if (search) { qb[hasWhere ? 'andWhere' : 'where']('(sd.deliveryNumber ILIKE :search OR customer.companyName ILIKE :search OR salesOrder.orderNumber ILIKE :search)', { search: `%${search}%` }); hasWhere = true; }
+    if (search) { qb[hasWhere ? 'andWhere' : 'where']('(sd.deliveryNumber ILIKE :search OR sd.gatePassNumber ILIKE :search OR sd.carrier ILIKE :search OR sd.trackingNumber ILIKE :search OR customer.companyName ILIKE :search OR salesOrder.orderNumber ILIKE :search)', { search: `%${search}%` }); hasWhere = true; }
     // PROMPT #27 — `sales_deliveries` has no `division_id`; it inherits the
     // source order's. The `salesOrder` join already existed here for display
     // (`divisionName` below), so enforcing scope costs no extra query.
@@ -141,7 +206,19 @@ export class SalesDeliveryService {
     qb.skip((page - 1) * limit).take(limit);
     const [rawDeliveries, total] = await qb.getManyAndCount();
     const data = await this.enrichDeliveriesWithSocData(rawDeliveries);
-    return { data, total };
+    const gatePassMeta = await this.getNextGatePassNumber(companyId);
+    return { data, total, ...gatePassMeta } as any;
+  }
+
+  private formatDispatchOrdinal(n: number): string {
+    const mod100 = n % 100;
+    if (mod100 >= 11 && mod100 <= 13) return `${n}th Dispatch`;
+    switch (n % 10) {
+      case 1: return `${n}st Dispatch`;
+      case 2: return `${n}nd Dispatch`;
+      case 3: return `${n}rd Dispatch`;
+      default: return `${n}th Dispatch`;
+    }
   }
 
   private async enrichDeliveriesWithSocData(rawDeliveries: any[]): Promise<any[]> {
@@ -149,6 +226,9 @@ export class SalesDeliveryService {
 
     // 1. Collect all distinct SOC numbers referenced across the deliveries
     const allSocNumbers = new Set<string>();
+    const companyIds = Array.from(
+      new Set(rawDeliveries.map((sd) => sd.companyId).filter(Boolean)),
+    );
     for (const sd of rawDeliveries) {
       if (sd.salesOrder?.orderNumber) {
         allSocNumbers.add(sd.salesOrder.orderNumber.trim());
@@ -165,6 +245,12 @@ export class SalesDeliveryService {
     const soItemsMap = new Map<string, any[]>();
     const soMetaMap = new Map<string, { id: string; customerPo: string | null }>();
     const shippedPerSocMap = new Map<string, { qty: number; ctn: number }>();
+    const shippedBySocItemMap = new Map<string, number>();
+    const socTimelineMap = new Map<string, Array<{
+      deliveryId: string;
+      status: string;
+      lineQtyByItem: Map<string, number>;
+    }>>();
 
     if (socList.length > 0) {
       try {
@@ -187,25 +273,79 @@ export class SalesDeliveryService {
           soItemsMap.set(r.order_number, list);
         }
 
-        // Fetch all confirmed shipped quantities across all deliveries for these SOCs
-        const shippedRows = await this.repo.manager.query(
-          `SELECT sdl.item_id, sdl.description, sdl.quantity as shipped_qty, so.order_number as header_soc,
-                  i.packaging_size
-           FROM erp_sales.sales_delivery_lines sdl
-           JOIN erp_sales.sales_deliveries sd ON sd.id = sdl.delivery_id
+        // Fetch all non-cancelled deliveries chronologically to compute accurate
+        // per-SOC dispatch sequence ordinals (1st, 2nd, 3rd, 4th...) & cumulative balances.
+        const chronoParams: any[] = [];
+        const whereClauses = [
+          `sd.deleted_at IS NULL`,
+          `UPPER(COALESCE(sd.status, 'DRAFT')) <> 'CANCELLED'`,
+        ];
+        if (companyIds.length > 0) {
+          chronoParams.push(companyIds);
+          whereClauses.push(`sd.company_id = ANY($${chronoParams.length})`);
+        }
+        const chronoRows = await this.repo.manager.query(
+          `SELECT sd.id AS delivery_id, sd.delivery_number,
+                  UPPER(COALESCE(sd.status, 'DRAFT')) AS status,
+                  sd.delivery_date, sd.created_at,
+                  sdl.item_id, sdl.description, sdl.quantity AS line_qty,
+                  so.order_number AS header_soc, i.packaging_size
+           FROM erp_sales.sales_deliveries sd
            LEFT JOIN erp_sales.sales_orders so ON so.id = sd.sales_order_id
+           LEFT JOIN erp_sales.sales_delivery_lines sdl ON sdl.delivery_id = sd.id
            LEFT JOIN public.items i ON i.id = sdl.item_id
-           WHERE sd.status IN ('CONFIRMED', 'DELIVERED', 'SHIPPED')`,
+           WHERE ${whereClauses.join(' AND ')}
+           ORDER BY sd.delivery_date ASC, sd.created_at ASC, sd.delivery_number ASC`,
+          chronoParams,
         );
-        for (const r of shippedRows) {
+
+        const shippedStatuses = new Set(['CONFIRMED', 'DELIVERED', 'SHIPPED']);
+        const deliveryEntryBySoc = new Map<string, Map<string, { deliveryId: string; status: string; lineQtyByItem: Map<string, number> }>>();
+
+        for (const r of chronoRows) {
           const socMatch = r.description?.match(/SOC[:\s]+(SOC-[A-Za-z0-9-]+|[0-9A-Za-z-]+)/i);
-          const soc = socMatch ? socMatch[1].trim() : r.header_soc;
-          if (!soc || !allSocNumbers.has(soc)) continue;
-          const pSize = Number(r.packaging_size || 10) || 10;
-          const q = Number(r.shipped_qty || 0);
-          const c = Math.round((q / pSize) * 100) / 100;
-          const curr = shippedPerSocMap.get(soc) || { qty: 0, ctn: 0 };
-          shippedPerSocMap.set(soc, { qty: curr.qty + q, ctn: curr.ctn + c });
+          const lineSoc = (socMatch ? socMatch[1].trim() : (r.header_soc ? String(r.header_soc).trim() : null));
+          const headerSoc = r.header_soc ? String(r.header_soc).trim() : null;
+
+          // Record timeline membership per distinct (soc, delivery_id)
+          const touchedSocs = Array.from(new Set([lineSoc, headerSoc].filter(Boolean) as string[]))
+            .filter((s) => allSocNumbers.has(s));
+
+          for (const soc of touchedSocs) {
+            let socDelivMap = deliveryEntryBySoc.get(soc);
+            if (!socDelivMap) {
+              socDelivMap = new Map();
+              deliveryEntryBySoc.set(soc, socDelivMap);
+            }
+            let dEntry = socDelivMap.get(r.delivery_id);
+            if (!dEntry) {
+              dEntry = {
+                deliveryId: r.delivery_id,
+                status: r.status,
+                lineQtyByItem: new Map<string, number>(),
+              };
+              socDelivMap.set(r.delivery_id, dEntry);
+              const list = socTimelineMap.get(soc) || [];
+              list.push(dEntry);
+              socTimelineMap.set(soc, list);
+            }
+            if (lineSoc === soc && r.item_id) {
+              const q = Number(r.line_qty || 0);
+              dEntry.lineQtyByItem.set(r.item_id, (dEntry.lineQtyByItem.get(r.item_id) || 0) + q);
+            }
+          }
+
+          if (lineSoc && allSocNumbers.has(lineSoc) && shippedStatuses.has(r.status)) {
+            const pSize = Number(r.packaging_size || 10) || 10;
+            const q = Number(r.line_qty || 0);
+            const c = Math.round((q / pSize) * 100) / 100;
+            const curr = shippedPerSocMap.get(lineSoc) || { qty: 0, ctn: 0 };
+            shippedPerSocMap.set(lineSoc, { qty: curr.qty + q, ctn: curr.ctn + c });
+            if (r.item_id) {
+              const siKey = `${lineSoc}_${r.item_id}`;
+              shippedBySocItemMap.set(siKey, (shippedBySocItemMap.get(siKey) || 0) + q);
+            }
+          }
         }
       } catch (err: any) {
         this.logger.warn(`Failed to enrich deliveries with SOC data: ${err.message}`);
@@ -215,7 +355,41 @@ export class SalesDeliveryService {
     const isMeterUom = (u?: string | null) =>
       ['M', 'MTR', 'METER', 'METRE', 'METERS', 'METRES'].includes(String(u || '').toUpperCase().trim());
 
+    const shippedStatuses = new Set(['CONFIRMED', 'DELIVERED', 'SHIPPED']);
+
     return rawDeliveries.map((sd: any) => {
+      // Precompute per-SOC ordinal index for this delivery (CONFIRMED/SHIPPED/DELIVERED + current sd if DRAFT)
+      const seqBySoc = new Map<string, { dispatchOrdinal: number; totalSocDispatches: number; dispatchLabel: string; shippedUpToByItem: Map<string, number> }>();
+      const getSocSequence = (soc: string | null) => {
+        if (!soc) return null;
+        if (seqBySoc.has(soc)) return seqBySoc.get(soc)!;
+        const timeline = socTimelineMap.get(soc) || [];
+        const activeTimeline = timeline.filter(
+          (entry) => shippedStatuses.has(entry.status) || entry.deliveryId === sd.id,
+        );
+        const idx = activeTimeline.findIndex((entry) => entry.deliveryId === sd.id);
+        const dispatchOrdinal = idx >= 0 ? idx + 1 : activeTimeline.length + 1;
+        const totalSocDispatches = idx >= 0 ? activeTimeline.length : activeTimeline.length + 1;
+        const shippedUpToByItem = new Map<string, number>();
+        const upperLimit = idx >= 0 ? idx : activeTimeline.length - 1;
+        for (let i = 0; i <= upperLimit; i++) {
+          const entry = activeTimeline[i];
+          if (shippedStatuses.has(entry.status) || entry.deliveryId === sd.id) {
+            entry.lineQtyByItem.forEach((qtyVal, itemId) => {
+              shippedUpToByItem.set(itemId, (shippedUpToByItem.get(itemId) || 0) + qtyVal);
+            });
+          }
+        }
+        const computed = {
+          dispatchOrdinal,
+          totalSocDispatches,
+          dispatchLabel: this.formatDispatchOrdinal(dispatchOrdinal),
+          shippedUpToByItem,
+        };
+        seqBySoc.set(soc, computed);
+        return computed;
+      };
+
       const lines = (sd.lines || []).map((l: any) => {
         const socMatch = l.description?.match(/SOC[:\s]+(SOC-[A-Za-z0-9-]+|[0-9A-Za-z-]+)/i);
         const lineSoc = socMatch ? socMatch[1].trim() : (sd.salesOrder?.orderNumber || null);
@@ -231,6 +405,16 @@ export class SalesDeliveryService {
           : 0;
         const totalWeightKg = isMeter && effectiveWpm > 0 ? Number((qty * effectiveWpm).toFixed(3)) : null;
 
+        const socSeq = getSocSequence(lineSoc);
+        const soItems = lineSoc ? (soItemsMap.get(lineSoc) || []) : [];
+        const matchedSoi = soItems.find((oi: any) => oi.item_id === l.itemId);
+        const lineOrderQty = matchedSoi ? Math.round(Number(matchedSoi.order_qty || 0) * 100) / 100 : null;
+        const shippedUpToLine = lineSoc && l.itemId
+          ? (socSeq?.shippedUpToByItem.get(l.itemId) ?? (shippedBySocItemMap.get(`${lineSoc}_${l.itemId}`) || 0) + (shippedStatuses.has(String(sd.status || '').toUpperCase()) ? 0 : qty))
+          : qty;
+        const lineBalanceAfter = lineOrderQty != null ? Math.max(0, Math.round((lineOrderQty - shippedUpToLine) * 100) / 100) : null;
+        const lineIsFinal = lineOrderQty != null && lineOrderQty > 0 && lineBalanceAfter != null && lineBalanceAfter <= 0.001;
+
         return {
           ...l,
           socNumber: lineSoc,
@@ -243,6 +427,14 @@ export class SalesDeliveryService {
           weightPerMeter: rawWpm,
           finishedWeightPerMeter: finWpm,
           ...(totalWeightKg != null ? { totalWeightKg } : {}),
+          ...(socSeq ? {
+            dispatchOrdinal: socSeq.dispatchOrdinal,
+            dispatchLabel: socSeq.dispatchLabel,
+            totalSocDispatches: socSeq.totalSocDispatches,
+          } : {}),
+          ...(lineOrderQty != null ? { orderQuantity: lineOrderQty } : {}),
+          ...(lineBalanceAfter != null ? { balanceQuantity: lineBalanceAfter } : {}),
+          isFinalDispatch: lineIsFinal,
         };
       });
 
@@ -266,15 +458,25 @@ export class SalesDeliveryService {
           orderCtn += Math.round((oQty / pSize) * 100) / 100;
         }
 
-        const shipped = shippedPerSocMap.get(soc) || { qty: thisDispQty, ctn: thisDispCtn };
-        const balQty = Math.max(0, orderQty - shipped.qty);
-        const balCtn = Math.max(0, orderCtn - shipped.ctn);
+        const shipped = shippedPerSocMap.get(soc) || { qty: 0, ctn: 0 };
+        const isCurrentShipped = shippedStatuses.has(String(sd.status || '').toUpperCase());
+        const effectiveTotalDelivered = isCurrentShipped ? shipped.qty : shipped.qty + thisDispQty;
+        const balQty = Math.max(0, orderQty - (shipped.qty > 0 || isCurrentShipped ? shipped.qty : thisDispQty));
+        const balAfterThisDelivery = Math.max(0, orderQty - effectiveTotalDelivered);
+        const balCtn = Math.max(0, orderCtn - (shipped.ctn > 0 || isCurrentShipped ? shipped.ctn : thisDispCtn));
         const pct = orderQty > 0 ? Math.min(100, Math.round(((orderQty - balQty) / orderQty) * 100)) : 100;
+        const socSeq = getSocSequence(soc);
+        const dispatchOrdinal = socSeq?.dispatchOrdinal || 1;
+        const totalSocDispatches = socSeq?.totalSocDispatches || 1;
 
         return {
           socNumber: soc,
           salesOrderId: soMetaMap.get(soc)?.id || null,
           customerPo: soMetaMap.get(soc)?.customerPo || null,
+          dispatchOrdinal,
+          dispatchLabel: this.formatDispatchOrdinal(dispatchOrdinal),
+          totalSocDispatches,
+          isFinalDispatch: orderQty > 0 && balAfterThisDelivery <= 0.001,
           thisDeliveryQuantity: Math.round(thisDispQty * 100) / 100,
           thisDeliveryCartons: Math.round(thisDispCtn * 100) / 100,
           totalOrderQuantity: Math.round(orderQty * 100) / 100,
@@ -282,6 +484,7 @@ export class SalesDeliveryService {
           totalShippedQuantity: Math.round(shipped.qty * 100) / 100,
           totalShippedCartons: Math.round(shipped.ctn * 100) / 100,
           balanceQuantity: Math.round(balQty * 100) / 100,
+          balanceAfterThisDelivery: Math.round(balAfterThisDelivery * 100) / 100,
           balanceCartons: Math.round(balCtn * 100) / 100,
           isCompleted: orderQty > 0 && balQty <= 0,
           completionPercent: pct,
@@ -376,7 +579,7 @@ export class SalesDeliveryService {
 
     return Object.assign(delivery, enriched, {
       relatedInvoices,
-      salesOrderNumber: delivery.salesOrder?.orderNumber || null,
+      salesOrderNumber: enriched?.salesOrderNumber || delivery.salesOrder?.orderNumber || null,
       divisionName: delivery.salesOrder?.division?.name || null,
       sectionName: delivery.salesOrder?.section?.name || null,
     });
@@ -441,10 +644,71 @@ export class SalesDeliveryService {
       shipToAddress: dto.shipToAddress !== undefined ? (dto.shipToAddress || null) : delivery.shipToAddress,
       carrier: dto.carrier !== undefined ? (dto.carrier || null) : delivery.carrier,
       trackingNumber: dto.trackingNumber !== undefined ? (dto.trackingNumber || null) : delivery.trackingNumber,
+      gatePassNumber: dto.gatePassNumber !== undefined ? (dto.gatePassNumber ? String(dto.gatePassNumber).trim() : null) : delivery.gatePassNumber,
       notes: dto.notes !== undefined ? (dto.notes || null) : delivery.notes,
       subtotal,
       taxAmount,
       totalAmount,
+      updatedBy: safeUserId,
+    });
+
+    return this.findOne(id, companyId, allowedDivisionIds);
+  }
+
+  /**
+   * Apply a uniform tax percentage (e.g., 18% GST or 0% Tax-Free) across all lines
+   * of an active delivery note and recalculate line & header totals atomically.
+   */
+  async applyTaxRate(
+    id: string,
+    taxPercent: number = 18,
+    userId?: string,
+    companyId?: string,
+    allowedDivisionIds?: DivisionAccess,
+  ): Promise<SalesDelivery> {
+    const ratePct = Number(taxPercent);
+    if (!Number.isFinite(ratePct) || ratePct < 0 || ratePct > 100) {
+      throw new BadRequestException('Tax percentage must be between 0 and 100');
+    }
+
+    const delivery = await this.findOne(id, companyId, allowedDivisionIds);
+    const statusUpper = String(delivery.status || '').toUpperCase();
+    if (statusUpper === 'CANCELLED') {
+      throw new BadRequestException('Cannot apply tax to a cancelled delivery note');
+    }
+
+    const lines = await this.lineRepo.find({
+      where: { deliveryId: id },
+      order: { lineNumber: 'ASC' },
+    });
+    if (lines.length === 0) {
+      throw new BadRequestException('Delivery has no lines to update tax on');
+    }
+
+    let subtotal = 0;
+    let taxAmount = 0;
+    let totalAmount = 0;
+
+    for (const line of lines) {
+      const qty = Number(line.quantity || 0);
+      const unitPrice = Number(line.unitPrice || 0);
+      const lineSub = Math.round(qty * unitPrice * 100) / 100;
+      const lineTax = Math.round(lineSub * (ratePct / 100) * 100) / 100;
+      const lineTotal = Math.round((lineSub + lineTax) * 100) / 100;
+      await this.lineRepo.update(line.id, {
+        taxAmount: lineTax,
+        lineTotal,
+      });
+      subtotal += lineSub;
+      taxAmount += lineTax;
+      totalAmount += lineTotal;
+    }
+
+    const safeUserId = isUuid(userId) ? userId : null;
+    await this.repo.update(id, {
+      subtotal: Math.round(subtotal * 100) / 100,
+      taxAmount: Math.round(taxAmount * 100) / 100,
+      totalAmount: Math.round(totalAmount * 100) / 100,
       updatedBy: safeUserId,
     });
 
@@ -700,8 +964,23 @@ export class SalesDeliveryService {
       throw new BadRequestException('Cannot cancel a delivery that is already cancelled or confirmed');
     }
     delivery.status = 'CANCELLED';
-    delivery.updatedBy = userId || null;
+    delivery.updatedBy = isUuid(userId) ? userId : null;
     return this.repo.save(delivery);
+  }
+
+  async restoreToDraft(id: string, userId?: string, companyId?: string, allowedDivisionIds?: DivisionAccess): Promise<SalesDelivery> {
+    const delivery = await this.findOne(id, companyId, allowedDivisionIds);
+    if (String(delivery.status || '').toUpperCase() !== 'CANCELLED') {
+      throw new BadRequestException('Only CANCELLED deliveries can be restored to DRAFT');
+    }
+    const safeUserId = isUuid(userId) ? userId : null;
+    await this.repo.update(delivery.id, {
+      status: 'DRAFT',
+      updatedBy: safeUserId,
+    });
+    delivery.status = 'DRAFT';
+    delivery.updatedBy = safeUserId;
+    return delivery;
   }
 
   /**

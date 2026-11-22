@@ -1443,6 +1443,16 @@ export class ProductionOpenStockService {
         throw new BadRequestException('Source opening stock entry not found.');
       }
 
+      const oldNotesGuard = String(entry.notes || '');
+      if (
+        !/Status:\s*COMPLETED/i.test(oldNotesGuard) &&
+        (/WITHOUT[_\s-]*NIPPLE/i.test(oldNotesGuard) || /Pending Nipple:/i.test(oldNotesGuard))
+      ) {
+        throw new BadRequestException(
+          'Incomplete WITHOUT_NIPPLE Safety Stock batches cannot be allocated to a Customer SOC. Complete nipples via "+ Add Nipple" first.',
+        );
+      }
+
       const totalPcs = Number(entry.quantity || 0);
       const effectiveTotalCartons = totalCartons > 0 ? totalCartons : Math.round(totalPcs / 1440) || 1;
       const isPartial = shiftCartons < effectiveTotalCartons;
@@ -1545,24 +1555,100 @@ export class ProductionOpenStockService {
         throw new BadRequestException('Source production entry not found.');
       }
       const pe = peRows[0];
+      const remarks = String(pe.remarks || '');
+      const preservedMode = String(pe.packing_mode || 'FULL_SET');
+
+      // Strictly block WITHOUT_NIPPLE / incomplete batches from being allocated to a Customer SOC
+      const isWithoutNippleBatch =
+        preservedMode.toUpperCase() === 'WITHOUT_NIPPLE' ||
+        (!/Status:\s*COMPLETED/i.test(remarks) &&
+          !/Nipple Stock Deducted:/i.test(remarks) &&
+          (/WITHOUT[_\s-]*NIPPLE/i.test(remarks) || /Pending Nipple:/i.test(remarks)));
+
+      if (isWithoutNippleBatch) {
+        throw new BadRequestException(
+          'Incomplete WITHOUT_NIPPLE batches cannot be shifted to a Customer SOC. Please complete nipples via "+ Add Nipple" first.',
+        );
+      }
+
       const totalPcs = Number(pe.actual_quantity || 0);
       const effectiveTotalCartons = totalCartons > 0 ? totalCartons : Math.round(totalPcs / 1440) || 1;
       const isPartial = shiftCartons < effectiveTotalCartons;
 
-      const remarks = String(pe.remarks || '');
       const batchMatch = remarks.match(/Batch:\s*([^|]+)/i);
       const batchNo = batchMatch ? batchMatch[1].trim() : 'PKG-BATCH';
+      const origPackedDate = pe.entry_date
+        ? (typeof pe.entry_date === 'string'
+          ? String(pe.entry_date).slice(0, 10)
+          : new Date(pe.entry_date).toISOString().slice(0, 10))
+        : shiftDateFormatted;
+      const shiftGrossCalc = Math.round(shiftCartons * 10 * 100) / 100;
+      const shiftPcsCalc = Math.round(shiftCartons * (totalPcs / effectiveTotalCartons));
+
+      const logShiftActivity = async (targetEntryId: string, entryNo: string | null, loggedBatchNo: string) => {
+        try {
+          const itemRows: any[] = pe.item_id
+            ? await this.dataSource.query(`SELECT item_code, name FROM public.items WHERE id = $1 LIMIT 1`, [pe.item_id])
+            : [];
+          const itemCode = itemRows[0]?.item_code || null;
+          const itemName = itemRows[0]?.name || null;
+          const notes = `Safety Stock -> ${targetCustomer} (${targetSoc}) · ${shiftCartons} CTN (${shiftGrossCalc} GRS) · Originally packed ${origPackedDate}`;
+          await this.dataSource.query(
+            `INSERT INTO public.packing_activity_logs (
+              company_id, production_entry_id, source_entry_id, entry_number, batch_no,
+              activity_type, activity_date, original_packed_date, item_id, item_code, item_name,
+              from_customer, from_soc, customer_name, soc_no, cartons, gross, pcs,
+              status, notes, created_by
+            ) VALUES (
+              $1, $2, $3, $4, $5,
+              'SHIFTED_TO_SOC', $6, $7, $8, $9, $10,
+              'SAFETY STOCK', 'SAFETY_STOCK', $11, $12, $13, $14, $15,
+              'SHIFTED_TO_SOC', $16, $17
+            )
+            ON CONFLICT (production_entry_id, activity_type, activity_date)
+            WHERE production_entry_id IS NOT NULL
+            DO UPDATE SET
+              customer_name = EXCLUDED.customer_name,
+              soc_no = EXCLUDED.soc_no,
+              cartons = EXCLUDED.cartons,
+              gross = EXCLUDED.gross,
+              pcs = EXCLUDED.pcs,
+              notes = EXCLUDED.notes`,
+            [
+              companyId,
+              targetEntryId,
+              pe.id,
+              entryNo,
+              loggedBatchNo,
+              shiftDateFormatted,
+              origPackedDate,
+              pe.item_id || null,
+              itemCode,
+              itemName,
+              targetCustomer,
+              targetSoc,
+              shiftCartons,
+              shiftGrossCalc,
+              shiftPcsCalc,
+              notes,
+              userId || null,
+            ],
+          );
+        } catch (logErr: any) {
+          this.logger.warn(`Could not write SHIFTED_TO_SOC packing_activity_logs row: ${logErr?.message || logErr}`);
+        }
+      };
 
       if (isPartial) {
-        const shiftPcs = Math.round(shiftCartons * (totalPcs / effectiveTotalCartons));
+        const shiftPcs = shiftPcsCalc;
         const remainingPcs = Math.max(0, totalPcs - shiftPcs);
         const remainingCartons = effectiveTotalCartons - shiftCartons;
         const remainingGross = Math.round(remainingCartons * 10 * 100) / 100;
-        const shiftGross = Math.round(shiftCartons * 10 * 100) / 100;
+        const shiftGross = shiftGrossCalc;
         const shiftWeightKg = Math.round(shiftCartons * 18.936 * 10) / 10;
         const remainingWeightKg = Math.round(remainingCartons * 18.936 * 10) / 10;
 
-        // 1. Update original production entry to retain remaining cartons in Safety Stock
+        // 1. Update original production entry to retain remaining cartons in Safety Stock on its original packing date
         let remainingRemarks = remarks
           .replace(/Customer:\s*[^|]+/i, 'Customer: SAFETY STOCK ')
           .replace(/SOC:\s*[^|]+/i, 'SOC: SAFETY_STOCK ')
@@ -1579,40 +1665,129 @@ export class ProductionOpenStockService {
           WHERE id = $3
         `, [remainingPcs, remainingRemarks, pe.id]);
 
-        // Update its linked stock ledger entry if exists
         await this.dataSource.query(`
-          UPDATE public.stock_ledger
-          SET quantity = $1, notes = $2
-          WHERE reference_id = $3 AND reference_type = 'PRODUCTION_ENTRY'
+          UPDATE public.production_entry_items
+          SET actual_quantity = $1, target_quantity = $1, remarks = $2, updated_at = NOW()
+          WHERE production_entry_id = $3 AND COALESCE(line_number, 1) < 1000
         `, [remainingPcs, remainingRemarks, pe.id]);
 
-        // 2. Create customer production entry for shifted cartons
+        // Generate a proper sequential PE-YYYY-XXXXX entry_number so child entries never have NULL entry_number
+        const year = new Date().getFullYear();
+        const pePrefix = `PE-${year}-`;
+        const maxPeRows: any[] = await this.dataSource.query(
+          `SELECT COALESCE(MAX(CAST(SUBSTRING(entry_number FROM 'PE-[0-9]{4}-([0-9]+)') AS INT)), 0) AS max_no
+             FROM public.production_entries
+            WHERE company_id = $1 AND entry_number ~ '^PE-[0-9]{4}-[0-9]+$'`,
+          [companyId],
+        );
+        const generatedPeNo = `${pePrefix}${String(Number(maxPeRows?.[0]?.max_no || 0) + 1).padStart(5, '0')}`;
+
+        // 2. Create customer production entry for shifted cartons — keep original packing date so physical output is never double-counted
         const newBatchNo = `${batchNo}-A`;
-        const peRemarks = `[HAND PACKING] Batch: ${newBatchNo} | Division: Spoke Division | DivCode: DIV-SPD | SOC: ${targetSoc} | Customer: ${targetCustomer} | Style: ${packagingStyle || 'Customer Box'} | Line: Spoke Boxing & Nipple Station A | OT: 0h | Cartons: ${shiftCartons} (${shiftGross} Gross / ${shiftPcs} PCS) | Weight: ${shiftWeightKg} KG | SpokePackingMode: COMPLETE_SET | [SHIFTED FROM SAFETY STOCK on ${shiftDateFormatted}] | Allocated from Safety Stock (Orig. Batch: ${batchNo})`;
+        const pendingNippleTag = preservedMode === 'WITHOUT_NIPPLE'
+          ? (remarks.match(/Pending Nipple:[^|]+/i)?.[0] || '')
+          : '';
+        const peRemarks = `[HAND PACKING] Batch: ${newBatchNo} | Division: Spoke Division | DivCode: DIV-SPD | SOC: ${targetSoc} | Customer: ${targetCustomer} | Style: ${packagingStyle || 'Customer Box'} | Line: Spoke Boxing & Nipple Station A | OT: 0h | Cartons: ${shiftCartons} (${shiftGross} Gross / ${shiftPcs} PCS) | Weight: ${shiftWeightKg} KG | SpokePackingMode: ${preservedMode}${pendingNippleTag ? ` | ${pendingNippleTag.trim()}` : ''} | Orig. Packed: ${origPackedDate} | [SHIFTED FROM SAFETY STOCK on ${shiftDateFormatted}] | Allocated from Safety Stock (Orig. Batch: ${batchNo})`;
 
         const newPeInsert: any[] = await this.dataSource.query(`
           INSERT INTO public.production_entries (
-            id, company_id, division_id, section_id, department_id, warehouse_id,
+            id, company_id, entry_number, division_id, section_id, department_id, warehouse_id,
             entry_date, shift_id, machine_no, operator_name, supervisor_name,
             item_id, uom_id, target_quantity, actual_quantity, scrap_quantity,
             running_hours, overtime_hours, downtime_hours, is_active, remarks, packing_mode,
             created_by, created_at, updated_at
           ) VALUES (
-            gen_random_uuid(), $1, $2, $3, $4, $5,
-            $6, $7, $8, $9, $10,
-            $11, $12, $13, $13, 0,
-            $14, 0, 0, true, $15, 'COMPLETE_SET', $16, NOW(), NOW()
-          ) RETURNING id
+            gen_random_uuid(), $1, $2, $3, $4, $5, $6,
+            $7, $8, $9, $10, $11,
+            $12, $13, $14, $14, 0,
+            $15, 0, 0, true, $16, $17, $18, NOW(), NOW()
+          ) RETURNING id, entry_number
         `, [
-          companyId, pe.division_id, pe.section_id, pe.department_id, pe.warehouse_id,
-          shiftDateFormatted, pe.shift_id, `HAND-PACK-${newBatchNo}-${Date.now().toString().slice(-6)}`.slice(0, 50), shiftPcs, peRemarks, userId || null,
-          pe.operator_name, pe.supervisor_name, pe.item_id, pe.uom_id, pe.running_hours
+          companyId, generatedPeNo, pe.division_id, pe.section_id, pe.department_id, pe.warehouse_id,
+          origPackedDate, pe.shift_id, `HAND-PACK-${newBatchNo}-${Date.now().toString().slice(-6)}`.slice(0, 50),
+          pe.operator_name, pe.supervisor_name,
+          pe.item_id, pe.uom_id, shiftPcs,
+          pe.running_hours ?? 8, peRemarks, preservedMode, userId || null,
         ]);
 
         const newPeId = newPeInsert[0]?.id;
+        const newPeNumber = newPeInsert[0]?.entry_number || generatedPeNo;
 
-        // Create linked stock ledger entry
         if (newPeId) {
+          await this.dataSource.query(`
+            INSERT INTO public.production_entry_items (
+              id, company_id, production_entry_id, line_number, entry_kind, item_id, uom_id,
+              target_quantity, actual_quantity, scrap_quantity, remarks, created_at, updated_at
+            ) VALUES (
+              gen_random_uuid(), $1, $2, 1, 'OUTPUT', $3, $4, $5, $5, 0, $6, NOW(), NOW()
+            )
+          `, [companyId, newPeId, pe.item_id, pe.uom_id, shiftPcs, peRemarks]);
+
+          // Check parent's net PRODUCTION_RECEIPT in stock_ledger and transfer or credit atomically
+          const parentNetRows: any[] = await this.dataSource.query(
+            `SELECT COALESCE(SUM(CASE WHEN transaction_type = 'PRODUCTION_RECEIPT' THEN quantity
+                                      WHEN transaction_type = 'PRODUCTION_REVERSAL' THEN -quantity
+                                      ELSE 0 END), 0) AS net_pcs
+               FROM public.stock_ledger
+              WHERE company_id = $1
+                AND item_id = $2
+                AND (reference_id = $3 OR reference_number = $4)
+                AND transaction_type IN ('PRODUCTION_RECEIPT', 'PRODUCTION_REVERSAL')`,
+            [companyId, pe.item_id, pe.id, pe.entry_number || ''],
+          );
+          const parentNetPcs = Number(parentNetRows?.[0]?.net_pcs || 0);
+
+          if (parentNetPcs >= shiftPcs) {
+            await this.dataSource.query(`
+              INSERT INTO public.stock_ledger (
+                id, company_id, transaction_type, transaction_date, item_id, warehouse_id,
+                quantity, uom_id, direction, reference_type, reference_id, reference_number,
+                notes, created_by, created_at
+              ) VALUES (
+                gen_random_uuid(), $1, 'PRODUCTION_REVERSAL', $2, $3, $4,
+                $5, $6, 'OUT', 'PRODUCTION_ENTRY', $7, $8,
+                $9, $10, NOW()
+              )
+            `, [
+              companyId, shiftDateFormatted, pe.item_id, pe.warehouse_id,
+              shiftPcs, pe.uom_id, pe.id, pe.entry_number || batchNo,
+              `Reversal of PRODUCTION_RECEIPT for Safety Stock partial allocation to ${newPeNumber} (${shiftCartons} CTN)`,
+              userId || null,
+            ]);
+          } else {
+            const missingFromBalancePcs = Math.max(0, shiftPcs - Math.max(0, parentNetPcs));
+            if (parentNetPcs > 0) {
+              await this.dataSource.query(`
+                INSERT INTO public.stock_ledger (
+                  id, company_id, transaction_type, transaction_date, item_id, warehouse_id,
+                  quantity, uom_id, direction, reference_type, reference_id, reference_number,
+                  notes, created_by, created_at
+                ) VALUES (
+                  gen_random_uuid(), $1, 'PRODUCTION_REVERSAL', $2, $3, $4,
+                  $5, $6, 'OUT', 'PRODUCTION_ENTRY', $7, $8,
+                  $9, $10, NOW()
+                )
+              `, [
+                companyId, shiftDateFormatted, pe.item_id, pe.warehouse_id,
+                parentNetPcs, pe.uom_id, pe.id, pe.entry_number || batchNo,
+                `Reversal of PRODUCTION_RECEIPT for Safety Stock partial allocation to ${newPeNumber}`,
+                userId || null,
+              ]);
+            }
+            if (missingFromBalancePcs > 0 && pe.item_id && pe.warehouse_id && pe.uom_id) {
+              await this.inventoryBalanceService.updateBalance(
+                companyId,
+                pe.item_id,
+                pe.warehouse_id,
+                null,
+                null,
+                pe.uom_id,
+                missingFromBalancePcs,
+                'IN',
+              );
+            }
+          }
+
           await this.dataSource.query(`
             INSERT INTO public.stock_ledger (
               id, company_id, transaction_type, transaction_date, item_id, warehouse_id,
@@ -1624,9 +1799,11 @@ export class ProductionOpenStockService {
               $9, $10, NOW()
             )
           `, [
-            companyId, shiftDateFormatted, pe.item_id, pe.warehouse_id,
-            shiftPcs, pe.uom_id, newPeId, newBatchNo, peRemarks, userId || null
+            companyId, origPackedDate, pe.item_id, pe.warehouse_id,
+            shiftPcs, pe.uom_id, newPeId, newPeNumber, peRemarks, userId || null,
           ]);
+
+          await logShiftActivity(newPeId, newPeNumber, newBatchNo);
         }
 
         return {
@@ -1636,8 +1813,19 @@ export class ProductionOpenStockService {
           shiftCartons,
         };
       } else {
-        // Full transfer of production entry batch
-        const peRemarks = `[HAND PACKING] Batch: ${batchNo} | Customer: ${targetCustomer} | SOC: ${targetSoc} | Style: ${packagingStyle || 'Customer Box'} | Cartons: ${shiftCartons} | [SHIFTED FROM SAFETY STOCK on ${shiftDateFormatted}] | Allocated from Safety Stock`;
+        // Full transfer of production entry batch — preserve original packing metadata, packing_mode, and original entry_date
+        let peRemarks = remarks
+          .replace(/Customer:\s*[^|\]]+/i, `Customer: ${targetCustomer}`)
+          .replace(/SOC:\s*[^|\]]+/i, `SOC: ${targetSoc}`)
+          .replace(/Style:\s*[^|\]]+/i, `Style: ${packagingStyle || 'Customer Box'}`);
+        if (!/Customer:/i.test(peRemarks)) {
+          peRemarks = `[HAND PACKING] Batch: ${batchNo} | Customer: ${targetCustomer} | SOC: ${targetSoc} | Style: ${packagingStyle || 'Customer Box'} | Cartons: ${shiftCartons} (${shiftGrossCalc} Gross / ${shiftPcsCalc} PCS)`;
+        }
+        if (!/Orig\.\s*Packed:/i.test(peRemarks)) {
+          peRemarks += ` | Orig. Packed: ${origPackedDate}`;
+        }
+        peRemarks = peRemarks.replace(/\|?\s*\[SHIFTED FROM SAFETY STOCK[^\]]*\]/gi, '').trim();
+        peRemarks += ` | [SHIFTED FROM SAFETY STOCK on ${shiftDateFormatted}] | Allocated from Safety Stock`;
 
         await this.dataSource.query(`
           UPDATE public.production_entries
@@ -1648,8 +1836,55 @@ export class ProductionOpenStockService {
         await this.dataSource.query(`
           UPDATE public.stock_ledger
           SET notes = $1
-          WHERE reference_id = $2 AND reference_type = 'PRODUCTION_ENTRY'
-        `, [peRemarks, pe.id]);
+          WHERE (reference_id = $2 OR reference_number = $3)
+            AND reference_type = 'PRODUCTION_ENTRY'
+            AND transaction_type = 'PRODUCTION_RECEIPT'
+        `, [peRemarks, pe.id, pe.entry_number || '']);
+
+        // Idempotently ensure the shifted FULL_SET entry has its FG receipt posted in stock_ledger & inventory_balances
+        if (pe.item_id && pe.warehouse_id && pe.uom_id && totalPcs > 0) {
+          const existingNetRows: any[] = await this.dataSource.query(
+            `SELECT COALESCE(SUM(CASE WHEN transaction_type = 'PRODUCTION_RECEIPT' THEN quantity
+                                      WHEN transaction_type = 'PRODUCTION_REVERSAL' THEN -quantity
+                                      ELSE 0 END), 0) AS net_pcs
+               FROM public.stock_ledger
+              WHERE company_id = $1
+                AND item_id = $2
+                AND (reference_id = $3 OR reference_number = $4)
+                AND transaction_type IN ('PRODUCTION_RECEIPT', 'PRODUCTION_REVERSAL')`,
+            [companyId, pe.item_id, pe.id, pe.entry_number || ''],
+          );
+          const existingNetPcs = Number(existingNetRows?.[0]?.net_pcs || 0);
+          const missingPcs = Math.max(0, totalPcs - existingNetPcs);
+          if (missingPcs > 0) {
+            await this.inventoryBalanceService.updateBalance(
+              companyId,
+              pe.item_id,
+              pe.warehouse_id,
+              null,
+              null,
+              pe.uom_id,
+              missingPcs,
+              'IN',
+            );
+            await this.dataSource.query(`
+              INSERT INTO public.stock_ledger (
+                id, company_id, transaction_type, transaction_date, item_id, warehouse_id,
+                quantity, uom_id, direction, reference_type, reference_id, reference_number,
+                notes, created_by, created_at
+              ) VALUES (
+                gen_random_uuid(), $1, 'PRODUCTION_RECEIPT', $2, $3, $4,
+                $5, $6, 'IN', 'PRODUCTION_ENTRY', $7, $8,
+                $9, $10, NOW()
+              )
+            `, [
+              companyId, origPackedDate, pe.item_id, pe.warehouse_id,
+              missingPcs, pe.uom_id, pe.id, pe.entry_number || batchNo, peRemarks, userId || null,
+            ]);
+          }
+        }
+
+        await logShiftActivity(pe.id, pe.entry_number || null, batchNo);
 
         return {
           success: true,

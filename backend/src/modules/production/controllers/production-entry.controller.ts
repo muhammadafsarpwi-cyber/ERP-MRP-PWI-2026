@@ -315,6 +315,17 @@ export class ProductionEntryController {
     return { success: true, data };
   }
 
+  @Get('entries/packing-activity-ledger')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.production.entries.view')
+  @ApiOperation({ summary: 'Transaction-dated packing movement events (Nipple Completions & Safety Stock Shifts)' })
+  async packingActivityLedger(@Req() req: any, @Query('limit') limit?: number) {
+    const companyId = this.getCompanyId(req);
+    const data = await this.entryService.findPackingActivityLedger(companyId, limit ? Number(limit) : 500);
+    return { success: true, data };
+  }
+
   // ─── Single entry operations ────────────────────────────────────────────────
 
   @Get('entries/:id')

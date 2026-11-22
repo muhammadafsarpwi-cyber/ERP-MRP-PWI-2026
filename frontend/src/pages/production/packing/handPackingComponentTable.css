@@ -183,10 +183,21 @@
    2 · COMPACT GRID — tight gutters + two-tier column headers
    ════════════════════════════════════════════════════════════════════════ */
 
-/* Dense, ledger-like gutters: headers sit close to their cells and long
-   titles can no longer stretch a column horizontally. */
-.hp-comp-shell .ant-table-thead > tr > th {
+/* Dense, ledger-like gutters + crisp white theme-synced header contrast across
+   all theme presets (Navy Corporate, Emerald Sovereign, Classic Blue, Light, Dark, Crystal). */
+.hp-comp-shell .ant-table-thead > tr > th,
+.hp-comp-shell table > thead > tr > th,
+.ant-modal .ant-table-thead > tr > th {
   padding: 8px 8px !important;
+  background: var(--erp-table-header-bg, #1E293B) !important;
+  background-color: var(--erp-table-header-bg, #1E293B) !important;
+  color: var(--erp-table-header-text, #FFFFFF) !important;
+}
+
+.hp-comp-shell .ant-table-thead > tr > th *,
+.ant-modal .ant-table-thead > tr > th .ant-table-column-title,
+.ant-modal .ant-table-thead > tr > th > span {
+  color: var(--erp-table-header-text, #FFFFFF) !important;
 }
 
 .hp-comp-shell .ant-table-tbody > tr > td {
@@ -202,6 +213,7 @@
   width: 100%;
   min-width: 0;
   line-height: 1.18;
+  color: var(--erp-table-header-text, #FFFFFF) !important;
 }
 
 .hp-col-head--left {
@@ -225,12 +237,13 @@
   letter-spacing: 0.04em;
   text-transform: uppercase;
   white-space: nowrap;
-  color: var(--theme-text-secondary);
+  color: var(--erp-table-header-text, #FFFFFF) !important;
 }
 
 .hp-col-head__line--sub {
   font-weight: 700;
-  color: var(--theme-text-muted);
+  color: var(--erp-table-header-text, #FFFFFF) !important;
+  opacity: 0.92;
 }
 
 /* Optional third micro-line (formula hints: "KG ⇄ PCS entry", …) */
@@ -240,7 +253,8 @@
   font-weight: 600;
   letter-spacing: 0.01em;
   white-space: nowrap;
-  color: var(--theme-text-muted);
+  color: var(--erp-table-header-text, #FFFFFF) !important;
+  opacity: 0.85;
 }
 
 /* ════════════════════════════════════════════════════════════════════════

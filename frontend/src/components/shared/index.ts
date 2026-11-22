@@ -48,6 +48,11 @@ export { default as BarcodeScanner } from './BarcodeScanner';
 export { default as BarcodePrint } from './BarcodePrint';
 export { default as DraggableResizableModal, type DraggableResizableModalProps } from './DraggableResizableModal';
 export {
+  default as PreConfirmVerificationCard,
+  type PreConfirmVerificationCardProps,
+  type VerificationHeaderItem,
+} from './PreConfirmVerificationCard';
+export {
   default as SaveResultDialog,
   type SaveResultData,
   type SaveResultPhase,

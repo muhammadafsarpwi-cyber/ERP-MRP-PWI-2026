@@ -129,4 +129,22 @@ describe('InventoryBalanceService — availability contracts (TASK #39 Part C)',
     await expect(service.findBalancesForItemWarehousePairs(COMPANY, [])).resolves.toEqual([]);
     expect(repo.find).not.toHaveBeenCalled();
   });
+
+  it('C7: releaseReservation clamps reserved >= 0 and keeps available = onHand - reserved', async () => {
+    const balanceRow = {
+      id: 'bal-1',
+      companyId: COMPANY,
+      itemId: ITEM,
+      warehouseId: WH_A,
+      onHand: 1000,
+      reserved: 300,
+      available: 700,
+    };
+    repo.findOne.mockResolvedValue(balanceRow);
+    repo.save.mockImplementation(async (x: any) => x);
+
+    const saved = await service.releaseReservation(COMPANY, ITEM, WH_A, null, null, 'uom-1', 500);
+    expect(saved.reserved).toBe(0);
+    expect(saved.available).toBe(1000);
+  });
 });

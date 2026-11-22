@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { Routes, useLocation } from 'react-router-dom';
 import { useWorkspaceTabStore } from '../../store/workspaceTabStore';
 import { useHeaderActions } from './headerActionsStore';
@@ -65,9 +65,24 @@ export const WorkspaceTabViewport: React.FC<WorkspaceTabViewportProps> = React.m
     }
   }, [activeTabId, currentPathname]);
 
-  // Clean up visited tabs when a tab is closed and removed from store
+  // Per-tab scroll position store (`tabId` -> { windowY, containerTop }) & stable last Location
+  const viewportContainerRef = useRef<HTMLDivElement>(null);
+  const scrollPositionsRef = useRef<Record<string, { windowY: number; containerTop: number }>>({});
+  const lastLocationsRef = useRef<Record<string, ReturnType<typeof useLocation>>>({});
+  const prevActivePaneIdRef = useRef<string | null>(null);
+  const mountedBeforeRef = useRef<Set<string>>(new Set());
+
+  // Clean up visited tabs, saved scroll/location state, and header actions when a tab is closed
   useEffect(() => {
     const openIds = new Set(tabs.map((t) => t.id));
+    Object.keys(scrollPositionsRef.current).forEach((id) => {
+      if (!openIds.has(id) && id !== currentPathname) {
+        delete scrollPositionsRef.current[id];
+        delete lastLocationsRef.current[id];
+        mountedBeforeRef.current.delete(id);
+        useHeaderActions.getState().removeTabHeader(id);
+      }
+    });
     setVisitedTabIds((prev) => {
       let changed = false;
       const next = new Set<string>();
@@ -76,6 +91,7 @@ export const WorkspaceTabViewport: React.FC<WorkspaceTabViewportProps> = React.m
           next.add(id);
         } else {
           changed = true;
+          useHeaderActions.getState().removeTabHeader(id);
         }
       });
       return changed ? next : prev;
@@ -142,19 +158,86 @@ export const WorkspaceTabViewport: React.FC<WorkspaceTabViewportProps> = React.m
   const activePaneId = pendingPane ? pendingPane.id : activeTabId;
   const liveRoute = `${location.pathname}${location.search}`;
 
+  // Passively capture the currently-active pane's live scroll offsets BEFORE a tab switch collapses/hides it
+  useEffect(() => {
+    const getScrollContainer = () =>
+      (viewportContainerRef.current?.closest('.erp-app-content') as HTMLElement | null) || null;
+
+    const captureScroll = () => {
+      const id = prevActivePaneIdRef.current || activePaneId;
+      if (!id) return;
+      const contentEl = getScrollContainer();
+      scrollPositionsRef.current[id] = {
+        windowY: typeof window !== 'undefined' ? window.scrollY : 0,
+        containerTop: contentEl ? contentEl.scrollTop : 0,
+      };
+    };
+
+    const contentEl = getScrollContainer();
+    window.addEventListener('scroll', captureScroll, { passive: true });
+    contentEl?.addEventListener('scroll', captureScroll, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', captureScroll);
+      contentEl?.removeEventListener('scroll', captureScroll);
+    };
+  }, [activePaneId]);
+
+  // Restore saved per-tab scroll position synchronously before paint on tab switch,
+  // and notify charts/tables cleanly via resize when returning to an already-mounted keep-alive tab.
+  useLayoutEffect(() => {
+    if (!activePaneId) return;
+    const prevId = prevActivePaneIdRef.current;
+    const contentEl = (viewportContainerRef.current?.closest('.erp-app-content') as HTMLElement | null) || null;
+    const saved = scrollPositionsRef.current[activePaneId] || { windowY: 0, containerTop: 0 };
+
+    if (prevId !== activePaneId) {
+      prevActivePaneIdRef.current = activePaneId;
+      try {
+        if (contentEl) contentEl.scrollTop = saved.containerTop;
+        if (typeof window !== 'undefined' && typeof window.scrollTo === 'function') {
+          window.scrollTo(0, saved.windowY);
+        }
+      } catch { /* jsdom / non-scrollable test env */ }
+    }
+
+    const wasMounted = mountedBeforeRef.current.has(activePaneId);
+    mountedBeforeRef.current.add(activePaneId);
+
+    const raf = requestAnimationFrame(() => {
+      try {
+        if (contentEl && saved.containerTop > 0 && contentEl.scrollTop !== saved.containerTop) {
+          contentEl.scrollTop = saved.containerTop;
+        }
+        if (typeof window !== 'undefined' && saved.windowY > 0 && window.scrollY !== saved.windowY) {
+          window.scrollTo(0, saved.windowY);
+        }
+        if (wasMounted && prevId && prevId !== activePaneId) {
+          // Ensure charts/tables hidden under display:none snap to active width without re-fetching data
+          window.dispatchEvent(new Event('resize'));
+        }
+      } catch { /* ignore */ }
+    });
+
+    return () => cancelAnimationFrame(raf);
+  }, [activePaneId]);
+
   return (
-    <div className="erp-tab-viewport-container">
+    <div ref={viewportContainerRef} className="erp-tab-viewport-container">
       {/* Vertical (bottom → top) status side label for the active view pane */}
       {activePaneId ? <VerticalStatusRail tabId={activePaneId} /> : null}
       {panes.map((pane) => {
         const isActive = pane.id === activePaneId;
         const paneId = `erp-tab-pane-${pane.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
 
-        // Hand React Router the live location object only when this pane's own
-        // route IS the address bar (identical path) — that keeps `location.state`
-        // / `location.key` working for the visible page without ever letting a
-        // pane render a path other than its own.
-        const paneLocation = pane.route === liveRoute ? location : pane.route;
+        // Preserve each pane's own stable Location object once activated so background
+        // tabs don't see spurious location/state transitions while hidden.
+        if (isActive && pane.route === liveRoute) {
+          lastLocationsRef.current[pane.id] = location;
+        }
+        const paneLocation =
+          isActive && pane.route === liveRoute
+            ? location
+            : lastLocationsRef.current[pane.id] || pane.route;
 
         return (
           <div

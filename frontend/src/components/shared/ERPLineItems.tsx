@@ -6,6 +6,7 @@ import {
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
+import { getLookupsSnapshot } from '../../services/lookupsCache';
 import { formatDecimal } from '../../utils/numberFormat';
 import BarcodeScanner from './BarcodeScanner';
 
@@ -204,6 +205,7 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
                 orderId: effectiveOrderId || undefined,
                 context: isDeliveryContext ? 'delivery' : undefined,
                 socNo: line.salesOrderNumber || undefined,
+                warehouseId: line.warehouseId || warehouseId || undefined,
               }
             );
             if (res?.data && active) {
@@ -276,11 +278,15 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
       }
     };
 
-    fetchAvailabilities();
+    // Debounce live availability checks so rapid keystrokes don't trigger burst API requests
+    const timer = window.setTimeout(() => {
+      if (active) void fetchAvailabilities();
+    }, 250);
     return () => {
       active = false;
+      window.clearTimeout(timer);
     };
-  }, [value, showAvailability, customerId, orderId, isPurchaseContext, isDeliveryContext]);
+  }, [value, showAvailability, customerId, orderId, warehouseId, isPurchaseContext, isDeliveryContext]);
 
   const loadItems = useCallback(async (search?: string) => {
     if (!companyId) return;
@@ -304,7 +310,22 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
         params.isPurchasable = true;
       }
 
-      const res = await apiService.get<{ data: ItemOption[] }>('/master-data/items', params);
+      // Instant seed from global lookupsCache when unfiltered search is empty
+      if (!search && !isPurchasable) {
+        const snapItems = getLookupsSnapshot().items;
+        if (Array.isArray(snapItems) && snapItems.length > 0) {
+          const seeded = snapItems.filter((it) => {
+            if (divisionId && it.divisionId !== divisionId) return false;
+            if (activeType && activeType !== 'ALL' && it.itemType !== activeType) return false;
+            return true;
+          }) as unknown as ItemOption[];
+          if (seeded.length > 0) {
+            setItemOptions(seeded.slice(0, 200));
+          }
+        }
+      }
+
+      const res = await apiService.get<{ data: ItemOption[] }>('/master-data/items', params, { useEtag: true });
       const rawItems = res.data || [];
       setItemOptions(rawItems);
     } catch {
@@ -344,7 +365,7 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
       const qty = Number(next.quantity || 0);
       const rate = Number(next.rate || 0);
       const discount = Number(next.discountPercent || 0);
-      const tax = Number(next.taxPercent !== undefined ? next.taxPercent : 18);
+      const tax = Number(next.taxPercent !== undefined && next.taxPercent !== null ? next.taxPercent : 18);
       const base = qty * rate;
       const afterDiscount = base * (1 - discount / 100);
       const afterTax = afterDiscount * (1 + tax / 100);
@@ -521,7 +542,9 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
       const rate = Number(l.rate || 0);
       const base = qty * rate;
       const afterDiscount = base * (1 - Number(l.discountPercent || 0) / 100);
-      const afterTax = afterDiscount * (1 + Number(l.taxPercent || 0) / 100);
+      const taxPct = Number(l.taxPercent !== undefined && l.taxPercent !== null ? l.taxPercent : 18);
+      const lineTax = afterDiscount * (taxPct / 100);
+      const afterTax = afterDiscount + lineTax;
 
       if (pkgQty > 0) {
         acc.packageCount += pkgQty;
@@ -531,10 +554,11 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
 
       acc.quantity += qty;
       acc.baseAmount += base;
+      acc.taxAmount += lineTax;
       acc.totalAmount += afterTax;
       return acc;
     },
-    { packageCount: 0, packagingUnit: '', baseUom: '', quantity: 0, baseAmount: 0, totalAmount: 0 },
+    { packageCount: 0, packagingUnit: '', baseUom: '', quantity: 0, baseAmount: 0, taxAmount: 0, totalAmount: 0 },
   );
 
   const columns: ColumnsType<ERPLine> = [
@@ -630,38 +654,52 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
                 </Tag>
               )}
 
-              {record.pastReceived !== undefined && record.pastReceived > 0 && (
-                <Tag color="cyan" style={{ fontSize: 10.5, fontWeight: 700, margin: 0, padding: '1px 6px', borderRadius: 4 }}>
-                  📦 Past Recv: {Number(record.pastReceived).toLocaleString()} {record.uomCode || 'PCS'}
-                </Tag>
-              )}
+              {(() => {
+                const priorQty = record.pastReceived !== undefined && record.pastReceived !== null
+                  ? Number(record.pastReceived)
+                  : (record.orderQuantity !== undefined && record.orderBalance !== undefined
+                      ? Math.max(0, Number(record.orderQuantity) - Number(record.orderBalance))
+                      : 0);
+                if (priorQty <= 0) return null;
+                return (
+                  <Tag color="cyan" style={{ fontSize: 10.5, fontWeight: 700, margin: 0, padding: '1px 6px', borderRadius: 4 }}>
+                    📦 {isDeliveryContext ? 'Previously Dispatched' : 'Past Recv'}: {priorQty.toLocaleString()} {record.uomCode || 'PCS'}
+                  </Tag>
+                );
+              })()}
 
-              {record.orderQuantity !== undefined && record.quantity !== undefined && (
+              {(record.orderQuantity !== undefined || record.orderBalance !== undefined) && record.quantity !== undefined && (
                 (() => {
-                  const ord = Number(record.orderQuantity || 0);
+                  const ord = Number(record.orderQuantity ?? record.orderBalance ?? 0);
                   const past = Number(record.pastReceived || 0);
+                  const effectiveOrderBalance = record.orderBalance !== undefined && record.orderBalance !== null
+                    ? Number(record.orderBalance)
+                    : Math.max(0, ord - past);
                   const rec = Number(record.quantity || 0);
-                  const bal = ord - past - rec;
-                  if (bal > 0) {
-                    return (
-                      <Tag color="warning" style={{ fontSize: 10.5, fontWeight: 700, margin: 0, padding: '1px 6px', borderRadius: 4 }}>
-                        ⏳ Order Balance: {bal.toLocaleString()} {record.uomCode || 'PCS'} Remaining
-                      </Tag>
-                    );
-                  } else if (bal === 0 && ord > 0) {
-                    return (
-                      <Tag color="success" style={{ fontSize: 10.5, fontWeight: 700, margin: 0, padding: '1px 6px', borderRadius: 4 }}>
-                        ✅ Fully Received (0 {record.uomCode || 'PCS'} Remaining)
-                      </Tag>
-                    );
-                  } else if (bal < 0) {
-                    return (
-                      <Tag color="purple" style={{ fontSize: 10.5, fontWeight: 700, margin: 0, padding: '1px 6px', borderRadius: 4 }}>
-                        📈 Excess: +{Math.abs(bal).toLocaleString()} {record.uomCode || 'PCS'}
-                      </Tag>
-                    );
-                  }
-                  return null;
+                  const bal = effectiveOrderBalance - rec;
+                  const uom = record.uomCode || 'PCS';
+                  return (
+                    <>
+                      {isDeliveryContext && effectiveOrderBalance > 0 && effectiveOrderBalance !== ord && (
+                        <Tag color="blue" style={{ fontSize: 10.5, fontWeight: 700, margin: 0, padding: '1px 6px', borderRadius: 4 }}>
+                          ⚖️ Order Balance: {effectiveOrderBalance.toLocaleString()} {uom}
+                        </Tag>
+                      )}
+                      {bal > 0 ? (
+                        <Tag color="warning" style={{ fontSize: 10.5, fontWeight: 700, margin: 0, padding: '1px 6px', borderRadius: 4 }}>
+                          ⏳ {isDeliveryContext ? 'Remaining After Dispatch' : 'Order Balance'}: {bal.toLocaleString()} {uom}{isDeliveryContext ? '' : ' Remaining'}
+                        </Tag>
+                      ) : bal === 0 && effectiveOrderBalance > 0 ? (
+                        <Tag color="success" style={{ fontSize: 10.5, fontWeight: 700, margin: 0, padding: '1px 6px', borderRadius: 4 }}>
+                          ✅ {isDeliveryContext ? 'Fully Dispatched' : 'Fully Received'} (0 {uom} Remaining)
+                        </Tag>
+                      ) : bal < 0 ? (
+                        <Tag color="purple" style={{ fontSize: 10.5, fontWeight: 700, margin: 0, padding: '1px 6px', borderRadius: 4 }}>
+                          📈 Excess: +{Math.abs(bal).toLocaleString()} {uom}
+                        </Tag>
+                      ) : null}
+                    </>
+                  );
                 })()
               )}
 
@@ -1033,12 +1071,12 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
           controls={false}
           min={0}
           max={100}
-          value={record.taxPercent === 0 || record.taxPercent === undefined ? null : record.taxPercent}
+          value={record.taxPercent ?? 18}
           disabled={disabled}
-          placeholder="18"
+          placeholder="0"
           addonAfter="%"
           onFocus={(e) => (e.target as HTMLInputElement)?.select?.()}
-          onChange={(v) => updateLine(record.id, { taxPercent: Number(v ?? 18) })}
+          onChange={(v) => updateLine(record.id, { taxPercent: v === null || v === undefined ? 0 : Number(v) })}
           style={{ width: '100%', minWidth: 85 }}
         />
       ),
@@ -1238,6 +1276,17 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
               {currency} {totals.baseAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </Typography.Text>
           </div>
+
+          {showTax && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Typography.Text type="secondary" style={{ fontSize: 13 }}>
+                Tax ({totals.baseAmount > 0 ? `${Math.round((totals.taxAmount / totals.baseAmount) * 1000) / 10}%` : '18%'})
+              </Typography.Text>
+              <Typography.Text strong style={{ fontSize: 13, color: totals.taxAmount > 0 ? '#059669' : '#d97706' }}>
+                {currency} {totals.taxAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </Typography.Text>
+            </div>
+          )}
 
           {totals.packageCount > 0 && (
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

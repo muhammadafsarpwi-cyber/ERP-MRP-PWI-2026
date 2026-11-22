@@ -3,6 +3,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SalesDeliveryService } from './sales-delivery.service';
 import { SalesDelivery, SalesDeliveryLine, SalesCustomer, SalesOrder, SalesOrderItem, SalesInvoice } from '../entities';
+import { Item, Uom, UomConversion } from '../../item/entities';
 import { InventoryBalanceService } from '../../inventory/services/inventory-balance.service';
 import { StockLedgerService } from '../../inventory/services/stock-ledger.service';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
@@ -36,6 +37,7 @@ describe('SalesDeliveryService', () => {
     id: UUID_DN, companyId: UUID_COMPANY, customerId: UUID_CUST, salesOrderId: null,
     deliveryNumber: 'DN-2026-00001', deliveryDate: '2026-08-20', expectedDate: null,
     warehouseId: UUID_WH, shipToAddress: null, carrier: null, trackingNumber: null,
+    gatePassNumber: null,
     customerPo: null,
     notes: null, subtotal: 1000, taxAmount: 0, totalAmount: 1000, status: 'DRAFT',
     createdBy: UUID_USER, updatedBy: UUID_USER, receivedBy: null, receivedAt: null,
@@ -83,6 +85,9 @@ describe('SalesDeliveryService', () => {
         { provide: getRepositoryToken(SalesOrder), useValue: makeMockRepo() },
         { provide: getRepositoryToken(SalesOrderItem), useValue: makeMockRepo() },
         { provide: getRepositoryToken(SalesInvoice), useValue: makeMockRepo() },
+        { provide: getRepositoryToken(Item), useValue: makeMockRepo() },
+        { provide: getRepositoryToken(Uom), useValue: makeMockRepo() },
+        { provide: getRepositoryToken(UomConversion), useValue: makeMockRepo() },
         { provide: InventoryBalanceService, useValue: balanceService },
         { provide: StockLedgerService, useValue: ledgerService },
       ],
@@ -243,6 +248,29 @@ describe('SalesDeliveryService', () => {
         await expect(service.remove(UUID_DN, UUID_USER)).rejects.toThrow(BadRequestException);
       }
       expect(repo.save).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('computeNextGatePassNumber', () => {
+    it('increments prefixed, numeric, and zero-padded Gate Pass Book serials cleanly', () => {
+      expect(service.computeNextGatePassNumber('GP-1045')).toBe('GP-1046');
+      expect(service.computeNextGatePassNumber('1045')).toBe('1046');
+      expect(service.computeNextGatePassNumber('0045')).toBe('0046');
+      expect(service.computeNextGatePassNumber('GP/2026/0099')).toBe('GP/2026/0100');
+      expect(service.computeNextGatePassNumber(null)).toBe('GP-0001');
+      expect(service.computeNextGatePassNumber('')).toBe('GP-0001');
+    });
+  });
+
+  describe('restoreToDraft', () => {
+    it('restores a CANCELLED delivery back to DRAFT and refuses non-CANCELLED deliveries', async () => {
+      repo.findOne.mockResolvedValue({ ...mockDelivery, status: 'CANCELLED' });
+      (repo as any).update = jest.fn().mockResolvedValue({ affected: 1 });
+      const restored = await service.restoreToDraft(UUID_DN, UUID_USER, UUID_COMPANY);
+      expect(restored.status).toBe('DRAFT');
+
+      repo.findOne.mockResolvedValue({ ...mockDelivery, status: 'CONFIRMED' });
+      await expect(service.restoreToDraft(UUID_DN, UUID_USER, UUID_COMPANY)).rejects.toThrow(BadRequestException);
     });
   });
 });

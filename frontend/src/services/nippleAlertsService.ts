@@ -23,17 +23,43 @@ export interface NipplePlanningConfigPayload {
   safetyBufferMonths?: number;
 }
 
-export async function fetchNippleImportAlerts(): Promise<NippleImportAlert[]> {
-  try {
-    const res = await apiService.get<{ success?: boolean; data?: NippleImportAlert[] }>(
-      '/sales/analytics/nipple-import-alerts',
-      undefined,
-      { silent: true },
-    );
-    return Array.isArray(res?.data) ? res.data : [];
-  } catch {
-    return [];
+const ALERTS_TTL_MS = 60_000;
+let cachedAlerts: NippleImportAlert[] | null = null;
+let cachedAlertsAt = 0;
+let inFlightAlertsPromise: Promise<NippleImportAlert[]> | null = null;
+
+export async function fetchNippleImportAlerts(force = false): Promise<NippleImportAlert[]> {
+  const now = Date.now();
+  if (!force && cachedAlerts && now - cachedAlertsAt < ALERTS_TTL_MS) {
+    return cachedAlerts;
   }
+  if (inFlightAlertsPromise) {
+    return inFlightAlertsPromise;
+  }
+
+  inFlightAlertsPromise = (async () => {
+    try {
+      const res = await apiService.get<{ success?: boolean; data?: NippleImportAlert[] }>(
+        '/sales/analytics/nipple-import-alerts',
+        undefined,
+        { silent: true, useEtag: true },
+      );
+      const list = Array.isArray(res?.data) ? res.data : [];
+      cachedAlerts = list;
+      cachedAlertsAt = Date.now();
+      return list;
+    } catch {
+      return cachedAlerts || [];
+    } finally {
+      inFlightAlertsPromise = null;
+    }
+  })();
+
+  return inFlightAlertsPromise;
+}
+
+export function invalidateNippleAlertsCache(): void {
+  cachedAlertsAt = 0;
 }
 
 export async function updateNipplePlanningConfig(
@@ -44,5 +70,6 @@ export async function updateNipplePlanningConfig(
     `/sales/analytics/nipple-planning-config/${itemId}`,
     payload,
   );
+  cachedAlertsAt = 0;
   return res?.data;
 }

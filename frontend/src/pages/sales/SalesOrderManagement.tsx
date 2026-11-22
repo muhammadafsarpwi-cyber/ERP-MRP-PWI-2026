@@ -16,8 +16,9 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 import { formatDecimal, formatNumber } from '../../utils/numberFormat';
-import { ERPLineItems, ERPLine, DraggableResizableModal, SaveResultDialog } from '../../components/shared';
+import { ERPLineItems, ERPLine, DraggableResizableModal, SaveResultDialog, PreConfirmVerificationCard } from '../../components/shared';
 import type { SaveResultData, SaveResultPhase } from '../../components/shared/SaveResultDialog';
+import { resolveEffectiveTaxPercent, summarizeLinesTaxVerification } from '../../utils/salesTaxVerification';
 import { TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import { useHeaderActions } from '../../components/layout/headerActionsStore';
 import { usePermission } from '../../hooks/usePermission';
@@ -117,18 +118,43 @@ export function buildSalesOrderPayload(values: any, lineItems: ERPLine[], editin
     (l) => l.itemId && typeof l.itemId === 'string' && l.itemId.trim() !== '',
   );
 
+  let calculatedSubtotal = 0;
+  let calculatedTax = 0;
+
+  const mappedItems = validLines.map((l) => {
+    const qty = Number(l.quantity || 1);
+    const rate = Number(l.rate || 0);
+    const disc = Number(l.discountPercent || 0);
+    const taxPct = l.taxPercent !== undefined && l.taxPercent !== null ? Number(l.taxPercent) : 18;
+    const baseAmt = Math.round(qty * rate * (1 - disc / 100) * 100) / 100;
+    const taxAmt = Math.round(baseAmt * (taxPct / 100) * 100) / 100;
+    const lineTot = Math.round((baseAmt + taxAmt) * 100) / 100;
+    calculatedSubtotal += baseAmt;
+    calculatedTax += taxAmt;
+    return {
+      itemId: l.itemId,
+      description: l.itemName || l.itemCode || 'Item',
+      quantity: qty,
+      uomId: l.uomId || 'b932052f-141f-4d78-9baf-7025e5302442',
+      unitPrice: rate,
+      discountPercent: disc,
+      taxAmount: taxAmt,
+      lineTotal: lineTot,
+    };
+  });
+
+  const roundedSubtotal = Math.round(calculatedSubtotal * 100) / 100;
+  const roundedTax = Math.round(calculatedTax * 100) / 100;
+  const orderDiscount = Number(values.discountAmount || 0);
+  const orderFreight = Number(values.freightAmount || 0);
+
   const payload: any = {
     ...values,
     orderNumber,
-    items: validLines.map((l) => ({
-      itemId: l.itemId,
-      description: l.itemName || l.itemCode || 'Item',
-      quantity: Number(l.quantity || 1),
-      uomId: l.uomId || 'b932052f-141f-4d78-9baf-7025e5302442',
-      unitPrice: Number(l.rate || 0),
-      discountPercent: Number(l.discountPercent || 0),
-      lineTotal: Number(l.lineTotal || (Number(l.quantity || 1) * Number(l.rate || 0))),
-    })),
+    subtotal: roundedSubtotal,
+    taxAmount: roundedTax,
+    totalAmount: Math.round((roundedSubtotal - orderDiscount + roundedTax + orderFreight) * 100) / 100,
+    items: mappedItems,
   };
 
   // Prevent forbidden non-whitelisted property errors
@@ -246,7 +272,7 @@ export function computeOrderChanges(
     const q = Number(l.quantity || 0);
     const r = Number(l.rate || 0);
     const d = Number(l.discountPercent || 0);
-    const t = Number(l.taxPercent || 18);
+    const t = Number(l.taxPercent ?? 18);
     const base = q * r * (1 - d / 100);
     return sum + (base * (1 + t / 100));
   }, 0);
@@ -824,7 +850,10 @@ const SalesOrderManagement: React.FC = () => {
         const pkgQty = (pSize && pSize > 0) ? Math.round((qty / pSize) * 100) / 100 : undefined;
         const rate = Number(it.unitPrice ?? it.rate ?? 0);
         const disc = Number(it.discountPercent ?? 0);
-        const lineTot = Number(it.lineTotal ?? (qty * rate * (1 - disc / 100)));
+        const derivedTaxPct = resolveEffectiveTaxPercent(it, 18);
+        const lineTot = Number(
+          it.lineTotal ?? qty * rate * (1 - disc / 100) * (1 + derivedTaxPct / 100),
+        );
 
         return {
           id: it.id || `line-${Date.now()}-${idx}`,
@@ -840,7 +869,7 @@ const SalesOrderManagement: React.FC = () => {
           quantity: qty,
           rate: rate,
           discountPercent: disc,
-          taxPercent: 18,
+          taxPercent: derivedTaxPct,
           lineTotal: lineTot,
         };
       });
@@ -2865,7 +2894,17 @@ const SalesOrderManagement: React.FC = () => {
             <ERPLineItems
               companyId={companyId}
               value={lineItems}
-              onChange={setLineItems}
+              onChange={(nextLines) => {
+                setLineItems(nextLines);
+                const s = summarizeLinesTaxVerification(nextLines, 18);
+                const disc = Number(form.getFieldValue('discountAmount') || 0);
+                const frt = Number(form.getFieldValue('freightAmount') || 0);
+                form.setFieldsValue({
+                  subtotal: s.subtotal,
+                  taxAmount: s.taxAmount,
+                  totalAmount: Math.max(0, Math.round((s.grandTotal - disc + frt) * 100) / 100),
+                });
+              }}
               showWarehouse={false}
               label="Step 2: Order Line Items (Finished Goods)"
               currency={form.getFieldValue('currency') || 'PKR'}
@@ -3610,7 +3649,7 @@ const SalesOrderManagement: React.FC = () => {
             setConfirmTarget(null);
           }
         }}
-        width={780}
+        width={820}
         footer={[
           <Button
             key="cancel"
@@ -3644,139 +3683,38 @@ const SalesOrderManagement: React.FC = () => {
         ]}
       >
         {confirmTarget && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            {/* Context Summary Strip */}
-            <div style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              flexWrap: 'wrap',
-              gap: 12,
-              padding: '12px 16px',
-              background: 'var(--inv-filter-card-bg, rgba(255,255,255,0.04))',
-              border: '1px solid var(--inv-filter-card-border, #e2e8f0)',
-              borderRadius: 8,
-            }}>
-              <div>
-                <div style={{ fontSize: 11, color: 'var(--inv-text-muted, #94a3b8)', fontWeight: 600, textTransform: 'uppercase' }}>
-                  Customer
-                </div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--inv-text-primary, #0f172a)', marginTop: 2 }}>
-                  {confirmTarget.record.customer?.name || confirmTarget.record.companyName || 'Valued Customer'}
-                </div>
-              </div>
-              <div>
-                <div style={{ fontSize: 11, color: 'var(--inv-text-muted, #94a3b8)', fontWeight: 600, textTransform: 'uppercase' }}>
-                  Current Status
-                </div>
-                <div style={{ marginTop: 2 }}>
-                  <Tag color="blue" style={{ fontWeight: 700 }}>{confirmTarget.record.status?.toUpperCase()}</Tag>
-                </div>
-              </div>
-              <div>
-                <div style={{ fontSize: 11, color: 'var(--inv-text-muted, #94a3b8)', fontWeight: 600, textTransform: 'uppercase' }}>
-                  Order Date
-                </div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--inv-text-primary, #0f172a)', marginTop: 2 }}>
-                  {confirmTarget.record.orderDate ? dayjs(confirmTarget.record.orderDate).format('DD-MMM-YYYY') : '-'}
-                </div>
-              </div>
-              <div>
-                <div style={{ fontSize: 11, color: 'var(--inv-text-muted, #94a3b8)', fontWeight: 600, textTransform: 'uppercase' }}>
-                  Order Total
-                </div>
-                <div style={{ fontSize: 15, fontWeight: 800, color: '#10b981', marginTop: 2 }}>
-                  {confirmTarget.record.currency || 'PKR'} {formatNumber(confirmTarget.record.totalAmount || 0, 2)}
-                </div>
-              </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ fontSize: 13, color: token.colorTextSecondary }}>
+              Please verify line items, rates, and tax breakdown below before confirming{' '}
+              <strong style={{ color: token.colorText }}>{confirmTarget.actionLabel}</strong>:
             </div>
-
-            {/* Prompt Notice */}
-            <div style={{ fontSize: 13, color: 'var(--inv-text-secondary, #475569)' }}>
-              Please review the line items and quantities below before confirming <strong>{confirmTarget.actionLabel}</strong>:
-            </div>
-
-            {/* Item-wise Quantity Table */}
-            <div style={{ border: '1px solid var(--inv-table-border, #e2e8f0)', borderRadius: 8, overflow: 'hidden' }}>
-              <Table
-                size="small"
-                pagination={false}
-                dataSource={confirmTarget.items || []}
-                rowKey={(it, idx) => it.id || String(idx)}
-                scroll={{ y: 260 }}
-                columns={[
-                  {
-                    title: '#',
-                    key: 'index',
-                    width: 50,
-                    align: 'center',
-                    render: (_, __, idx) => <span style={{ color: 'var(--inv-text-muted, #94a3b8)', fontWeight: 600 }}>{idx + 1}</span>,
-                  },
-                  {
-                    title: 'Item / Product Specification',
-                    key: 'item',
-                    render: (_, it: any) => {
-                      const name = it.item?.name || it.description || it.itemName || 'Production Item';
-                      const code = it.item?.itemCode || it.itemCode || it.item?.code;
-                      return (
-                        <div>
-                          <div style={{ fontWeight: 600, color: 'var(--inv-text-primary, #0f172a)' }}>{name}</div>
-                          {code && <div style={{ fontSize: 11, color: 'var(--inv-text-muted, #64748b)', marginTop: 1 }}>Code: {code}</div>}
-                        </div>
-                      );
-                    },
-                  },
-                  {
-                    title: 'Quantity (Qty)',
-                    key: 'qty',
-                    width: 140,
-                    align: 'right',
-                    render: (_, it: any) => {
-                      const qty = Number(it.quantity || it.orderedQuantity || 0);
-                      const uom = it.uom?.code || it.uomCode || 'GRS';
-                      return (
-                        <div style={{ textAlign: 'right' }}>
-                          <span style={{ fontWeight: 800, fontSize: 13.5, color: 'var(--theme-accent, #0284c7)' }}>
-                            {formatNumber(qty, 2)}
-                          </span>
-                          <span style={{ fontSize: 11, color: 'var(--inv-text-muted, #64748b)', marginLeft: 4, fontWeight: 600 }}>
-                            {uom}
-                          </span>
-                        </div>
-                      );
-                    },
-                  },
-                  {
-                    title: 'Unit Price',
-                    key: 'unitPrice',
-                    width: 120,
-                    align: 'right',
-                    render: (_, it: any) => {
-                      const price = Number(it.unitPrice || it.price || 0);
-                      return (
-                        <span style={{ color: 'var(--inv-text-secondary, #475569)', fontVariantNumeric: 'tabular-nums' }}>
-                          {formatNumber(price, 2)}
-                        </span>
-                      );
-                    },
-                  },
-                  {
-                    title: 'Line Total',
-                    key: 'lineTotal',
-                    width: 140,
-                    align: 'right',
-                    render: (_, it: any) => {
-                      const total = Number(it.totalAmount || it.lineTotal || (Number(it.quantity || 0) * Number(it.unitPrice || 0)));
-                      return (
-                        <strong style={{ color: 'var(--inv-text-primary, #0f172a)', fontVariantNumeric: 'tabular-nums' }}>
-                          {confirmTarget.record.currency || 'PKR'} {formatNumber(total, 2)}
-                        </strong>
-                      );
-                    },
-                  },
-                ]}
-              />
-            </div>
+            <PreConfirmVerificationCard
+              summary={summarizeLinesTaxVerification(confirmTarget.items, 0)}
+              currency={confirmTarget.record.currency || 'PKR'}
+              showSocColumn={false}
+              headerItems={[
+                {
+                  label: 'Order #',
+                  value: confirmTarget.record.orderNumber || '-',
+                },
+                {
+                  label: 'Customer',
+                  value: confirmTarget.record.customer?.name || confirmTarget.record.companyName || 'Valued Customer',
+                },
+                {
+                  label: 'Current Status',
+                  value: (
+                    <Tag color="blue" style={{ fontWeight: 700, margin: 0 }}>
+                      {confirmTarget.record.status?.toUpperCase()}
+                    </Tag>
+                  ),
+                },
+                {
+                  label: 'Order Date',
+                  value: confirmTarget.record.orderDate ? dayjs(confirmTarget.record.orderDate).format('DD-MMM-YYYY') : '-',
+                },
+              ]}
+            />
           </div>
         )}
       </DraggableResizableModal>
@@ -3813,7 +3751,7 @@ const SalesOrderManagement: React.FC = () => {
           </div>
         }
         centered
-        width={780}
+        width={820}
         zIndex={10050}
         onCancel={() => setConfirmOrderVisible(false)}
         footer={
@@ -3856,153 +3794,60 @@ const SalesOrderManagement: React.FC = () => {
           const selCustomer = customers.find((c) => c.id === pendingOrderValues?.customerId);
           const selDivision = divisions.find((d) => d.id === (pendingOrderValues?.divisionId || selectedDivision));
           const validLines = lineItems.filter((l) => l.itemId && String(l.itemId).trim() !== '');
-          const totalPkgs = validLines.reduce((s, l) => s + Number(l.packageQuantity || 0), 0);
-          const totalGrs = validLines.reduce((s, l) => s + Number(l.quantity || 0), 0);
-          const grandTotal = validLines.reduce((s, l) => {
-            const q = Number(l.quantity || 0);
-            const r = Number(l.rate || 0);
-            const d = Number(l.discountPercent || 0);
-            return s + q * r * (1 - d / 100);
-          }, 0);
+          const verificationSummary = summarizeLinesTaxVerification(validLines, 18);
           const curr = pendingOrderValues?.currency || 'PKR';
 
           return (
             <div style={{ padding: '8px 0', display: 'flex', flexDirection: 'column', gap: 14 }}>
-              {/* Top Customer & Division Highlight Banner */}
-              <div
-                style={{
-                  backgroundColor: token.colorFillAlter,
-                  border: `1.5px solid ${token.colorBorder}`,
-                  borderRadius: 14,
-                  padding: '14px 18px',
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(3, 1fr)',
-                  gap: 14,
+              <PreConfirmVerificationCard
+                summary={verificationSummary}
+                currency={curr}
+                showSocColumn={false}
+                onApplyStandardTax={() => {
+                  const updated = lineItems.map((l) => {
+                    const q = Number(l.quantity || 0);
+                    const r = Number(l.rate || 0);
+                    const d = Number(l.discountPercent || 0);
+                    const afterDisc = q * r * (1 - d / 100);
+                    return {
+                      ...l,
+                      taxPercent: 18,
+                      lineTotal: Math.round(afterDisc * 1.18 * 100) / 100,
+                    };
+                  });
+                  setLineItems(updated);
+                  const nextSummary = summarizeLinesTaxVerification(
+                    updated.filter((l) => l.itemId && String(l.itemId).trim() !== ''),
+                    18,
+                  );
+                  const disc = Number(form.getFieldValue('discountAmount') || 0);
+                  const frt = Number(form.getFieldValue('freightAmount') || 0);
+                  form.setFieldsValue({
+                    subtotal: nextSummary.subtotal,
+                    taxAmount: nextSummary.taxAmount,
+                    totalAmount: Math.max(0, Math.round((nextSummary.grandTotal - disc + frt) * 100) / 100),
+                  });
+                  message.success('Standard 18% Tax applied to all sales order lines');
                 }}
-              >
-                {/* Customer Code & Name */}
-                <div>
-                  <div style={{ fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', color: token.colorTextSecondary }}>
-                    Selected Customer Account
-                  </div>
-                  {selCustomer?.customerCode && (
-                    <div style={{ fontSize: 12, fontWeight: 800, color: '#ea580c', fontFamily: 'monospace', marginTop: 3 }}>
-                      <BarcodeOutlined style={{ marginRight: 5 }} />
-                      {selCustomer.customerCode}
-                    </div>
-                  )}
-                  <div style={{ fontSize: 15, fontWeight: 900, color: token.colorText, marginTop: 1 }}>
-                    <UserOutlined style={{ marginRight: 6, color: '#2563eb' }} />
-                    {selCustomer?.companyName || selCustomer?.name || 'Selected Customer'}
-                  </div>
-                </div>
-
-                {/* Division & SOC Number */}
-                <div>
-                  <div style={{ fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', color: token.colorTextSecondary }}>
-                    Division & SOC Number
-                  </div>
-                  <div style={{ fontSize: 12, fontWeight: 800, color: '#2563eb', fontFamily: 'monospace', marginTop: 3 }}>
-                    <ApartmentOutlined style={{ marginRight: 5 }} />
-                    {selDivision?.divisionCode || 'DIV'} — {selDivision?.name || 'Division'}
-                  </div>
-                  <div style={{ fontSize: 14.5, fontWeight: 900, color: token.colorText, marginTop: 1 }}>
-                    SOC-{String(pendingOrderValues?.socNumber || watchedSocNumber || '').replace(/^SOC-/i, '')}
-                  </div>
-                </div>
-
-                {/* Dates & Grand Total */}
-                <div>
-                  <div style={{ fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', color: token.colorTextSecondary }}>
-                    Delivery Schedule & Total
-                  </div>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: token.colorTextSecondary, marginTop: 3 }}>
-                    <CalendarOutlined style={{ marginRight: 5, color: '#10b981' }} />
-                    Delivery: {pendingOrderValues?.deliveryDate ? dayjs(pendingOrderValues.deliveryDate).format('DD-MMM-YYYY') : 'Standard'}
-                  </div>
-                  <div style={{ fontSize: 15, fontWeight: 900, color: '#059669', marginTop: 1 }}>
-                    {curr} {formatDecimal(grandTotal, 2)}
-                  </div>
-                </div>
-              </div>
-
-              {/* Selected Items & Quantities Table */}
-              <div
-                style={{
-                  border: `1.5px solid ${token.colorBorderSecondary}`,
-                  borderRadius: 12,
-                  overflow: 'hidden',
-                  backgroundColor: token.colorBgContainer,
-                }}
-              >
-                <div
-                  style={{
-                    padding: '9px 14px',
-                    backgroundColor: token.colorFillAlter,
-                    borderBottom: `1px solid ${token.colorBorderSecondary}`,
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                  }}
-                >
-                  <span style={{ fontSize: 12, fontWeight: 800, textTransform: 'uppercase', color: token.colorText }}>
-                    📦 Selected Items & Quantities ({validLines.length})
-                  </span>
-                  <span style={{ fontSize: 12, fontWeight: 800, color: '#0284c7' }}>
-                    Total: {formatDecimal(totalPkgs, 2)} Carton/Pkg • {formatDecimal(totalGrs, 2)} GRS
-                  </span>
-                </div>
-
-                <div style={{ maxHeight: 260, overflowY: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
-                    <thead>
-                      <tr style={{ borderBottom: `1px solid ${token.colorBorderSecondary}`, textAlign: 'left', color: token.colorTextSecondary, fontSize: 11 }}>
-                        <th style={{ padding: '8px 12px' }}>#</th>
-                        <th style={{ padding: '8px 12px' }}>ITEM CODE & DESCRIPTION</th>
-                        <th style={{ padding: '8px 12px', textAlign: 'right' }}>PKG / CARTONS</th>
-                        <th style={{ padding: '8px 12px', textAlign: 'right' }}>QUANTITY</th>
-                        <th style={{ padding: '8px 12px', textAlign: 'right' }}>RATE ({curr})</th>
-                        <th style={{ padding: '8px 12px', textAlign: 'right' }}>LINE TOTAL</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {validLines.map((line, idx) => {
-                        const q = Number(line.quantity || 0);
-                        const r = Number(line.rate || 0);
-                        const d = Number(line.discountPercent || 0);
-                        const lineTotal = q * r * (1 - d / 100);
-                        return (
-                          <tr key={line.id || idx} style={{ borderBottom: `1px solid ${token.colorBorderSecondary}` }}>
-                            <td style={{ padding: '9px 12px', fontWeight: 700, color: token.colorTextSecondary }}>{idx + 1}</td>
-                            <td style={{ padding: '9px 12px' }}>
-                              {line.itemCode && (
-                                <div style={{ fontSize: 11, fontWeight: 800, color: '#2563eb', fontFamily: 'monospace' }}>
-                                  {line.itemCode}
-                                </div>
-                              )}
-                              <div style={{ fontWeight: 800, color: token.colorText }}>
-                                {line.itemName || 'Selected Finished Good'}
-                              </div>
-                            </td>
-                            <td style={{ padding: '9px 12px', textAlign: 'right', fontWeight: 800, color: '#059669' }}>
-                              {line.packageQuantity ? `${formatDecimal(line.packageQuantity, 2)} ${line.packagingType || 'Carton'}` : '—'}
-                            </td>
-                            <td style={{ padding: '9px 12px', textAlign: 'right', fontWeight: 900, color: '#0284c7' }}>
-                              {formatDecimal(q, 2)} {line.uomCode || 'GRS'}
-                            </td>
-                            <td style={{ padding: '9px 12px', textAlign: 'right', fontWeight: 700, color: token.colorTextSecondary }}>
-                              {formatDecimal(r, 2)}
-                            </td>
-                            <td style={{ padding: '9px 12px', textAlign: 'right', fontWeight: 900, color: token.colorText }}>
-                              {curr} {formatDecimal(lineTotal, 2)}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+                headerItems={[
+                  {
+                    label: 'Selected Customer',
+                    value: selCustomer?.companyName || selCustomer?.name || 'Selected Customer',
+                    subtext: selCustomer?.customerCode || undefined,
+                  },
+                  {
+                    label: 'Division & SOC #',
+                    value: `SOC-${String(pendingOrderValues?.socNumber || watchedSocNumber || '').replace(/^SOC-/i, '')}`,
+                    subtext: selDivision ? `${selDivision.divisionCode} — ${selDivision.name}` : undefined,
+                  },
+                  {
+                    label: 'Delivery Schedule',
+                    value: pendingOrderValues?.deliveryDate
+                      ? dayjs(pendingOrderValues.deliveryDate).format('DD-MMM-YYYY')
+                      : 'Standard Lead-Time',
+                  },
+                ]}
+              />
 
               <div
                 style={{
@@ -4011,14 +3856,15 @@ const SalesOrderManagement: React.FC = () => {
                   backgroundColor: token.colorFillAlter,
                   border: `1px solid ${token.colorBorderSecondary}`,
                   fontSize: 13,
-                  fontWeight: 700,
+                  fontWeight: 600,
                   color: token.colorTextSecondary,
                   textAlign: 'center',
                 }}
               >
                 Please confirm that the selected <strong style={{ color: token.colorText }}>Customer</strong>,{' '}
-                <strong style={{ color: token.colorText }}>Items</strong>, and{' '}
-                <strong style={{ color: token.colorText }}>Quantities</strong> above are correct before saving.
+                <strong style={{ color: token.colorText }}>Items</strong>,{' '}
+                <strong style={{ color: token.colorText }}>Rates</strong>, and{' '}
+                <strong style={{ color: token.colorText }}>Tax</strong> above are correct before saving.
               </div>
             </div>
           );

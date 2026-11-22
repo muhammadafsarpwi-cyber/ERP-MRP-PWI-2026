@@ -41,6 +41,17 @@ export class SalesDeliveryController {
     return { success: true, ...result };
   }
 
+  @Get('next-gate-pass')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('sales.deliveries.view')
+  @ApiOperation({ summary: 'Suggest the next sequential Gate Pass Book serial number' })
+  async getNextGatePass(@Req() req: any) {
+    const companyId = req.erpUser?.defaultCompanyId;
+    const data = await this.service.getNextGatePassNumber(companyId);
+    return { success: true, data };
+  }
+
   @Get(':id')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
@@ -115,6 +126,28 @@ export class SalesDeliveryController {
     return { success: true, data: delivery, message: 'Sales delivery confirmed' };
   }
 
+  @Patch(':id/apply-tax')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('sales.deliveries.confirm')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Apply uniform tax percentage across all lines of a delivery note' })
+  async applyTax(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body('taxPercent') taxPercent?: number,
+  ) {
+    const userId = req.user?.id;
+    const companyId = req.erpUser?.defaultCompanyId;
+    const pct = taxPercent !== undefined && taxPercent !== null ? Number(taxPercent) : 18;
+    const delivery = await this.service.applyTaxRate(id, pct, userId, companyId, this.divisionScope(req));
+    return {
+      success: true,
+      data: delivery,
+      message: `${pct}% tax applied to delivery note ${delivery.deliveryNumber}`,
+    };
+  }
+
   @Patch(':id/cancel')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
@@ -126,6 +159,19 @@ export class SalesDeliveryController {
     const companyId = req.erpUser?.defaultCompanyId;
     const delivery = await this.service.cancel(id, userId, companyId, this.divisionScope(req));
     return { success: true, data: delivery, message: 'Sales delivery cancelled' };
+  }
+
+  @Patch(':id/restore')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('sales.deliveries.confirm')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Restore a cancelled sales delivery back to DRAFT status' })
+  async restore(@Req() req: any, @Param('id') id: string) {
+    const userId = req.user?.id;
+    const companyId = req.erpUser?.defaultCompanyId;
+    const delivery = await this.service.restoreToDraft(id, userId, companyId, this.divisionScope(req));
+    return { success: true, data: delivery, message: 'Sales delivery restored to DRAFT' };
   }
 
   @Post(':id/convert-to-invoice')

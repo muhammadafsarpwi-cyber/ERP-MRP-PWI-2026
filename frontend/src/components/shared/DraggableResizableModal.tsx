@@ -1,13 +1,28 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Modal, ModalProps, Tooltip } from 'antd';
+import { createPortal } from 'react-dom';
+import { Modal, ModalProps, Tooltip, theme } from 'antd';
 import {
   MinusOutlined,
   FullscreenOutlined,
   FullscreenExitOutlined,
   CloseOutlined,
   InfoCircleOutlined,
+  ExpandOutlined,
 } from '@ant-design/icons';
 import './draggableResizableModal.css';
+
+function extractReadableTitle(node: React.ReactNode): string {
+  if (typeof node === 'string') return node.trim();
+  if (typeof node === 'number') return String(node);
+  if (Array.isArray(node)) {
+    const parts = node.map(extractReadableTitle).filter(Boolean);
+    return parts[parts.length - 1] || '';
+  }
+  if (React.isValidElement<{ children?: React.ReactNode }>(node)) {
+    return extractReadableTitle(node.props?.children);
+  }
+  return '';
+}
 
 /**
  * Centered modal that can be moved by dragging its header and resized from the
@@ -25,6 +40,8 @@ export interface DraggableResizableModalProps extends ModalProps {
   extra?: React.ReactNode;
   /** Optional muted subtitle rendered under the header title. */
   subtitle?: React.ReactNode;
+  /** Optional plain-text label displayed in the minimized bottom-right dock. */
+  minimizedTitle?: string;
   /** Optional info tooltip message shown beside title */
   infoTooltip?: React.ReactNode;
   /** Allow maximizing to full screen. Defaults to true. */
@@ -64,6 +81,7 @@ const DraggableResizableModal: React.FC<DraggableResizableModalProps> = ({
   children,
   title,
   subtitle,
+  minimizedTitle,
   extra,
   infoTooltip,
   allowMaximize = true,
@@ -72,8 +90,10 @@ const DraggableResizableModal: React.FC<DraggableResizableModalProps> = ({
   onCancel,
   wrapClassName,
   initialOffset,
+  style,
   ...rest
 }) => {
+  const { token } = theme.useToken();
   const parseDim = (val: number | string | undefined, defaultVal: number): number => {
     if (typeof val === 'number' && !isNaN(val)) return val;
     if (typeof val === 'string') {
@@ -84,18 +104,26 @@ const DraggableResizableModal: React.FC<DraggableResizableModalProps> = ({
   };
 
   const [windowWidth, setWindowWidth] = useState(() => (typeof window !== 'undefined' ? window.innerWidth : 1280));
-  useEffect(() => {
-    const handleResize = () => setWindowWidth(window.innerWidth);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-  const isMobile = windowWidth <= 768;
-
   const [size, setSize] = useState({ w: parseDim(width, 880), h: parseDim(height, 560) });
   const [pos, setPos] = useState({ x: 0, y: 0 });
   const [isMaximized, setIsMaximized] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
   const prevSizeAndPos = useRef<{ size: { w: number; h: number }; pos: { x: number; y: number } } | null>(null);
+
+  useEffect(() => {
+    const handleResize = () => {
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      setWindowWidth(vw);
+      if (isMaximized) {
+        setSize({ w: vw, h: vh });
+        setPos({ x: 0, y: 0 });
+      }
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [isMaximized]);
+  const isMobile = windowWidth <= 768;
 
   const dragRef = useRef<{ active: boolean; startX: number; startY: number; baseX: number; baseY: number }>({
     active: false, startX: 0, startY: 0, baseX: 0, baseY: 0,
@@ -138,14 +166,20 @@ const DraggableResizableModal: React.FC<DraggableResizableModalProps> = ({
       x: clamp(rawX, Math.min(minX, 0), Math.max(maxX, 0)),
       y: clamp(rawY, Math.min(minY, 0), Math.max(maxY, 0)),
     });
-  }, [open, width, height, minWidth, minHeight, initialOffset]);
+  }, [open, width, height, minWidth, minHeight, initialOffset?.x, initialOffset?.y]);
 
   const toggleMaximize = () => {
     if (isMaximized) {
+      const vw = typeof window !== 'undefined' ? window.innerWidth : 1280;
+      const vh = typeof window !== 'undefined' ? window.innerHeight : 768;
       if (prevSizeAndPos.current) {
-        setSize(prevSizeAndPos.current.size);
-        setPos(prevSizeAndPos.current.pos);
+        setSize({
+          w: clamp(prevSizeAndPos.current.size.w, Math.min(minWidth, vw - EDGE_MARGIN), vw - EDGE_MARGIN),
+          h: clamp(prevSizeAndPos.current.size.h, Math.min(minHeight, vh - EDGE_MARGIN), vh - EDGE_MARGIN),
+        });
       }
+      // Return cleanly to centered view on Restore
+      setPos({ x: 0, y: 0 });
       setIsMaximized(false);
     } else {
       prevSizeAndPos.current = { size: { ...size }, pos: { ...pos } };
@@ -234,43 +268,116 @@ const DraggableResizableModal: React.FC<DraggableResizableModalProps> = ({
 
   if (!open) return null;
 
-  if (isMinimized) {
-    return (
-      <div
-        className="erp-modal-minimized-dock"
-        onClick={() => setIsMinimized(false)}
-        title="Click to restore window"
-        style={{
-          position: 'fixed',
-          bottom: 20,
-          right: 24,
-          zIndex: 9999,
-          background: '#181f2c',
-          color: '#ffffff',
-          padding: '8px 16px',
-          borderRadius: 'var(--ui-radius-lg)',
-          boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
-          cursor: 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 10,
-          fontWeight: 600,
-          border: '1px solid #334155',
-          userSelect: 'none',
-          animation: 'fadeIn 0.2s ease',
-        }}
-      >
-        <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981' }} />
-        <span style={{ fontSize: 13, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {typeof title === 'string' ? title : 'Minimized Window'}
-        </span>
-        <span style={{ fontSize: 11, background: 'rgba(255,255,255,0.15)', padding: '2px 8px', borderRadius: 4 }}>
-          Restore
-        </span>
-      </div>
-    );
-  }
+  const dockTitle =
+    (minimizedTitle && minimizedTitle.trim()) ||
+    extractReadableTitle(title) ||
+    'Minimized Window';
 
+  const minimizedDock =
+    isMinimized && typeof document !== 'undefined'
+      ? createPortal(
+          <div
+            className="erp-modal-minimized-dock"
+            role="region"
+            aria-label={`Minimized modal: ${dockTitle}`}
+            style={{
+              position: 'fixed',
+              bottom: 16,
+              right: 20,
+              zIndex: 1050,
+              background: token.colorBgElevated,
+              color: token.colorText,
+              padding: '8px 12px 8px 14px',
+              borderRadius: 12,
+              boxShadow: token.boxShadowSecondary || '0 10px 28px rgba(0, 0, 0, 0.22)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              fontWeight: 600,
+              border: `1px solid ${token.colorBorder}`,
+              userSelect: 'none',
+              maxWidth: 'min(380px, calc(100vw - 32px))',
+            }}
+          >
+            <span
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: '50%',
+                background: token.colorPrimary,
+                flexShrink: 0,
+              }}
+            />
+            <span
+              title={dockTitle}
+              onClick={() => setIsMinimized(false)}
+              style={{
+                fontSize: 13,
+                fontWeight: 700,
+                color: token.colorText,
+                maxWidth: 210,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                cursor: 'pointer',
+              }}
+            >
+              {dockTitle}
+            </span>
+            <button
+              type="button"
+              onClick={() => setIsMinimized(false)}
+              title="Restore window"
+              aria-label="Restore window"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+                fontSize: 12,
+                fontWeight: 600,
+                background: token.colorPrimary,
+                color: token.colorTextLightSolid || '#ffffff',
+                border: 'none',
+                padding: '4px 10px',
+                borderRadius: 6,
+                cursor: 'pointer',
+                flexShrink: 0,
+              }}
+            >
+              <ExpandOutlined style={{ fontSize: 11 }} />
+              <span>Restore</span>
+            </button>
+            {onCancel && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsMinimized(false);
+                  onCancel(e as any);
+                }}
+                title="Close window"
+                aria-label="Close window"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: 24,
+                  height: 24,
+                  borderRadius: 6,
+                  border: `1px solid ${token.colorBorderSecondary}`,
+                  background: token.colorFillAlter,
+                  color: token.colorTextSecondary,
+                  cursor: 'pointer',
+                  flexShrink: 0,
+                }}
+              >
+                <CloseOutlined style={{ fontSize: 11 }} />
+              </button>
+            )}
+          </div>,
+          document.body,
+        )
+      : null;
 
   const modalRender = (modalNode: React.ReactNode) => {
     return (
@@ -278,8 +385,9 @@ const DraggableResizableModal: React.FC<DraggableResizableModalProps> = ({
         className={`erp-draggable-modal ${isMobile ? 'erp-draggable-modal--mobile' : ''} ${isMaximized ? 'erp-draggable-modal--maximized' : ''}`}
         style={{
           width: isMobile || isMaximized ? '100vw' : size.w,
+          maxWidth: isMobile || isMaximized ? '100vw' : undefined,
           pointerEvents: 'auto',
-          transform: isMobile || isMaximized ? 'none' : `translate(${pos.x}px, ${pos.y}px)`,
+          transform: isMobile || isMaximized ? 'translate(0px, 0px)' : `translate(${pos.x}px, ${pos.y}px)`,
           transition: dragRef.current.active ? 'none' : 'transform 0.08s ease-out, width 0.15s ease, height 0.15s ease',
         }}
         onMouseDown={onHeaderMouseDown}
@@ -423,21 +531,35 @@ const DraggableResizableModal: React.FC<DraggableResizableModalProps> = ({
   );
 
   return (
-    <Modal
-      open={open}
-      centered={centered}
-      width={size.w}
-      closable={false}
-      maskClosable={maskClosable}
-      zIndex={1060}
-      wrapClassName={[wrapClassName, 'erp-draggable-modal-wrap'].filter(Boolean).join(' ')}
-      modalRender={modalRender}
-      title={headerTitle}
-      onCancel={onCancel}
-      {...rest}
-    >
-      {children}
-    </Modal>
+    <>
+      <Modal
+        open={open && !isMinimized}
+        centered={isMaximized || isMobile ? false : centered}
+        width={isMaximized || isMobile ? '100vw' : size.w}
+        closable={false}
+        maskClosable={maskClosable}
+        zIndex={1060}
+        style={
+          isMaximized || isMobile
+            ? { top: 0, left: 0, margin: 0, padding: 0, maxWidth: '100vw' }
+            : style
+        }
+        wrapClassName={[
+          wrapClassName,
+          'erp-draggable-modal-wrap',
+          isMaximized ? 'erp-draggable-modal-wrap--maximized' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
+        modalRender={modalRender}
+        title={headerTitle}
+        onCancel={onCancel}
+        {...rest}
+      >
+        {children}
+      </Modal>
+      {minimizedDock}
+    </>
   );
 };
 

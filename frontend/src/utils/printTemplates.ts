@@ -808,14 +808,59 @@ export function printDeliveryNoteDocument(delivery: any): void {
   if (!delivery) return;
   const items = delivery.items || delivery.lines || [];
   const custName = delivery.customer?.companyName || delivery.customer?.name || 'Valued Customer';
+  const divisionName = String(delivery.divisionName || delivery.division?.name || 'Spoke Division')
+    .replace(/\s*\(DIV-[^)]+\)$/i, '')
+    .trim() || 'Spoke Division';
 
   const isMeterUom = (u?: string | null) =>
     ['M', 'MTR', 'METER', 'METRE', 'METERS', 'METRES'].includes(String(u || '').toUpperCase().trim());
 
+  const dedupeTokens = (rawList: Array<string | null | undefined>): string[] => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    rawList.forEach((raw) => {
+      if (!raw) return;
+      String(raw)
+        .split(',')
+        .map((s) => s.trim())
+        .filter((s) => s && s !== '-')
+        .forEach((token) => {
+          const key = token.toUpperCase();
+          if (!seen.has(key)) {
+            seen.add(key);
+            out.push(token);
+          }
+        });
+    });
+    return out;
+  };
+
+  const uniqueSocs = dedupeTokens([
+    delivery.salesOrder?.orderNumber,
+    delivery.salesOrderNumber,
+    ...items.map((it: any) => {
+      const descMatch = String(it.description || it.itemName || '').match(/\[SOC:\s*([^\]]+)\]/i);
+      return [it.socNumber, it.salesOrderNumber, it.salesOrder?.orderNumber, descMatch?.[1]]
+        .filter(Boolean)
+        .join(',');
+    }),
+  ]);
+  const originatingSoc = uniqueSocs.length > 0 ? uniqueSocs.join(', ') : '-';
+
+  const uomTotals: Record<string, number> = {};
+  const pkgTotals: Record<string, number> = {};
+  let totalCartons = 0;
+  let totalPackets = 0;
+
   const rowsHtml = items.map((it: any, idx: number) => {
-    const pName = it.item?.name || it.description || 'Delivered Product';
+    const code = it.itemCode || it.item?.itemCode || `SKU-${idx + 1}`;
+    const rawName = it.itemName || it.item?.name || it.description || 'Delivered Product';
+    const cleanName = String(rawName).replace(/\s*\[SOC:\s*[^\]]+\]/gi, '').trim();
     const qty = Number(it.quantity || it.deliveredQuantity || 0);
     const uom = it.uom?.code || it.uomCode || 'Units';
+    const uomUpper = String(uom).toUpperCase().trim();
+    uomTotals[uom] = (uomTotals[uom] || 0) + qty;
+
     const finWpm = it.finishedWeightPerMeter ?? it.item?.finishedWeightPerMeter;
     const rawWpm = it.weightPerMeter ?? it.item?.weightPerMeter;
     const effectiveWpm = isMeterUom(uom)
@@ -825,19 +870,60 @@ export function printDeliveryNoteDocument(delivery: any): void {
       ? Number(it.totalWeightKg)
       : (effectiveWpm > 0 ? Number((qty * effectiveWpm).toFixed(3)) : 0);
 
+    const rawPkgUnit = String(it.packagingUnit || it.item?.packagingUnit || '').trim();
+    const pkgSize = Number(it.packagingSize || it.item?.packagingSize || 0);
+    const isCartonPkg = /^(ctn|carton|cartons)$/i.test(rawPkgUnit) || (!rawPkgUnit && (uomUpper === 'GRS' || uomUpper === 'GROSS'));
+    let cartons = 0;
+    if (isCartonPkg) {
+      const explicitPkgQty = it.packageQuantity != null ? Number(it.packageQuantity) : null;
+      if (explicitPkgQty != null && explicitPkgQty > 0) {
+        cartons = explicitPkgQty;
+      } else if (uomUpper === 'GRS' || uomUpper === 'GROSS') {
+        cartons = Number((qty / (pkgSize > 1 ? pkgSize : 10)).toFixed(2));
+      } else if (uomUpper === 'PCS' || uomUpper === 'PC') {
+        cartons = Number((qty / 1440).toFixed(2));
+      }
+    }
+    const packets = cartons > 0 ? Math.round(cartons * 40) : 0;
+    if (cartons > 0) {
+      totalCartons += cartons;
+      totalPackets += packets;
+      pkgTotals['Carton'] = (pkgTotals['Carton'] || 0) + cartons;
+    } else if (it.packageQuantity != null && Number(it.packageQuantity) > 0) {
+      const unitLabel = rawPkgUnit || 'Packages';
+      pkgTotals[unitLabel] = (pkgTotals[unitLabel] || 0) + Number(it.packageQuantity);
+    }
+
+    const pkgCellHtml = cartons > 0
+      ? `<div style="font-weight: 700; color: #0f172a;">${formatQty(cartons)} Carton</div>
+         <div style="font-size: 10px; font-weight: 700; color: #0369a1; margin-top: 2px;">${formatQty(packets)} Packets</div>`
+      : `<div>${it.packaging || (it.packageQuantity ? `${formatQty(Number(it.packageQuantity))} ${rawPkgUnit || 'Coils'}` : 'Standard')}</div>`;
+
     return `
       <tr>
-        <td style="text-align: center; width: 32px;">${idx + 1}</td>
-        <td><strong>${pName}</strong></td>
-        <td style="text-align: right;">
+        <td style="text-align: center; width: 32px; vertical-align: top;">${idx + 1}</td>
+        <td style="vertical-align: top;">
+          <div style="margin-bottom: 3px;">
+            <span style="color: #EA580C; background: #FFF7ED; border: 1px solid #FED7AA; border-radius: 4px; padding: 1px 6px; font-size: 10px; font-weight: 700; white-space: nowrap; display: inline-block; font-family: monospace;">${code}</span>
+          </div>
+          ${renderItemNameHtml(cleanName, 'font-size: 11.5px; font-weight: 700; color: #0f172a; line-height: 1.35;')}
+        </td>
+        <td style="text-align: right; font-weight: 700; white-space: nowrap; vertical-align: top;">
           ${formatQty(qty)} ${uom}
           ${meterWeightKg > 0 ? `<div style="font-size: 10px; color: #0369a1; font-weight: 700;">Wt: ${formatQty(meterWeightKg)} Kg</div>` : ''}
         </td>
-        <td>${it.batchNumber || it.serialNumber || 'Standard'}</td>
-        <td>${it.remarks || 'Standard Dispatch'}</td>
+        <td style="text-align: center; vertical-align: top; background: #fafafa;">
+          ${pkgCellHtml}
+        </td>
+        <td style="vertical-align: top;">${it.remarks || 'Standard Dispatch'}</td>
       </tr>
     `;
   }).join('');
+
+  const totalQtyStr = Object.entries(uomTotals).map(([u, q]) => `${formatQty(q)} ${u}`).join(' + ') || '0 Units';
+  const totalPkgStr = Object.keys(pkgTotals).length > 0
+    ? Object.entries(pkgTotals).map(([u, q]) => `${formatQty(q)} ${u}`).join(', ')
+    : 'Standard Packages';
 
   const bodyHtml = `
     <div class="company-header">
@@ -845,12 +931,13 @@ export function printDeliveryNoteDocument(delivery: any): void {
         <img class="company-logo" src="${getLogoUrl()}" alt="Logo" onerror="this.style.display='none'" />
         <div>
           <div class="company-name">Pakistan Wire Industries (Pvt.) LTD</div>
-          <div class="company-sub">Dispatch & Logistics Department | Lahore, Pakistan</div>
+          <div class="company-sub">Plot 179, Block E, SITE Superhighway, Karachi, Pakistan</div>
+          <div class="company-tax">Dispatch &amp; Logistics Department | Division: ${divisionName}</div>
         </div>
       </div>
       <div class="doc-badge-box">
         <div class="doc-badge">DELIVERY CHALLAN</div>
-        <div class="doc-badge-sub">DISPATCH NOTE / GATE PASS</div>
+        <div class="doc-badge-sub">${delivery.gatePassNumber ? `GATE PASS #: ${delivery.gatePassNumber}` : 'DISPATCH NOTE / GATE PASS'}</div>
       </div>
     </div>
 
@@ -858,8 +945,9 @@ export function printDeliveryNoteDocument(delivery: any): void {
       <div class="info-card">
         <div class="info-card-title">DISPATCH DETAILS</div>
         <div class="info-row"><span class="info-label">Delivery Note #:</span><span class="info-val">${delivery.deliveryNumber || '-'}</span></div>
+        ${delivery.gatePassNumber ? `<div class="info-row"><span class="info-label">Gate Pass # (Book):</span><span class="info-val" style="font-family: monospace; font-weight: 800; color: #1d4ed8;">${delivery.gatePassNumber}</span></div>` : ''}
         <div class="info-row"><span class="info-label">Dispatch Date:</span><span class="info-val">${delivery.deliveryDate || '-'}</span></div>
-        <div class="info-row"><span class="info-label">Originating SO #:</span><span class="info-val">${delivery.salesOrder?.orderNumber || '-'}</span></div>
+        <div class="info-row"><span class="info-label">Originating SO #:</span><span class="info-val font-bold" style="color: #1d4ed8;">${originatingSoc}</span></div>
         <div class="info-row"><span class="info-label">Carrier / Vehicle #:</span><span class="info-val">${delivery.carrier || delivery.vehicleNumber || 'Company Transport'}</span></div>
       </div>
       <div class="info-card">
@@ -873,22 +961,33 @@ export function printDeliveryNoteDocument(delivery: any): void {
     <table class="print-table">
       <thead>
         <tr>
-          <th>#</th>
-          <th>Product / Description</th>
-          <th>Dispatched Quantity</th>
-          <th>Batch / Heat #</th>
+          <th style="width: 32px; text-align: center;">#</th>
+          <th>MATERIAL / PRODUCT DESCRIPTION</th>
+          <th style="width: 115px; text-align: right;">Dispatched Quantity</th>
+          <th style="width: 155px; text-align: center;">PACKAGING (CARTONS / PACKETS)</th>
           <th>Notes / Condition</th>
         </tr>
       </thead>
       <tbody>
         ${rowsHtml || '<tr><td colspan="5" style="text-align: center; padding: 16px;">No delivery lines</td></tr>'}
       </tbody>
+      <tfoot>
+        <tr style="background: #f8fafc; border-top: 2px solid #0f172a; border-bottom: 2px solid #0f172a;">
+          <td colspan="2" style="text-align: right; font-weight: 800; font-size: 12px; padding: 8px 10px;">TOTAL DISPATCHED:</td>
+          <td style="text-align: right; font-weight: 800; font-size: 12.5px; padding: 8px 10px; background: #ffffff; border: 2px solid #0f172a;">${totalQtyStr}</td>
+          <td style="text-align: center; font-weight: 800; font-size: 12.5px; padding: 8px 10px; background: #ffffff; border: 2px solid #0f172a;">
+            <div>${totalPkgStr}</div>
+            ${totalPackets > 0 ? `<div style="font-size: 10.5px; font-weight: 700; color: #0369a1; margin-top: 2px;">${formatQty(totalPackets)} Packets</div>` : ''}
+          </td>
+          <td style="text-align: center; font-size: 10px; color: #64748b; font-weight: 600;">Dispatched</td>
+        </tr>
+      </tfoot>
     </table>
 
     <div class="signatures">
-      <div class="sig-box">Store In-charge</div>
-      <div class="sig-box">Security Gate Out</div>
-      <div class="sig-box">Customer Receiver Signature & Stamp</div>
+      <div class="sig-box">Prepared By (Dispatch)<br/><small style="color: #64748b;">(Sales / Dispatch Desk)</small></div>
+      <div class="sig-box">Store / Warehouse Incharge<br/><small style="color: #64748b;">(Material Count Verified)</small></div>
+      <div class="sig-box">Gate Security Officer<br/><small style="color: #64748b;">(Exit Stamp &amp; Receiver Handover)</small></div>
     </div>
   `;
 
@@ -903,6 +1002,13 @@ export function printGatePassDocument(data: {
   customerPo?: string;
   socNumber?: string;
   dispatchSequence?: string;
+  dispatchSequences?: Array<{
+    socNumber: string;
+    dispatchOrdinal: number;
+    dispatchLabel?: string;
+    totalSocDispatches?: number;
+    isFinalDispatch?: boolean;
+  }>;
   date?: string;
   time?: string;
   partyName?: string;
@@ -916,13 +1022,21 @@ export function printGatePassDocument(data: {
     itemCode?: string;
     itemName?: string;
     socNumber?: string;
+    salesOrderNumber?: string;
+    description?: string;
     customerPo?: string;
     orderQuantity?: number;
     quantity?: number;
     balanceQuantity?: number;
+    dispatchOrdinal?: number;
+    dispatchLabel?: string;
+    totalSocDispatches?: number;
+    isFinalDispatch?: boolean;
     uom?: string;
+    uomCode?: string;
     packageQuantity?: number;
     packagingUnit?: string;
+    packagingSize?: number;
     packaging?: string;
     weightKg?: number;
     weightPerMeter?: number;
@@ -932,29 +1046,91 @@ export function printGatePassDocument(data: {
   if (!data) return;
   const isOutward = data.passType === 'OUTWARD';
   const passTitle = isOutward ? 'OUTWARD GATE PASS' : 'INWARD GATE PASS';
-  const badgeColor = isOutward ? '#b45309' : '#047857';
   const passNo = data.gatePassNo || `GP-${isOutward ? 'OUT' : 'IN'}-${Date.now().toString().slice(-6)}`;
   const items = data.items || [];
+  const divisionDisplay = String(data.divisionName || 'Spoke Division')
+    .replace(/\s*\(DIV-[^)]+\)$/i, '')
+    .trim() || 'Spoke Division';
 
-  // Group and sum totals by UOM and Packaging
+  const formatOrdinalDispatch = (n: number): string => {
+    const safe = Math.max(1, Math.round(n));
+    const mod100 = safe % 100;
+    if (mod100 >= 11 && mod100 <= 13) return `${safe}th Dispatch`;
+    switch (safe % 10) {
+      case 1: return `${safe}st Dispatch`;
+      case 2: return `${safe}nd Dispatch`;
+      case 3: return `${safe}rd Dispatch`;
+      default: return `${safe}th Dispatch`;
+    }
+  };
+
+  const dedupeTokens = (rawList: Array<string | null | undefined>): string[] => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    rawList.forEach((raw) => {
+      if (!raw) return;
+      String(raw)
+        .split(',')
+        .map((s) => s.trim())
+        .filter((s) => s && s !== '-')
+        .forEach((token) => {
+          const key = token.toUpperCase();
+          if (!seen.has(key)) {
+            seen.add(key);
+            out.push(token);
+          }
+        });
+    });
+    return out;
+  };
+
+  const normalizePkgUnit = (unit?: string | null): string => {
+    const raw = String(unit || '').trim();
+    if (!raw) return 'Carton';
+    if (/^(ctn|carton|cartons)$/i.test(raw)) return 'Carton';
+    return raw;
+  };
+
+  // Group and sum totals by UOM, Packaging, and Packets (1 Carton = 40 Packets)
   const uomTotals: Record<string, number> = {};
   let totalPackageCount = 0;
+  let totalCartons = 0;
+  let totalPackets = 0;
   let totalMeterWeightKg = 0;
   const pkgSummary: Record<string, number> = {};
 
   items.forEach((it: any) => {
     const qty = Number(it.quantity || it.receivedQuantity || it.deliveredQuantity || 0);
     const uom = it.uom || it.uomCode || 'Units';
+    const uomUpper = String(uom).toUpperCase().trim();
     uomTotals[uom] = (uomTotals[uom] || 0) + qty;
     if (it.weightKg != null && Number(it.weightKg) > 0) {
       totalMeterWeightKg += Number(it.weightKg);
     }
 
-    const pkgQty = Number(it.packageQuantity || 0);
-    const pkgUnit = it.packagingUnit || 'Coils / Pkgs';
-    if (pkgQty > 0) {
-      totalPackageCount += pkgQty;
-      pkgSummary[pkgUnit] = (pkgSummary[pkgUnit] || 0) + pkgQty;
+    const rawPkgUnit = String(it.packagingUnit || '').trim();
+    const isCartonLike =
+      /^(ctn|carton|cartons)$/i.test(rawPkgUnit) ||
+      (!rawPkgUnit && (uomUpper === 'GRS' || uomUpper === 'GROSS'));
+
+    let rowPkgQty = Number(it.packageQuantity || 0);
+    if (rowPkgQty <= 0 && isCartonLike && qty > 0) {
+      const pkgSize = Number(it.packagingSize || 0);
+      if (uomUpper === 'GRS' || uomUpper === 'GROSS') {
+        rowPkgQty = Number((qty / (pkgSize > 1 ? pkgSize : 10)).toFixed(2));
+      } else if (uomUpper === 'PCS' || uomUpper === 'PC') {
+        rowPkgQty = Number((qty / 1440).toFixed(2));
+      }
+    }
+
+    if (rowPkgQty > 0) {
+      const pkgUnit = isCartonLike ? 'Carton' : normalizePkgUnit(rawPkgUnit || 'Coils / Pkgs');
+      totalPackageCount += rowPkgQty;
+      pkgSummary[pkgUnit] = (pkgSummary[pkgUnit] || 0) + rowPkgQty;
+      if (isCartonLike) {
+        totalCartons += rowPkgQty;
+        totalPackets += Math.round(rowPkgQty * 40);
+      }
     }
   });
 
@@ -966,12 +1142,16 @@ export function printGatePassDocument(data: {
     ? Object.entries(pkgSummary).map(([unit, q]) => `${formatQty(q)} ${unit}`).join(', ')
     : (totalPackageCount > 0 ? `${formatQty(totalPackageCount)} Packages` : 'Standard Packages');
 
-  // Find unique SOCs and POs across line items
-  const itemSocs = Array.from(new Set(items.map((i: any) => i.socNumber).filter(Boolean)));
-  const itemPos = Array.from(new Set(items.map((i: any) => i.customerPo).filter(Boolean)));
+  // Find unique SOCs and POs across line items and header without ever repeating duplicates
+  const lineSocTokens = items.map((i: any) => {
+    const descMatch = String(i.description || i.itemName || '').match(/\[SOC:\s*([^\]]+)\]/i);
+    return [i.socNumber, i.salesOrderNumber, descMatch?.[1]].filter(Boolean).join(',');
+  });
+  const uniqueSocs = dedupeTokens([...lineSocTokens, data.socNumber]);
+  const uniquePos = dedupeTokens([...items.map((i: any) => i.customerPo), data.customerPo]);
 
-  const effectiveSoc = data.socNumber || (itemSocs.length === 1 ? itemSocs[0] : itemSocs.length > 1 ? itemSocs.join(', ') : '-');
-  const effectivePo = data.customerPo || (itemPos.length === 1 ? itemPos[0] : itemPos.length > 1 ? itemPos.join(', ') : '-');
+  const effectiveSoc = uniqueSocs.length > 0 ? uniqueSocs.join(', ') : '-';
+  const effectivePo = uniquePos.length > 0 ? uniquePos.join(', ') : '-';
 
   // QR Code payload: points to verification / gate pass lookup
   const originUrl = typeof window !== 'undefined' && window.location?.origin ? window.location.origin : '';
@@ -979,54 +1159,137 @@ export function printGatePassDocument(data: {
 
   const rowsHtml = items.map((it: any, idx: number) => {
     const rawName = it.itemName || it.item?.name || it.description || 'Material / Item';
-    const cleanName = rawName.replace(/\s*\[SOC:\s*[^\]]+\]/gi, '');
+    const cleanName = String(rawName)
+      .replace(/\s*\[SOC:\s*[^\]]+\]/gi, '')
+      .replace(/\s*\(\d+(?:\.\d+)?\s*(?:CTN|Carton)[^)]*\)/gi, '')
+      .trim();
     const code = it.itemCode || it.item?.itemCode || `SKU-${idx + 1}`;
-    const qty = it.quantity || it.receivedQuantity || it.deliveredQuantity || 0;
+    const qty = Number(it.quantity || it.receivedQuantity || it.deliveredQuantity || 0);
     const uom = it.uom || it.uomCode || 'Units';
-    const pkg = it.packaging || (it.packageQuantity ? `${it.packageQuantity} ${it.packagingUnit || 'Coils'}` : 'Pallets / Bundles');
+    const uomUpper = String(uom).toUpperCase().trim();
     const rem = it.remarks || '-';
 
-    const descSocMatch = (it.description || rawName || '').match(/\[SOC:\s*([^\]]+)\]/);
-    const rowSoc = it.socNumber || it.salesOrderNumber || (descSocMatch ? descSocMatch[1] : undefined) || (effectiveSoc !== '-' ? effectiveSoc : undefined) || '-';
+    const descSocMatch = String(it.description || rawName || '').match(/\[SOC:\s*([^\]]+)\]/i);
+    const rowSocs = dedupeTokens([it.socNumber, it.salesOrderNumber, descSocMatch?.[1]]);
+    const rowSoc = rowSocs.length > 0 ? rowSocs.join(', ') : (effectiveSoc !== '-' ? effectiveSoc : '-');
 
     const orderQty = it.orderQuantity != null ? Number(it.orderQuantity) : null;
     const balanceQty = it.balanceQuantity != null ? Number(it.balanceQuantity) : (orderQty != null ? Math.max(0, orderQty - qty) : null);
 
+    const rawPkgUnit = String(it.packagingUnit || '').trim();
+    const isCartonLike =
+      /^(ctn|carton|cartons)$/i.test(rawPkgUnit) ||
+      (!rawPkgUnit && (uomUpper === 'GRS' || uomUpper === 'GROSS'));
+
+    let cartonsCount = Number(it.packageQuantity || 0);
+    if (cartonsCount <= 0 && isCartonLike && qty > 0) {
+      const pkgSize = Number(it.packagingSize || 0);
+      if (uomUpper === 'GRS' || uomUpper === 'GROSS') {
+        cartonsCount = Number((qty / (pkgSize > 1 ? pkgSize : 10)).toFixed(2));
+      } else if (uomUpper === 'PCS' || uomUpper === 'PC') {
+        cartonsCount = Number((qty / 1440).toFixed(2));
+      }
+    }
+    const packetsCount = isCartonLike && cartonsCount > 0 ? Math.round(cartonsCount * 40) : 0;
+
+    const pkgCellHtml = isCartonLike && cartonsCount > 0
+      ? `<div style="font-weight: 700; color: #0f172a; white-space: nowrap;">${formatQty(cartonsCount)} Carton</div>
+         <div style="font-size: 10px; font-weight: 700; color: #0369a1; margin-top: 2px; white-space: nowrap;">${formatQty(packetsCount)} Packets</div>`
+      : `<div>${it.packaging || (cartonsCount > 0 ? `${formatQty(cartonsCount)} ${normalizePkgUnit(rawPkgUnit || 'Coils')}` : 'Pallets / Bundles')}</div>`;
+
+    const seqFromHeader = (Array.isArray(data.dispatchSequences) ? data.dispatchSequences : []).find(
+      (s) => s.socNumber && s.socNumber.toUpperCase() === String(rowSoc || '').toUpperCase(),
+    );
+    const rowOrdinal = it.dispatchOrdinal != null
+      ? Number(it.dispatchOrdinal)
+      : (seqFromHeader?.dispatchOrdinal != null ? Number(seqFromHeader.dispatchOrdinal) : undefined);
+    const rowDispatchLabel = it.dispatchLabel
+      || seqFromHeader?.dispatchLabel
+      || (rowOrdinal != null ? formatOrdinalDispatch(rowOrdinal) : undefined);
+    const isFinalRow = it.isFinalDispatch !== undefined
+      ? Boolean(it.isFinalDispatch)
+      : (balanceQty != null ? balanceQty <= 0 : false);
+    const remarkClean = rem && rem !== '-' ? rem : '';
+
     return `
       <tr>
-        <td style="text-align: center; width: 32px; vertical-align: top;">${idx + 1}</td>
-        <td style="text-align: center; width: 105px; vertical-align: top;">
-          <div style="font-size: 11px; font-weight: 800; color: #1d4ed8; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 4px; padding: 2px 6px; display: inline-block; white-space: nowrap;">
-            ${rowSoc}
-          </div>
-          ${it.customerPo ? `<div style="font-size: 9px; color: #92400e; background: #fef3c7; border: 1px solid #fde68a; border-radius: 3px; margin-top: 3px; font-weight: 700; padding: 1px 4px; display: inline-block;">PO: ${it.customerPo}</div>` : ''}
-        </td>
-        <td style="vertical-align: top;">
-          <div style="font-size: 11.5px; font-weight: 700; color: #0f172a;">
-            ${cleanName}
-            <span style="color: #64748b; font-size: 11px; font-weight: normal;">[${code}]</span>
+        <td style="text-align: center; vertical-align: top; padding-left: 2px; padding-right: 2px;">${idx + 1}</td>
+        <td style="text-align: left; vertical-align: top; overflow: hidden;">
+          <div style="display: flex; align-items: center; gap: 4px; flex-wrap: nowrap; white-space: nowrap;">
+            <span style="font-size: 11px; font-weight: 800; color: #1d4ed8; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 4px; padding: 2px 6px; display: inline-block; white-space: nowrap;">
+              ${rowSoc}
+            </span>
+            ${it.customerPo ? `<span style="font-size: 9px; color: #92400e; background: #fef3c7; border: 1px solid #fde68a; border-radius: 3px; font-weight: 700; padding: 1px 4px; display: inline-block; white-space: nowrap;">PO: ${it.customerPo}</span>` : ''}
           </div>
           ${orderQty != null ? `
-            <div style="font-size: 10px; color: #475569; margin-top: 3px; background: #f8fafc; padding: 2px 6px; border-radius: 3px; display: inline-block;">
-              Order Qty: <strong>${formatQty(orderQty)} ${uom}</strong> &nbsp;|&nbsp;
-              This Gate Pass: <strong style="color: #16a34a;">${formatQty(qty)} ${uom}</strong> &nbsp;|&nbsp;
-              Remaining Balance: <strong style="color: ${balanceQty && balanceQty > 0 ? '#ea580c' : '#16a34a'};">${formatQty(balanceQty ?? 0)} ${uom}</strong>
+            <div style="margin-top: 4px; font-size: 11px; line-height: 1.45; color: #334155;">
+              <div style="white-space: nowrap;">Order Qty: <strong style="color: #0f172a;">${formatQty(orderQty)} ${uom}</strong></div>
+              <div style="white-space: nowrap;">This Gate Pass: <strong style="color: #16a34a;">${formatQty(qty)} ${uom}</strong></div>
+              <div style="white-space: nowrap;">Remaining Balance: <strong style="color: ${balanceQty && balanceQty > 0 ? '#ea580c' : '#16a34a'};">${formatQty(balanceQty ?? 0)} ${uom}</strong></div>
             </div>
           ` : ''}
         </td>
-        <td style="text-align: right; font-weight: 700; font-size: 12px; white-space: nowrap; vertical-align: top;">
+        <td style="vertical-align: top; text-align: left;">
+          <div style="margin-bottom: 3px;">
+            <span style="color: #EA580C; background: #FFF7ED; border: 1px solid #FED7AA; border-radius: 4px; padding: 1px 6px; font-size: 10px; font-weight: 700; white-space: nowrap; display: inline-block; font-family: monospace;">${code}</span>
+          </div>
+          ${renderItemNameHtml(cleanName, 'font-size: 12px; font-weight: 700; color: #0f172a; line-height: 1.35; word-break: normal; overflow-wrap: break-word;')}
+        </td>
+        <td style="text-align: center; font-weight: 700; font-size: 12px; white-space: nowrap; vertical-align: top;">
           ${formatQty(qty)} ${uom}
           ${it.weightKg != null && Number(it.weightKg) > 0 ? `<div style="font-size: 10px; color: #0369a1; font-weight: 700; margin-top: 2px;">Wt: ${formatQty(Number(it.weightKg))} Kg</div>` : ''}
         </td>
         <td style="text-align: center; font-weight: 600; vertical-align: top; background: #fafafa;">
-          ${pkg}
+          ${pkgCellHtml}
         </td>
-        <td style="vertical-align: top; font-size: 10px; color: #64748b;">
-          ${rem}
+        <td style="vertical-align: top; font-size: 10px; color: #475569; overflow: hidden;">
+          ${rowDispatchLabel ? `
+            <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 3px;">
+              <span style="display: inline-block; font-size: 9.5px; font-weight: 800; color: #1d4ed8; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 4px; padding: 1px 5px; white-space: nowrap;">${rowDispatchLabel}</span>
+              ${rowOrdinal != null ? `<span style="display: inline-block; font-size: 9.5px; font-weight: 800; color: #1d4ed8; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 4px; padding: 1px 5px; white-space: nowrap;">GP #${rowOrdinal}</span>` : ''}
+              <span style="display: inline-block; font-size: 9.5px; font-weight: 700; border-radius: 4px; padding: 1px 5px; white-space: nowrap; ${isFinalRow
+                ? 'color: #15803d; background: #dcfce7; border: 1px solid #86efac;'
+                : 'color: #b45309; background: #fef3c7; border: 1px solid #fde68a;'}">${isFinalRow ? 'Final Dispatch' : 'Partial Dispatch'}</span>
+            </div>
+          ` : ''}
+          ${remarkClean ? `<div style="margin-top: 3px; color: #64748b;">${remarkClean}</div>` : (!rowDispatchLabel ? '-' : '')}
         </td>
       </tr>
     `;
   }).join('');
+
+  // Build per-SOC dispatch sequence pills cleanly from explicit dispatchSequences or item metadata
+  const derivedSequences = Array.isArray(data.dispatchSequences) && data.dispatchSequences.length > 0
+    ? data.dispatchSequences.map((s) => ({
+        socNumber: s.socNumber,
+        dispatchOrdinal: s.dispatchOrdinal,
+        dispatchLabel: s.dispatchLabel || formatOrdinalDispatch(s.dispatchOrdinal),
+      }))
+    : uniqueSocs
+        .map((soc) => {
+          const matchedItem = items.find((it: any) => {
+            const descMatch = String(it.description || it.itemName || '').match(/\[SOC:\s*([^\]]+)\]/i);
+            const s = (it.socNumber || it.salesOrderNumber || descMatch?.[1] || '').trim();
+            return s.toUpperCase() === soc.toUpperCase();
+          });
+          if (matchedItem?.dispatchOrdinal == null && !matchedItem?.dispatchLabel) return null;
+          const ord = Number(matchedItem.dispatchOrdinal || 1);
+          return {
+            socNumber: soc,
+            dispatchOrdinal: ord,
+            dispatchLabel: matchedItem.dispatchLabel || formatOrdinalDispatch(ord),
+          };
+        })
+        .filter((x): x is { socNumber: string; dispatchOrdinal: number; dispatchLabel: string } => Boolean(x));
+
+  const dispatchSequencePillsHtml = derivedSequences.length > 0
+    ? derivedSequences
+        .map(
+          (s) =>
+            `<span style="display: inline-block; font-size: 10px; font-weight: 800; color: #1d4ed8; background: #eff6ff; border: 1px solid #bfdbfe; padding: 1px 6px; border-radius: 4px; margin-right: 4px; margin-bottom: 2px; white-space: nowrap;">${s.socNumber}: ${s.dispatchLabel}</span>`,
+        )
+        .join('')
+    : `<span style="display: inline-block; font-size: 10px; font-weight: 800; color: #1d4ed8; background: #eff6ff; border: 1px solid #bfdbfe; padding: 1px 6px; border-radius: 4px; white-space: nowrap;">${data.dispatchSequence || '1st Dispatch'}</span>`;
 
   const bodyHtml = `
     <div class="company-header">
@@ -1034,8 +1297,8 @@ export function printGatePassDocument(data: {
         <img class="company-logo" src="${getLogoUrl()}" alt="Logo" onerror="this.style.display='none'" />
         <div>
           <div class="company-name">Pakistan Wire Industries (Pvt.) LTD</div>
-          <div class="company-sub">Security, Weighbridge & Gate Control | Lahore, Pakistan</div>
-          <div class="company-tax">Division: ${data.divisionName || 'Wire Drawing Division'}</div>
+          <div class="company-sub">Plot 179, Block E, SITE Superhighway, Karachi, Pakistan</div>
+          <div class="company-tax">Security, Weighbridge &amp; Gate Control | Division: ${divisionDisplay}</div>
         </div>
       </div>
       <div class="doc-badge-box" style="display: flex; align-items: center; gap: 12px;">
@@ -1057,7 +1320,7 @@ export function printGatePassDocument(data: {
         <div class="info-row"><span class="info-label">Date & Time:</span><span class="info-val">${data.date || new Date().toISOString().split('T')[0]} ${data.time || new Date().toLocaleTimeString()}</span></div>
         <div class="info-row"><span class="info-label">Delivery Note Ref #:</span><span class="info-val font-bold">${data.referenceNo || '-'}</span></div>
         <div class="info-row"><span class="info-label">SOC # / Sales Order:</span><span class="info-val font-bold" style="color: #1d4ed8;">${effectiveSoc}</span></div>
-        <div class="info-row"><span class="info-label">Dispatch Sequence:</span><span class="info-val font-bold" style="color: #1d4ed8; background: #eff6ff; border: 1px solid #bfdbfe; padding: 1px 6px; border-radius: 3px; display: inline-block;">${data.dispatchSequence || '1st Dispatch (First Time)'}</span></div>
+        <div class="info-row"><span class="info-label">Dispatch Sequence:</span><span class="info-val">${dispatchSequencePillsHtml}</span></div>
         <div class="info-row"><span class="info-label">Movement:</span><span class="info-val font-bold" style="color: #1d4ed8;">${passTitle}</span></div>
       </div>
       <div class="info-card">
@@ -1070,15 +1333,23 @@ export function printGatePassDocument(data: {
       </div>
     </div>
 
-    <table class="print-table" style="margin-top: 10px;">
+    <table class="print-table" style="margin-top: 10px; table-layout: fixed; width: 100%;">
+      <colgroup>
+        <col style="width: 4%;" />
+        <col style="width: 23%;" />
+        <col style="width: 33%;" />
+        <col style="width: 13%;" />
+        <col style="width: 15%;" />
+        <col style="width: 12%;" />
+      </colgroup>
       <thead>
         <tr>
-          <th style="width: 32px; text-align: center;">#</th>
-          <th style="width: 105px; text-align: center;">SOC #</th>
-          <th>Material / Product Description</th>
-          <th style="width: 115px; text-align: right;">Physical Qty</th>
-          <th style="width: 125px; text-align: center;">Packaging (Boxes / Coils)</th>
-          <th style="width: 115px;">Inspection / Security Remarks</th>
+          <th style="text-align: center;">#</th>
+          <th style="text-align: left;">SOC #</th>
+          <th style="text-align: left;">MATERIAL / PRODUCT DESCRIPTION</th>
+          <th style="text-align: center; white-space: nowrap;">Physical Qty</th>
+          <th style="text-align: center;">PACKAGING (CARTONS / PACKETS)</th>
+          <th style="text-align: left;">Inspection / Security Remarks</th>
         </tr>
       </thead>
       <tbody>
@@ -1087,14 +1358,15 @@ export function printGatePassDocument(data: {
       <tfoot>
         <tr style="background: #f8fafc; border-top: 2px solid #0f172a; border-bottom: 2px solid #0f172a;">
           <td colspan="3" style="text-align: right; font-weight: 800; font-size: 12px; padding: 8px 10px; letter-spacing: 0.5px;">
-            TOTAL DISPATCHED:
+            TOTAL DISPATCHED
           </td>
-          <td style="text-align: right; font-weight: 800; font-size: 13px; color: #0f172a; padding: 8px 10px; background: #ffffff; border: 2px solid #0f172a;">
+          <td style="text-align: center; font-weight: 800; font-size: 12.5px; color: #0f172a; padding: 8px 4px; box-sizing: border-box; background: #ffffff; border: 2px solid #0f172a; white-space: nowrap;">
             ${physicalQtyTotalStr}
             ${totalMeterWeightKg > 0 ? `<div style="font-size: 10.5px; color: #0369a1; font-weight: 800; margin-top: 2px;">Total Wt: ${formatQty(Math.round(totalMeterWeightKg * 1000) / 1000)} Kg</div>` : ''}
           </td>
-          <td style="text-align: center; font-weight: 800; font-size: 13px; color: #0f172a; padding: 8px 10px; background: #ffffff; border: 2px solid #0f172a;">
-            ${packagingTotalStr}
+          <td style="text-align: center; font-weight: 800; font-size: 12.5px; color: #0f172a; padding: 8px 4px; box-sizing: border-box; background: #ffffff; border: 2px solid #0f172a;">
+            <div style="white-space: nowrap;">${packagingTotalStr}</div>
+            ${totalPackets > 0 ? `<div style="font-size: 10.5px; font-weight: 700; color: #0369a1; margin-top: 2px; white-space: nowrap;">${formatQty(totalPackets)} Packets</div>` : ''}
           </td>
           <td style="text-align: center; font-size: 10px; color: #64748b; font-weight: 600;">
             Security Verified
@@ -1105,33 +1377,32 @@ export function printGatePassDocument(data: {
 
     <!-- ORDER FULFILLMENT & SOC PROGRESS SUMMARY CARD -->
     <div style="margin-top: 12px; border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px 12px; background: #f8fafc;">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px;">
         <span style="font-size: 11px; font-weight: 800; color: #0f172a; text-transform: uppercase;">
-          📦 SOC Order Fulfillment & Dispatch Progress
+          SOC ORDER FULFILLMENT &amp; DISPATCH PROGRESS
         </span>
-        <span style="font-size: 10.5px; font-weight: 800; color: #1d4ed8; background: #eff6ff; border: 1px solid #bfdbfe; padding: 2px 10px; border-radius: 4px;">
-          ${data.dispatchSequence || '1st Dispatch (First Time)'}
-        </span>
+        <div style="display: flex; align-items: center; gap: 4px; flex-wrap: wrap;">
+          ${dispatchSequencePillsHtml}
+        </div>
       </div>
       <div style="font-size: 10.5px; color: #334155; line-height: 1.5;">
         <span><strong>Primary SOC:</strong> ${effectiveSoc}</span> &nbsp;&nbsp;|&nbsp;&nbsp;
         <span><strong>Customer PO:</strong> ${effectivePo}</span> &nbsp;&nbsp;|&nbsp;&nbsp;
         <span><strong>Total Physical Qty:</strong> ${physicalQtyTotalStr}</span> &nbsp;&nbsp;|&nbsp;&nbsp;
         ${totalMeterWeightKg > 0 ? `<span><strong>Total Weight:</strong> ${formatQty(Math.round(totalMeterWeightKg * 1000) / 1000)} Kg</span> &nbsp;&nbsp;|&nbsp;&nbsp;` : ''}
-        <span><strong>Total Packaging:</strong> ${packagingTotalStr}</span>
+        <span><strong>Total Packaging:</strong> ${packagingTotalStr}${totalPackets > 0 ? ` (${formatQty(totalPackets)} Packets)` : ''}</span>
       </div>
     </div>
 
     ${data.remarks ? `<div style="margin-top: 10px; font-size: 11px; padding: 8px 12px; background: #ffffff; border: 1px solid #e2e8f0; border-left: 3px solid #3b82f6; border-radius: 4px;"><strong>Remarks:</strong> ${data.remarks}</div>` : ''}
 
-    <div class="signatures" style="margin-top: 36px;">
-      <div class="sig-box">Security Gate Officer<br/><small style="color: #64748b;">(Check-in / Check-out)</small></div>
-      <div class="sig-box">Store & Weighbridge In-charge<br/><small style="color: #64748b;">(Material Verified)</small></div>
-      <div class="sig-box">Driver / Transporter Signature<br/><small style="color: #64748b;">(Physical Handover)</small></div>
-      <div class="sig-box">Authorized Admin Approval<br/><small style="color: #64748b;">(PWI Management)</small></div>
+    <div class="signatures" style="margin-top: 32px;">
+      <div class="sig-box">Prepared By (Dispatch)<br/><small style="color: #64748b;">(Sales / Dispatch Desk)</small></div>
+      <div class="sig-box">Store / Warehouse Incharge<br/><small style="color: #64748b;">(Material Count &amp; Loading Verified)</small></div>
+      <div class="sig-box">Gate Security Officer<br/><small style="color: #64748b;">(Exit Stamp &amp; Vehicle Check)</small></div>
     </div>
 
-    <div style="text-align: center; margin-top: 20px; font-size: 9.5px; color: #94a3b8;">
+    <div style="text-align: center; margin-top: 18px; font-size: 9.5px; color: #94a3b8;">
       Original Copy: Gate Security | 2nd Copy: Receiving Store / Customer | 3rd Copy: Accounts Audit
     </div>
   `;
@@ -1834,3 +2105,19 @@ export function printGoodsReceiptDocument(gr: any): void {
 }
 
 
+
+/**
+ * Renders an item name for print tables. When the name contains a double underscore (`__`),
+ * the part before it is the primary (bold) spoke name and the part after it is shown
+ * as a clean secondary nipple-spec sub-line.
+ */
+function renderItemNameHtml(rawName: string, primaryStyle: string): string {
+  const parts = String(rawName || '').split('__').map((p) => p.trim()).filter(Boolean);
+  const primary = parts[0] || String(rawName || '').trim();
+  const secondary = parts.slice(1).join(' ');
+  return `<div style="${primaryStyle}">${primary}</div>${
+    secondary
+      ? `<div style="font-size: 10.5px; font-weight: 600; color: #475569; line-height: 1.3; margin-top: 1px;">${secondary}</div>`
+      : ''
+  }`;
+}

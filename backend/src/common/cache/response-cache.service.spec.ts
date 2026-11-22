@@ -67,6 +67,11 @@ describe('ResponseCacheService & ResponseCacheInterceptor', () => {
       '/api/v1/production/routings',
       '/api/v1/machine-tooling/components',
       '/api/v1/team-chat/users',
+      '/api/v1/customer/customers',
+      '/api/v1/sales/orders/meta/customers',
+      '/api/v1/dashboard/summary',
+      '/api/v1/dashboard/schedule',
+      '/api/v1/dashboard/divisions',
     ];
     for (const p of paths) {
       const rule = cache.matchRule(cache.normalizeApiPath(p));
@@ -164,5 +169,59 @@ describe('ResponseCacheService & ResponseCacheInterceptor', () => {
     await lastValueFrom(interceptor.intercept(afterCtx.ctx, { handle: () => of(u1Fn()) }));
     expect(afterCtx.resHeaders['X-Cache']).toBe('MISS');
     expect(u1Fn).toHaveBeenCalledTimes(2);
+  });
+
+  it('caches /customer/customers and per-user /dashboard/* endpoints with strict mutation invalidation', async () => {
+    const custFn = jest.fn(() => ({ data: [{ id: 'c1', name: 'Crown Fit' }] }));
+    await lastValueFrom(
+      interceptor.intercept(
+        makeHttpContext({ url: '/api/v1/customer/customers?limit=500' }).ctx,
+        { handle: () => of(custFn()) },
+      ),
+    );
+    const hitCust = makeHttpContext({ url: '/api/v1/customer/customers?limit=500' });
+    await lastValueFrom(interceptor.intercept(hitCust.ctx, { handle: () => of(custFn()) }));
+    expect(hitCust.resHeaders['X-Cache']).toBe('HIT');
+    expect(custFn).toHaveBeenCalledTimes(1);
+
+    // Dashboard metrics isolate per user and bust on /production or /sales mutations
+    const dashFn = jest.fn(() => ({ success: true, data: { entries: 42 } }));
+    await lastValueFrom(
+      interceptor.intercept(
+        makeHttpContext({ url: '/api/v1/dashboard/summary', userId: 'u1' }).ctx,
+        { handle: () => of(dashFn()) },
+      ),
+    );
+    await lastValueFrom(
+      interceptor.intercept(
+        makeHttpContext({ url: '/api/v1/dashboard/summary', userId: 'u2' }).ctx,
+        { handle: () => of(dashFn()) },
+      ),
+    );
+    expect(dashFn).toHaveBeenCalledTimes(2);
+
+    // Production mutation invalidates dashboard cache
+    await lastValueFrom(
+      interceptor.intercept(
+        makeHttpContext({ method: 'POST', url: '/api/v1/production/entries', userId: 'u1' }).ctx,
+        { handle: () => of({ ok: true }) },
+      ),
+    );
+    const dashAfter = makeHttpContext({ url: '/api/v1/dashboard/summary', userId: 'u1' });
+    await lastValueFrom(interceptor.intercept(dashAfter.ctx, { handle: () => of(dashFn()) }));
+    expect(dashAfter.resHeaders['X-Cache']).toBe('MISS');
+    expect(dashFn).toHaveBeenCalledTimes(3);
+
+    // Customer mutation invalidates customer cache
+    await lastValueFrom(
+      interceptor.intercept(
+        makeHttpContext({ method: 'PATCH', url: '/api/v1/customer/customers/c1' }).ctx,
+        { handle: () => of({ ok: true }) },
+      ),
+    );
+    const custAfter = makeHttpContext({ url: '/api/v1/customer/customers?limit=500' });
+    await lastValueFrom(interceptor.intercept(custAfter.ctx, { handle: () => of(custFn()) }));
+    expect(custAfter.resHeaders['X-Cache']).toBe('MISS');
+    expect(custFn).toHaveBeenCalledTimes(2);
   });
 });

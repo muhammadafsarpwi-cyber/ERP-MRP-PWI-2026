@@ -2107,6 +2107,12 @@ addToDept(org, {
     allowedDivisionIds?: string[],
   ): Promise<ProductionEntry> {
     const entry = await this.getRawEntry(id, companyId);
+    const prevRemarksBeforeUpdate = String(entry.remarks || '');
+    const prevEntryDateStr = entry.entryDate
+      ? (typeof entry.entryDate === 'string'
+        ? String(entry.entryDate).slice(0, 10)
+        : new Date(entry.entryDate).toISOString().slice(0, 10))
+      : new Date().toISOString().slice(0, 10);
     // §19 — a CCD-scoped user must not be able to edit an SPD record.
     this.assertDivisionAccess(allowedDivisionIds, entry.divisionId, 'production entry');
 
@@ -2341,6 +2347,72 @@ addToDept(org, {
       }
       return updated;
     });
+
+    // Auto-record SHIFTED_TO_SOC movement log if a Safety Stock packing entry was reassigned to a customer SOC via Edit
+    try {
+      const nextRemarks = String(saved.remarks || '');
+      const wasSafetyStock =
+        /SOC:\s*SAFETY[_\s-]*STOCK/i.test(prevRemarksBeforeUpdate) ||
+        /Customer:\s*SAFETY\s*STOCK/i.test(prevRemarksBeforeUpdate);
+      const nextSocMatch = nextRemarks.match(/SOC:\s*([^|\]]+)/i);
+      const nextCustMatch = nextRemarks.match(/Customer:\s*([^|\]]+)/i);
+      const nextSoc = nextSocMatch ? nextSocMatch[1].trim() : '';
+      const nextCust = nextCustMatch ? nextCustMatch[1].trim() : '';
+      const isNowCustomerSoc =
+        Boolean(nextSoc) &&
+        !/^SAFETY[_\s-]*STOCK$/i.test(nextSoc) &&
+        nextSoc !== 'N/A' &&
+        nextSoc !== '—';
+
+      if (wasSafetyStock && isNowCustomerSoc) {
+        const shiftDateStr = new Date().toISOString().slice(0, 10);
+        let taggedRemarks = nextRemarks;
+        if (!/Orig\.\s*Packed:/i.test(taggedRemarks)) {
+          taggedRemarks += ` | Orig. Packed: ${prevEntryDateStr}`;
+        }
+        if (!/SHIFTED FROM SAFETY STOCK/i.test(taggedRemarks)) {
+          taggedRemarks += ` | [SHIFTED FROM SAFETY STOCK on ${shiftDateStr}] | Allocated from Safety Stock`;
+          saved.remarks = taggedRemarks;
+          await this.entryRepo.update(saved.id, { remarks: taggedRemarks });
+        }
+
+        const batchNo = (taggedRemarks.match(/Batch:\s*([^|\]]+)/i)?.[1] || saved.entryNumber || 'PKG-BATCH').trim();
+        const pcs = Number(saved.actualQuantity || 0);
+        const ctnMatch = taggedRemarks.match(/Cartons:\s*([\d.]+)/i);
+        const grsMatch = taggedRemarks.match(/\(([\d.]+)\s*Gross/i) || taggedRemarks.match(/Gross:\s*([\d.]+)/i);
+        const cartons = ctnMatch ? Number(ctnMatch[1]) : Math.round((pcs / 1440) * 100) / 100;
+        const gross = grsMatch ? Number(grsMatch[1]) : Math.round((pcs / 144) * 100) / 100;
+        const fgItem = saved.itemId
+          ? await this.itemRepo.findOne({ where: { id: saved.itemId } }).catch(() => null)
+          : null;
+
+        await this.recordPackingActivityLog({
+          companyId,
+          productionEntryId: saved.id,
+          sourceEntryId: saved.id,
+          entryNumber: saved.entryNumber || null,
+          batchNo,
+          activityType: 'SHIFTED_TO_SOC',
+          activityDate: shiftDateStr,
+          originalPackedDate: prevEntryDateStr,
+          itemId: saved.itemId || null,
+          itemCode: fgItem?.itemCode || null,
+          itemName: fgItem?.name || null,
+          fromCustomer: 'SAFETY STOCK',
+          fromSoc: 'SAFETY_STOCK',
+          customerName: nextCust || 'Customer',
+          socNo: nextSoc,
+          cartons,
+          gross,
+          pcs,
+          status: 'SHIFTED_TO_SOC',
+          notes: `Safety Stock -> ${nextCust || 'Customer'} (${nextSoc}) · ${cartons} CTN (${gross} GRS) · Originally packed ${prevEntryDateStr}`,
+          createdBy: userId ?? null,
+        });
+      }
+    } catch (shiftLogErr: any) {
+      this.logger.warn(`Auto SHIFTED_TO_SOC log on update skipped: ${shiftLogErr?.message || shiftLogErr}`);
+    }
 
     // Live Closed-Loop Tool Life Accumulation: update Current Life on active tools for this machine
     if (this.toolLifecycleService && saved.machineId) {
@@ -4607,6 +4679,20 @@ addToDept(org, {
     const ratio = totalCartons > 0 ? (completedCartons / totalCartons) : 1;
 
     const completionDateStr = dto.completionDate || new Date().toISOString().slice(0, 10);
+    const origPackedDateStr = entry.entryDate
+      ? (typeof entry.entryDate === 'string'
+        ? String(entry.entryDate).slice(0, 10)
+        : new Date(entry.entryDate).toISOString().slice(0, 10))
+      : completionDateStr;
+    const batchMatch = remarks.match(/Batch:\s*([^|\]]+)/i);
+    const batchNo = batchMatch ? batchMatch[1].trim() : (entry.entryNumber || 'PKG-BATCH');
+    const custMatch = remarks.match(/Customer:\s*([^|\]]+)/i);
+    const customerName = custMatch ? custMatch[1].trim() : 'SAFETY STOCK';
+    const socMatch = remarks.match(/SOC:\s*([^|\]]+)/i);
+    const socNo = socMatch ? socMatch[1].trim() : 'SAFETY_STOCK';
+    const fgItem = entry.itemId
+      ? await this.itemRepo.findOne({ where: { id: entry.itemId } }).catch(() => null)
+      : null;
     const targetWhId = dto.warehouseId || 'cf5c9db8-5e84-41d5-a4b4-988b8dfd122d'; // Dedicated WH-002 SPI Nipple Packing Warehouse
 
     let totalPendingGross = 0;
@@ -4725,7 +4811,7 @@ addToDept(org, {
       if (!/Status:\s*COMPLETED/i.test(completedRemarks)) {
         completedRemarks += ' | Status: COMPLETED';
       }
-      completedRemarks += ` | Nipple Stock Deducted: ${completionDateStr} (${deductedGross} GRS / ${deductedPcs} PCS from WH-002) | Partial Completion from ${entry.entryNumber} (${completedCartons} of ${totalCartons} CTN) | Completed by User`;
+      completedRemarks += ` | Orig. Packed: ${origPackedDateStr} | Nipple Stock Deducted: ${completionDateStr} (${deductedGross} GRS / ${deductedPcs} PCS from WH-002) | Partial Completion from ${entry.entryNumber} (${completedCartons} of ${totalCartons} CTN) | Completed by User`;
 
       const completedEntry = this.entryRepo.create({
         companyId: entry.companyId,
@@ -4755,6 +4841,144 @@ addToDept(org, {
       });
       await this.entryRepo.save(completedEntry);
 
+      // Sync OUTPUT lines in production_entry_items for both shrunken parent and new child entry
+      await this.entryItemRepo
+        .createQueryBuilder()
+        .update(ProductionEntryItem)
+        .set({
+          actualQuantity: Number(remainingPcs),
+          targetQuantity: Math.max(0, Math.round(Number(entry.targetQuantity || 0) * remainingRatio)),
+        })
+        .where('productionEntryId = :entryId AND lineNumber < :auditStart', {
+          entryId: entry.id,
+          auditStart: INPUT_AUDIT_LINE_NUMBER,
+        })
+        .execute();
+
+      if (completedEntry.itemId) {
+        const childOutputLine = this.entryItemRepo.create({
+          companyId,
+          productionEntryId: completedEntry.id,
+          lineNumber: 1,
+          entryKind: ProductionEntryItemKind.OUTPUT,
+          itemId: completedEntry.itemId,
+          uomId: completedEntry.uomId,
+          targetQuantity: Number(completedEntry.targetQuantity || deductedPcs),
+          actualQuantity: Number(deductedPcs),
+          scrapQuantity: 0,
+          remarks: completedRemarks,
+        });
+        await this.entryItemRepo.save(childOutputLine);
+      }
+
+      // Atomically transfer or post FG stock_ledger & inventory_balances for the completed FULL_SET child entry.
+      // Note prefix MUST match REVERSAL_ORIGIN_PATTERN (/^Reversal of ([A-Z_]+)\b/) so delta reconciliation
+      // classifies the parent reduction as a PRODUCTION_RECEIPT reversal and never double-reverses it on edit.
+      const fgWhId = entry.warehouseId || completedEntry.warehouseId;
+      const fgUomId = entry.uomId || fgItem?.baseUomId;
+      if (entry.itemId && fgWhId && fgUomId && deductedPcs > 0) {
+        const parentReceipts: Array<{ net_pcs: string | number }> = await this.entryRepo.manager.query(
+          `SELECT COALESCE(SUM(CASE WHEN transaction_type = 'PRODUCTION_RECEIPT' THEN quantity
+                                    WHEN transaction_type = 'PRODUCTION_REVERSAL' THEN -quantity
+                                    ELSE 0 END), 0) AS net_pcs
+             FROM public.stock_ledger
+            WHERE company_id = $1
+              AND item_id = $2
+              AND (reference_id = $3 OR reference_number = $4)
+              AND transaction_type IN ('PRODUCTION_RECEIPT', 'PRODUCTION_REVERSAL')`,
+          [companyId, entry.itemId, entry.id, entry.entryNumber || ''],
+        );
+        const parentNetPcs = Number(parentReceipts?.[0]?.net_pcs || 0);
+
+        if (parentNetPcs >= deductedPcs) {
+          await this.stockLedgerService.create({
+            companyId,
+            transactionType: 'PRODUCTION_REVERSAL',
+            transactionDate: new Date(completionDateStr),
+            itemId: entry.itemId,
+            warehouseId: fgWhId,
+            quantity: deductedPcs,
+            uomId: fgUomId,
+            direction: 'OUT',
+            referenceType: 'PRODUCTION_ENTRY',
+            referenceId: entry.id,
+            referenceNumber: entry.entryNumber ?? undefined,
+            notes: `Reversal of PRODUCTION_RECEIPT for partial nipple completion to ${completedEntry.entryNumber} (${completedCartons} of ${totalCartons} CTN / ${deductedGross} GRS)`,
+            createdBy: userId,
+          });
+        } else {
+          const missingFromBalancePcs = Math.max(0, deductedPcs - Math.max(0, parentNetPcs));
+          if (parentNetPcs > 0) {
+            await this.stockLedgerService.create({
+              companyId,
+              transactionType: 'PRODUCTION_REVERSAL',
+              transactionDate: new Date(completionDateStr),
+              itemId: entry.itemId,
+              warehouseId: fgWhId,
+              quantity: parentNetPcs,
+              uomId: fgUomId,
+              direction: 'OUT',
+              referenceType: 'PRODUCTION_ENTRY',
+              referenceId: entry.id,
+              referenceNumber: entry.entryNumber ?? undefined,
+              notes: `Reversal of PRODUCTION_RECEIPT for partial nipple completion to ${completedEntry.entryNumber}`,
+              createdBy: userId,
+            });
+          }
+          if (missingFromBalancePcs > 0) {
+            await this.inventoryBalanceService.updateBalance(
+              companyId,
+              entry.itemId,
+              fgWhId,
+              null,
+              null,
+              fgUomId,
+              missingFromBalancePcs,
+              'IN',
+            );
+          }
+        }
+
+        await this.stockLedgerService.create({
+          companyId,
+          transactionType: 'PRODUCTION_RECEIPT',
+          transactionDate: new Date(completionDateStr),
+          itemId: entry.itemId,
+          warehouseId: fgWhId,
+          quantity: deductedPcs,
+          uomId: fgUomId,
+          direction: 'IN',
+          referenceType: 'PRODUCTION_ENTRY',
+          referenceId: completedEntry.id,
+          referenceNumber: completedEntry.entryNumber ?? undefined,
+          notes: `Daily production receipt transferred from partial completion of ${entry.entryNumber} (${completedCartons} CTN / ${deductedGross} GRS)`,
+          createdBy: userId,
+        });
+      }
+
+      await this.recordPackingActivityLog({
+        companyId,
+        productionEntryId: completedEntry.id,
+        sourceEntryId: entry.id,
+        entryNumber: completedEntry.entryNumber || entry.entryNumber || null,
+        batchNo,
+        activityType: 'NIPPLE_COMPLETED',
+        activityDate: completionDateStr,
+        originalPackedDate: origPackedDateStr,
+        itemId: entry.itemId || null,
+        itemCode: fgItem?.itemCode || null,
+        itemName: fgItem?.name || null,
+        customerName,
+        socNo,
+        cartons: completedCartons,
+        gross: deductedGross,
+        pcs: deductedPcs,
+        nippleItemCode: nippleItemCode || null,
+        status: 'COMPLETED',
+        notes: `Nipples added (${completedCartons} CTN / ${deductedGross} GRS) — Partial completion from ${entry.entryNumber} (Originally packed ${origPackedDateStr})`,
+        createdBy: userId ?? null,
+      });
+
       return {
         success: true,
         message: `Partial batch completed! ${completedCartons} Cartons finalized with ${deductedGross} GRS (${deductedPcs.toLocaleString()} PCS) of nipple ${nippleItemCode} deducted from WH-002. Remaining ${remainingCartons} Cartons (${remainingGross} GRS) remain in Safety Stock.`,
@@ -4783,11 +5007,81 @@ addToDept(org, {
       if (!/Status:\s*COMPLETED/i.test(cleanRemarks)) {
         cleanRemarks += ' | Status: COMPLETED';
       }
-      cleanRemarks += ` | Nipple Stock Deducted: ${completionDateStr} (${deductedGross} GRS / ${deductedPcs} PCS from WH-002) | Completed by User`;
+      cleanRemarks += ` | Orig. Packed: ${origPackedDateStr} | Nipple Stock Deducted: ${completionDateStr} (${deductedGross} GRS / ${deductedPcs} PCS from WH-002) | Completed by User`;
 
       entry.remarks = cleanRemarks;
       entry.packingMode = 'FULL_SET';
       await this.entryRepo.save(entry);
+
+      // Idempotently ensure the completed FULL_SET entry has its FG receipt posted in stock_ledger & inventory_balances
+      const fgWhIdFull = entry.warehouseId;
+      const fgUomIdFull = entry.uomId || fgItem?.baseUomId;
+      const fullEntryPcs = Number(entry.actualQuantity || deductedPcs || 0);
+      if (entry.itemId && fgWhIdFull && fgUomIdFull && fullEntryPcs > 0) {
+        const existingReceipts: Array<{ net_pcs: string | number }> = await this.entryRepo.manager.query(
+          `SELECT COALESCE(SUM(CASE WHEN transaction_type = 'PRODUCTION_RECEIPT' THEN quantity
+                                    WHEN transaction_type = 'PRODUCTION_REVERSAL' THEN -quantity
+                                    ELSE 0 END), 0) AS net_pcs
+             FROM public.stock_ledger
+            WHERE company_id = $1
+              AND item_id = $2
+              AND (reference_id = $3 OR reference_number = $4)
+              AND transaction_type IN ('PRODUCTION_RECEIPT', 'PRODUCTION_REVERSAL')`,
+          [companyId, entry.itemId, entry.id, entry.entryNumber || ''],
+        );
+        const existingNetPcs = Number(existingReceipts?.[0]?.net_pcs || 0);
+        const missingPcs = Math.max(0, fullEntryPcs - existingNetPcs);
+        if (missingPcs > 0) {
+          await this.inventoryBalanceService.updateBalance(
+            companyId,
+            entry.itemId,
+            fgWhIdFull,
+            null,
+            null,
+            fgUomIdFull,
+            missingPcs,
+            'IN',
+          );
+          await this.stockLedgerService.create({
+            companyId,
+            transactionType: 'PRODUCTION_RECEIPT',
+            transactionDate: new Date(completionDateStr),
+            itemId: entry.itemId,
+            warehouseId: fgWhIdFull,
+            quantity: missingPcs,
+            uomId: fgUomIdFull,
+            direction: 'IN',
+            referenceType: 'PRODUCTION_ENTRY',
+            referenceId: entry.id,
+            referenceNumber: entry.entryNumber ?? undefined,
+            notes: `Daily production receipt on nipple completion (${totalCartons} CTN / ${deductedGross} GRS)`,
+            createdBy: userId,
+          });
+        }
+      }
+
+      await this.recordPackingActivityLog({
+        companyId,
+        productionEntryId: entry.id,
+        sourceEntryId: entry.id,
+        entryNumber: entry.entryNumber || null,
+        batchNo,
+        activityType: 'NIPPLE_COMPLETED',
+        activityDate: completionDateStr,
+        originalPackedDate: origPackedDateStr,
+        itemId: entry.itemId || null,
+        itemCode: fgItem?.itemCode || null,
+        itemName: fgItem?.name || null,
+        customerName,
+        socNo,
+        cartons: totalCartons,
+        gross: deductedGross,
+        pcs: deductedPcs,
+        nippleItemCode: nippleItemCode || null,
+        status: 'COMPLETED',
+        notes: `Nipples added (${totalCartons} CTN / ${deductedGross} GRS) — Full batch completed (Originally packed ${origPackedDateStr})`,
+        createdBy: userId ?? null,
+      });
 
       return {
         success: true,
@@ -4799,6 +5093,132 @@ addToDept(org, {
         deductedGross,
         nippleItemCode,
       };
+    }
+  }
+
+  /**
+   * Persist a transaction-dated packing movement event (NIPPLE_COMPLETED / SHIFTED_TO_SOC)
+   * without duplicating physical spoke production entries.
+   */
+  private async recordPackingActivityLog(log: {
+    companyId: string;
+    productionEntryId?: string | null;
+    sourceEntryId?: string | null;
+    entryNumber?: string | null;
+    batchNo: string;
+    activityType: 'NIPPLE_COMPLETED' | 'SHIFTED_TO_SOC';
+    activityDate: string;
+    originalPackedDate?: string | null;
+    itemId?: string | null;
+    itemCode?: string | null;
+    itemName?: string | null;
+    fromCustomer?: string | null;
+    fromSoc?: string | null;
+    customerName?: string | null;
+    socNo?: string | null;
+    cartons: number;
+    gross: number;
+    pcs: number;
+    nippleItemCode?: string | null;
+    status: string;
+    notes?: string | null;
+    createdBy?: string | null;
+  }) {
+    try {
+      await this.entryRepo.manager.query(
+        `INSERT INTO public.packing_activity_logs (
+          company_id, production_entry_id, source_entry_id, entry_number, batch_no,
+          activity_type, activity_date, original_packed_date, item_id, item_code, item_name,
+          from_customer, from_soc, customer_name, soc_no, cartons, gross, pcs,
+          nipple_item_code, status, notes, created_by
+        ) VALUES (
+          $1, $2, $3, $4, $5,
+          $6, $7, $8, $9, $10, $11,
+          $12, $13, $14, $15, $16, $17, $18,
+          $19, $20, $21, $22
+        )
+        ON CONFLICT (production_entry_id, activity_type, activity_date)
+        WHERE production_entry_id IS NOT NULL
+        DO UPDATE SET
+          cartons = EXCLUDED.cartons,
+          gross = EXCLUDED.gross,
+          pcs = EXCLUDED.pcs,
+          customer_name = EXCLUDED.customer_name,
+          soc_no = EXCLUDED.soc_no,
+          status = EXCLUDED.status,
+          notes = EXCLUDED.notes`,
+        [
+          log.companyId,
+          log.productionEntryId || null,
+          log.sourceEntryId || null,
+          log.entryNumber || null,
+          log.batchNo,
+          log.activityType,
+          log.activityDate,
+          log.originalPackedDate || null,
+          log.itemId || null,
+          log.itemCode || null,
+          log.itemName || null,
+          log.fromCustomer || null,
+          log.fromSoc || null,
+          log.customerName || null,
+          log.socNo || null,
+          log.cartons,
+          log.gross,
+          log.pcs,
+          log.nippleItemCode || null,
+          log.status,
+          log.notes || null,
+          log.createdBy || null,
+        ],
+      );
+    } catch (err) {
+      this.logger.warn(`Failed to write packing_activity_logs row: ${err?.message || err}`);
+    }
+  }
+
+  /**
+   * Read transaction-dated packing movement events (Nipple Completions & Safety Stock Shifts)
+   * for the Packing Production Register and Single-Line Packing Activity & SOC Ledger.
+   */
+  async findPackingActivityLedger(companyId: string, limit = 500) {
+    try {
+      const safeLimit = Math.min(Math.max(Number(limit) || 500, 1), 2000);
+      const rows = await this.entryRepo.manager.query(
+        `SELECT
+           pal.id,
+           pal.production_entry_id AS "productionEntryId",
+           pal.source_entry_id AS "sourceEntryId",
+           pal.entry_number AS "entryNumber",
+           pal.batch_no AS "batchNo",
+           pal.activity_type AS "activityType",
+           TO_CHAR(pal.activity_date, 'YYYY-MM-DD') AS "activityDate",
+           TO_CHAR(pal.original_packed_date, 'YYYY-MM-DD') AS "originalPackedDate",
+           pal.item_id AS "itemId",
+           COALESCE(pal.item_code, i.item_code) AS "itemCode",
+           COALESCE(pal.item_name, i.name) AS "itemName",
+           pal.from_customer AS "fromCustomer",
+           pal.from_soc AS "fromSoc",
+           pal.customer_name AS "customerName",
+           pal.soc_no AS "socNo",
+           pal.cartons::float AS cartons,
+           pal.gross::float AS gross,
+           pal.pcs::float AS pcs,
+           pal.nipple_item_code AS "nippleItemCode",
+           pal.status,
+           pal.notes,
+           pal.created_at AS "createdAt"
+         FROM public.packing_activity_logs pal
+         LEFT JOIN public.items i ON i.id = pal.item_id
+         WHERE pal.company_id = $1
+         ORDER BY pal.activity_date DESC, pal.created_at DESC
+         LIMIT $2`,
+        [companyId, safeLimit],
+      );
+      return rows;
+    } catch (err) {
+      this.logger.warn(`packing_activity_logs query skipped: ${err?.message || err}`);
+      return [];
     }
   }
 }

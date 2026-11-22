@@ -9,18 +9,10 @@ import {
   SettingOutlined,
 } from '@ant-design/icons';
 import { apiService } from '../../services/api';
+import { fetchCommunicationSummary, type ChannelSummary } from '../../services/communicationSummaryService';
 import { useNavigate } from 'react-router-dom';
 
-interface EmailSummary {
-  configured: boolean;
-  provider: string;
-  status: string;
-  queued: number;
-  sending: number;
-  sent: number;
-  failed: number;
-  lastDeliveryAt: string | null;
-}
+type EmailSummary = ChannelSummary;
 
 interface DeliveryRow {
   id: string;
@@ -31,12 +23,7 @@ interface DeliveryRow {
   renderedSubject: string | null;
 }
 
-interface SummaryResponse {
-  success: boolean;
-  data: { email: EmailSummary };
-}
-
-const POLL_INTERVAL_MS = 30000;
+const POLL_INTERVAL_MS = 60000;
 
 const EmailCommunicationIcon: React.FC = () => {
   const [summary, setSummary] = useState<EmailSummary | null>(null);
@@ -46,10 +33,10 @@ const EmailCommunicationIcon: React.FC = () => {
   const mountedRef = useRef(true);
   const navigate = useNavigate();
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (force = false) => {
     try {
-      const res = await apiService.get<SummaryResponse>('/communication/settings/summary', undefined, { silent: true });
-      if (mountedRef.current && res?.data?.email) setSummary(res.data.email);
+      const data = await fetchCommunicationSummary(force);
+      if (mountedRef.current && data?.email) setSummary(data.email);
     } catch { /* non-fatal */ }
   }, []);
 
@@ -85,7 +72,7 @@ const EmailCommunicationIcon: React.FC = () => {
 
   const handleOpenChange = (next: boolean) => {
     setOpen(next);
-    if (next) { loadRecent(); refresh(); }
+    if (next) { void loadRecent(); void refresh(true); }
   };
 
   const totalPending = (summary?.queued || 0) + (summary?.sending || 0);

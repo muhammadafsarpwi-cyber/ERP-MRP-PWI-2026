@@ -111,6 +111,12 @@ export class CreateSalesDeliveryDto {
   @MaxLength(255)
   trackingNumber?: string;
 
+  @ApiPropertyOptional({ description: 'Physical Gate Pass Book serial number' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(60)
+  gatePassNumber?: string;
+
   @ApiPropertyOptional({ description: 'Notes' })
   @IsString()
   @IsOptional()

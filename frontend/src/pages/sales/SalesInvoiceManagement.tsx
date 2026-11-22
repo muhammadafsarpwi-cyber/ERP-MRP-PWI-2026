@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Table, Button, Form, Input, Select, App,
   InputNumber, Descriptions, DatePicker, Tooltip,
-  Modal, Tag, Badge,
+  Modal, Tag, Badge, theme,
 } from 'antd';
 import {
   PlusOutlined, EditOutlined, EyeOutlined, DollarOutlined,
@@ -18,7 +18,8 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 import { formatDecimal } from '../../utils/numberFormat';
-import { DeleteConfirmModal, SaveResultDialog } from '../../components/shared';
+import { DeleteConfirmModal, SaveResultDialog, PreConfirmVerificationCard } from '../../components/shared';
+import { summarizeLinesTaxVerification } from '../../utils/salesTaxVerification';
 import type { SaveResultData, SaveResultPhase } from '../../components/shared/SaveResultDialog';
 import GlobalLoading from '../../components/shared/GlobalLoading';
 import { TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
@@ -106,6 +107,7 @@ const DOCUMENT_TYPES = ['All types', 'invoice', 'quotation', 'proforma'];
 
 const SalesInvoiceManagement: React.FC = () => {
   const { message } = App.useApp();
+  const { token } = theme.useToken();
   const [data, setData] = useState<SalesInvoice[]>([]);
   const [customers, setCustomers] = useState<CustomerOption[]>([]);
   const [loading, setLoading] = useState(false);
@@ -600,7 +602,7 @@ const SalesInvoiceManagement: React.FC = () => {
       const price = prod.price;
       const qty = line.quantity || 1;
       const disc = line.discount || 0;
-      const gst = line.gstRate || 18;
+      const gst = line.gstRate ?? 18;
       const taxable = Math.max(0, (qty * price) - disc);
       const lineTotal = Math.round(taxable * (1 + gst / 100));
       return {
@@ -2027,8 +2029,8 @@ const SalesInvoiceManagement: React.FC = () => {
                             {Number(it.discountAmount) > 0 ? `Rs ${formatDecimal(it.discountAmount)}` : '-'}
                           </td>
                           <td style={{ textAlign: 'right' }}>Rs {formatDecimal(it.taxableAmount || (it.quantity * it.rate))}</td>
-                          <td style={{ textAlign: 'right', color: '#64748b' }}>{it.gstRate || 18}%</td>
-                          <td style={{ textAlign: 'right', color: '#64748b' }}>Rs {formatDecimal(it.gstAmount || it.taxAmount || 0)}</td>
+                          <td style={{ textAlign: 'right', color: token.colorTextSecondary }}>{it.gstRate ?? 18}%</td>
+                          <td style={{ textAlign: 'right', color: token.colorTextSecondary }}>Rs {formatDecimal(it.gstAmount || it.taxAmount || 0)}</td>
                           <td style={{ textAlign: 'right', fontWeight: 800, color: 'var(--inv-text-primary, inherit)' }}>
                             Rs {formatDecimal(it.amount || it.lineTotal)}
                           </td>
@@ -2160,11 +2162,11 @@ const SalesInvoiceManagement: React.FC = () => {
           </div>
         }
         centered
-        width={520}
+        width={780}
         onCancel={() => setConfirmInvoiceVisible(false)}
         footer={[
           <Button key="cancel" onClick={() => setConfirmInvoiceVisible(false)}>
-            Cancel
+            Cancel / Back to Edit
           </Button>,
           <Button
             key="submit"
@@ -2177,46 +2179,51 @@ const SalesInvoiceManagement: React.FC = () => {
           </Button>,
         ]}
       >
-        <div style={{ padding: '12px 0' }}>
-          <p style={{ fontSize: 14, marginBottom: 16 }}>
-            Are you sure you want to {editingItem ? 'update' : pendingPostToLedger ? 'create and post to customer ledger' : 'save draft for'}{' '}
-            <strong style={{ color: '#2563eb', fontSize: 15 }}>
-              {customers.find(c => c.id === createCustomerId)?.name || 'Selected Customer'}
-            </strong>?
-          </p>
-          <div style={{
-            background: 'rgba(30, 41, 59, 0.05)',
-            border: '1px solid rgba(226, 232, 240, 0.4)',
-            borderRadius: 8,
-            padding: '12px 16px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 8,
-            fontSize: 13,
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ color: '#64748b' }}>Document Type:</span>
-              <strong style={{ textTransform: 'uppercase' }}>{createDocType}</strong>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ color: '#64748b' }}>Line Items:</span>
-              <strong>{createLines.length} item(s)</strong>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ color: '#64748b' }}>Payment Terms:</span>
-              <strong>{createPaymentTerms.toUpperCase()}</strong>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ color: '#64748b' }}>Grand Total:</span>
-              <strong style={{ color: '#16a34a', fontSize: 15 }}>PKR {formatDecimal(calculatedGrandTotal)}</strong>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ color: '#64748b' }}>Ledger Posting:</span>
-              <Tag color={pendingPostToLedger ? 'blue' : 'default'}>
-                {pendingPostToLedger ? 'YES — POST DIRECTLY' : 'NO — SAVE DRAFT'}
-              </Tag>
-            </div>
-          </div>
+        <div style={{ padding: '8px 0' }}>
+          <PreConfirmVerificationCard
+            summary={summarizeLinesTaxVerification(createLines, 18)}
+            currency="Rs"
+            showSocColumn={false}
+            onApplyStandardTax={() => {
+              setCreateLines((prev) =>
+                prev.map((l) => {
+                  const taxable = Math.max(0, Number(l.quantity || 0) * Number(l.price || 0) - Number(l.discount || 0));
+                  return {
+                    ...l,
+                    gstRate: 18,
+                    lineTotal: Math.round(taxable * 1.18),
+                  };
+                }),
+              );
+              message.success('Standard 18% Tax applied to all invoice items');
+            }}
+            headerItems={[
+              {
+                label: 'Customer',
+                value: customers.find(c => c.id === createCustomerId)?.name || 'Selected Customer',
+              },
+              {
+                label: 'Document Type',
+                value: createDocType.toUpperCase(),
+              },
+              {
+                label: 'Invoice Date',
+                value: createDate ? createDate.format('DD-MMM-YYYY') : '-',
+              },
+              {
+                label: 'Payment Terms',
+                value: createPaymentTerms.toUpperCase(),
+              },
+              {
+                label: 'Ledger Posting',
+                value: (
+                  <Tag color={pendingPostToLedger ? 'blue' : 'default'} style={{ margin: 0 }}>
+                    {pendingPostToLedger ? 'YES — POST DIRECTLY' : 'NO — SAVE DRAFT'}
+                  </Tag>
+                ),
+              },
+            ]}
+          />
         </div>
       </Modal>
 

@@ -7,6 +7,8 @@ import {
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import apiService from '../../services/api';
+import { fetchCachedCustomers } from '../../services/lookupsCache';
+import { TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import { DateRangePreset, dateRangePresetToFilters } from './dashboardShared';
 import type { DashboardFilters } from '../../services/dashboardService';
 
@@ -231,6 +233,43 @@ const DEFAULT_THIS_MONTH_SUMMARY: PeriodSummaryData = {
   ordersCount: 3,
 };
 
+const TOP_SALES_CACHE_TTL_MS = 45_000;
+let cachedSalesPayload: {
+  rawDelivs: any[];
+  rawOrders: any[];
+  fetchedAt: number;
+} | null = null;
+let inFlightSalesFetch: Promise<{ rawDelivs: any[]; rawOrders: any[] }> | null = null;
+
+async function fetchSalesSnapshot(force = false): Promise<{ rawDelivs: any[]; rawOrders: any[] }> {
+  const now = Date.now();
+  if (!force && cachedSalesPayload && now - cachedSalesPayload.fetchedAt < TOP_SALES_CACHE_TTL_MS) {
+    return { rawDelivs: cachedSalesPayload.rawDelivs, rawOrders: cachedSalesPayload.rawOrders };
+  }
+  if (inFlightSalesFetch) {
+    return inFlightSalesFetch;
+  }
+  inFlightSalesFetch = (async () => {
+    try {
+      const [delivRes, ordersRes] = await Promise.allSettled([
+        apiService.get('/sales/deliveries?limit=500&status=all', undefined, { silent: true, useEtag: true }),
+        apiService.get('/sales/orders?limit=500&status=all', undefined, { silent: true, useEtag: true }),
+      ]);
+      const rawDelivs: any[] = delivRes.status === 'fulfilled'
+        ? ((delivRes.value as any)?.data?.data || (delivRes.value as any)?.data || [])
+        : [];
+      const rawOrders: any[] = ordersRes.status === 'fulfilled'
+        ? ((ordersRes.value as any)?.data?.data || (ordersRes.value as any)?.data || [])
+        : [];
+      cachedSalesPayload = { rawDelivs, rawOrders, fetchedAt: Date.now() };
+      return { rawDelivs, rawOrders };
+    } finally {
+      inFlightSalesFetch = null;
+    }
+  })();
+  return inFlightSalesFetch;
+}
+
 export const TopCustomersRow: React.FC<TopCustomersRowProps> = ({
   customers,
   loading: externalLoading,
@@ -256,6 +295,19 @@ export const TopCustomersRow: React.FC<TopCustomersRowProps> = ({
   );
 
   const [internalLoading, setInternalLoading] = useState(false);
+  const [refreshNonce, setRefreshNonce] = useState(0);
+
+  useEffect(() => {
+    const onRefresh = (evt: Event) => {
+      const detail = (evt as CustomEvent<{ tabId?: string }>)?.detail;
+      if (!detail?.tabId || detail.tabId === '/dashboard' || String(detail.tabId).startsWith('/dashboard/')) {
+        cachedSalesPayload = null;
+        setRefreshNonce((n) => n + 1);
+      }
+    };
+    window.addEventListener(TAB_REFRESH_EVENT, onRefresh);
+    return () => window.removeEventListener(TAB_REFRESH_EVENT, onRefresh);
+  }, []);
 
   // Compute active date filters
   const effectiveDateRange = useMemo(() => {
@@ -271,21 +323,14 @@ export const TopCustomersRow: React.FC<TopCustomersRowProps> = ({
     const fetchTopCustomers = async () => {
       try {
         setInternalLoading(true);
-        const [delivRes, ordersRes, custMetaRes] = await Promise.allSettled([
-          apiService.get('/sales/deliveries?limit=500&status=all'),
-          apiService.get('/sales/orders?limit=500&status=all'),
-          apiService.get('/customer/customers?limit=500'),
+        const [salesSnap, custList] = await Promise.all([
+          fetchSalesSnapshot(refreshNonce > 0),
+          fetchCachedCustomers(),
         ]);
 
-        const rawDelivs: any[] = delivRes.status === 'fulfilled'
-          ? ((delivRes.value as any)?.data?.data || (delivRes.value as any)?.data || [])
-          : [];
-        const rawOrders: any[] = ordersRes.status === 'fulfilled'
-          ? ((ordersRes.value as any)?.data?.data || (ordersRes.value as any)?.data || [])
-          : [];
-        const rawCusts: any[] = custMetaRes.status === 'fulfilled'
-          ? ((custMetaRes.value as any)?.data?.data || (custMetaRes.value as any)?.data || [])
-          : [];
+        const rawDelivs: any[] = salesSnap.rawDelivs;
+        const rawOrders: any[] = salesSnap.rawOrders;
+        const rawCusts: any[] = Array.isArray(custList) ? custList : [];
 
         // Build master customer directory
         const customerDir = new Map<string, { id: string; name: string; code: string }>();
@@ -446,7 +491,7 @@ export const TopCustomersRow: React.FC<TopCustomersRowProps> = ({
 
     fetchTopCustomers();
     return () => { isMounted = false; };
-  }, [effectiveDateRange, dateRangePreset, isPrevMonth]);
+  }, [effectiveDateRange, dateRangePreset, isPrevMonth, refreshNonce]);
 
   const displayList = customers && customers.length > 0 ? customers : liveCustomers;
   const rowTitle = getPresetTitle(dateRangePreset);

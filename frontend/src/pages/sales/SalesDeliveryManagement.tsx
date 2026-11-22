@@ -11,13 +11,19 @@ import {
   CalendarOutlined, NumberOutlined, ShopOutlined, FileTextOutlined,
   BranchesOutlined, SafetyCertificateOutlined, ApartmentOutlined, WarningFilled,
   CloseOutlined, ClearOutlined, DeleteOutlined, CheckCircleOutlined,
-  LoadingOutlined,
+  LoadingOutlined, RollbackOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 import { formatDecimal } from '../../utils/numberFormat';
-import { ERPLineItems, ERPLine, DraggableResizableModal } from '../../components/shared';
+import { ERPLineItems, ERPLine, DraggableResizableModal, PreConfirmVerificationCard } from '../../components/shared';
+import { resolveEffectiveTaxPercent, summarizeLinesTaxVerification } from '../../utils/salesTaxVerification';
 import { TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
+import {
+  getLookupsSnapshot,
+  prefetchAllLookups,
+  fetchCachedCustomers,
+} from '../../services/lookupsCache';
 import { useHeaderActions } from '../../components/layout/headerActionsStore';
 import dayjs from 'dayjs';
 import isSameOrBefore from 'dayjs/plugin/isSameOrBefore';
@@ -53,6 +59,7 @@ interface SalesDelivery {
   shipToAddress?: string;
   carrier: string;
   trackingNumber: string;
+  gatePassNumber?: string | null;
   subtotal: number;
   taxAmount: number;
   totalAmount: number;
@@ -99,7 +106,7 @@ interface SalesDelivery {
 
 interface DeliveryActionConfirmState {
   visible: boolean;
-  actionKey: 'view' | 'print_challan' | 'gate_pass' | 'edit' | 'ship' | 'deliver' | 'confirm' | 'invoice' | 'cancel' | 'delete' | string;
+  actionKey: 'view' | 'print_challan' | 'gate_pass' | 'edit' | 'ship' | 'deliver' | 'confirm' | 'invoice' | 'cancel' | 'restore' | 'delete' | string;
   title: string;
   actionBadge: string;
   badgeBg: string;
@@ -165,6 +172,7 @@ const SalesDeliveryManagement: React.FC = () => {
   }, [routeTabId]);
 
   const [data, setData] = useState<SalesDelivery[]>([]);
+  const [nextGatePassSuggestion, setNextGatePassSuggestion] = useState<string>('GP-0001');
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -206,6 +214,7 @@ const SalesDeliveryManagement: React.FC = () => {
   const [pendingSavePayload, setPendingSavePayload] = useState<any>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [confirmModal, setConfirmModal] = useState<DeliveryActionConfirmState>(initialConfirmModalState);
+  const [applyingConfirmTax, setApplyingConfirmTax] = useState(false);
   const [form] = Form.useForm();
   const [lineItems, setLineItems] = useState<ERPLine[]>([]);
   const [companyId, setCompanyId] = useState('');
@@ -226,16 +235,49 @@ const SalesDeliveryManagement: React.FC = () => {
     if (erpUser) {
       try { const p = JSON.parse(erpUser); if (p?.defaultCompanyId) setCompanyId(p.defaultCompanyId); } catch { /* ignore */ }
     }
+
+    // Seed divisions, customers, and warehouses synchronously from global lookupsCache
+    const snap = getLookupsSnapshot();
+    if (snap.divisions.length > 0) {
+      setDivisions(snap.divisions as any[]);
+    }
+    if (snap.warehouses.length > 0) {
+      setWarehouses(snap.warehouses.map((wh) => ({
+        id: wh.id,
+        warehouseCode: wh.warehouseCode,
+        name: wh.name,
+        divisionId: wh.divisionId || undefined,
+      })));
+    }
+    if (Array.isArray(snap.customers) && snap.customers.length > 0) {
+      setCustomers(snap.customers.map((cust) => ({
+        id: cust.id,
+        name: cust.name || cust.companyName || cust.legalName || 'Unnamed Customer',
+        companyName: cust.companyName || cust.name,
+        customerCode: cust.customerCode,
+        divisionId: cust.divisionId || undefined,
+      })));
+    }
+
     (async () => {
       try {
-        const divRes = await apiService.get<any>('/divisions', { limit: 50, status: 'ACTIVE' });
-        const list = Array.isArray(divRes) ? divRes : (divRes?.data || divRes?.items || []);
-        setDivisions(Array.isArray(list) ? list.filter((d: any) => d.status === 'ACTIVE' || d.isActive !== false) : []);
+        const refreshedSnap = await prefetchAllLookups();
+        if (refreshedSnap.divisions.length > 0) {
+          setDivisions(refreshedSnap.divisions as any[]);
+        }
+        if (refreshedSnap.warehouses.length > 0) {
+          setWarehouses(refreshedSnap.warehouses.map((wh) => ({
+            id: wh.id,
+            warehouseCode: wh.warehouseCode,
+            name: wh.name,
+            divisionId: wh.divisionId || undefined,
+          })));
+        }
       } catch { /* ignore */ }
       try {
         const combinedMap = new Map<string, any>();
         try {
-          const sc = await apiService.get<any>('/sales/orders/meta/customers');
+          const sc = await apiService.get<any>('/sales/orders/meta/customers', undefined, { useEtag: true });
           const scList = Array.isArray(sc) ? sc : (sc?.data || []);
           scList.forEach((cust: any) => {
             if (cust?.id) {
@@ -251,9 +293,8 @@ const SalesDeliveryManagement: React.FC = () => {
         } catch { /* ignore */ }
 
         try {
-          const c = await apiService.get<any>('/customer/customers', { limit: 100 });
-          const list = Array.isArray(c) ? c : (c?.data || c?.items || []);
-          list.forEach((cust: any) => {
+          const cachedCusts = await fetchCachedCustomers();
+          cachedCusts.forEach((cust: any) => {
             if (cust?.id && !combinedMap.has(cust.id)) {
               combinedMap.set(cust.id, {
                 id: cust.id,
@@ -269,17 +310,7 @@ const SalesDeliveryManagement: React.FC = () => {
         setCustomers(Array.from(combinedMap.values()));
       } catch { /* ignore */ }
       try {
-        const w = await apiService.get<any>('/warehouses', { limit: 100 });
-        const wList = Array.isArray(w) ? w : (w?.data || w?.items || []);
-        setWarehouses(wList.map((wh: any) => ({
-          id: wh.id,
-          warehouseCode: wh.warehouseCode,
-          name: wh.name,
-          divisionId: wh.divisionId || wh.division_id || wh.division?.id,
-        })));
-      } catch { /* ignore */ }
-      try {
-        const soRes = await apiService.get<any>('/sales/orders', { limit: 100 });
+        const soRes = await apiService.get<any>('/sales/orders', { limit: 100 }, { useEtag: true });
         const list = Array.isArray(soRes) ? soRes : (soRes?.data || []);
         setAllSalesOrders(list);
       } catch { /* ignore */ }
@@ -330,10 +361,13 @@ const SalesDeliveryManagement: React.FC = () => {
       if (search) params.search = search;
       if (filterCustomer) params.customerId = filterCustomer;
       if (filterStatus && filterStatus !== 'All statuses') params.status = filterStatus;
-      const response = await apiService.get<{ data: SalesDelivery[]; total: number }>('/sales/deliveries', params);
+      const response = await apiService.get<{ data: SalesDelivery[]; total: number; nextGatePassNumber?: string }>('/sales/deliveries', params);
       const items = response.data || [];
       setData(items);
       setTotal(response.total || items.length);
+      if (response.nextGatePassNumber) {
+        setNextGatePassSuggestion(response.nextGatePassNumber);
+      }
     } catch {
       message.error('Failed to fetch deliveries');
     } finally {
@@ -426,12 +460,13 @@ const SalesDeliveryManagement: React.FC = () => {
       message.warning('No delivery records to export');
       return;
     }
-    const headers = ['Delivery #', 'Customer', 'Delivery Date', 'Expected Date', 'Carrier', 'Tracking #', 'Subtotal', 'Tax', 'Total Amount', 'Status'];
+    const headers = ['Delivery #', 'Gate Pass #', 'Customer', 'Delivery Date', 'Expected Date', 'Carrier', 'Tracking #', 'Subtotal', 'Tax', 'Total Amount', 'Status'];
     const rows = displayedDeliveries.map(d => {
       const cust = customers.find(c => c.id === d.customerId);
       const custName = cust?.companyName || cust?.name || d.companyName || d.customerId;
       return [
         `"${d.deliveryNumber}"`,
+        `"${d.gatePassNumber || ''}"`,
         `"${custName}"`,
         `"${d.deliveryDate || ''}"`,
         `"${d.expectedDate || ''}"`,
@@ -473,31 +508,52 @@ const SalesDeliveryManagement: React.FC = () => {
   // Outward Gate Pass Document Print
   const handlePrintOutwardGatePass = useCallback((record: any) => {
     const lines = record.lines || [];
-    
-    // Calculate unique SOC numbers across delivery and lines
-    const uniqueSocs = Array.from(
-      new Set(
-        [
-          record.salesOrderNumber,
-          record.salesOrder?.orderNumber,
-          ...lines.map((l: any) => l.salesOrderNumber || l.salesOrder?.orderNumber).filter(Boolean),
-        ].filter(Boolean)
-      )
-    );
-    const socDisplay = uniqueSocs.length === 1 ? String(uniqueSocs[0]) : uniqueSocs.length > 1 ? uniqueSocs.join(', ') : (record.salesOrderId ? `SOC-${record.salesOrderId.slice(0, 8)}` : '-');
 
-    // Calculate customer PO
-    const uniquePos = Array.from(
-      new Set(
-        [
-          record.customerPo,
-          record.salesOrder?.customerPo,
-          record.poNumber,
-          ...lines.map((l: any) => l.customerPo).filter(Boolean),
-        ].filter(Boolean)
-      )
-    );
-    const poDisplay = uniquePos.length > 0 ? uniquePos.join(', ') : (record.customerPo || '-');
+    const dedupeCsvTokens = (values: Array<string | null | undefined>): string[] => {
+      const seen = new Set<string>();
+      const out: string[] = [];
+      values.forEach((val) => {
+        if (!val) return;
+        String(val)
+          .split(',')
+          .map((s) => s.trim())
+          .filter((s) => s && s !== '-')
+          .forEach((tok) => {
+            const key = tok.toUpperCase();
+            if (!seen.has(key)) {
+              seen.add(key);
+              out.push(tok);
+            }
+          });
+      });
+      return out;
+    };
+
+    const extractLineSoc = (l: any): string | undefined => {
+      const descMatch = String(l.description || l.itemName || '').match(/\[SOC:\s*([^\]]+)\]/i);
+      const raw = l.socNumber || l.salesOrderNumber || l.salesOrder?.orderNumber || descMatch?.[1];
+      return raw ? String(raw).trim() : undefined;
+    };
+
+    // Calculate unique SOC numbers across line items and delivery header
+    const lineSocs = lines.map(extractLineSoc).filter(Boolean) as string[];
+    const uniqueSocs = dedupeCsvTokens([
+      ...lineSocs,
+      record.salesOrderNumber,
+      record.salesOrder?.orderNumber,
+    ]);
+    const socDisplay = uniqueSocs.length > 0
+      ? uniqueSocs.join(', ')
+      : (record.salesOrderId ? `SOC-${record.salesOrderId.slice(0, 8)}` : '-');
+
+    // Calculate unique customer POs
+    const uniquePos = dedupeCsvTokens([
+      ...lines.map((l: any) => l.customerPo),
+      record.customerPo,
+      record.salesOrder?.customerPo,
+      record.poNumber,
+    ]);
+    const poDisplay = uniquePos.length > 0 ? uniquePos.join(', ') : '-';
 
     // Calculate dispatch frequency (1st time, 2nd time, etc.)
     const soId = record.salesOrderId;
@@ -506,62 +562,248 @@ const SalesDeliveryManagement: React.FC = () => {
     const dispatchSeqNum = dispatchIdx >= 0 ? dispatchIdx + 1 : (sameSoDeliveries.length > 0 ? sameSoDeliveries.length + 1 : 1);
     const dispatchSequenceText = `${dispatchSeqNum === 1 ? '1st Dispatch (First Time)' : dispatchSeqNum === 2 ? '2nd Dispatch' : dispatchSeqNum === 3 ? '3rd Dispatch' : `${dispatchSeqNum}th Dispatch`}`;
 
-    const matchedDiv = divisions.find(d => d.id === (record.divisionId || modalDivisionId || record.customer?.divisionId));
+    const matchedCustomer = customers.find((c) => c.id === record.customerId) || record.customer;
+    const matchedOrder = allSalesOrders.find((o: any) => o.id === record.salesOrderId) || record.salesOrder;
+    const resolvedDivId = record.divisionId || matchedOrder?.divisionId || matchedOrder?.division?.id || matchedCustomer?.divisionId || modalDivisionId;
+    const matchedDiv = divisions.find((d) => d.id === resolvedDivId);
+    const cleanDivisionName = String(matchedDiv?.name || record.divisionName || 'Spoke Division')
+      .replace(/\s*\(DIV-[^)]+\)$/i, '')
+      .trim() || 'Spoke Division';
+
+    const formatDispatchOrdinal = (n: number): string => {
+      const safe = Math.max(1, Math.round(n));
+      const mod100 = safe % 100;
+      if (mod100 >= 11 && mod100 <= 13) return `${safe}th Dispatch`;
+      switch (safe % 10) {
+        case 1: return `${safe}st Dispatch`;
+        case 2: return `${safe}nd Dispatch`;
+        case 3: return `${safe}rd Dispatch`;
+        default: return `${safe}th Dispatch`;
+      }
+    };
+
+    const shippedStatuses = new Set(['CONFIRMED', 'DELIVERED', 'SHIPPED']);
+
+    // Build accurate per-SOC chronological dispatch sequences from backend summary & delivery register
+    const summaryBySoc = new Map<string, any>();
+    (Array.isArray(record.salesOrdersSummary) ? record.salesOrdersSummary : []).forEach((s: any) => {
+      if (s?.socNumber) summaryBySoc.set(String(s.socNumber).trim().toUpperCase(), s);
+    });
+
+    const getDelivSocs = (del: any): string[] => {
+      const dLines = Array.isArray(del?.lines) ? del.lines : [];
+      return dedupeCsvTokens([
+        del?.salesOrderNumber,
+        del?.salesOrder?.orderNumber,
+        ...dLines.map((dl: any) => extractLineSoc(dl)),
+      ]);
+    };
+
+    // Sort all known non-cancelled deliveries chronologically: deliveryDate ASC, createdAt ASC, deliveryNumber ASC
+    const allChronoDeliveries = [...data]
+      .filter((d: any) => {
+        const st = String(d?.status || 'DRAFT').toUpperCase();
+        if (st === 'CANCELLED') return false;
+        return shippedStatuses.has(st) || (record.id && d.id === record.id);
+      })
+      .sort((a: any, b: any) => {
+        const da = String(a?.deliveryDate || '').slice(0, 10);
+        const db = String(b?.deliveryDate || '').slice(0, 10);
+        if (da !== db) return da.localeCompare(db);
+        const ca = String(a?.createdAt || '');
+        const cb = String(b?.createdAt || '');
+        if (ca !== cb) return ca.localeCompare(cb);
+        return String(a?.deliveryNumber || '').localeCompare(String(b?.deliveryNumber || ''));
+      });
+
+    if (record.id && !allChronoDeliveries.some((d: any) => d.id === record.id)) {
+      allChronoDeliveries.push(record);
+    }
+
+    const socSeqLookup = new Map<string, { dispatchOrdinal: number; dispatchLabel: string; totalSocDispatches: number; isFinalDispatch?: boolean }>();
+    uniqueSocs.forEach((soc) => {
+      const key = soc.toUpperCase();
+      const fromBackend = summaryBySoc.get(key);
+      if (fromBackend?.dispatchOrdinal) {
+        socSeqLookup.set(key, {
+          dispatchOrdinal: Number(fromBackend.dispatchOrdinal),
+          dispatchLabel: fromBackend.dispatchLabel || formatDispatchOrdinal(Number(fromBackend.dispatchOrdinal)),
+          totalSocDispatches: Number(fromBackend.totalSocDispatches || fromBackend.dispatchOrdinal),
+          isFinalDispatch: Boolean(fromBackend.isFinalDispatch),
+        });
+        return;
+      }
+
+      const matchingDelivs = allChronoDeliveries.filter((d: any) =>
+        getDelivSocs(d).some((ds) => ds.toUpperCase() === key),
+      );
+      if (matchingDelivs.length > 0) {
+        const idx = record.id ? matchingDelivs.findIndex((d: any) => d.id === record.id) : matchingDelivs.length - 1;
+        const ord = idx >= 0 ? idx + 1 : matchingDelivs.length + 1;
+        const tot = idx >= 0 ? matchingDelivs.length : matchingDelivs.length + 1;
+        socSeqLookup.set(key, {
+          dispatchOrdinal: ord,
+          dispatchLabel: formatDispatchOrdinal(ord),
+          totalSocDispatches: tot,
+          isFinalDispatch: Boolean(fromBackend?.isCompleted),
+        });
+      } else {
+        const ord = Number(dispatchSeqNum) || 1;
+        socSeqLookup.set(key, {
+          dispatchOrdinal: ord,
+          dispatchLabel: formatDispatchOrdinal(ord),
+          totalSocDispatches: ord,
+        });
+      }
+    });
+
+    // Helper: prior shipped qty across other confirmed/shipped/delivered DNs strictly matching (soc, itemId/itemCode)
+    const getPriorShippedForSocItem = (soc: string | undefined, itemId: string | undefined, itemCode: string | undefined): number => {
+      if (!soc) return 0;
+      const socKey = soc.toUpperCase();
+      let sum = 0;
+      allChronoDeliveries.forEach((d: any) => {
+        if (record.id && d.id === record.id) return;
+        const st = String(d?.status || '').toUpperCase();
+        if (!shippedStatuses.has(st)) return;
+        (d.lines || []).forEach((dl: any) => {
+          const dlSoc = extractLineSoc(dl) || (d.salesOrder?.orderNumber ? String(d.salesOrder.orderNumber).trim() : undefined);
+          if (!dlSoc || dlSoc.toUpperCase() !== socKey) return;
+          const matchesItem =
+            (itemId && (dl.itemId === itemId || dl.item?.id === itemId)) ||
+            (itemCode && (dl.itemCode === itemCode || dl.item?.itemCode === itemCode));
+          if (matchesItem) {
+            sum += Number(dl.quantity || 0);
+          }
+        });
+      });
+      return sum;
+    };
+
+    const computedItems = lines.map((it: any, idx: number) => {
+      const lineSoc = extractLineSoc(it) || (uniqueSocs.length === 1 ? uniqueSocs[0] : undefined);
+      const linkedOrder = (lineSoc ? allSalesOrders.find((o: any) => o.orderNumber === lineSoc) : undefined) || matchedOrder;
+      const linkedOrderItem = linkedOrder?.items?.find((oi: any) =>
+        (it.itemId && oi.itemId === it.itemId) || (it.itemCode && (oi.item?.itemCode === it.itemCode || oi.itemCode === it.itemCode))
+      );
+
+      const orderQty = it.orderQuantity != null
+        ? Number(it.orderQuantity)
+        : (it.orderedQuantity != null
+          ? Number(it.orderedQuantity)
+          : (linkedOrderItem?.quantity != null ? Number(linkedOrderItem.quantity) : undefined));
+      const currentQty = Number(it.quantity) || 1;
+
+      const isRecordAlreadyShipped = shippedStatuses.has(String(record.status || '').toUpperCase());
+      let bal: number | undefined;
+      if (it.balanceQuantity != null && isRecordAlreadyShipped) {
+        bal = Number(it.balanceQuantity);
+      } else if (it.orderBalance != null) {
+        bal = Number(it.orderBalance) - currentQty;
+      } else if (orderQty != null) {
+        const priorConfirmedOther = getPriorShippedForSocItem(lineSoc, it.itemId, it.itemCode || it.item?.itemCode);
+        const soShipped = Number(linkedOrderItem?.shippedQuantity ?? 0);
+        const priorShipped = isRecordAlreadyShipped
+          ? Math.max(soShipped, priorConfirmedOther + currentQty)
+          : Math.max(soShipped, priorConfirmedOther) + currentQty;
+        bal = Math.max(0, orderQty - priorShipped);
+      }
+
+      const uom = it.uom?.code || it.uomCode || it.uom || 'GRS';
+      const isMeter = isMeterUomCode(uom);
+      const rawPkgUnit = it.packagingUnit || it.item?.packagingUnit || (isMeter ? 'Coil' : 'Carton');
+      const pkgUnit = /^(ctn|carton|cartons)$/i.test(rawPkgUnit) ? 'Carton' : rawPkgUnit;
+      const pkgSize = Number(it.packagingSize || it.item?.packagingSize) || (isMeter ? 0 : 10);
+      const pkgQty = it.packageQuantity != null
+        ? Number(it.packageQuantity)
+        : (pkgSize > 1 ? Number((currentQty / pkgSize).toFixed(2)) : undefined);
+      const finWpm = it.finishedWeightPerMeter ?? it.item?.finishedWeightPerMeter;
+      const rawWpm = it.weightPerMeter ?? it.item?.weightPerMeter;
+      const effectiveWpm = isMeter
+        ? ((finWpm != null && Number(finWpm) > 0) ? Number(finWpm) : ((rawWpm != null && Number(rawWpm) > 0) ? Number(rawWpm) : 0))
+        : 0;
+      const meterWeightKg = isMeter && effectiveWpm > 0
+        ? Number((currentQty * effectiveWpm).toFixed(3))
+        : (isMeter && it.totalWeightKg != null ? Number(it.totalWeightKg) : undefined);
+
+      const rawItemName = it.item?.name || it.itemName || it.description || `Delivered Product ${idx + 1}`;
+      const cleanItemName = String(rawItemName)
+        .replace(/\s*\[SOC:\s*[^\]]+\]/gi, '')
+        .replace(/\s*\(\d+(?:\.\d+)?\s*(?:CTN|Carton)[^)]*\)/gi, '')
+        .trim();
+
+      const seqMeta = lineSoc ? socSeqLookup.get(lineSoc.toUpperCase()) : undefined;
+      const rowOrdinal = it.dispatchOrdinal != null ? Number(it.dispatchOrdinal) : seqMeta?.dispatchOrdinal;
+      const rowTotalDispatches = it.totalSocDispatches != null ? Number(it.totalSocDispatches) : seqMeta?.totalSocDispatches;
+      const rowLabel = it.dispatchLabel || seqMeta?.dispatchLabel || (rowOrdinal ? formatDispatchOrdinal(rowOrdinal) : undefined);
+      const safeBal = bal != null ? Math.max(0, Math.round(bal * 100) / 100) : undefined;
+      const rowIsFinal = it.isFinalDispatch !== undefined
+        ? Boolean(it.isFinalDispatch)
+        : (orderQty != null && safeBal != null && safeBal <= 0.001);
+
+      return {
+        itemCode: it.itemCode || it.item?.itemCode || `SKU-00${idx + 1}`,
+        itemName: cleanItemName,
+        socNumber: lineSoc,
+        customerPo: it.customerPo || linkedOrder?.customerPo || (uniquePos.length === 1 ? uniquePos[0] : undefined),
+        orderQuantity: orderQty,
+        quantity: currentQty,
+        balanceQuantity: safeBal,
+        dispatchOrdinal: rowOrdinal,
+        dispatchLabel: rowLabel,
+        totalSocDispatches: rowTotalDispatches,
+        isFinalDispatch: rowIsFinal,
+        uom,
+        packageQuantity: pkgQty,
+        packagingUnit: pkgUnit,
+        packagingSize: pkgSize > 0 ? pkgSize : undefined,
+        packaging: pkgQty != null && pkgQty > 0 ? `${pkgQty} ${pkgUnit}` : (it.packaging || (isMeter ? `${currentQty} M` : `${Number((currentQty / 10).toFixed(1))} Carton`)),
+        weightKg: meterWeightKg,
+        weightPerMeter: effectiveWpm > 0 ? effectiveWpm : undefined,
+        remarks: it.remarks || it.notes || '-',
+      };
+    });
+
+    const dispatchSequences = uniqueSocs.map((soc) => {
+      const meta = socSeqLookup.get(soc.toUpperCase());
+      const matchingItems = computedItems.filter((ci: any) => ci.socNumber && ci.socNumber.toUpperCase() === soc.toUpperCase());
+      const allSocLinesFinal = meta?.isFinalDispatch !== undefined
+        ? meta.isFinalDispatch
+        : (matchingItems.length > 0 && matchingItems.every((ci: any) => ci.balanceQuantity != null && ci.balanceQuantity <= 0.001));
+      const ord = meta?.dispatchOrdinal || 1;
+      return {
+        socNumber: soc,
+        dispatchOrdinal: ord,
+        dispatchLabel: meta?.dispatchLabel || formatDispatchOrdinal(ord),
+        totalSocDispatches: meta?.totalSocDispatches || ord,
+        isFinalDispatch: allSocLinesFinal,
+      };
+    });
+
+    const dispatchSequenceSummary = dispatchSequences.length > 0
+      ? dispatchSequences.map((s) => `${s.socNumber}: ${s.dispatchLabel}`).join(' · ')
+      : dispatchSequenceText;
 
     printGatePassDocument({
       passType: 'OUTWARD',
-      gatePassNo: `GP-OUT-${record.deliveryNumber?.replace(/[^a-zA-Z0-9]/g, '') || Date.now().toString().slice(-6)}`,
+      gatePassNo: record.gatePassNumber?.trim() || `GP-OUT-${record.deliveryNumber?.replace(/[^a-zA-Z0-9]/g, '') || Date.now().toString().slice(-6)}`,
       referenceNo: record.deliveryNumber,
       customerPo: poDisplay,
       socNumber: socDisplay,
-      divisionName: matchedDiv?.name || record.divisionName || 'Wire Drawing Division',
-      dispatchSequence: record.dispatchSequence || dispatchSequenceText,
+      divisionName: cleanDivisionName,
+      dispatchSequence: dispatchSequenceSummary,
+      dispatchSequences,
       date: record.deliveryDate ? dayjs(record.deliveryDate).format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'),
       time: dayjs().format('hh:mm A'),
-      partyName: record.companyName || record.customer?.companyName || record.customer?.name || getCustomerDisplayName(record.customerId) || 'Valued Customer',
+      partyName: record.companyName || matchedCustomer?.companyName || matchedCustomer?.name || getCustomerDisplayName(record.customerId) || 'Valued Customer',
       vehicleNumber: record.vehicleNo || record.vehicleNumber || record.trackingNumber || 'Company Vehicle Fleet',
       driverName: record.driverName || record.driver || 'Driver on Duty',
       driverCnic: record.driverCnic || record.cnic,
       transporter: record.carrier || record.transporter || 'PWI Logistics Dispatch',
       remarks: record.notes || 'Outward customer delivery dispatch under security authorization',
-      items: lines.map((it: any, idx: number) => {
-        const orderQty = it.orderQuantity != null ? Number(it.orderQuantity) : (it.orderedQuantity != null ? Number(it.orderedQuantity) : undefined);
-        const currentQty = Number(it.quantity) || 1;
-        const bal = it.orderBalance != null ? Number(it.orderBalance) - currentQty : (orderQty != null ? Math.max(0, orderQty - currentQty) : it.balanceQuantity);
-        const uom = it.uomCode || it.uom || 'GRS';
-        const isMeter = isMeterUomCode(uom);
-        const pkgUnit = it.packagingUnit || (isMeter ? 'Coil' : 'CTN');
-        const pkgSize = Number(it.packagingSize) || (isMeter ? 0 : 10);
-        const pkgQty = it.packageQuantity != null ? Number(it.packageQuantity) : (pkgSize > 1 ? Number((currentQty / pkgSize).toFixed(2)) : undefined);
-        const finWpm = it.finishedWeightPerMeter ?? it.item?.finishedWeightPerMeter;
-        const rawWpm = it.weightPerMeter ?? it.item?.weightPerMeter;
-        const effectiveWpm = isMeter
-          ? ((finWpm != null && Number(finWpm) > 0) ? Number(finWpm) : ((rawWpm != null && Number(rawWpm) > 0) ? Number(rawWpm) : 0))
-          : 0;
-        const meterWeightKg = isMeter && effectiveWpm > 0
-          ? Number((currentQty * effectiveWpm).toFixed(3))
-          : (isMeter && it.totalWeightKg != null ? Number(it.totalWeightKg) : undefined);
-        const descSocMatch = (it.description || '').match(/\[SOC:\s*([^\]]+)\]/);
-        const lineSoc = it.socNumber || it.salesOrderNumber || (descSocMatch ? descSocMatch[1] : undefined) || (uniqueSocs.length === 1 ? String(uniqueSocs[0]) : undefined);
-        return {
-          itemCode: it.itemCode || `SKU-00${idx + 1}`,
-          itemName: it.itemName || it.description || `Delivered Product ${idx + 1}`,
-          socNumber: lineSoc,
-          customerPo: it.customerPo || (uniquePos.length === 1 ? String(uniquePos[0]) : undefined),
-          orderQuantity: orderQty,
-          quantity: currentQty,
-          balanceQuantity: bal != null ? Math.max(0, bal) : undefined,
-          uom,
-          packageQuantity: pkgQty,
-          packagingUnit: pkgUnit,
-          packaging: pkgQty != null && pkgQty > 0 ? `${pkgQty} ${pkgUnit}` : (it.packaging || (isMeter ? `${currentQty} M` : `${Number((currentQty / 10).toFixed(1))} CTN`)),
-          weightKg: meterWeightKg,
-          weightPerMeter: effectiveWpm > 0 ? effectiveWpm : undefined,
-          remarks: it.remarks || it.notes || '-',
-        };
-      }),
+      items: computedItems,
     });
-  }, [data, getCustomerDisplayName, divisions, modalDivisionId]);
+  }, [allSalesOrders, customers, data, divisions, getCustomerDisplayName, modalDivisionId]);
 
   const handleCreate = useCallback(async () => {
     setEditingItem(null);
@@ -575,15 +817,29 @@ const SalesDeliveryManagement: React.FC = () => {
       subtotal: 0, taxAmount: 0, totalAmount: 0,
       deliveryDate: dayjs().format('YYYY-MM-DD'),
       expectedDate: dayjs().add(3, 'day').format('YYYY-MM-DD'),
+      gatePassNumber: nextGatePassSuggestion || 'GP-0001',
     });
     setLineItems([]);
     setModalVisible(true);
     try {
-      const soRes = await apiService.get<any>('/sales/orders', { limit: 100 });
-      const list = Array.isArray(soRes) ? soRes : (soRes?.data || []);
-      setAllSalesOrders(list);
+      const [soRes, gpRes] = await Promise.all([
+        apiService.get<any>('/sales/orders', { limit: 100 }).catch(() => null),
+        apiService.get<any>('/sales/deliveries/next-gate-pass').catch(() => null),
+      ]);
+      if (soRes) {
+        const list = Array.isArray(soRes) ? soRes : (soRes?.data || []);
+        setAllSalesOrders(list);
+      }
+      const suggestedGp = gpRes?.data?.nextGatePassNumber || gpRes?.nextGatePassNumber;
+      if (suggestedGp) {
+        setNextGatePassSuggestion(suggestedGp);
+        const currentVal = form.getFieldValue('gatePassNumber');
+        if (!currentVal || currentVal === nextGatePassSuggestion || currentVal === 'GP-0001') {
+          form.setFieldValue('gatePassNumber', suggestedGp);
+        }
+      }
     } catch { /* ignore */ }
-  }, [form, filterDivision]);
+  }, [form, filterDivision, nextGatePassSuggestion]);
 
   // Register action buttons into Main Header (Top Application Header)
   useEffect(() => {
@@ -773,7 +1029,8 @@ const SalesDeliveryManagement: React.FC = () => {
           const pkgUnit = itemObj.packagingUnit ?? itemObj.packaging_unit ?? (isMeter ? 'Coil' : 'CTN');
           const pkgQty = pkgSize > 1 ? Number((balance / pkgSize).toFixed(2)) : balance;
           const unitPrice = Number(it.unitPrice ?? it.unit_price) || 0;
-          const taxRate = Number(it.taxRate ?? it.tax_rate ?? 18) || 18;
+          const rawTaxRate = it.taxRate ?? it.tax_rate;
+          const taxRate = rawTaxRate !== undefined && rawTaxRate !== null ? Number(rawTaxRate) : 18;
           const weightPerMeter = itemObj.weightPerMeter ?? itemObj.weight_per_meter ?? null;
           const finishedWeightPerMeter = itemObj.finishedWeightPerMeter ?? itemObj.finished_weight_per_meter ?? null;
 
@@ -798,6 +1055,7 @@ const SalesDeliveryManagement: React.FC = () => {
             salesOrderNumber: order.orderNumber,
             customerPo: order.customerPo,
             orderQuantity: qty,
+            pastReceived: totalAlreadyShipped,
             orderBalance: balance,
           };
         })
@@ -838,18 +1096,25 @@ const SalesDeliveryManagement: React.FC = () => {
     const custName = matchedCustomer ? (matchedCustomer.companyName || matchedCustomer.name) : 'Customer';
     const soIds = Array.isArray(values.salesOrderIds) ? values.salesOrderIds : (values.salesOrderId ? [values.salesOrderId] : []);
     const matchedOrders = allSalesOrders.filter(o => soIds.includes(o.id));
-    const orderNumbers = matchedOrders.map(o => o.orderNumber).filter(Boolean).join(', ');
+    const uniqueOrderNumbers = Array.from(
+      new Set([
+        ...matchedOrders.map(o => o.orderNumber),
+        ...lineItems.map(l => l.salesOrderNumber),
+      ].filter(Boolean))
+    );
+    const orderNumbers = uniqueOrderNumbers.join(', ');
+    const uniquePoNumbers = Array.from(new Set(matchedOrders.map(o => o.customerPo).filter(Boolean)));
     const warehouse = warehouses.find(w => w.id === values.warehouseId);
     const matchedDivision = divisions.find(d => d.id === (values.divisionId || modalDivisionId || matchedCustomer?.divisionId));
-    const subtotal = lineItems.reduce((acc, it) => acc + (Number(it.lineTotal) || (Number(it.quantity) * Number(it.rate))), 0);
+    const draftSummary = summarizeLinesTaxVerification(lineItems, 18);
 
     return {
       id: editingItem?.id || 'draft-preview',
       deliveryNumber: editingItem?.deliveryNumber || 'DRAFT-DN',
       salesOrderId: soIds[0] || values.salesOrderId,
-      salesOrderNumber: orderNumbers || (values.salesOrderId ? `SO-${values.salesOrderId.slice(0, 8)}` : 'Direct Delivery'),
+      salesOrderNumber: orderNumbers || (values.salesOrderId ? `SO-${values.salesOrderId.slice(0, 8)}` : undefined),
       salesOrder: matchedOrders[0],
-      customerPo: values.customerPo || matchedOrders.map(o => o.customerPo).filter(Boolean).join(', '),
+      customerPo: values.customerPo || uniquePoNumbers.join(', '),
       customerId: values.customerId,
       companyName: custName,
       customer: matchedCustomer,
@@ -861,14 +1126,20 @@ const SalesDeliveryManagement: React.FC = () => {
       warehouseName: warehouse?.name,
       carrier: values.carrier || 'PWI Logistics Dispatch',
       trackingNumber: values.trackingNumber || '-',
+      gatePassNumber: values.gatePassNumber?.trim() || editingItem?.gatePassNumber || null,
       notes: values.notes,
-      subtotal,
-      taxAmount: 0,
-      totalAmount: subtotal,
+      subtotal: draftSummary.subtotal,
+      taxAmount: draftSummary.taxAmount,
+      totalAmount: draftSummary.grandTotal,
       status: editingItem?.status || 'DRAFT',
       lines: lineItems.map((l, idx) => {
         const uom = l.uomCode || 'M';
         const qty = Number(l.quantity) || 1;
+        const rate = Number(l.rate) || 0;
+        const taxPct = l.taxPercent !== undefined && l.taxPercent !== null ? Number(l.taxPercent) : 18;
+        const lineSub = Math.round(qty * rate * 100) / 100;
+        const lineTax = Math.round(lineSub * (taxPct / 100) * 100) / 100;
+        const lineTot = Math.round((lineSub + lineTax) * 100) / 100;
         const isMeter = isMeterUomCode(uom);
         const effWpm = isMeter
           ? ((l.finishedWeightPerMeter != null && Number(l.finishedWeightPerMeter) > 0)
@@ -895,9 +1166,9 @@ const SalesDeliveryManagement: React.FC = () => {
           weightPerMeter: l.weightPerMeter ?? null,
           finishedWeightPerMeter: l.finishedWeightPerMeter ?? null,
           ...(totalWeightKg != null ? { totalWeightKg } : {}),
-          unitPrice: Number(l.rate) || 0,
-          taxAmount: 0,
-          lineTotal: Number(l.lineTotal) || (Number(l.quantity) * Number(l.rate)),
+          unitPrice: rate,
+          taxAmount: lineTax,
+          lineTotal: lineTot,
         };
       }),
     };
@@ -974,22 +1245,76 @@ const SalesDeliveryManagement: React.FC = () => {
       warehouseId: fullDelivery.warehouseId,
       carrier: fullDelivery.carrier,
       trackingNumber: fullDelivery.trackingNumber,
+      gatePassNumber: fullDelivery.gatePassNumber || '',
       notes: fullDelivery.notes,
     });
     if (fullDelivery.lines && Array.isArray(fullDelivery.lines) && fullDelivery.lines.length > 0) {
-      setLineItems(fullDelivery.lines.map((l: any, idx: number) => ({
-        id: l.id || `line-${idx}`,
-        itemId: l.itemId,
-        itemCode: l.item?.itemCode || l.itemCode,
-        itemName: l.description || l.item?.name || 'Item',
-        uomId: l.uomId || l.item?.uomId,
-        warehouseId: l.warehouseId || fullDelivery.warehouseId,
-        quantity: Number(l.quantity) || 1,
-        rate: Number(l.unitPrice ?? l.rate) || 0,
-        taxPercent: Number(l.taxRate ?? (l.taxAmount && l.quantity && l.unitPrice ? (l.taxAmount / (l.quantity * l.unitPrice)) * 100 : 18)) || 18,
-        discountPercent: Number(l.discountPercent) || 0,
-        lineTotal: Number(l.lineTotal) || ((Number(l.quantity) || 1) * (Number(l.unitPrice ?? l.rate) || 0)),
-      })));
+      setLineItems(fullDelivery.lines.map((l: any, idx: number) => {
+        const descSocMatch = String(l.description || '').match(/\[SOC:\s*([^\]]+)\]/i);
+        const lineSocNo = l.salesOrderNumber || l.salesOrder?.orderNumber || descSocMatch?.[1]?.trim() || matchedOrder?.orderNumber;
+        const lineOrder = (lineSocNo ? allSalesOrders.find((o: any) => o.orderNumber === lineSocNo) : undefined) || matchedOrder;
+        const lineOrderItem = lineOrder?.items?.find((oi: any) =>
+          (l.itemId && oi.itemId === l.itemId) || (l.item?.itemCode && oi.item?.itemCode === l.item.itemCode)
+        );
+        const rawItemName = l.item?.name || l.description || 'Item';
+        const cleanItemName = String(rawItemName)
+          .replace(/\s*\[SOC:\s*[^\]]+\]/gi, '')
+          .replace(/\s*\(\d+(?:\.\d+)?\s*(?:CTN|Carton)[^)]*\)/gi, '')
+          .trim();
+        const resolvedUom = l.uom?.code || l.uomCode || l.item?.baseUom?.code || 'GRS';
+        const resolvedQty = Number(l.quantity) || 1;
+        const pkgSize = Number(l.item?.packagingSize || l.packagingSize) || (isMeterUomCode(resolvedUom) ? 0 : 10);
+        const pkgUnit = l.item?.packagingUnit || (isMeterUomCode(resolvedUom) ? 'Coil' : 'Carton');
+        const pkgQty = pkgSize > 1 ? Number((resolvedQty / pkgSize).toFixed(2)) : undefined;
+        const lineOrderQty = l.orderQuantity != null
+          ? Number(l.orderQuantity)
+          : (lineOrderItem?.quantity != null ? Number(lineOrderItem.quantity) : undefined);
+
+        // Sum already-shipped qty across other confirmed/shipped/delivered deliveries strictly for this SOC & item
+        let priorOtherShipped = 0;
+        if (lineSocNo) {
+          data.forEach((del: any) => {
+            if (del.id === fullDelivery.id) return;
+            const st = String(del?.status || '').toUpperCase();
+            if (!['CONFIRMED', 'SHIPPED', 'DELIVERED'].includes(st)) return;
+            (del.lines || []).forEach((dl: any) => {
+              const dlSoc = dl.socNumber || dl.salesOrderNumber || dl.description?.match(/\[SOC:\s*([^\]]+)\]/i)?.[1]?.trim() || del.salesOrder?.orderNumber;
+              if (!dlSoc || dlSoc.toUpperCase() !== lineSocNo.toUpperCase()) return;
+              const matches = (l.itemId && (dl.itemId === l.itemId || dl.item?.id === l.itemId)) ||
+                (l.item?.itemCode && (dl.itemCode === l.item.itemCode || dl.item?.itemCode === l.item.itemCode));
+              if (matches) priorOtherShipped += Number(dl.quantity || 0);
+            });
+          });
+        }
+        const soDbShipped = Number(lineOrderItem?.shippedQuantity ?? 0);
+        const isCurrentShipped = ['CONFIRMED', 'SHIPPED', 'DELIVERED'].includes(String(fullDelivery.status || '').toUpperCase());
+        const pastShipped = Math.max(priorOtherShipped, isCurrentShipped ? Math.max(0, soDbShipped - resolvedQty) : soDbShipped);
+        const preDispatchBalance = lineOrderQty != null ? Math.max(0, lineOrderQty - pastShipped) : undefined;
+
+        return {
+          id: l.id || `line-${idx}`,
+          itemId: l.itemId,
+          itemCode: l.item?.itemCode || l.itemCode,
+          itemName: cleanItemName,
+          uomId: l.uomId || l.item?.uomId,
+          uomCode: resolvedUom,
+          packagingSize: pkgSize || undefined,
+          packagingUnit: pkgUnit,
+          packageQuantity: pkgQty,
+          salesOrderId: lineOrder?.id || fullDelivery.salesOrderId,
+          salesOrderNumber: lineSocNo,
+          customerPo: lineOrder?.customerPo || (fullDelivery as any).customerPo,
+          orderQuantity: lineOrderQty,
+          pastReceived: lineOrderQty != null ? pastShipped : undefined,
+          orderBalance: preDispatchBalance,
+          warehouseId: l.warehouseId || fullDelivery.warehouseId,
+          quantity: resolvedQty,
+          rate: Number(l.unitPrice ?? l.rate) || 0,
+          taxPercent: resolveEffectiveTaxPercent(l, 18),
+          discountPercent: Number(l.discountPercent) || 0,
+          lineTotal: Number(l.lineTotal) || ((Number(l.quantity) || 1) * (Number(l.unitPrice ?? l.rate) || 0)),
+        };
+      }));
     } else {
       setLineItems([]);
     }
@@ -1085,19 +1410,26 @@ const SalesDeliveryManagement: React.FC = () => {
         expectedDate: values.expectedDate ? dayjs(values.expectedDate).format('YYYY-MM-DD') : null,
         carrier: values.carrier || null,
         trackingNumber: values.trackingNumber || null,
+        gatePassNumber: values.gatePassNumber ? String(values.gatePassNumber).trim() : null,
         notes: values.notes || null,
         lines: lineItems.map((l) => {
           const pkgNote = l.packageQuantity && l.packagingSize ? ` (${l.packageQuantity} ${l.packagingUnit || 'Coils'} × ${l.packagingSize} ${l.uomCode || 'M'})` : '';
           const socNote = l.salesOrderNumber ? ` [SOC: ${l.salesOrderNumber}]` : '';
+          const qty = Number(l.quantity) || 0;
+          const rate = Number(l.rate) || 0;
+          const taxPct = l.taxPercent !== undefined && l.taxPercent !== null ? Number(l.taxPercent) : 18;
+          const lineSub = Math.round(qty * rate * 100) / 100;
+          const lineTax = Math.round(lineSub * (taxPct / 100) * 100) / 100;
+          const lineTot = Math.round((lineSub + lineTax) * 100) / 100;
           return {
             itemId: l.itemId,
             description: (l.itemName || (l as any).description || 'Item') + pkgNote + socNote,
-            quantity: Number(l.quantity),
+            quantity: qty,
             uomId: l.uomId,
             warehouseId: l.warehouseId || values.warehouseId,
-            unitPrice: Number(l.rate),
-            taxAmount: Number(l.lineTotal || 0) - (Number(l.quantity) * Number(l.rate)),
-            lineTotal: Number(l.lineTotal),
+            unitPrice: rate,
+            taxAmount: lineTax,
+            lineTotal: lineTot,
           };
         }),
       };
@@ -1119,12 +1451,30 @@ const SalesDeliveryManagement: React.FC = () => {
 
   const requestActionConfirmation = (
     record: SalesDelivery,
-    actionKey: 'view' | 'print_challan' | 'gate_pass' | 'edit' | 'ship' | 'deliver' | 'confirm' | 'invoice' | 'cancel' | 'delete'
+    actionKey: 'view' | 'print_challan' | 'gate_pass' | 'edit' | 'ship' | 'deliver' | 'confirm' | 'invoice' | 'cancel' | 'restore' | 'delete'
   ) => {
     const custName = getCustomerDisplayName(record) || record.companyName || 'Valued Customer';
     const dnNo = record.deliveryNumber || 'DN-XXXX';
     const soNo = record.salesOrderNumber || record.salesOrder?.orderNumber || (record.salesOrderId ? `SO-${record.salesOrderId.slice(0, 8).toUpperCase()}` : 'Direct Dispatch');
     const carrierInfo = `${record.carrier || 'Standard Transport'}${record.trackingNumber ? ` (${record.trackingNumber})` : ''}`;
+
+    if (
+      ['ship', 'deliver', 'confirm', 'invoice'].includes(actionKey) &&
+      record.id &&
+      (!record.lines || record.lines.length === 0)
+    ) {
+      apiService
+        .get<any>(`/sales/deliveries/${record.id}`)
+        .then((res) => {
+          const full = res?.data || res;
+          if (full?.id === record.id) {
+            setConfirmModal((prev) =>
+              prev.visible && prev.record?.id === record.id ? { ...prev, record: full } : prev,
+            );
+          }
+        })
+        .catch(() => { /* fallback to partial record */ });
+    }
 
     switch (actionKey) {
       case 'view':
@@ -1406,6 +1756,37 @@ const SalesDeliveryManagement: React.FC = () => {
         });
         break;
 
+      case 'restore':
+        setConfirmModal({
+          visible: true,
+          actionKey: 'restore',
+          title: 'Restore Delivery Note to Draft',
+          actionBadge: 'RESTORE TO DRAFT',
+          badgeBg: 'rgba(22, 163, 74, 0.15)',
+          badgeColor: '#16a34a',
+          icon: <RollbackOutlined />,
+          iconBg: 'rgba(22, 163, 74, 0.15)',
+          iconColor: '#16a34a',
+          record,
+          question: `Restore cancelled Delivery Note ${dnNo} back to DRAFT?`,
+          description: `This will re-open ${dnNo} in DRAFT status so you can edit, ship, deliver, and confirm dispatch cleanly.`,
+          impactDetails: [
+            `Delivery Note: ${dnNo}`,
+            `Customer: ${custName}`,
+            `Status will change from CANCELLED back to DRAFT.`,
+            `No stock deduction occurs until the delivery is confirmed.`,
+          ],
+          confirmBtnText: 'Yes, Restore to Draft',
+          confirmBtnColor: '#16a34a',
+          isDanger: false,
+          loading: false,
+          loadingStep: '',
+          completed: false,
+          successMessage: '',
+          errorMessage: null,
+        });
+        break;
+
       case 'delete':
         setConfirmModal({
           visible: true,
@@ -1466,10 +1847,13 @@ const SalesDeliveryManagement: React.FC = () => {
       } else if (actionKey === 'gate_pass') {
         handlePrintOutwardGatePass(record);
         setConfirmModal(prev => ({ ...prev, visible: false, loading: false }));
-      } else if (['ship', 'deliver', 'confirm', 'cancel'].includes(actionKey)) {
+      } else if (['ship', 'deliver', 'confirm', 'cancel', 'restore'].includes(actionKey)) {
+        const targetLabel = actionKey === 'restore' ? 'DRAFT' : actionKey.toUpperCase();
         setConfirmModal(prev => ({
           ...prev,
-          loadingStep: `Updating delivery note status to ${actionKey.toUpperCase()}...`,
+          loadingStep: actionKey === 'restore'
+            ? `Restoring ${record.deliveryNumber} back to DRAFT...`
+            : `Updating delivery note status to ${targetLabel}...`,
         }));
         await apiService.patch(`/sales/deliveries/${record.id}/${actionKey}`);
         await fetchData(page, pageSize);
@@ -1480,7 +1864,9 @@ const SalesDeliveryManagement: React.FC = () => {
           ...prev,
           loading: false,
           completed: true,
-          successMessage: `Delivery Note ${record.deliveryNumber} successfully updated to ${actionKey.toUpperCase()}!`,
+          successMessage: actionKey === 'restore'
+            ? `Delivery Note ${record.deliveryNumber} restored to DRAFT successfully!`
+            : `Delivery Note ${record.deliveryNumber} successfully updated to ${targetLabel}!`,
         }));
         setTimeout(() => {
           setConfirmModal(prev => ({ ...prev, visible: false, completed: false }));
@@ -1540,6 +1926,29 @@ const SalesDeliveryManagement: React.FC = () => {
     }
   };
 
+  const handleApplyConfirmTax18 = async () => {
+    const rec = confirmModal.record;
+    if (!rec?.id) return;
+    setApplyingConfirmTax(true);
+    try {
+      const res = await apiService.patch<any>(`/sales/deliveries/${rec.id}/apply-tax`, { taxPercent: 18 });
+      const updated = res?.data || res;
+      if (updated?.id) {
+        setConfirmModal(prev => ({ ...prev, record: updated, errorMessage: null }));
+        if (detailVisible && detailItem?.id === updated.id) {
+          setDetailItem(updated);
+        }
+      }
+      await fetchData(page, pageSize);
+      message.success(`Standard 18% Tax applied to ${rec.deliveryNumber}`);
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || err?.message || 'Failed to apply 18% tax';
+      message.error(Array.isArray(msg) ? msg[0] : msg);
+    } finally {
+      setApplyingConfirmTax(false);
+    }
+  };
+
   const handleAction = async (id: string, action: string) => {
     const targetRec = data.find(d => d.id === id) || (detailItem?.id === id ? detailItem : null);
     if (targetRec) {
@@ -1588,13 +1997,6 @@ const SalesDeliveryManagement: React.FC = () => {
                 {custName}
               </span>
             </div>
-            {record.divisionName && (
-              <div className="inv-sub-row">
-                <span className="badge-inv-type" style={{ background: 'rgba(59, 130, 246, 0.12)', color: '#3b82f6', borderColor: 'rgba(59, 130, 246, 0.3)' }}>
-                  <ApartmentOutlined style={{ marginRight: 3 }} /> {record.divisionName}
-                </span>
-              </div>
-            )}
             {(() => {
               const socList: string[] = (record as any).salesOrderNumbers && (record as any).salesOrderNumbers.length > 0
                 ? (record as any).salesOrderNumbers
@@ -1649,29 +2051,104 @@ const SalesDeliveryManagement: React.FC = () => {
     {
       title: 'Dates',
       key: 'dates',
-      width: 170,
-      render: (_, record) => (
-        <div className="inv-dates-cell">
-          <div className="inv-date-row">
-            <span className="badge-inv-date">
-              <CalendarOutlined style={{ marginRight: 3 }} /> Date
-            </span>
-            <span className="inv-date-val">
-              {record.deliveryDate ? dayjs(record.deliveryDate).format('MMM DD, YYYY') : '-'}
-            </span>
-          </div>
-          {record.expectedDate && (
+      width: 235,
+      render: (_, record) => {
+        const isDarkSurface = (() => {
+          const bg = String(token.colorBgContainer || '#ffffff').toLowerCase().trim();
+          if (bg.startsWith('#')) {
+            const hex = bg.length === 4 ? bg.slice(1).split('').map((c) => c + c).join('') : bg.slice(1, 7);
+            const r = parseInt(hex.slice(0, 2), 16);
+            const g = parseInt(hex.slice(2, 4), 16);
+            const b = parseInt(hex.slice(4, 6), 16);
+            if (Number.isFinite(r) && Number.isFinite(g) && Number.isFinite(b)) {
+              return (0.299 * r + 0.587 * g + 0.114 * b) < 128;
+            }
+          }
+          return false;
+        })();
+
+        return (
+          <div className="inv-dates-cell" style={{ gap: 5 }}>
+            {record.divisionName && (
+              <div className="inv-date-row">
+                <span
+                  className="badge-inv-type"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    padding: '2px 8px',
+                    borderRadius: 4,
+                    background: 'rgba(59, 130, 246, 0.12)',
+                    color: isDarkSurface ? '#93C5FD' : '#2563EB',
+                    border: '1px solid rgba(59, 130, 246, 0.35)',
+                    fontWeight: 700,
+                    fontSize: 11,
+                    lineHeight: 1.4,
+                    textTransform: 'uppercase',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  <ApartmentOutlined />
+                  <span>{record.divisionName}</span>
+                </span>
+              </div>
+            )}
+            {record.gatePassNumber && (
+              <div className="inv-date-row" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    padding: '2px 8px',
+                    borderRadius: 4,
+                    background: isDarkSurface ? 'rgba(99, 102, 241, 0.2)' : '#EEF2FF',
+                    color: isDarkSurface ? '#C7D2FE' : '#3730A3',
+                    border: isDarkSurface ? '1px solid rgba(129, 140, 248, 0.4)' : '1px solid #C7D2FE',
+                    fontWeight: 700,
+                    fontSize: 11,
+                    lineHeight: 1.4,
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  <SafetyCertificateOutlined />
+                  <span>Gate Pass</span>
+                </span>
+                <span
+                  style={{
+                    fontFamily: 'monospace',
+                    fontWeight: 800,
+                    fontSize: 12.5,
+                    color: isDarkSurface ? '#F8FAFC' : '#0F172A',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {record.gatePassNumber}
+                </span>
+              </div>
+            )}
             <div className="inv-date-row">
-              <span className="badge-inv-due">
-                <CalendarOutlined style={{ marginRight: 3 }} /> Expected
+              <span className="badge-inv-date" style={{ whiteSpace: 'nowrap' }}>
+                <CalendarOutlined style={{ marginRight: 3 }} /> Delivery Date
               </span>
-              <span className="inv-date-val">
-                {dayjs(record.expectedDate).format('MMM DD, YYYY')}
+              <span className="inv-date-val" style={{ whiteSpace: 'nowrap' }}>
+                {record.deliveryDate ? dayjs(record.deliveryDate).format('MMM DD, YYYY') : '-'}
               </span>
             </div>
-          )}
-        </div>
-      ),
+            {record.expectedDate && (
+              <div className="inv-date-row">
+                <span className="badge-inv-due" style={{ whiteSpace: 'nowrap' }}>
+                  <CalendarOutlined style={{ marginRight: 3 }} /> Expected
+                </span>
+                <span className="inv-date-val" style={{ whiteSpace: 'nowrap' }}>
+                  {dayjs(record.expectedDate).format('MMM DD, YYYY')}
+                </span>
+              </div>
+            )}
+          </div>
+        );
+      },
     },
     {
       title: (
@@ -1997,6 +2474,29 @@ const SalesDeliveryManagement: React.FC = () => {
                   onClick={() => requestActionConfirmation(record, 'cancel')}
                 >
                   <StopOutlined />
+                </button>
+              </Tooltip>
+            )}
+            {s === 'CANCELLED' && (
+              <Tooltip title="Restore Cancelled Delivery Back to Draft">
+                <button
+                  className="inv-action-btn"
+                  style={{
+                    backgroundColor: '#16a34a',
+                    color: '#ffffff',
+                    width: 'auto',
+                    padding: '0 9px',
+                    gap: 4,
+                    fontSize: 11,
+                    fontWeight: 700,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    whiteSpace: 'nowrap',
+                  }}
+                  onClick={() => requestActionConfirmation(record, 'restore')}
+                >
+                  <RollbackOutlined />
+                  <span>Restore to Draft</span>
                 </button>
               </Tooltip>
             )}
@@ -2442,7 +2942,7 @@ const SalesDeliveryManagement: React.FC = () => {
             <div className="delivery-search-wrapper">
               <Input
                 className="delivery-search-input"
-                placeholder="Search by DN#, SO#, Customer, Carrier or Tracking..."
+                placeholder="Search by DN#, Gate Pass#, SOC#, Customer, Carrier or Tracking..."
                 prefix={<SearchOutlined className="delivery-search-icon" />}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
@@ -2802,6 +3302,7 @@ const SalesDeliveryManagement: React.FC = () => {
         }
         open={modalVisible}
         onCancel={() => setModalVisible(false)}
+        minimizedTitle={editingItem ? `Edit Delivery Note — ${editingItem.deliveryNumber || ''}` : 'Create Sales Delivery'}
         width={1100}
         styles={{
           content: {
@@ -3054,12 +3555,25 @@ const SalesDeliveryManagement: React.FC = () => {
           </Form.Item>
 
           <Row gutter={16}>
-            <Col span={12}>
+            <Col xs={24} sm={8}>
+              <Form.Item
+                name="gatePassNumber"
+                label="Gate Pass # (Book Serial)"
+                tooltip="Auto-filled with the next sequential Gate Pass Book serial number. You may edit or enter any custom book serial anytime."
+              >
+                <Input
+                  prefix={<SafetyCertificateOutlined style={{ color: token.colorPrimary }} />}
+                  placeholder="e.g. GP-1046 or 1046"
+                  style={{ fontFamily: 'monospace', fontWeight: 700 }}
+                />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={8}>
               <Form.Item name="carrier" label="Carrier / Transport">
                 <Input placeholder="e.g. TCS / Cargo / Pakistan Railway / PWI Fleet" />
               </Form.Item>
             </Col>
-            <Col span={12}>
+            <Col xs={24} sm={8}>
               <Form.Item name="trackingNumber" label="Tracking Number / Bilty #">
                 <Input placeholder="e.g. TRK-892147 / BL-4412" />
               </Form.Item>
@@ -3076,6 +3590,7 @@ const SalesDeliveryManagement: React.FC = () => {
             context="delivery"
             customerId={form.getFieldValue('customerId')}
             orderId={form.getFieldValue('salesOrderId')}
+            warehouseId={form.getFieldValue('warehouseId')}
           />
           <Form.Item name="notes" label="Dispatch & Delivery Notes">
             <Input.TextArea rows={3} placeholder="Add any special handling or delivery instructions..." />
@@ -3358,6 +3873,12 @@ const SalesDeliveryManagement: React.FC = () => {
                     <span className="doc-sidebar-k"># Number:</span>
                     <span className="doc-sidebar-v">{detailItem.deliveryNumber}</span>
                   </div>
+                  <div className="doc-sidebar-kv">
+                    <span className="doc-sidebar-k">Gate Pass #:</span>
+                    <span className="doc-sidebar-v" style={{ fontFamily: 'monospace', fontWeight: 800, color: '#38bdf8' }}>
+                      {detailItem.gatePassNumber || '-'}
+                    </span>
+                  </div>
                   <div className="doc-sidebar-kv" style={{ alignItems: 'flex-start' }}>
                     <span className="doc-sidebar-k">Sales Order #:</span>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -3525,7 +4046,13 @@ const SalesDeliveryManagement: React.FC = () => {
         footer={null}
         closable={!confirmModal.loading}
         centered
-        width={580}
+        width={
+          ['ship', 'deliver', 'confirm', 'invoice'].includes(confirmModal.actionKey || '') &&
+          !confirmModal.loading &&
+          !confirmModal.completed
+            ? 860
+            : 580
+        }
         maskClosable={!confirmModal.loading}
         className="delivery-action-confirm-modal"
       >
@@ -3617,109 +4144,188 @@ const SalesDeliveryManagement: React.FC = () => {
                       {confirmModal.actionBadge}
                     </span>
                   </div>
-                  <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0, color: 'var(--inv-text-primary, #0f172a)' }}>
+                  <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0, color: token.colorText }}>
                     {confirmModal.title}
                   </h2>
                 </div>
               </div>
 
-              {/* Delivery Details Card */}
-              {confirmModal.record && (
-                <div
-                  style={{
-                    background: 'var(--inv-table-row-even, rgba(255, 255, 255, 0.04))',
-                    border: '1px solid var(--inv-card-border, #e2e8f0)',
-                    borderRadius: 10,
-                    padding: '14px 16px',
-                    marginBottom: 18,
-                  }}
-                >
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 16px', fontSize: 13 }}>
-                    <div>
-                      <span style={{ color: 'var(--inv-text-muted, #94a3b8)', display: 'block', fontSize: 11, fontWeight: 600, textTransform: 'uppercase' }}>
-                        Delivery Note #
-                      </span>
-                      <strong style={{ color: 'var(--inv-text-primary, #0f172a)', fontSize: 14 }}>
-                        {confirmModal.record.deliveryNumber}
-                      </strong>
-                    </div>
-                    <div>
-                      <span style={{ color: 'var(--inv-text-muted, #94a3b8)', display: 'block', fontSize: 11, fontWeight: 600, textTransform: 'uppercase' }}>
-                        Current Status
-                      </span>
-                      <Tag color={
-                        confirmModal.record.status === 'DELIVERED' ? 'green' :
-                        confirmModal.record.status === 'SHIPPED' ? 'blue' :
-                        confirmModal.record.status === 'CANCELLED' ? 'red' : 'orange'
-                      }>
-                        {confirmModal.record.status}
-                      </Tag>
-                    </div>
-                    <div>
-                      <span style={{ color: 'var(--inv-text-muted, #94a3b8)', display: 'block', fontSize: 11, fontWeight: 600, textTransform: 'uppercase' }}>
-                        Customer
-                      </span>
-                      <span style={{ color: 'var(--inv-text-secondary, #334155)', fontWeight: 600 }}>
-                        {getCustomerDisplayName(confirmModal.record) || confirmModal.record.companyName || 'N/A'}
-                      </span>
-                    </div>
-                    <div>
-                      <span style={{ color: 'var(--inv-text-muted, #94a3b8)', display: 'block', fontSize: 11, fontWeight: 600, textTransform: 'uppercase' }}>
-                        Carrier / Transport
-                      </span>
-                      <span style={{ color: 'var(--inv-text-secondary, #334155)' }}>
-                        {confirmModal.record.carrier || 'Standard Transport'} {confirmModal.record.trackingNumber ? `(${confirmModal.record.trackingNumber})` : ''}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              )}
+              {/* Pre-Confirmation Verification Card (Line Items, Quantities, Rates, 18% / 0% Tax Check, & Totals) */}
+              {confirmModal.record && ['ship', 'deliver', 'confirm', 'invoice'].includes(confirmModal.actionKey || '') ? (
+                (() => {
+                  const rec = confirmModal.record!;
+                  const verificationSummary = summarizeLinesTaxVerification(rec.lines, 0);
+                  const statusUpper = String(rec.status || '').toUpperCase();
+                  const statusColor =
+                    statusUpper === 'DELIVERED' || statusUpper === 'CONFIRMED'
+                      ? 'green'
+                      : statusUpper === 'SHIPPED'
+                      ? 'blue'
+                      : statusUpper === 'CANCELLED'
+                      ? 'red'
+                      : 'orange';
+                  const carrierDisplay = [rec.carrier || 'Standard Transport', rec.trackingNumber]
+                    .filter(Boolean)
+                    .join(' · ');
 
-              {/* Action Prompt & Impact Notice */}
-              <div
-                style={{
-                  background: confirmModal.isDanger ? 'rgba(239, 68, 68, 0.08)' : 'rgba(59, 130, 246, 0.08)',
-                  border: `1px solid ${confirmModal.isDanger ? 'rgba(239, 68, 68, 0.25)' : 'rgba(59, 130, 246, 0.25)'}`,
-                  borderRadius: 10,
-                  padding: '14px 16px',
-                  marginBottom: 18,
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                  <WarningFilled
-                    style={{
-                      color: confirmModal.isDanger ? '#ef4444' : '#3b82f6',
-                      fontSize: 18,
-                      marginTop: 2,
-                      flexShrink: 0,
-                    }}
-                  />
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--inv-text-primary, #0f172a)', marginBottom: 4 }}>
-                      {confirmModal.question}
-                    </div>
-                    <div style={{ fontSize: 13, color: 'var(--inv-text-secondary, #475569)', lineHeight: 1.5, marginBottom: 8 }}>
-                      {confirmModal.description}
-                    </div>
+                  return (
+                    <div style={{ marginBottom: 16 }}>
+                      <PreConfirmVerificationCard
+                        summary={verificationSummary}
+                        currency="Rs"
+                        showSocColumn={true}
+                        applyingTax={applyingConfirmTax}
+                        onApplyStandardTax={
+                          statusUpper !== 'CANCELLED' ? handleApplyConfirmTax18 : undefined
+                        }
+                        headerItems={[
+                          {
+                            label: 'Delivery Note #',
+                            value: (
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                <span>{rec.deliveryNumber}</span>
+                                <Tag color={statusColor} style={{ margin: 0, fontWeight: 700, fontSize: 11 }}>
+                                  {rec.status}
+                                </Tag>
+                              </span>
+                            ),
+                          },
+                          {
+                            label: 'Gate Pass #',
+                            value: rec.gatePassNumber || 'Not Assigned',
+                          },
+                          {
+                            label: 'Customer Name',
+                            value: getCustomerDisplayName(rec) || rec.companyName || 'N/A',
+                          },
+                          {
+                            label: 'Delivery Date',
+                            value: rec.deliveryDate ? dayjs(rec.deliveryDate).format('DD-MMM-YYYY') : '-',
+                          },
+                          {
+                            label: 'Carrier / Vehicle',
+                            value: carrierDisplay,
+                          },
+                        ]}
+                      />
 
-                    {/* Impact Details List */}
-                    {confirmModal.impactDetails && confirmModal.impactDetails.length > 0 && (
-                      <div style={{ background: 'rgba(0, 0, 0, 0.05)', borderRadius: 6, padding: '8px 12px', marginTop: 8 }}>
-                        {confirmModal.impactDetails.map((detail, idx) => (
-                          <div key={idx} style={{ fontSize: 12, color: 'var(--inv-text-secondary, #475569)', display: 'flex', alignItems: 'center', gap: 6, margin: '2px 0' }}>
-                            <span style={{ width: 4, height: 4, borderRadius: '50%', background: confirmModal.badgeColor, display: 'inline-block' }} />
-                            <span>{detail}</span>
-                          </div>
-                        ))}
+                      <div
+                        style={{
+                          marginTop: 12,
+                          padding: '9px 12px',
+                          borderRadius: 8,
+                          backgroundColor: token.colorFillAlter,
+                          border: `1px solid ${token.colorBorderSecondary}`,
+                          fontSize: 12.5,
+                          color: token.colorTextSecondary,
+                        }}
+                      >
+                        {confirmModal.description}
                       </div>
-                    )}
+                    </div>
+                  );
+                })()
+              ) : (
+                <>
+                  {/* Delivery Details Card */}
+                  {confirmModal.record && (
+                    <div
+                      style={{
+                        backgroundColor: token.colorFillAlter,
+                        border: `1px solid ${token.colorBorderSecondary}`,
+                        borderRadius: 10,
+                        padding: '14px 16px',
+                        marginBottom: 18,
+                      }}
+                    >
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 16px', fontSize: 13 }}>
+                        <div>
+                          <span style={{ color: token.colorTextTertiary, display: 'block', fontSize: 11, fontWeight: 600, textTransform: 'uppercase' }}>
+                            Delivery Note #
+                          </span>
+                          <strong style={{ color: token.colorText, fontSize: 14 }}>
+                            {confirmModal.record.deliveryNumber}
+                          </strong>
+                        </div>
+                        <div>
+                          <span style={{ color: token.colorTextTertiary, display: 'block', fontSize: 11, fontWeight: 600, textTransform: 'uppercase' }}>
+                            Current Status
+                          </span>
+                          <Tag color={
+                            confirmModal.record.status === 'DELIVERED' ? 'green' :
+                            confirmModal.record.status === 'SHIPPED' ? 'blue' :
+                            confirmModal.record.status === 'CANCELLED' ? 'red' : 'orange'
+                          }>
+                            {confirmModal.record.status}
+                          </Tag>
+                        </div>
+                        <div>
+                          <span style={{ color: token.colorTextTertiary, display: 'block', fontSize: 11, fontWeight: 600, textTransform: 'uppercase' }}>
+                            Customer
+                          </span>
+                          <span style={{ color: token.colorText, fontWeight: 600 }}>
+                            {getCustomerDisplayName(confirmModal.record) || confirmModal.record.companyName || 'N/A'}
+                          </span>
+                        </div>
+                        <div>
+                          <span style={{ color: token.colorTextTertiary, display: 'block', fontSize: 11, fontWeight: 600, textTransform: 'uppercase' }}>
+                            Carrier / Transport
+                          </span>
+                          <span style={{ color: token.colorTextSecondary }}>
+                            {confirmModal.record.carrier || 'Standard Transport'} {confirmModal.record.trackingNumber ? `(${confirmModal.record.trackingNumber})` : ''}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
-                    <div style={{ fontSize: 12, color: 'var(--inv-text-muted, #94a3b8)', marginTop: 8, fontStyle: 'italic' }}>
-                      In case this action was triggered by mistake or accidental click, simply click Cancel to exit without making changes.
+                  {/* Action Prompt & Impact Notice */}
+                  <div
+                    style={{
+                      background: confirmModal.isDanger ? 'rgba(239, 68, 68, 0.08)' : 'rgba(59, 130, 246, 0.08)',
+                      border: `1px solid ${confirmModal.isDanger ? 'rgba(239, 68, 68, 0.25)' : 'rgba(59, 130, 246, 0.25)'}`,
+                      borderRadius: 10,
+                      padding: '14px 16px',
+                      marginBottom: 18,
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                      <WarningFilled
+                        style={{
+                          color: confirmModal.isDanger ? '#ef4444' : '#3b82f6',
+                          fontSize: 18,
+                          marginTop: 2,
+                          flexShrink: 0,
+                        }}
+                      />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 700, fontSize: 14, color: token.colorText, marginBottom: 4 }}>
+                          {confirmModal.question}
+                        </div>
+                        <div style={{ fontSize: 13, color: token.colorTextSecondary, lineHeight: 1.5, marginBottom: 8 }}>
+                          {confirmModal.description}
+                        </div>
+
+                        {/* Impact Details List */}
+                        {confirmModal.impactDetails && confirmModal.impactDetails.length > 0 && (
+                          <div style={{ backgroundColor: token.colorFillAlter, borderRadius: 6, padding: '8px 12px', marginTop: 8 }}>
+                            {confirmModal.impactDetails.map((detail, idx) => (
+                              <div key={idx} style={{ fontSize: 12, color: token.colorTextSecondary, display: 'flex', alignItems: 'center', gap: 6, margin: '2px 0' }}>
+                                <span style={{ width: 4, height: 4, borderRadius: '50%', background: confirmModal.badgeColor, display: 'inline-block' }} />
+                                <span>{detail}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        <div style={{ fontSize: 12, color: token.colorTextTertiary, marginTop: 8, fontStyle: 'italic' }}>
+                          If this action was triggered accidentally, click Cancel to exit without making changes.
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </div>
-              </div>
+                </>
+              )}
 
               {/* Error banner if previous attempt failed */}
               {confirmModal.errorMessage && (
@@ -3743,14 +4349,33 @@ const SalesDeliveryManagement: React.FC = () => {
               )}
 
               {/* Action Buttons */}
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 20 }}>
-                <Button
-                  size="large"
-                  onClick={() => setConfirmModal(prev => ({ ...prev, visible: false, errorMessage: null }))}
-                  style={{ minWidth: 100, fontWeight: 600 }}
-                >
-                  Cancel
-                </Button>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginTop: 20, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <Button
+                    size="large"
+                    onClick={() => setConfirmModal(prev => ({ ...prev, visible: false, errorMessage: null }))}
+                    style={{ minWidth: 100, fontWeight: 600 }}
+                  >
+                    Cancel
+                  </Button>
+                  {confirmModal.record?.status?.toUpperCase() === 'DRAFT' &&
+                    ['ship', 'deliver', 'confirm'].includes(confirmModal.actionKey || '') && (
+                      <Button
+                        size="large"
+                        icon={<EditOutlined />}
+                        onClick={() => {
+                          const targetRecord = confirmModal.record;
+                          setConfirmModal(prev => ({ ...prev, visible: false, errorMessage: null }));
+                          if (targetRecord) {
+                            void handleEdit(targetRecord);
+                          }
+                        }}
+                        style={{ fontWeight: 600 }}
+                      >
+                        Back to Edit
+                      </Button>
+                    )}
+                </div>
                 <Button
                   size="large"
                   type="primary"
@@ -3758,7 +4383,7 @@ const SalesDeliveryManagement: React.FC = () => {
                   style={{
                     backgroundColor: confirmModal.isDanger ? undefined : confirmModal.confirmBtnColor,
                     borderColor: confirmModal.isDanger ? undefined : confirmModal.confirmBtnColor,
-                    minWidth: 160,
+                    minWidth: 180,
                     fontWeight: 700,
                   }}
                   icon={confirmModal.icon}

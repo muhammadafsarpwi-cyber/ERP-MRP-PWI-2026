@@ -741,15 +741,34 @@ export class FinishedGoodsInventoryService {
     if (socNo) {
       try {
         const cleanSoc = String(socNo).trim();
-        const socRows = await this.itemRepo.manager.query(
-          `SELECT SUM(pei.actual_quantity) as total_pcs
-           FROM production_entry_items pei
-           JOIN production_entries pe ON pe.id = pei.production_entry_id
-           WHERE pei.item_id = $1 AND pe.remarks ILIKE $2 AND pe.is_active = true`,
+        const dbManager = this.balanceRepo?.manager || this.itemRepo?.manager;
+        const socRows = await dbManager.query(
+          `SELECT COALESCE(SUM(pe.actual_quantity), 0) AS total_pcs
+           FROM public.production_entries pe
+           WHERE pe.item_id = $1
+             AND pe.remarks ILIKE $2
+             AND pe.deleted_at IS NULL
+             AND pe.is_active = true
+             AND COALESCE(pe.packing_mode, 'FULL_SET') != 'WITHOUT_NIPPLE'`,
           [itemId, `%${cleanSoc}%`],
         );
         const socPcs = Number(socRows?.[0]?.total_pcs || 0);
-        socPackedQty = this.convertQty(socPcs, baseUomCode, salesUomCode);
+        const totalPackedForSoc = this.convertQty(socPcs, baseUomCode, salesUomCode);
+
+        // Subtract already-dispatched quantities for this specific SOC so socPackedQty reflects remaining packed balance ready to ship
+        const shippedRows = await dbManager.query(
+          `SELECT COALESCE(SUM(sdl.quantity), 0) AS shipped_qty
+           FROM erp_sales.sales_delivery_lines sdl
+           JOIN erp_sales.sales_deliveries sd ON sd.id = sdl.delivery_id
+           LEFT JOIN erp_sales.sales_orders so ON so.id = sd.sales_order_id
+           WHERE sd.deleted_at IS NULL
+             AND UPPER(sd.status) IN ('CONFIRMED', 'DELIVERED', 'SHIPPED')
+             AND sdl.item_id = $1
+             AND (sdl.description ILIKE $2 OR so.order_number = $3)`,
+          [itemId, `%${cleanSoc}%`, cleanSoc],
+        );
+        const alreadyShippedForSoc = Number(shippedRows?.[0]?.shipped_qty || 0);
+        socPackedQty = Math.max(0, totalPackedForSoc - alreadyShippedForSoc);
       } catch (err: any) {
         this.logger.warn(`Failed to query socPackedQty: ${err.message}`);
       }

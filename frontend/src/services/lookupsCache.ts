@@ -129,6 +129,17 @@ export interface CachedWarehouse {
   status?: string;
 }
 
+export interface CachedCustomer {
+  id: string;
+  name?: string;
+  companyName?: string;
+  legalName?: string;
+  customerCode?: string;
+  divisionId?: string | null;
+  status?: string;
+  isActive?: boolean;
+}
+
 export interface LookupsSnapshot {
   divisions: CachedDivision[];
   sections: CachedSection[];
@@ -142,6 +153,7 @@ export interface LookupsSnapshot {
   productionOrders: CachedProductionOrder[];
   downtimeReasons: Array<{ id: string; name: string; code: string }>;
   warehouses: CachedWarehouse[];
+  customers: CachedCustomer[];
   deptItemsMap: Record<string, CachedItem[]>;
   timestamp: number;
 }
@@ -270,6 +282,7 @@ function safeSaveStorage(snap: LookupsSnapshot) {
     const lightweight = {
       ...snap,
       items: (snap.items || []).slice(0, 300), // top 300 items in local storage
+      customers: (snap.customers || []).slice(0, 300),
       timestamp: Date.now(),
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(lightweight));
@@ -282,9 +295,9 @@ function safeSaveStorage(snap: LookupsSnapshot) {
   }
 }
 
-async function fetchList<T>(url: string, params?: Record<string, unknown>, config?: { silent?: boolean }): Promise<T[]> {
+async function fetchList<T>(url: string, params?: Record<string, unknown>, config?: { silent?: boolean; useEtag?: boolean }): Promise<T[]> {
   try {
-    const res = await apiService.get<any>(url, params, { silent: true, ...config });
+    const res = await apiService.get<any>(url, params, { silent: true, useEtag: true, ...config });
     if (Array.isArray(res)) return res as T[];
     if (Array.isArray(res?.data)) return res.data as T[];
     if (Array.isArray(res?.items)) return res.items as T[];
@@ -315,6 +328,7 @@ export function getLookupsSnapshot(): LookupsSnapshot {
     }
     if (!fromStorage.warehouses || fromStorage.warehouses.length === 0) fromStorage.warehouses = FALLBACK_WAREHOUSES;
     if (!fromStorage.shifts || fromStorage.shifts.length === 0) fromStorage.shifts = CANONICAL_PRODUCTION_SHIFTS;
+    if (!Array.isArray(fromStorage.customers)) fromStorage.customers = [];
     memoryCache = fromStorage;
     return fromStorage;
   }
@@ -331,6 +345,7 @@ export function getLookupsSnapshot(): LookupsSnapshot {
     productionOrders: [],
     downtimeReasons: [],
     warehouses: FALLBACK_WAREHOUSES,
+    customers: [],
     deptItemsMap: {},
     timestamp: 0,
   };
@@ -401,7 +416,7 @@ export async function prefetchAllLookups(forceRefresh = false): Promise<LookupsS
       }
 
       // 2. Fetch remaining data in parallel
-      const [machines, conversions, items, productionOrders, downtimeReasons, rawWarehouses] =
+      const [machines, conversions, items, productionOrders, downtimeReasons, rawWarehouses, rawCustomers] =
         await Promise.all([
           fetchList<CachedMachine>('/production/machines', { limit: 500, status: 'ACTIVE' }),
           fetchList<CachedUomConversion>('/master-data/uom-conversions', { limit: 500 }),
@@ -409,6 +424,7 @@ export async function prefetchAllLookups(forceRefresh = false): Promise<LookupsS
           fetchList<CachedProductionOrder>('/production/orders', { limit: 200 }),
           fetchList<any>('/production/downtime-reasons', { limit: 100 }).catch(() => []),
           fetchList<CachedWarehouse>('/warehouses', { limit: 100 }).catch(() => []),
+          fetchList<CachedCustomer>('/customer/customers', { limit: 500, status: 'ACTIVE' }).catch(() => []),
         ]);
 
       // Employee lookup (directly query active employees)
@@ -416,6 +432,7 @@ export async function prefetchAllLookups(forceRefresh = false): Promise<LookupsS
 
       const activeConversions = conversions.filter((c) => c.status === 'ACTIVE');
       const warehouses = rawWarehouses.length > 0 ? rawWarehouses : FALLBACK_WAREHOUSES;
+      const customers = rawCustomers.length > 0 ? rawCustomers : (current.customers || []);
 
       const updatedSnapshot: LookupsSnapshot = {
         divisions,
@@ -430,6 +447,7 @@ export async function prefetchAllLookups(forceRefresh = false): Promise<LookupsS
         productionOrders: productionOrders.length > 0 ? productionOrders : current.productionOrders,
         downtimeReasons: downtimeReasons.length > 0 ? downtimeReasons : current.downtimeReasons,
         warehouses,
+        customers,
         deptItemsMap: current.deptItemsMap || {},
         timestamp: Date.now(),
       };
@@ -450,6 +468,48 @@ export async function prefetchAllLookups(forceRefresh = false): Promise<LookupsS
   })();
 
   return activePrefetchPromise;
+}
+
+let activeCustomersPromise: Promise<CachedCustomer[]> | null = null;
+
+/**
+ * Returns globally cached active customers across all workspace tabs.
+ * Coalesces concurrent callers and refreshes lazily if stale.
+ */
+export async function fetchCachedCustomers(forceRefresh = false): Promise<CachedCustomer[]> {
+  const current = getLookupsSnapshot();
+  const isFresh =
+    !forceRefresh &&
+    Array.isArray(current.customers) &&
+    current.customers.length > 0 &&
+    current.timestamp > 0 &&
+    Date.now() - current.timestamp < CACHE_TTL_MS;
+  if (isFresh) {
+    return current.customers;
+  }
+  if (activeCustomersPromise) {
+    return activeCustomersPromise;
+  }
+  activeCustomersPromise = (async () => {
+    try {
+      const list = await fetchList<CachedCustomer>('/customer/customers', { limit: 500, status: 'ACTIVE' });
+      const snap = getLookupsSnapshot();
+      const merged: LookupsSnapshot = {
+        ...snap,
+        customers: list.length > 0 ? list : (snap.customers || []),
+        timestamp: snap.timestamp || Date.now(),
+      };
+      memoryCache = merged;
+      safeSaveStorage(merged);
+      listeners.forEach((cb) => {
+        try { cb(merged); } catch {}
+      });
+      return merged.customers;
+    } finally {
+      activeCustomersPromise = null;
+    }
+  })();
+  return activeCustomersPromise;
 }
 
 export function subscribeLookups(callback: (snap: LookupsSnapshot) => void): () => void {

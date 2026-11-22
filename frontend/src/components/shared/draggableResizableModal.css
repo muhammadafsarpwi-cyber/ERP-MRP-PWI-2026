@@ -187,9 +187,50 @@
   touch-action: none;
 }
 
+.erp-draggable-modal-wrap--maximized {
+  padding: 0 !important;
+  overflow: hidden !important;
+}
+
+.erp-draggable-modal-wrap--maximized .ant-modal,
 .erp-draggable-modal--maximized .ant-modal {
+  top: 0 !important;
+  left: 0 !important;
+  width: 100vw !important;
   max-width: 100vw !important;
+  height: 100vh !important;
   margin: 0 !important;
+  padding: 0 !important;
+}
+
+.erp-draggable-modal-wrap--maximized .erp-draggable-modal,
+.erp-draggable-modal--maximized {
+  width: 100vw !important;
+  max-width: 100vw !important;
+  height: 100vh !important;
+  transform: translate(0px, 0px) !important;
+}
+
+.erp-draggable-modal-wrap--maximized .erp-draggable-modal-inner {
+  width: 100vw !important;
+  height: 100vh !important;
+  max-height: 100vh !important;
+}
+
+.erp-draggable-modal-wrap--maximized .ant-modal-content {
+  height: 100vh !important;
+  max-height: 100vh !important;
+  border-radius: 0 !important;
+}
+
+.erp-draggable-modal-wrap--maximized .ant-modal-header,
+.erp-draggable-modal-wrap--maximized .ant-modal-footer {
+  border-radius: 0 !important;
+}
+
+.erp-draggable-modal-wrap--maximized .ant-modal-body {
+  max-height: none !important;
+  flex: 1 1 auto !important;
 }
 
 .erp-window-controls {

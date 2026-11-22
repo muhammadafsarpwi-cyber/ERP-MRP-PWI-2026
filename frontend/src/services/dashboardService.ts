@@ -350,39 +350,39 @@ class DashboardService {
   }
 
   async getSummary(filters?: DashboardFilters): Promise<{ success: boolean; data: DashboardSummary }> {
-    return apiService.get('/dashboard/summary', this.buildParams(filters));
+    return apiService.get('/dashboard/summary', this.buildParams(filters), { useEtag: true });
   }
 
   async getLastEntryDate(filters?: DashboardFilters): Promise<{ success: boolean; data: { lastEntryDate: string | null } }> {
-    return apiService.get('/dashboard/last-entry-date', this.buildParams(filters));
+    return apiService.get('/dashboard/last-entry-date', this.buildParams(filters), { useEtag: true });
   }
 
   async getProduction(filters?: DashboardFilters): Promise<{ success: boolean; data: ProductionSummary }> {
-    return apiService.get('/dashboard/production', this.buildParams(filters));
+    return apiService.get('/dashboard/production', this.buildParams(filters), { useEtag: true });
   }
 
   async getProductionTrend(days: number = 31, filters?: DashboardFilters): Promise<{ success: boolean; data: ProductionTrendDay[] }> {
-    return apiService.get('/dashboard/production/trend', { days: String(days), ...this.buildParams(filters) });
+    return apiService.get('/dashboard/production/trend', { days: String(days), ...this.buildParams(filters) }, { useEtag: true });
   }
 
   async getMachinePerformance(filters?: DashboardFilters): Promise<{ success: boolean; data: MachinePerformanceItem[] }> {
-    return apiService.get('/dashboard/machines/performance', this.buildParams(filters));
+    return apiService.get('/dashboard/machines/performance', this.buildParams(filters), { useEtag: true });
   }
 
   async getItemOverview(filters?: DashboardFilters & { itemType?: string; status?: string; search?: string }): Promise<{ success: boolean; data: ItemOverview[] }> {
-    return apiService.get('/dashboard/items/overview', this.buildParams(filters));
+    return apiService.get('/dashboard/items/overview', this.buildParams(filters), { useEtag: true });
   }
 
   async getItemRoute(itemId: string): Promise<{ success: boolean; data: ItemRoute }> {
-    return apiService.get(`/dashboard/items/${itemId}/route`);
+    return apiService.get(`/dashboard/items/${itemId}/route`, undefined, { useEtag: true });
   }
 
   async getInventory(filters?: DashboardFilters & { warehouseId?: string }): Promise<{ success: boolean; data: InventorySummary }> {
-    return apiService.get('/dashboard/inventory', this.buildParams(filters));
+    return apiService.get('/dashboard/inventory', this.buildParams(filters), { useEtag: true });
   }
 
   async getProcurement(): Promise<{ success: boolean; data: PurchaseOrderSummary }> {
-    return apiService.get('/dashboard/procurement/summary');
+    return apiService.get('/dashboard/procurement/summary', undefined, { useEtag: true });
   }
 
   private convertQtyToGrs(qty: number, uomCode?: string | null): number {
@@ -397,7 +397,7 @@ class DashboardService {
   }
 
   async getSales(): Promise<{ success: boolean; data: SalesOrderSummary }> {
-    const summaryRes = await apiService.get<{ success: boolean; data: SalesOrderSummary }>('/dashboard/sales/summary');
+    const summaryRes = await apiService.get<{ success: boolean; data: SalesOrderSummary }>('/dashboard/sales/summary', undefined, { useEtag: true });
     const hasEnrichedPayload =
       summaryRes?.success &&
       summaryRes?.data?.summary &&
@@ -546,7 +546,7 @@ class DashboardService {
   }
 
   async getSchedule(): Promise<{ success: boolean; data: DashboardScheduleItem[] }> {
-    return apiService.get('/dashboard/schedule');
+    return apiService.get('/dashboard/schedule', undefined, { useEtag: true });
   }
 
   async getCalendarActivity(year?: number, month?: number, divisionId?: string): Promise<{ success: boolean; data: CalendarActivityDay[] }> {
@@ -554,34 +554,34 @@ class DashboardService {
     if (year) params.year = String(year);
     if (month) params.month = String(month);
     if (divisionId) params.divisionId = divisionId;
-    return apiService.get('/dashboard/calendar-activity', params);
+    return apiService.get('/dashboard/calendar-activity', params, { useEtag: true });
   }
 
   async getAlerts(filters?: DashboardFilters): Promise<{ success: boolean; data: AlertItem[] }> {
-    return apiService.get('/dashboard/alerts', this.buildParams(filters));
+    return apiService.get('/dashboard/alerts', this.buildParams(filters), { useEtag: true });
   }
 
   async getActivity(limit: number = 15): Promise<{ success: boolean; data: ActivityItem[] }> {
-    return apiService.get('/dashboard/activity', { limit: String(limit) });
+    return apiService.get('/dashboard/activity', { limit: String(limit) }, { useEtag: true });
   }
 
   async getFilterDivisions(): Promise<{ success: boolean; data: FilterOption[] }> {
-    return apiService.get('/dashboard/divisions');
+    return apiService.get('/dashboard/divisions', undefined, { useEtag: true });
   }
 
   async getFilterSections(divisionId?: string): Promise<{ success: boolean; data: FilterOption[] }> {
-    return apiService.get('/dashboard/sections', divisionId ? { divisionId } : {});
+    return apiService.get('/dashboard/sections', divisionId ? { divisionId } : {}, { useEtag: true });
   }
 
   async getFilterDepartments(divisionId?: string, sectionId?: string): Promise<{ success: boolean; data: FilterOption[] }> {
     const params: Record<string, string> = {};
     if (divisionId) params.divisionId = divisionId;
     if (sectionId) params.sectionId = sectionId;
-    return apiService.get('/dashboard/departments', params);
+    return apiService.get('/dashboard/departments', params, { useEtag: true });
   }
 
   async getFilterShifts(): Promise<{ success: boolean; data: FilterOption[] }> {
-    return apiService.get('/dashboard/shifts');
+    return apiService.get('/dashboard/shifts', undefined, { useEtag: true });
   }
 
   async getDepartmentProductionLedger(params?: {
@@ -591,7 +591,7 @@ class DashboardService {
     dateTo?: string;
   }): Promise<{ success: boolean; data: DepartmentLedgerData }> {
     try {
-      return await apiService.get('/dashboard/department-ledger', params);
+      return await apiService.get('/dashboard/department-ledger', params, { useEtag: true });
     } catch (err: any) {
       if (err?.response?.status === 404) {
         return this.buildFallbackDepartmentLedger(params);

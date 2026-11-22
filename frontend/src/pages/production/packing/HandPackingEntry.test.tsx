@@ -14,6 +14,11 @@ import HandPackingEntry, {
   computeComponentRejection,
   convertRejectionQtyUnit,
   filterCustomersByDivision,
+  isSocOpenForNewPacking,
+  filterAvailableCustomerSocs,
+  isEligibleCompletedSafetyStockBatch,
+  buildPackingActivityLedgerRows,
+  summarizePackingLedger,
 } from './HandPackingEntry';
 
 // Captured at MODULE scope, before the first test runs: CRA's jest config sets
@@ -767,5 +772,259 @@ describe('Hand Packing Entry — BOM Source-of-Truth & Architectural Verificatio
 
       expect(document.querySelector<HTMLInputElement>('.ant-picker-input input')!.value).toBe(picked);
     }, 30000);
+  });
+
+  describe('SOC # dropdown eligibility filtering (hide Delivered/Closed/100% dispatched, preserve historical link in Edit mode)', () => {
+    const crownOrders = [
+      {
+        orderNumber: 'SOC-2026-05819',
+        status: 'Processing',
+        customer: { companyName: 'CROWN FIT PAKISTAN', customerCode: 'CUS-CFP-001' },
+        items: [
+          { quantity: 1000, shippedQuantity: 400 },
+          { quantity: 200, shippedQuantity: 0 },
+        ],
+      },
+      {
+        orderNumber: 'SOC-2026-5817',
+        status: 'Delivered',
+        customer: { companyName: 'CROWN FIT PAKISTAN', customerCode: 'CUS-CFP-001' },
+        items: [{ quantity: 420, shippedQuantity: 420 }],
+      },
+      {
+        orderNumber: 'SOC-2026-5810',
+        status: 'Delivered',
+        customer: { companyName: 'CROWN FIT PAKISTAN', customerCode: 'CUS-CFP-001' },
+        items: [{ quantity: 1130, shippedQuantity: 1130 }],
+      },
+      {
+        orderNumber: 'SOC-2026-5811',
+        status: 'Processing',
+        customer: { companyName: 'CROWN FIT PAKISTAN', customerCode: 'CUS-CFP-001' },
+        items: [{ quantity: 500, shippedQuantity: 500 }], // 100% dispatched despite Processing status
+      },
+      {
+        orderNumber: 'SOC-2026-5812',
+        status: 'Closed',
+        customer: { companyName: 'CROWN FIT PAKISTAN', customerCode: 'CUS-CFP-001' },
+        items: [{ quantity: 300, shippedQuantity: 100 }],
+      },
+      {
+        orderNumber: 'SOC-2026-5813',
+        status: 'Cancelled',
+        customer: { companyName: 'CROWN FIT PAKISTAN', customerCode: 'CUS-CFP-001' },
+        items: [{ quantity: 200, shippedQuantity: 0 }],
+      },
+      {
+        orderNumber: 'SOC-2026-9999',
+        status: 'Confirmed',
+        customer: { companyName: 'OTHER AUTO PARTS', customerCode: 'CUS-OAP-009' },
+        items: [{ quantity: 600, shippedQuantity: 0 }],
+      },
+    ];
+
+    test('isSocOpenForNewPacking excludes Delivered, Completed, Closed, Cancelled, and 100% dispatched SOCs', () => {
+      expect(isSocOpenForNewPacking({ status: 'Processing', items: [{ quantity: 100, shippedQuantity: 20 }] })).toBe(true);
+      expect(isSocOpenForNewPacking({ status: 'Confirmed', items: [{ quantity: 100, shippedQuantity: 0 }] })).toBe(true);
+      expect(isSocOpenForNewPacking({ status: 'Partially Delivered', items: [{ quantity: 100, shippedQuantity: 50 }] })).toBe(true);
+
+      expect(isSocOpenForNewPacking({ status: 'Delivered', items: [{ quantity: 100, shippedQuantity: 100 }] })).toBe(false);
+      expect(isSocOpenForNewPacking({ status: 'Completed', items: [{ quantity: 100, shippedQuantity: 100 }] })).toBe(false);
+      expect(isSocOpenForNewPacking({ status: 'Closed', items: [{ quantity: 100, shippedQuantity: 50 }] })).toBe(false);
+      expect(isSocOpenForNewPacking({ status: 'Cancelled', items: [{ quantity: 100, shippedQuantity: 0 }] })).toBe(false);
+      expect(isSocOpenForNewPacking({ status: 'Processing', items: [{ quantity: 100, shippedQuantity: 100 }] })).toBe(false);
+      expect(isSocOpenForNewPacking({ status: 'Processing', totalQuantity: 250, totalShippedQuantity: 250 })).toBe(false);
+    });
+
+    test('new packing entry only lists active open SOCs for CROWN FIT PAKISTAN', () => {
+      const available = filterAvailableCustomerSocs(crownOrders, 'CROWN FIT PAKISTAN');
+      expect(available.map((o) => o.orderNumber)).toEqual(['SOC-2026-05819']);
+    });
+
+    test('edit mode preserves the already-linked historical SOC while still hiding unrelated delivered SOCs', () => {
+      const availableInEdit = filterAvailableCustomerSocs(crownOrders, 'CROWN FIT PAKISTAN', {
+        preserveSocNo: 'SOC-2026-5817',
+      });
+      expect(availableInEdit.map((o) => o.orderNumber)).toEqual([
+        'SOC-2026-05819',
+        'SOC-2026-5817',
+      ]);
+    });
+
+    test('returns empty list for SAFETY STOCK', () => {
+      expect(filterAvailableCustomerSocs(crownOrders, 'SAFETY STOCK')).toEqual([]);
+    });
+  });
+
+  describe('Transaction-dated packing activity ledger (no double-counting)', () => {
+    test('projects 2026-11-16 nipple completions and safety stock shifts onto 2026-11-16 without inflating physical packed totals', () => {
+      const baseEntries: any[] = [
+        {
+          id: 'pe-1531',
+          entryNumber: 'PE-2026-01531',
+          batchNo: 'PKG-2026-0939',
+          entryDate: '24/10/2026',
+          customerName: 'CROWN FIT PAKISTAN',
+          socNo: 'SOC-2026-05819',
+          fgItemCode: 'SPI-FG-SPK-001',
+          fgItemName: '250X17 Inn / Out Spoke Butted__225X17 Nipple',
+          cartons: 55,
+          gross: 550,
+          pcs: 79200,
+          weightKg: 998.7,
+          rejectionPcs: 0,
+          rejectionKg: 0,
+          rejectionPct: null,
+          overtimeHours: 2,
+          shiftName: 'General Shift',
+          status: 'SAVED',
+          createdAtMs: 1000,
+          components: [],
+          withoutNipple: false,
+        },
+        {
+          id: 'pe-2232',
+          entryNumber: 'PE-2026-02232',
+          batchNo: 'PKG-2026-0968',
+          entryDate: '11/11/2026',
+          customerName: 'CROWN FIT PAKISTAN',
+          socNo: 'SOC-2026-05819',
+          fgItemCode: 'SPI-FG-SPK-006',
+          fgItemName: '300X17 S9 Inn / Out Spoke Straight__125-S9 Nipple',
+          cartons: 96,
+          gross: 960,
+          pcs: 138240,
+          weightKg: 1700,
+          rejectionPcs: 0,
+          rejectionKg: 0,
+          rejectionPct: null,
+          overtimeHours: 0,
+          shiftName: 'General Shift',
+          status: 'WITHOUT_NIPPLE',
+          createdAtMs: 2000,
+          components: [],
+          withoutNipple: true,
+        },
+      ];
+
+      const activityLogs: any[] = [
+        {
+          id: 'log-1',
+          productionEntryId: 'pe-1531',
+          entryNumber: 'PE-2026-01531',
+          batchNo: 'PKG-2026-0939',
+          activityType: 'NIPPLE_COMPLETED',
+          activityDate: '2026-11-16',
+          originalPackedDate: '2026-10-24',
+          itemCode: 'SPI-FG-SPK-001',
+          itemName: '250X17 Inn / Out Spoke Butted__225X17 Nipple',
+          customerName: 'CROWN FIT PAKISTAN',
+          socNo: 'SOC-2026-05819',
+          cartons: 55,
+          gross: 550,
+          pcs: 79200,
+          status: 'COMPLETED',
+        },
+        {
+          id: 'log-2',
+          productionEntryId: 'pe-2232',
+          entryNumber: 'PE-2026-02232',
+          batchNo: 'PKG-2026-0968',
+          activityType: 'SHIFTED_TO_SOC',
+          activityDate: '2026-11-16',
+          originalPackedDate: '2026-11-11',
+          itemCode: 'SPI-FG-SPK-006',
+          itemName: '300X17 S9 Inn / Out Spoke Straight__125-S9 Nipple',
+          fromCustomer: 'SAFETY STOCK',
+          fromSoc: 'SAFETY_STOCK',
+          customerName: 'CROWN FIT PAKISTAN',
+          socNo: 'SOC-2026-05819',
+          cartons: 96,
+          gross: 960,
+          pcs: 138240,
+          status: 'SHIFTED_TO_SOC',
+        },
+      ];
+
+      const unified = buildPackingActivityLedgerRows(baseEntries, activityLogs);
+      expect(unified).toHaveLength(4);
+
+      const nov16Rows = unified.filter((r) => r.activityDateIso === '2026-11-16');
+      expect(nov16Rows).toHaveLength(2);
+      expect(nov16Rows.map((r) => r.activityType).sort()).toEqual(['NIPPLE_COMPLETED', 'SHIFTED_TO_SOC']);
+
+      // Original packing row for PE-2026-01531 must display as PACKED_WITHOUT_NIPPLE with nippleAddedLaterDateIso='2026-11-16'
+      const orig1531 = unified.find((r) => r.id === 'pe-1531');
+      expect(orig1531?.activityType).toBe('PACKED_WITHOUT_NIPPLE');
+      expect(orig1531?.nippleAddedLaterDateIso).toBe('2026-11-16');
+      expect(orig1531?.withoutNipple).toBe(false);
+
+      // Original packing row for PE-2026-02232 (shifted from Safety Stock) must carry shiftedToSocDateIso='2026-11-16' and allocatedFromSafetyStock=true
+      const orig2232 = unified.find((r) => r.id === 'pe-2232');
+      expect(orig2232?.shiftedToSocDateIso).toBe('2026-11-16');
+      expect(orig2232?.allocatedFromSafetyStock).toBe(true);
+
+      // Physical packed total must remain 55 + 96 = 151 CTN (never 302 CTN!) and pendingNippleCartons stays 96 (not 151!)
+      const summary = summarizePackingLedger(unified);
+      expect(summary.freshPackedCartons).toBe(151);
+      expect(summary.nippleCompletedCartons).toBe(55);
+      expect(summary.shiftedToSocCartons).toBe(96);
+      expect(summary.pendingNippleCartons).toBe(96);
+    });
+  });
+
+  describe('Move / Allocate Safety Stock eligibility (strictly completed FULL_SET only)', () => {
+    test('excludes WITHOUT_NIPPLE Safety Stock batches and includes completed FULL_SET Safety Stock batches', () => {
+      const completedFullSetSafety: any = {
+        id: 'pe-2399',
+        customerName: 'SAFETY STOCK',
+        socNo: 'SAFETY_STOCK',
+        packingMode: 'FULL_SET',
+        withoutNipple: false,
+        status: 'SAVED',
+        isActivityEvent: false,
+      };
+      const openingSafety: any = {
+        id: 'os-1',
+        customerName: 'SAFETY STOCK',
+        socNo: 'SAFETY_STOCK',
+        packingMode: 'FULL_SET',
+        withoutNipple: false,
+        status: 'OPENING',
+        isActivityEvent: false,
+      };
+      const withoutNippleSafety: any = {
+        id: 'pe-2400',
+        customerName: 'SAFETY STOCK',
+        socNo: 'SAFETY_STOCK',
+        packingMode: 'WITHOUT_NIPPLE',
+        withoutNipple: true,
+        status: 'WITHOUT_NIPPLE',
+        isActivityEvent: false,
+      };
+      const customerOrderBatch: any = {
+        id: 'pe-1531',
+        customerName: 'CROWN FIT PAKISTAN',
+        socNo: 'SOC-2026-05819',
+        packingMode: 'FULL_SET',
+        withoutNipple: false,
+        status: 'SAVED',
+        isActivityEvent: false,
+      };
+
+      expect(isEligibleCompletedSafetyStockBatch(completedFullSetSafety)).toBe(true);
+      expect(isEligibleCompletedSafetyStockBatch(openingSafety)).toBe(true);
+      expect(isEligibleCompletedSafetyStockBatch(withoutNippleSafety)).toBe(false);
+      expect(isEligibleCompletedSafetyStockBatch(customerOrderBatch)).toBe(false);
+
+      // Once "+ Add Nipple" completes the batch into FULL_SET (still in Safety Stock), it becomes eligible automatically
+      const completedAfterNipple: any = {
+        ...withoutNippleSafety,
+        packingMode: 'FULL_SET',
+        withoutNipple: false,
+        status: 'SAVED',
+      };
+      expect(isEligibleCompletedSafetyStockBatch(completedAfterNipple)).toBe(true);
+    });
   });
 });

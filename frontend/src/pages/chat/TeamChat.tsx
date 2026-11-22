@@ -49,6 +49,7 @@ import {
 import dayjs from 'dayjs';
 import { useNavigate } from 'react-router-dom';
 import { apiService } from '../../services/api';
+import { useWorkspaceTabStore } from '../../store/workspaceTabStore';
 import {
   playGentleChatChime,
   triggerTeamChatBadgeSync,
@@ -755,15 +756,26 @@ const TeamChat: React.FC = () => {
     void fetchActiveMessages(activeConversationId, true);
   }, [activeConversationId, fetchActiveMessages]);
 
-  // 10-second active polling for messages & directory (paused when tab is hidden)
+  // 10-second active polling for messages & directory — paused when browser tab is hidden
+  // OR when Team Chat is inactive in a background workspace keep-alive tab.
+  const isTeamChatActive = useWorkspaceTabStore((s) => s.activeTabId === '/team-chat');
+  const prevTeamChatActiveRef = useRef<boolean>(isTeamChatActive);
+
   useEffect(() => {
     const runPoll = () => {
       if (typeof document !== 'undefined' && document.hidden) return;
+      if (useWorkspaceTabStore.getState().activeTabId !== '/team-chat') return;
       void fetchDirectoryAndConversations(false);
       if (activeConvIdRef.current) {
         void fetchActiveMessages(activeConvIdRef.current, false);
       }
     };
+    if (isTeamChatActive && !prevTeamChatActiveRef.current) {
+      // Single catch-up sync when switching back into the Team Chat tab
+      runPoll();
+    }
+    prevTeamChatActiveRef.current = isTeamChatActive;
+
     const timer = window.setInterval(runPoll, ACTIVE_POLL_INTERVAL_MS);
     const onVisibilityChange = () => {
       if (typeof document !== 'undefined' && !document.hidden) {
@@ -776,7 +788,7 @@ const TeamChat: React.FC = () => {
       window.clearInterval(timer);
       document?.removeEventListener?.('visibilitychange', onVisibilityChange);
     };
-  }, [fetchDirectoryAndConversations, fetchActiveMessages]);
+  }, [fetchDirectoryAndConversations, fetchActiveMessages, isTeamChatActive]);
 
   const handleSelectGroup = (conv: ChatConversationItem) => {
     setActiveConversationId(conv.id);

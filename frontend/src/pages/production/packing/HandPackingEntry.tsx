@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Card, Row, Col, Form, Select, DatePicker, Input, InputNumber, Button, Space,
   Typography, Progress, Tag, Table, Alert, Tooltip, App, Segmented,
-  Divider, Popconfirm, Spin, Badge, Modal, Switch, Checkbox, message,
+  Divider, Popconfirm, Spin, Badge, Modal, Switch, Checkbox, message, theme,
 } from 'antd';
 import {
   ArrowLeftOutlined, SearchOutlined, SaveOutlined, PlusOutlined, DeleteOutlined,
@@ -22,7 +22,11 @@ import dayjs from 'dayjs';
 import apiService from '../../../services/api';
 import { useUserStore } from '../../../store/userStore';
 import { tabSessionCache } from '../../../services/tabSessionCache';
-import { getLookupsSnapshot, prefetchAllLookups } from '../../../services/lookupsCache';
+import {
+  getLookupsSnapshot,
+  prefetchAllLookups,
+  fetchCachedCustomers,
+} from '../../../services/lookupsCache';
 import { formatNumber, toNum } from '../../../utils/numberFormat';
 import PageHeader from '../../../components/shared/PageHeader';
 import { getSavedPackingTargetConfig, savePackingTargetConfig, PACKING_TARGET_EVENT } from './packingTargetConfig';
@@ -294,6 +298,17 @@ export interface RecentPackingLog {
   pendingNipplePcs?: number;
   isOpeningStock?: boolean;
   packingMode?: 'FULL_SET' | 'INNER_ONLY' | 'OUTER_ONLY' | 'WITHOUT_NIPPLE';
+  entryNumber?: string;
+  isActivityEvent?: boolean;
+  activityType?: 'PACKED_FULL_SET' | 'PACKED_WITHOUT_NIPPLE' | 'NIPPLE_COMPLETED' | 'SHIFTED_TO_SOC';
+  activityDateIso?: string;
+  originalPackedDateIso?: string;
+  nippleAddedLaterDateIso?: string;
+  shiftedToSocDateIso?: string;
+  fromCustomer?: string;
+  fromSoc?: string;
+  activityNotes?: string;
+  sourceEntryId?: string;
   componentsDetail?: Array<{
     key?: string;
     componentItemId?: string;
@@ -514,9 +529,314 @@ const parseHandPackingEntry = (e: any): RecentPackingLog | null => {
     pendingNippleGross,
     pendingNipplePcs,
     packingMode,
+    entryNumber: String(e.entryNumber || e.entry_number || e.entryNo || ''),
+    isActivityEvent: false,
+    activityType: withoutNippleMatch ? 'PACKED_WITHOUT_NIPPLE' : 'PACKED_FULL_SET',
+    activityDateIso: entryDay.isValid() ? entryDay.format('YYYY-MM-DD') : '',
+    originalPackedDateIso: (() => {
+      const m = remarks.match(/Orig\.\s*Packed:\s*(\d{4}-\d{2}-\d{2})/i);
+      return m ? m[1] : (entryDay.isValid() ? entryDay.format('YYYY-MM-DD') : '');
+    })(),
     componentsDetail,
   };
 };
+
+export interface PackingActivityLogDto {
+  id: string;
+  productionEntryId?: string | null;
+  sourceEntryId?: string | null;
+  entryNumber?: string | null;
+  batchNo: string;
+  activityType: 'NIPPLE_COMPLETED' | 'SHIFTED_TO_SOC';
+  activityDate: string; // YYYY-MM-DD
+  originalPackedDate?: string | null;
+  itemId?: string | null;
+  itemCode?: string | null;
+  itemName?: string | null;
+  fromCustomer?: string | null;
+  fromSoc?: string | null;
+  customerName?: string | null;
+  socNo?: string | null;
+  cartons: number;
+  gross: number;
+  pcs: number;
+  nippleItemCode?: string | null;
+  status?: string | null;
+  notes?: string | null;
+  createdAt?: string | null;
+}
+
+const toIsoDateString = (d?: string | null): string => {
+  if (!d) return '';
+  const s = String(d).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) {
+    const [dd, mm, yyyy] = s.split('/');
+    return `${yyyy}-${mm}-${dd}`;
+  }
+  const parsed = dayjs(s);
+  return parsed.isValid() ? parsed.format('YYYY-MM-DD') : '';
+};
+
+/**
+ * Builds the unified Packing Activity & SOC Ledger row list combining physical
+ * packing entries (`PACKED_FULL_SET` / `PACKED_WITHOUT_NIPPLE`) with transaction-dated
+ * movement events (`NIPPLE_COMPLETED` / `SHIFTED_TO_SOC`) without double-counting
+ * physical spoke production.
+ */
+export function buildPackingActivityLedgerRows(
+  baseEntries: RecentPackingLog[],
+  activityLogs: PackingActivityLogDto[] = [],
+): RecentPackingLog[] {
+  const baseById = new Map<string, RecentPackingLog>();
+  const baseByEntryNo = new Map<string, RecentPackingLog>();
+
+  const normalizedBase = baseEntries.map((r) => {
+    const iso = r.activityDateIso || toIsoDateString(r.entryDate);
+    const actType = r.activityType || (r.withoutNipple || r.status === 'WITHOUT_NIPPLE' ? 'PACKED_WITHOUT_NIPPLE' : 'PACKED_FULL_SET');
+    const row: RecentPackingLog = {
+      ...r,
+      isActivityEvent: false,
+      activityType: actType,
+      activityDateIso: iso,
+      originalPackedDateIso: r.originalPackedDateIso || iso,
+    };
+    baseById.set(row.id, row);
+    if (row.entryNumber) baseByEntryNo.set(row.entryNumber, row);
+    return row;
+  });
+
+  const seenKeys = new Set<string>();
+  const movementRows: RecentPackingLog[] = [];
+
+  for (const log of activityLogs) {
+    const actDateIso = toIsoDateString(log.activityDate);
+    if (!actDateIso) continue;
+    const parent =
+      (log.productionEntryId && baseById.get(log.productionEntryId)) ||
+      (log.sourceEntryId && baseById.get(log.sourceEntryId)) ||
+      (log.entryNumber && baseByEntryNo.get(log.entryNumber)) ||
+      undefined;
+    const dedupKey = `${log.productionEntryId || log.entryNumber || log.batchNo}|${log.activityType}|${actDateIso}`;
+    if (seenKeys.has(dedupKey)) continue;
+    seenKeys.add(dedupKey);
+
+    const parsedActDay = dayjs(actDateIso);
+    const createdMs = log.createdAt && dayjs(log.createdAt).isValid()
+      ? dayjs(log.createdAt).valueOf()
+      : (parsedActDay.isValid() ? parsedActDay.valueOf() : 0);
+
+    movementRows.push({
+      id: `act-${log.id}`,
+      batchNo: log.batchNo || parent?.batchNo || log.entryNumber || 'PKG-BATCH',
+      entryNumber: log.entryNumber || parent?.entryNumber || '',
+      divisionName: parent?.divisionName || 'Spoke Division',
+      divisionCode: parent?.divisionCode || 'DIV-SPD',
+      divisionId: parent?.divisionId || '',
+      entryDate: parsedActDay.isValid() ? parsedActDay.format('DD/MM/YYYY') : actDateIso,
+      entryTime: log.createdAt && dayjs(log.createdAt).isValid() ? dayjs(log.createdAt).format('hh:mm A') : '',
+      customerName: log.customerName || parent?.customerName || '—',
+      socNo: log.socNo || parent?.socNo || '—',
+      fromCustomer: log.fromCustomer || (log.activityType === 'SHIFTED_TO_SOC' ? 'SAFETY STOCK' : undefined),
+      fromSoc: log.fromSoc || (log.activityType === 'SHIFTED_TO_SOC' ? 'SAFETY_STOCK' : undefined),
+      packagingStyle: parent?.packagingStyle || '',
+      line: parent?.line || 'Packing Movement',
+      fgItemId: log.itemId || parent?.fgItemId || '',
+      fgItemCode: log.itemCode || parent?.fgItemCode || '',
+      fgItemName: log.itemName || parent?.fgItemName || '',
+      cartons: Number(log.cartons || 0),
+      gross: Number(log.gross || 0),
+      pcs: Number(log.pcs || 0),
+      weightKg: 0,
+      rejectionPcs: 0,
+      rejectionKg: 0,
+      rejectionPct: null,
+      overtimeHours: 0,
+      shiftName: parent?.shiftName || 'General Shift',
+      status: log.activityType === 'SHIFTED_TO_SOC' ? 'SHIFTED_TO_SOC' : 'COMPLETED',
+      createdAtMs: createdMs,
+      components: [],
+      rawEntry: parent?.rawEntry,
+      allocatedFromSafetyStock: log.activityType === 'SHIFTED_TO_SOC',
+      withoutNipple: false,
+      pendingNippleCode: log.nippleItemCode || parent?.pendingNippleCode || '',
+      packingMode: 'FULL_SET',
+      isActivityEvent: true,
+      activityType: log.activityType,
+      activityDateIso: actDateIso,
+      originalPackedDateIso: toIsoDateString(log.originalPackedDate) || parent?.originalPackedDateIso || parent?.activityDateIso || '',
+      activityNotes: log.notes || '',
+      sourceEntryId: log.productionEntryId || log.sourceEntryId || parent?.id,
+    });
+  }
+
+  // Fallback derivation from remarks if backend activity logs were unavailable/cached
+  for (const row of normalizedBase) {
+    const remarks = String(row.rawEntry?.remarks || row.rawEntry?.notes || '');
+    const origDate = row.originalPackedDateIso || row.activityDateIso || '';
+
+    const nipMatch = remarks.match(/Nipple Stock Deducted:\s*(\d{4}-\d{2}-\d{2})/i);
+    if (nipMatch) {
+      const nipDateIso = nipMatch[1];
+      const dedupKey = `${row.id}|NIPPLE_COMPLETED|${nipDateIso}`;
+      const altKey = `${row.entryNumber || row.batchNo}|NIPPLE_COMPLETED|${nipDateIso}`;
+      if (!seenKeys.has(dedupKey) && !seenKeys.has(altKey)) {
+        seenKeys.add(dedupKey);
+        const parsedDay = dayjs(nipDateIso);
+        movementRows.push({
+          ...row,
+          id: `act-nip-${row.id}-${nipDateIso}`,
+          entryDate: parsedDay.isValid() ? parsedDay.format('DD/MM/YYYY') : nipDateIso,
+          activityDateIso: nipDateIso,
+          originalPackedDateIso: origDate,
+          isActivityEvent: true,
+          activityType: 'NIPPLE_COMPLETED',
+          status: 'COMPLETED',
+          withoutNipple: false,
+          weightKg: 0,
+          rejectionPcs: 0,
+          rejectionKg: 0,
+          sourceEntryId: row.id,
+          activityNotes: `Nipples added (${row.cartons} CTN / ${row.gross} GRS) · Originally packed ${origDate}`,
+        });
+      }
+    }
+
+    const shiftMatch = remarks.match(/SHIFTED FROM SAFETY STOCK on\s*(\d{4}-\d{2}-\d{2})/i);
+    if (shiftMatch) {
+      const shiftDateIso = shiftMatch[1];
+      const dedupKey = `${row.id}|SHIFTED_TO_SOC|${shiftDateIso}`;
+      const altKey = `${row.entryNumber || row.batchNo}|SHIFTED_TO_SOC|${shiftDateIso}`;
+      if (!seenKeys.has(dedupKey) && !seenKeys.has(altKey)) {
+        seenKeys.add(dedupKey);
+        const parsedDay = dayjs(shiftDateIso);
+        movementRows.push({
+          ...row,
+          id: `act-shift-${row.id}-${shiftDateIso}`,
+          entryDate: parsedDay.isValid() ? parsedDay.format('DD/MM/YYYY') : shiftDateIso,
+          activityDateIso: shiftDateIso,
+          originalPackedDateIso: origDate,
+          fromCustomer: 'SAFETY STOCK',
+          fromSoc: 'SAFETY_STOCK',
+          isActivityEvent: true,
+          activityType: 'SHIFTED_TO_SOC',
+          status: 'SHIFTED_TO_SOC',
+          withoutNipple: false,
+          weightKg: 0,
+          rejectionPcs: 0,
+          rejectionKg: 0,
+          sourceEntryId: row.id,
+          activityNotes: `Safety Stock -> ${row.customerName} (${row.socNo}) · ${row.cartons} CTN · Originally packed ${origDate}`,
+        });
+      }
+    }
+  }
+
+  // Mark original packing rows that had nipples added later OR were shifted from Safety Stock
+  // so the ledger displays crisp color-coded subtitles and badges without changing any stock/totals.
+  const nippleCompletedByEntryId = new Map<string, string>();
+  const nippleCompletedByEntryNo = new Map<string, string>();
+  const shiftedToSocByEntryId = new Map<string, string>();
+  const shiftedToSocByEntryNo = new Map<string, string>();
+
+  for (const mv of movementRows) {
+    if (!mv.activityDateIso) continue;
+    if (mv.activityType === 'NIPPLE_COMPLETED') {
+      if (mv.sourceEntryId && !nippleCompletedByEntryId.has(mv.sourceEntryId)) {
+        nippleCompletedByEntryId.set(mv.sourceEntryId, mv.activityDateIso);
+      }
+      if (mv.entryNumber && !nippleCompletedByEntryNo.has(mv.entryNumber)) {
+        nippleCompletedByEntryNo.set(mv.entryNumber, mv.activityDateIso);
+      }
+    } else if (mv.activityType === 'SHIFTED_TO_SOC') {
+      if (mv.sourceEntryId && !shiftedToSocByEntryId.has(mv.sourceEntryId)) {
+        shiftedToSocByEntryId.set(mv.sourceEntryId, mv.activityDateIso);
+      }
+      if (mv.entryNumber && !shiftedToSocByEntryNo.has(mv.entryNumber)) {
+        shiftedToSocByEntryNo.set(mv.entryNumber, mv.activityDateIso);
+      }
+    }
+  }
+  for (const log of activityLogs) {
+    const d = toIsoDateString(log.activityDate);
+    if (!d) continue;
+    if (log.activityType === 'NIPPLE_COMPLETED') {
+      if (log.productionEntryId && !nippleCompletedByEntryId.has(log.productionEntryId)) {
+        nippleCompletedByEntryId.set(log.productionEntryId, d);
+      }
+      if (log.entryNumber && !nippleCompletedByEntryNo.has(log.entryNumber)) {
+        nippleCompletedByEntryNo.set(log.entryNumber, d);
+      }
+    } else if (log.activityType === 'SHIFTED_TO_SOC') {
+      if (log.productionEntryId && !shiftedToSocByEntryId.has(log.productionEntryId)) {
+        shiftedToSocByEntryId.set(log.productionEntryId, d);
+      }
+      if (log.entryNumber && !shiftedToSocByEntryNo.has(log.entryNumber)) {
+        shiftedToSocByEntryNo.set(log.entryNumber, d);
+      }
+    }
+  }
+
+  for (const row of normalizedBase) {
+    const completedLaterDate =
+      nippleCompletedByEntryId.get(row.id) ||
+      (row.entryNumber ? nippleCompletedByEntryNo.get(row.entryNumber) : undefined);
+    if (completedLaterDate && !row.withoutNipple && row.status !== 'WITHOUT_NIPPLE') {
+      row.activityType = 'PACKED_WITHOUT_NIPPLE';
+      row.nippleAddedLaterDateIso = completedLaterDate;
+    }
+
+    const shiftedDate =
+      shiftedToSocByEntryId.get(row.id) ||
+      (row.entryNumber ? shiftedToSocByEntryNo.get(row.entryNumber) : undefined);
+    if (shiftedDate) {
+      row.shiftedToSocDateIso = shiftedDate;
+      row.allocatedFromSafetyStock = true;
+    }
+  }
+
+  return [...normalizedBase, ...movementRows].sort((a, b) => {
+    const da = a.activityDateIso || '';
+    const db = b.activityDateIso || '';
+    if (da !== db) return db.localeCompare(da);
+    return (b.createdAtMs || 0) - (a.createdAtMs || 0);
+  });
+}
+
+/**
+ * Summarizes unified ledger rows without double-counting physical spoke production.
+ */
+export function summarizePackingLedger(rows: RecentPackingLog[]) {
+  let freshPackedCartons = 0;
+  let freshPackedGross = 0;
+  let nippleCompletedCartons = 0;
+  let shiftedToSocCartons = 0;
+  let pendingNippleCartons = 0;
+
+  for (const r of rows) {
+    const ctn = Number(r.cartons || 0);
+    const grs = Number(r.gross || 0);
+    if (r.isActivityEvent) {
+      if (r.activityType === 'NIPPLE_COMPLETED') nippleCompletedCartons += ctn;
+      if (r.activityType === 'SHIFTED_TO_SOC') shiftedToSocCartons += ctn;
+    } else {
+      freshPackedCartons += ctn;
+      freshPackedGross += grs;
+      if (r.withoutNipple || r.status === 'WITHOUT_NIPPLE') {
+        pendingNippleCartons += ctn;
+      }
+    }
+  }
+
+  return {
+    totalEvents: rows.length,
+    freshPackedCartons: Math.round(freshPackedCartons * 100) / 100,
+    freshPackedGross: Math.round(freshPackedGross * 100) / 100,
+    nippleCompletedCartons: Math.round(nippleCompletedCartons * 100) / 100,
+    shiftedToSocCartons: Math.round(shiftedToSocCartons * 100) / 100,
+    pendingNippleCartons: Math.round(pendingNippleCartons * 100) / 100,
+  };
+}
 
 export interface BomComponentItem {
   key: string;
@@ -809,6 +1129,146 @@ export function filterCustomersByDivision<
   if (!divId) return rows;
   const filtered = rows.filter((c) => String(c?.divisionId || '') === divId);
   return filtered.length > 0 ? filtered : rows;
+}
+
+const CLOSED_OR_DELIVERED_SOC_STATUSES = new Set([
+  'delivered',
+  'completed',
+  'closed',
+  'cancelled',
+  'canceled',
+  'dispatched',
+  'void',
+]);
+
+function normalizeSocKey(value?: string | null): string {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^soc[-_\s]*/i, '');
+}
+
+export function isSocMatchingNumber(so: any, socNo?: string | null): boolean {
+  const targetRaw = String(socNo || '').trim().toLowerCase();
+  if (!targetRaw || targetRaw === 'safety_stock' || targetRaw === 'n/a' || targetRaw === '—') {
+    return false;
+  }
+  const orderNumRaw = String(so?.orderNumber || so?.order_number || '').trim().toLowerCase();
+  if (!orderNumRaw) return false;
+  if (orderNumRaw === targetRaw) return true;
+  const targetKey = normalizeSocKey(targetRaw);
+  const orderKey = normalizeSocKey(orderNumRaw);
+  return Boolean(targetKey && orderKey && (orderKey === targetKey || orderNumRaw.endsWith(targetRaw)));
+}
+
+/**
+ * Returns true if a Sales Order (SOC) is still open and eligible for new
+ * packing production entries. Excludes Delivered, Completed, Closed, Cancelled,
+ * Dispatched, or Void orders, as well as any order whose ordered quantity is
+ * 100% dispatched (remaining undelivered balance <= 0).
+ */
+export function isSocOpenForNewPacking(so: any): boolean {
+  if (!so) return false;
+  const status = String(so.status || so.orderStatus || so.order_status || '').trim().toLowerCase();
+  if (CLOSED_OR_DELIVERED_SOC_STATUSES.has(status)) {
+    return false;
+  }
+
+  const topOrdered = Number(
+    so.totalQuantity ?? so.total_quantity ?? so.orderedQuantity ?? so.ordered_quantity ?? NaN,
+  );
+  const topDelivered = Number(
+    so.totalShippedQuantity ?? so.total_shipped_quantity ?? so.deliveredQuantity ?? so.delivered_quantity ?? NaN,
+  );
+  if (Number.isFinite(topOrdered) && topOrdered > 0 && Number.isFinite(topDelivered) && topOrdered - topDelivered <= 0) {
+    return false;
+  }
+
+  const items = Array.isArray(so.items) ? so.items : [];
+  if (items.length > 0) {
+    let totalOrdered = 0;
+    let totalDelivered = 0;
+    for (const it of items) {
+      const ordered = Number(it?.quantity ?? it?.orderedQuantity ?? it?.ordered_quantity ?? it?.qty ?? 0);
+      const delivered = Number(
+        it?.shippedQuantity ??
+          it?.shipped_quantity ??
+          it?.deliveredQuantity ??
+          it?.delivered_quantity ??
+          it?.dispatchedQuantity ??
+          it?.dispatched_quantity ??
+          0,
+      );
+      if (Number.isFinite(ordered) && ordered > 0) totalOrdered += ordered;
+      if (Number.isFinite(delivered) && delivered > 0) totalDelivered += delivered;
+    }
+    if (totalOrdered > 0 && totalOrdered - totalDelivered <= 0) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Returns true ONLY for 100% completed FULL_SET Safety Stock batches eligible
+ * to be shifted/allocated to a Customer SOC via "Move / Allocate Safety Stock".
+ * Strictly excludes WITHOUT_NIPPLE / incomplete batches (which belong exclusively
+ * in the "Without Nipple Pack — Held in Safety Stock" queue until completed via "+ Add Nipple").
+ */
+export function isEligibleCompletedSafetyStockBatch(r: RecentPackingLog): boolean {
+  if (!r || r.isActivityEvent) return false;
+
+  const custNorm = String(r.customerName || '').toUpperCase().replace(/[\s_-]+/g, '');
+  const socNorm = String(r.socNo || '').toUpperCase().replace(/[\s_-]+/g, '');
+  const isSafetyStock =
+    custNorm === 'SAFETYSTOCK' ||
+    socNorm === 'SAFETYSTOCK' ||
+    String(r.customerName || '').toLowerCase().includes('safety stock') ||
+    String(r.socNo || '').toLowerCase().includes('safety_stock') ||
+    String(r.socNo || '').toLowerCase().includes('safety-stock');
+
+  if (!isSafetyStock) return false;
+
+  const mode = String(r.packingMode || r.rawEntry?.packingMode || r.rawEntry?.packing_mode || 'FULL_SET').toUpperCase().trim();
+  const status = String(r.status || '').toUpperCase().trim();
+  if (r.withoutNipple || mode === 'WITHOUT_NIPPLE' || status === 'WITHOUT_NIPPLE') {
+    return false;
+  }
+
+  return status === 'SAVED' || status === 'COMPLETED' || status === 'OPENING';
+}
+
+/**
+ * Filters Sales Orders for a selected customer for the Packing Production Entry
+ * SOC # dropdown:
+ * - New entries: only open orders still requiring packing/dispatch.
+ * - Edit mode (`preserveSocNo` provided): preserves the entry's already-linked
+ *   historical SOC # so saved records never lose their reference.
+ */
+export function filterAvailableCustomerSocs<T = any>(
+  salesOrders: T[],
+  customerName?: string | null,
+  options?: { preserveSocNo?: string | null },
+): T[] {
+  if (!customerName || customerName === 'SAFETY STOCK') return [];
+  const custClean = customerName.toLowerCase().trim();
+  if (!custClean) return [];
+  const preserveSocNo = options?.preserveSocNo?.trim() || '';
+
+  return salesOrders.filter((so: any) => {
+    const cName = String(so?.customer?.companyName || so?.customer?.name || '').toLowerCase().trim();
+    const cCode = String(so?.customer?.customerCode || '').toLowerCase().trim();
+    const matchesCustomer =
+      (Boolean(cName) && (cName.includes(custClean) || custClean.includes(cName))) ||
+      (Boolean(cCode) && custClean.includes(cCode));
+    if (!matchesCustomer) return false;
+
+    if (preserveSocNo && isSocMatchingNumber(so, preserveSocNo)) {
+      return true;
+    }
+    return isSocOpenForNewPacking(so);
+  });
 }
 
 
@@ -1268,6 +1728,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
 
   // Edit and View modal states
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
+  const [editingOriginalSocNo, setEditingOriginalSocNo] = useState<string>('');
   const [viewModalData, setViewModalData] = useState<RecentPackingLog | null>(null);
   const [viewLoading, setViewLoading] = useState<boolean>(false);
 
@@ -1997,16 +2458,49 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
   const [registerSearchText, setRegisterSearchText] = useState<string>('');
   const [registerDateFilter, setRegisterDateFilter] = useState<string | null>(null);
   const [registerDivisionFilter, setRegisterDivisionFilter] = useState<string | null>(null);
+  const [packingActivityLogs, setPackingActivityLogs] = useState<PackingActivityLogDto[]>([]);
+
+  // Single-Line Packing Activity & SOC Ledger filters
+  const [ledgerSocFilter, setLedgerSocFilter] = useState<string | undefined>(undefined);
+  const [ledgerCustomerFilter, setLedgerCustomerFilter] = useState<string | undefined>(undefined);
+  const [ledgerItemSearch, setLedgerItemSearch] = useState<string>('');
+  const [ledgerBatchSearch, setLedgerBatchSearch] = useState<string>('');
+  const [ledgerDateRange, setLedgerDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null] | null>(null);
+  const [ledgerStatusFilter, setLedgerStatusFilter] = useState<'ALL' | 'COMPLETED' | 'PENDING_NIPPLE' | 'NIPPLE_COMPLETED' | 'SHIFTED_TO_SOC'>('ALL');
+  const { token: antToken } = theme.useToken();
+  const isLedgerDarkMode = (() => {
+    const bg = String(antToken.colorBgContainer || antToken.colorBgBase || '#ffffff').toLowerCase().trim();
+    if (bg.startsWith('#')) {
+      const hex = bg.length === 4 ? bg.slice(1).split('').map((c) => c + c).join('') : bg.slice(1, 7);
+      const r = parseInt(hex.slice(0, 2), 16);
+      const g = parseInt(hex.slice(2, 4), 16);
+      const b = parseInt(hex.slice(4, 6), 16);
+      if (Number.isFinite(r) && Number.isFinite(g) && Number.isFinite(b)) {
+        return (0.299 * r + 0.587 * g + 0.114 * b) < 128;
+      }
+    }
+    return typeof document !== 'undefined' && document.documentElement.getAttribute('data-theme') === 'dark';
+  })();
+  // High-contrast color-coded subtitles for Packing Activity & SOC Ledger (Light / Dark mode pairs)
+  const ledgerPurpleColor = isLedgerDarkMode ? '#C4B5FD' : '#6D28D9';
+  const ledgerEmeraldColor = isLedgerDarkMode ? '#6EE7B7' : '#047857';
+  const ledgerAmberColor = isLedgerDarkMode ? '#FCD34D' : '#B45309';
 
   const loadRecentEntries = useCallback(async () => {
     setRecentLoading(true);
     try {
-      const [res, openStockRes]: any = await Promise.all([
+      const [res, openStockRes, activityRes]: any = await Promise.all([
         apiService.get(
-          `/production/entries?machineNo=HAND-PACK&limit=100&sortBy=createdAt&sortDir=DESC`
+          `/production/entries?machineNo=HAND-PACK&limit=500&sortBy=createdAt&sortDir=DESC`
         ).catch(() => []),
         apiService.get(`/production/open-stock/history?limit=200`).catch(() => []),
+        apiService.get(`/production/entries/packing-activity-ledger?limit=500`).catch(() => []),
       ]);
+
+      const activityList = extractArray(activityRes) as PackingActivityLogDto[];
+      if (Array.isArray(activityList)) {
+        setPackingActivityLogs(activityList);
+      }
 
       const liveRows = extractArray(res)
         .map(parseHandPackingEntry)
@@ -2184,33 +2678,45 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
   // Load ACTIVE customers from the official Customer List master
   // (Customer Management module → customers table). Only ACTIVE records are
   // listed; the customer NAME is stored on the packing entry so history,
-  // Load ACTIVE customers from Customer master with instant tab session caching
+  // Load ACTIVE customers from global lookupsCache / Customer master with instant tab session caching
   const loadCustomers = useCallback(async (forceRefresh = false) => {
     if (!forceRefresh) {
-      const cached = tabSessionCache.get<any[]>('hand_packing_customers');
-      if (cached && Array.isArray(cached) && cached.length > 0) {
-        setCustomers(cached);
+      const snapCustomers = getLookupsSnapshot().customers;
+      if (Array.isArray(snapCustomers) && snapCustomers.length > 0) {
+        const seenSnap = new Set<string>();
+        const uniqueSnap = snapCustomers.filter((c: any) => {
+          const name = String(c?.name || c?.companyName || '').trim();
+          if (!name || seenSnap.has(name.toLowerCase())) return false;
+          seenSnap.add(name.toLowerCase());
+          return true;
+        });
+        if (uniqueSnap.length > 0) {
+          setCustomers(uniqueSnap);
+        }
+      } else {
+        const cached = tabSessionCache.get<any[]>('hand_packing_customers');
+        if (cached && Array.isArray(cached) && cached.length > 0) {
+          setCustomers(cached);
+        }
       }
     }
     setCustomersLoading(true);
     try {
-      const res: any = await apiService.get('/customer/customers', {
-        status: 'ACTIVE',
-        page: 1,
-        limit: 500,
-        sortField: 'name',
-        sortOrder: 'ASC',
-      });
-      const rows = extractArray(res).filter(
+      const rows = await fetchCachedCustomers(forceRefresh);
+      const activeRows = (Array.isArray(rows) ? rows : []).filter(
         (c: any) => !c?.status || String(c.status).toUpperCase() === 'ACTIVE'
       );
       const seen = new Set<string>();
-      const unique = rows.filter((c: any) => {
-        const name = String(c?.name || '').trim();
-        if (!name || seen.has(name.toLowerCase())) return false;
-        seen.add(name.toLowerCase());
-        return true;
-      });
+      const unique = activeRows
+        .filter((c: any) => {
+          const name = String(c?.name || c?.companyName || '').trim();
+          if (!name || seen.has(name.toLowerCase())) return false;
+          seen.add(name.toLowerCase());
+          return true;
+        })
+        .sort((a: any, b: any) =>
+          String(a?.name || a?.companyName || '').localeCompare(String(b?.name || b?.companyName || ''))
+        );
       setCustomers(unique);
       tabSessionCache.set('hand_packing_customers', unique);
     } catch (err) {
@@ -3811,6 +4317,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         return;
       }
       setEditingEntryId(r.id);
+      setEditingOriginalSocNo(r.socNo && r.socNo !== '—' ? r.socNo : '');
       setCurrentBatchNo(r.batchNo);
       if (r.entryDate) {
         const parsed = dayjs(r.entryDate, 'DD/MM/YYYY');
@@ -3885,6 +4392,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
 
   const handleCancelEdit = useCallback(() => {
     setEditingEntryId(null);
+    setEditingOriginalSocNo('');
     setSelectedPackingDeptId('');
     setLockedSession(null);
     const autoNo = `PKG-${dayjs().format('YYYY')}-${String(Math.floor(Math.random() * 900) + 100).padStart(4, '0')}`;
@@ -4415,16 +4923,12 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
     return opts;
   }, [customers, selectedCustomer, watchedDivisionId, selectedDivisionId]);
 
-  // Open SOCs matching the selected customer
+  // Open SOCs matching the selected customer (preserving already-linked historical SOC when editing)
   const matchingCustomerSocs = useMemo(() => {
-    if (!selectedCustomer || selectedCustomer === 'SAFETY STOCK') return [];
-    const custClean = selectedCustomer.toLowerCase().trim();
-    return salesOrders.filter((so) => {
-      const cName = String(so.customer?.companyName || so.customer?.name || '').toLowerCase().trim();
-      const cCode = String(so.customer?.customerCode || '').toLowerCase().trim();
-      return cName.includes(custClean) || custClean.includes(cName) || (cCode && custClean.includes(cCode));
+    return filterAvailableCustomerSocs(salesOrders, selectedCustomer, {
+      preserveSocNo: editingEntryId ? editingOriginalSocNo : undefined,
     });
-  }, [selectedCustomer, salesOrders]);
+  }, [selectedCustomer, salesOrders, editingEntryId, editingOriginalSocNo]);
 
 
   // Handle Customer selection change
@@ -4438,11 +4942,8 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       return;
     }
 
-    const custClean = val.toLowerCase().trim();
-    const matches = salesOrders.filter((so) => {
-      const cName = String(so.customer?.companyName || so.customer?.name || '').toLowerCase().trim();
-      const cCode = String(so.customer?.customerCode || '').toLowerCase().trim();
-      return cName.includes(custClean) || custClean.includes(cName) || (cCode && custClean.includes(cCode));
+    const matches = filterAvailableCustomerSocs(salesOrders, val, {
+      preserveSocNo: editingEntryId ? editingOriginalSocNo : undefined,
     });
 
     const targetItemKey = masterItems[0]?.key || 'item-0';
@@ -4971,6 +5472,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
           res = await apiService.post('/production/entries', payload);
         }
         setEditingEntryId(null);
+        setEditingOriginalSocNo('');
       } else {
         try {
           res = await apiService.post('/production/entries', payload);
@@ -6049,15 +6551,8 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
 
   // Move / Allocate Safety Stock to Customer SOC Modal (Bulk Multi-Select)
   const renderAllocateModal = () => {
-    // Find all entries recorded as SAFETY STOCK (live packing batches + opening stock safety batches)
-    const safetyStockLogs = recentSavedEntries.filter(
-      (r) =>
-        r.customerName.toUpperCase().replace(/[\s_-]+/g, '') === 'SAFETYSTOCK' ||
-        r.socNo.toUpperCase().replace(/[\s_-]+/g, '') === 'SAFETYSTOCK' ||
-        (r.customerName || '').toLowerCase().includes('safety stock') ||
-        (r.socNo || '').toLowerCase().includes('safety_stock') ||
-        (r.socNo || '').toLowerCase().includes('safety-stock')
-    );
+    // Strictly allow ONLY 100% completed FULL_SET Safety Stock batches (never WITHOUT_NIPPLE incomplete packs)
+    const safetyStockLogs = recentSavedEntries.filter(isEligibleCompletedSafetyStockBatch);
 
     // Unique list of Finished Good Items currently present in safety stock
     const safetyStockItems = Array.from(
@@ -6092,13 +6587,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
     const totalSelectedGross = Math.round(totalSelectedCartons * 10 * 100) / 100;
     const totalSelectedPcs = Math.round(totalSelectedCartons * 1440);
 
-    const targetCustomerMatches = salesOrders.filter((so) => {
-      if (!allocateTargetCustomer) return false;
-      const custClean = allocateTargetCustomer.toLowerCase().trim();
-      const cName = String(so.customer?.companyName || so.customer?.name || '').toLowerCase().trim();
-      const cCode = String(so.customer?.customerCode || '').toLowerCase().trim();
-      return cName.includes(custClean) || custClean.includes(cName) || (cCode && custClean.includes(cCode));
-    });
+    const targetCustomerMatches = filterAvailableCustomerSocs(salesOrders, allocateTargetCustomer);
 
     const activeTargetOrder = targetCustomerMatches.find(
       (so) => (so.orderNumber || so.order_number) === allocateTargetSoc
@@ -6301,7 +6790,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             </div>
             {safetyStockLogs.length > 0 && (
               <Tag color="gold" style={{ fontWeight: 700 }}>
-                {safetyStockLogs.length} Total Safety Batches Available
+                {safetyStockLogs.length} Completed Full-Set Batches Available
               </Tag>
             )}
           </div>
@@ -6309,8 +6798,8 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       >
         <div style={{ padding: '4px 0' }}>
           <Alert
-            message="Safety Stock Transfer & Packing Report Allocation"
-            description="Select multiple safety stock batches packed on different dates to shift them together directly to a customer's confirmed SOC order. This transfer will be recorded on the Packing Register and Daily Report under the chosen shift date."
+            message="Completed Full Set Safety Stock Transfer & SOC Allocation"
+            description="Only 100% completed Full Set Safety Stock batches are listed here. Incomplete Without-Nipple batches stay in the Pending Nipple queue and become eligible automatically once completed via '+ Add Nipple'."
             type="info"
             showIcon
             style={{ marginBottom: 14 }}
@@ -6372,7 +6861,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
               bordered
               pagination={filteredSafetyStockLogs.length > 5 ? { pageSize: 5, size: 'small' } : false}
               columns={safetyBatchColumns}
-              locale={{ emptyText: 'No matching safety stock batches found.' }}
+              locale={{ emptyText: 'No completed Full Set Safety Stock batches available. Complete Without-Nipple batches via "+ Add Nipple" first.' }}
               rowSelection={{
                 type: 'checkbox',
                 selectedRowKeys: allocateSelectedBatchIds,
@@ -6429,12 +6918,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                   value={allocateTargetCustomer || undefined}
                   onChange={(cust) => {
                     setAllocateTargetCustomer(cust);
-                    const matches = salesOrders.filter((so) => {
-                      const custClean = String(cust).toLowerCase().trim();
-                      const cName = String(so.customer?.companyName || so.customer?.name || '').toLowerCase().trim();
-                      const cCode = String(so.customer?.customerCode || '').toLowerCase().trim();
-                      return cName.includes(custClean) || custClean.includes(cName) || (cCode && custClean.includes(cCode));
-                    });
+                    const matches = filterAvailableCustomerSocs(salesOrders, String(cust));
                     if (matches.length === 1) {
                       setAllocateTargetSoc(matches[0].orderNumber || matches[0].order_number);
                     } else {
@@ -6477,7 +6961,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
               {/* Customer Packaging Style / Poly Bag */}
               <Col xs={24} sm={12}>
                 <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)', marginBottom: 4, display: 'block' }}>
-                  🛍️ Customer Packaging Style (پولی بیگ / برانڈڈ باکس):
+                  🛍️ Customer Packaging Style (Poly Bag / Branded Box):
                 </span>
                 <Select
                   style={{ width: '100%', fontWeight: 700 }}
@@ -7263,19 +7747,104 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
 
     const FIXED_DAILY_TARGET_CARTONS = getSavedPackingTargetConfig().baseCartons || 125; // 8h Shift Fixed Target (125 CTN = 1,250 GRS = 180,000 PCS)
 
-    // Group recent entries by Date
+    // Unified activity rows: physical packing entries + transaction-dated movement events (Nipple Completed & Shifted to SOC)
+    const unifiedLedgerRows = buildPackingActivityLedgerRows(recentSavedEntries, packingActivityLogs);
+    const baseEntryMap = new Map<string, RecentPackingLog>(recentSavedEntries.map((r) => [r.id, r]));
+
+    // Distinct SOC # and Customer options for the Single-Line Packing Activity & SOC Ledger filter bar
+    const ledgerSocOptions = Array.from(
+      new Set(
+        [
+          ...unifiedLedgerRows.map((r) => r.socNo),
+          ...salesOrders.map((so) => so.orderNumber || so.order_number),
+        ].filter((s): s is string => Boolean(s && s !== '—' && s !== 'N/A'))
+      )
+    )
+      .sort((a, b) => b.localeCompare(a))
+      .map((s) => ({ value: s, label: s === 'SAFETY_STOCK' ? 'SAFETY STOCK' : s }));
+
+    const ledgerCustomerOptions = Array.from(
+      new Set(
+        unifiedLedgerRows
+          .map((r) => r.customerName)
+          .filter((c): c is string => Boolean(c && c !== '—'))
+      )
+    )
+      .sort((a, b) => a.localeCompare(b))
+      .map((c) => ({ value: c, label: c }));
+
+    // Filtered rows for the Single-Line Packing Activity & SOC Ledger
+    const filteredLedgerRows = unifiedLedgerRows.filter((r) => {
+      if (ledgerSocFilter) {
+        const targetSoc = ledgerSocFilter.toLowerCase();
+        const matchesSoc =
+          (r.socNo || '').toLowerCase() === targetSoc ||
+          (r.fromSoc || '').toLowerCase() === targetSoc;
+        if (!matchesSoc) return false;
+      }
+      if (ledgerCustomerFilter) {
+        const targetCust = ledgerCustomerFilter.toLowerCase();
+        const matchesCust =
+          (r.customerName || '').toLowerCase() === targetCust ||
+          (r.fromCustomer || '').toLowerCase() === targetCust;
+        if (!matchesCust) return false;
+      }
+      if (ledgerItemSearch.trim()) {
+        const q = ledgerItemSearch.trim().toLowerCase();
+        if (
+          !(r.fgItemCode || '').toLowerCase().includes(q) &&
+          !(r.fgItemName || '').toLowerCase().includes(q)
+        ) {
+          return false;
+        }
+      }
+      if (ledgerBatchSearch.trim()) {
+        const q = ledgerBatchSearch.trim().toLowerCase();
+        if (
+          !(r.batchNo || '').toLowerCase().includes(q) &&
+          !(r.entryNumber || '').toLowerCase().includes(q)
+        ) {
+          return false;
+        }
+      }
+      if (ledgerDateRange && (ledgerDateRange[0] || ledgerDateRange[1])) {
+        const rowIso = r.activityDateIso || toIsoDateString(r.entryDate);
+        if (!rowIso) return false;
+        if (ledgerDateRange[0] && rowIso < ledgerDateRange[0].format('YYYY-MM-DD')) return false;
+        if (ledgerDateRange[1] && rowIso > ledgerDateRange[1].format('YYYY-MM-DD')) return false;
+      }
+      if (ledgerStatusFilter === 'COMPLETED') {
+        if (r.isActivityEvent) return r.activityType === 'NIPPLE_COMPLETED';
+        return !r.withoutNipple && r.status !== 'WITHOUT_NIPPLE';
+      }
+      if (ledgerStatusFilter === 'PENDING_NIPPLE') {
+        return !r.isActivityEvent && (Boolean(r.withoutNipple) || r.status === 'WITHOUT_NIPPLE');
+      }
+      if (ledgerStatusFilter === 'NIPPLE_COMPLETED') {
+        return r.isActivityEvent && r.activityType === 'NIPPLE_COMPLETED';
+      }
+      if (ledgerStatusFilter === 'SHIFTED_TO_SOC') {
+        return r.isActivityEvent && r.activityType === 'SHIFTED_TO_SOC';
+      }
+      return true;
+    });
+
+    const ledgerSummary = summarizePackingLedger(filteredLedgerRows);
+
     const dateGroupedEntries = (() => {
-      let list = recentSavedEntries;
+      let list = unifiedLedgerRows;
       if (registerSearchText && registerSearchText.trim()) {
         const q = registerSearchText.trim().toLowerCase();
         list = list.filter((r) =>
           r.batchNo.toLowerCase().includes(q) ||
+          (r.entryNumber || '').toLowerCase().includes(q) ||
           r.customerName.toLowerCase().includes(q) ||
           r.socNo.toLowerCase().includes(q) ||
           r.fgItemCode.toLowerCase().includes(q) ||
           r.fgItemName.toLowerCase().includes(q) ||
           (r.line || '').toLowerCase().includes(q) ||
-          (r.packagingStyle || '').toLowerCase().includes(q)
+          (r.packagingStyle || '').toLowerCase().includes(q) ||
+          (r.activityNotes || '').toLowerCase().includes(q)
         );
       }
       if (registerDivisionFilter) {
@@ -7295,30 +7864,21 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       }
       if (registerDateFilter) {
         list = list.filter((r) => {
-          let d = r.entryDate;
-          if (d.includes('/')) {
-            const parts = d.split('/');
-            if (parts.length === 3) d = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
-          }
+          const d = r.activityDateIso || toIsoDateString(r.entryDate);
           return d === registerDateFilter;
         });
       }
 
       if (registerViewMode === 'PENDING_NIPPLE') {
-        list = list.filter((r) => r.withoutNipple || r.status === 'WITHOUT_NIPPLE');
+        list = list.filter((r) => !r.isActivityEvent && (r.withoutNipple || r.status === 'WITHOUT_NIPPLE'));
       } else if (registerViewMode === 'COMPLETED') {
-        list = list.filter((r) => !r.withoutNipple && r.status !== 'WITHOUT_NIPPLE');
+        list = list.filter((r) => (r.isActivityEvent && r.activityType === 'NIPPLE_COMPLETED') || (!r.isActivityEvent && !r.withoutNipple && r.status !== 'WITHOUT_NIPPLE'));
       }
 
       const groups = new Map<string, RecentPackingLog[]>();
       list.forEach((entry) => {
-        let dateKey = entry.entryDate;
-        if (dateKey.includes('/')) {
-          const parts = dateKey.split('/');
-          if (parts.length === 3) {
-            dateKey = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
-          }
-        }
+        const dateKey = entry.activityDateIso || toIsoDateString(entry.entryDate);
+        if (!dateKey) return;
         if (!groups.has(dateKey)) {
           groups.set(dateKey, []);
         }
@@ -7329,30 +7889,41 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
 
       return sortedKeys.map((dateKey) => {
         const items = groups.get(dateKey)!;
-        const totalCartons = Math.round(items.reduce((s, r) => s + (r.cartons || 0), 0) * 100) / 100;
-        const producedCartons = Math.round(items.filter(r => !r.allocatedFromSafetyStock).reduce((s, r) => s + (r.cartons || 0), 0) * 100) / 100;
-        const shiftedCartons = Math.round(items.filter(r => r.allocatedFromSafetyStock).reduce((s, r) => s + (r.cartons || 0), 0) * 100) / 100;
-        const totalGross = Math.round(items.reduce((s, r) => s + (r.gross || 0), 0) * 100) / 100;
-        const totalPcs = items.reduce((s, r) => s + (r.pcs || 0), 0);
-        const totalWeightKg = Math.round(items.reduce((s, r) => {
+        const physicalItems = items.filter((r) => !r.isActivityEvent);
+        const movementItems = items.filter((r) => r.isActivityEvent);
+
+        // ZERO DOUBLE-COUNTING: Physical packed totals sum ONLY physical spoke packing entries (!isActivityEvent)
+        const totalCartons = Math.round(physicalItems.reduce((s, r) => s + (r.cartons || 0), 0) * 100) / 100;
+        const producedCartons = Math.round(physicalItems.filter((r) => !r.allocatedFromSafetyStock).reduce((s, r) => s + (r.cartons || 0), 0) * 100) / 100;
+        const shiftedCartons = Math.round(physicalItems.filter((r) => r.allocatedFromSafetyStock).reduce((s, r) => s + (r.cartons || 0), 0) * 100) / 100;
+        const nippleCompletedCartons = Math.round(
+          movementItems.filter((r) => r.activityType === 'NIPPLE_COMPLETED').reduce((s, r) => s + (r.cartons || 0), 0) * 100
+        ) / 100;
+        const shiftedEventCartons = Math.round(
+          movementItems.filter((r) => r.activityType === 'SHIFTED_TO_SOC').reduce((s, r) => s + (r.cartons || 0), 0) * 100
+        ) / 100;
+
+        const totalGross = Math.round(physicalItems.reduce((s, r) => s + (r.gross || 0), 0) * 100) / 100;
+        const totalPcs = physicalItems.reduce((s, r) => s + (r.pcs || 0), 0);
+        const totalWeightKg = Math.round(physicalItems.reduce((s, r) => {
           const wt = r.weightKg > 0
             ? r.weightKg
             : computeFgBatchWeightKg(r.fgItemCode, r.fgItemName, r.cartons || 50, r.withoutNipple || r.status === 'WITHOUT_NIPPLE');
           return s + wt;
         }, 0) * 10) / 10;
-        const totalRejectionPcs = items.reduce((s, r) => s + (r.rejectionPcs || 0), 0);
+        const totalRejectionPcs = physicalItems.reduce((s, r) => s + (r.rejectionPcs || 0), 0);
 
-        // Linear Overtime scaling: 8 hours base -> each OT hour adds (base / 8) cartons to target
-        const dayOtHours = Math.max(0, ...items.map((r) => r.overtimeHours || 0));
+        const dayOtHours = physicalItems.length > 0 ? Math.max(0, ...physicalItems.map((r) => r.overtimeHours || 0)) : 0;
         const activeBase = getSavedPackingTargetConfig().baseCartons || 125;
-        const rawTarget = items[0]?.targetCartons;
+        const rawTarget = physicalItems[0]?.targetCartons;
         const baseTarget = (rawTarget && rawTarget !== 100) ? rawTarget : activeBase;
         const otTarget = dayOtHours > 0 ? (dayOtHours * (baseTarget / 8)) : 0;
         const effectiveTargetCartons = Math.round((baseTarget + otTarget) * 10) / 10;
-        // Target achievement is based strictly on FRESH produced cartons (shifted safety stock is not double counted as fresh output)
-        const achievementPct = effectiveTargetCartons > 0 ? Math.min(100, Math.round(((producedCartons || totalCartons) / effectiveTargetCartons) * 1000) / 10) : 0;
+        const achievementPct = effectiveTargetCartons > 0
+          ? Math.min(100, Math.round(((producedCartons || totalCartons) / effectiveTargetCartons) * 1000) / 10)
+          : 0;
 
-        const firstEntry = items[0];
+        const firstEntry = physicalItems[0] || items[0];
         let divisionName = firstEntry?.divisionName;
         if (!divisionName || divisionName === '—') {
           const cust = customers.find((c) => c.name === firstEntry?.customerName);
@@ -7370,6 +7941,10 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
           totalCartons,
           producedCartons,
           shiftedCartons,
+          nippleCompletedCartons,
+          shiftedEventCartons,
+          physicalBatchesCount: physicalItems.length,
+          movementEventsCount: movementItems.length,
           totalGross,
           totalPcs,
           totalWeightKg,
@@ -7501,6 +8076,42 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         key: 'packingMode',
         width: 240,
         render: (_: any, r: RecentPackingLog) => {
+          if (r.isActivityEvent && r.activityType === 'NIPPLE_COMPLETED') {
+            const origFmt = r.originalPackedDateIso && dayjs(r.originalPackedDateIso).isValid()
+              ? dayjs(r.originalPackedDateIso).format('DD MMM YYYY')
+              : r.originalPackedDateIso || '—';
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                <Tag color="cyan" icon={<CheckCircleFilled />} style={{ fontWeight: 800, fontSize: 11.5, padding: '2px 8px', margin: 0, width: 'fit-content', borderRadius: 4 }}>
+                  NIPPLE COMPLETED
+                </Tag>
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: '#0284c7' }}>
+                  {r.cartons} CTN Finalized {r.pendingNippleCode ? `(${r.pendingNippleCode})` : ''}
+                </div>
+                <div style={{ fontSize: 10.5, color: 'var(--theme-text-muted, #94a3b8)' }}>
+                  Orig. Packed: {origFmt} · No Production Double-Count
+                </div>
+              </div>
+            );
+          }
+          if (r.isActivityEvent && r.activityType === 'SHIFTED_TO_SOC') {
+            const origFmt = r.originalPackedDateIso && dayjs(r.originalPackedDateIso).isValid()
+              ? dayjs(r.originalPackedDateIso).format('DD MMM YYYY')
+              : r.originalPackedDateIso || '—';
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                <Tag color="blue" icon={<SwapOutlined />} style={{ fontWeight: 800, fontSize: 11.5, padding: '2px 8px', margin: 0, width: 'fit-content', borderRadius: 4 }}>
+                  SHIFTED TO SOC
+                </Tag>
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: '#2563eb' }}>
+                  Safety Stock → {r.customerName} ({r.socNo})
+                </div>
+                <div style={{ fontSize: 10.5, color: 'var(--theme-text-muted, #94a3b8)' }}>
+                  Orig. Packed: {origFmt} · Allocation Event
+                </div>
+              </div>
+            );
+          }
           const mode = r.packingMode || 'FULL_SET';
           const bagOrCtn = r.packagingStyle?.toLowerCase().includes('bag') ? 'Bags' : 'Cartons';
 
@@ -7669,6 +8280,20 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         width: 155,
         align: 'center',
         render: (_: any, r: RecentPackingLog) => {
+          if (r.isActivityEvent && r.activityType === 'SHIFTED_TO_SOC') {
+            return (
+              <Tag color="blue" icon={<SwapOutlined />} style={{ fontWeight: 800, fontSize: 11, padding: '2px 8px', margin: 0 }}>
+                SHIFTED TO SOC
+              </Tag>
+            );
+          }
+          if (r.isActivityEvent && r.activityType === 'NIPPLE_COMPLETED') {
+            return (
+              <Tag color="success" icon={<CheckCircleFilled />} style={{ fontWeight: 800, fontSize: 11, padding: '2px 8px', margin: 0 }}>
+                NIPPLE COMPLETED
+              </Tag>
+            );
+          }
           if (r.withoutNipple || r.status === 'WITHOUT_NIPPLE') {
             return (
               <Tooltip title={`Spokes packed in White Poly Bag (Safety Stock). Nipple arrival pending: ${r.pendingNippleCode || 'Nipple'} (${r.pendingNippleGross || 0} GRS). Cannot be dispatched until nipples are added.`}>
@@ -7690,7 +8315,23 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         key: 'actions',
         width: 175,
         align: 'center',
-        render: (_: any, r: RecentPackingLog) => (
+        render: (_: any, r: RecentPackingLog) => {
+          if (r.isActivityEvent) {
+            const parentRow = (r.sourceEntryId && baseEntryMap.get(r.sourceEntryId)) || r;
+            return (
+              <Space size={4}>
+                <Tooltip title="View Linked Batch Details">
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<EyeOutlined style={{ color: '#0284c7', fontSize: 15 }} />}
+                    onClick={() => handleOpenViewModal(parentRow)}
+                  />
+                </Tooltip>
+              </Space>
+            );
+          }
+          return (
           <Space size={4}>
             {(r.withoutNipple || r.status === 'WITHOUT_NIPPLE') && (
               <Tooltip title="Complete Batch: Add Nipple Stock & Finalize for Dispatch">
@@ -7752,7 +8393,8 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
               </Popconfirm>
             </Tooltip>
           </Space>
-        ),
+          );
+        },
       },
     ];
 
@@ -8086,8 +8728,13 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
               <CalendarOutlined style={{ color: '#0284c7', fontSize: 16 }} />
               <span style={{ fontWeight: 800, fontSize: 14, color: 'var(--theme-heading, var(--theme-text, #0f172a))' }}>{val}</span>
               <Tag color="blue" style={{ fontWeight: 700, borderRadius: 4, marginLeft: 4, whiteSpace: 'nowrap' }}>
-                {record.batchesCount} {record.batchesCount === 1 ? 'Batch' : 'Batches'}
+                {record.physicalBatchesCount} Packed
               </Tag>
+              {record.movementEventsCount > 0 && (
+                <Tag color="cyan" style={{ fontWeight: 700, borderRadius: 4, whiteSpace: 'nowrap' }}>
+                  {record.movementEventsCount} {record.movementEventsCount === 1 ? 'Movement' : 'Movements'}
+                </Tag>
+              )}
             </Space>
             <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
               <Tag
@@ -8150,9 +8797,19 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
               <Tag color="green" style={{ fontWeight: 800, fontSize: 13, margin: 0, whiteSpace: 'nowrap' }}>
-                {r.totalCartons} Cartons
+                {r.totalCartons} Cartons Packed
               </Tag>
-              {r.shiftedCartons > 0 && (
+              {r.nippleCompletedCartons > 0 && (
+                <Tag color="cyan" style={{ fontWeight: 800, fontSize: 11, margin: 0, whiteSpace: 'nowrap' }}>
+                  +{r.nippleCompletedCartons} CTN Nipples Completed
+                </Tag>
+              )}
+              {r.shiftedEventCartons > 0 && (
+                <Tag color="blue" style={{ fontWeight: 800, fontSize: 11, margin: 0, whiteSpace: 'nowrap' }}>
+                  {r.shiftedEventCartons} CTN Shifted to SOC
+                </Tag>
+              )}
+              {r.shiftedCartons > 0 && r.shiftedEventCartons === 0 && (
                 <Tag color="purple" style={{ fontWeight: 800, fontSize: 10.5, margin: 0, border: '1px solid #c084fc' }}>
                   ({r.producedCartons} Produced + {r.shiftedCartons} Shifted)
                 </Tag>
@@ -8772,6 +9429,387 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             )}
           </Card>
         )}
+
+        {/* ── Single-Line Packing Activity & SOC Ledger Table ── */}
+        <Card
+          size="small"
+          style={{ marginBottom: 16, borderRadius: 8, borderColor: antToken.colorBorderSecondary }}
+          title={
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+              <Space align="center" size={8}>
+                <FileTextOutlined style={{ color: antToken.colorPrimary, fontSize: 16 }} />
+                <span style={{ fontWeight: 800, fontSize: 14, color: antToken.colorTextHeading }}>
+                  Packing Activity & SOC Ledger
+                </span>
+                <Tag color="blue" style={{ margin: 0, fontWeight: 700 }}>
+                  {ledgerSummary.totalEvents} Events
+                </Tag>
+              </Space>
+              <Space size={6} wrap>
+                <Tag color="green" style={{ margin: 0, fontWeight: 700 }}>
+                  Fresh Packed: {formatNumber(ledgerSummary.freshPackedCartons, 0)} CTN
+                </Tag>
+                <Tag color="cyan" style={{ margin: 0, fontWeight: 700 }}>
+                  Nipples Completed: {formatNumber(ledgerSummary.nippleCompletedCartons, 0)} CTN
+                </Tag>
+                <Tag color="geekblue" style={{ margin: 0, fontWeight: 700 }}>
+                  Shifted to SOC: {formatNumber(ledgerSummary.shiftedToSocCartons, 0)} CTN
+                </Tag>
+                {ledgerSummary.pendingNippleCartons > 0 && (
+                  <Tag color="warning" style={{ margin: 0, fontWeight: 700 }}>
+                    Pending Nipple: {formatNumber(ledgerSummary.pendingNippleCartons, 0)} CTN
+                  </Tag>
+                )}
+              </Space>
+            </div>
+          }
+        >
+          {/* Fast Top Filter Bar */}
+          <Row gutter={[8, 8]} style={{ marginBottom: 12 }} align="middle">
+            <Col xs={24} sm={12} md={4}>
+              <Select
+                allowClear
+                showSearch
+                optionFilterProp="label"
+                placeholder="Filter by SOC #"
+                style={{ width: '100%' }}
+                value={ledgerSocFilter}
+                onChange={(v) => setLedgerSocFilter(v)}
+                options={ledgerSocOptions}
+              />
+            </Col>
+            <Col xs={24} sm={12} md={4}>
+              <Select
+                allowClear
+                showSearch
+                optionFilterProp="label"
+                placeholder="Filter by Customer"
+                style={{ width: '100%' }}
+                value={ledgerCustomerFilter}
+                onChange={(v) => setLedgerCustomerFilter(v)}
+                options={ledgerCustomerOptions}
+              />
+            </Col>
+            <Col xs={24} sm={12} md={4}>
+              <Input
+                allowClear
+                prefix={<SearchOutlined style={{ color: antToken.colorTextTertiary }} />}
+                placeholder="Item Code / Name"
+                value={ledgerItemSearch}
+                onChange={(e) => setLedgerItemSearch(e.target.value)}
+              />
+            </Col>
+            <Col xs={24} sm={12} md={3}>
+              <Input
+                allowClear
+                placeholder="Batch # / Entry #"
+                value={ledgerBatchSearch}
+                onChange={(e) => setLedgerBatchSearch(e.target.value)}
+              />
+            </Col>
+            <Col xs={24} sm={12} md={4}>
+              <DatePicker.RangePicker
+                allowClear
+                style={{ width: '100%' }}
+                value={ledgerDateRange as any}
+                onChange={(vals) => setLedgerDateRange(vals as any)}
+                format="DD MMM YYYY"
+              />
+            </Col>
+            <Col xs={24} sm={12} md={3}>
+              <Select
+                style={{ width: '100%' }}
+                value={ledgerStatusFilter}
+                onChange={(v) => setLedgerStatusFilter(v)}
+                options={[
+                  { value: 'ALL', label: 'All Statuses' },
+                  { value: 'COMPLETED', label: 'Completed (Full Set)' },
+                  { value: 'PENDING_NIPPLE', label: 'Pending Nipple' },
+                  { value: 'NIPPLE_COMPLETED', label: 'Nipple Completed' },
+                  { value: 'SHIFTED_TO_SOC', label: 'Shifted to SOC' },
+                ]}
+              />
+            </Col>
+            <Col xs={24} sm={24} md={2}>
+              <Button
+                block
+                onClick={() => {
+                  setLedgerSocFilter(undefined);
+                  setLedgerCustomerFilter(undefined);
+                  setLedgerItemSearch('');
+                  setLedgerBatchSearch('');
+                  setLedgerDateRange(null);
+                  setLedgerStatusFilter('ALL');
+                }}
+              >
+                Reset
+              </Button>
+            </Col>
+          </Row>
+
+          <div className="erp-table-container">
+            <Table
+              dataSource={filteredLedgerRows}
+              rowKey="id"
+              loading={recentLoading && filteredLedgerRows.length === 0}
+              size="small"
+              pagination={{
+                pageSize: 15,
+                showSizeChanger: true,
+                pageSizeOptions: ['15', '30', '50', '100'],
+                size: 'small',
+                showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} events`,
+              }}
+              scroll={{ x: 1080 }}
+              locale={{ emptyText: 'No packing activity events match the active filters.' }}
+              columns={[
+                {
+                  title: 'ACTIVITY DATE',
+                  key: 'activityDate',
+                  width: 195,
+                  render: (_: any, r: RecentPackingLog) => {
+                    const iso = r.activityDateIso || toIsoDateString(r.entryDate);
+                    const formatted = iso && dayjs(iso).isValid() ? dayjs(iso).format('DD MMM YYYY') : (r.entryDate || '—');
+                    const origIso = r.originalPackedDateIso;
+                    const hasValidOrig = Boolean(origIso && dayjs(origIso).isValid());
+                    const showShiftOrig = r.isActivityEvent && r.activityType === 'SHIFTED_TO_SOC';
+                    const showNippleOrig = r.isActivityEvent && r.activityType === 'NIPPLE_COMPLETED' && hasValidOrig && origIso !== iso;
+                    const showCompletedLater = !r.isActivityEvent && Boolean(r.nippleAddedLaterDateIso && dayjs(r.nippleAddedLaterDateIso).isValid());
+                    const showShiftedLater = !r.isActivityEvent && Boolean(r.shiftedToSocDateIso && dayjs(r.shiftedToSocDateIso).isValid());
+                    return (
+                      <div>
+                        <div style={{ fontWeight: 800, fontSize: 13, color: antToken.colorInfoTextActive || '#1d4ed8', whiteSpace: 'nowrap' }}>
+                          {formatted}
+                        </div>
+                        {showShiftOrig && (
+                          <div style={{ fontSize: 12, fontWeight: 600, color: ledgerPurpleColor, marginTop: 2, whiteSpace: 'nowrap' }}>
+                            From Safety Stock{hasValidOrig ? ` (${dayjs(origIso).format('DD MMM YYYY')})` : ''}
+                          </div>
+                        )}
+                        {showNippleOrig && (
+                          <div style={{ fontSize: 12, fontWeight: 600, color: ledgerAmberColor, marginTop: 2, whiteSpace: 'nowrap' }}>
+                            Orig. Packed: {dayjs(origIso).format('DD MMM YYYY')}
+                          </div>
+                        )}
+                        {showCompletedLater && (
+                          <div style={{ fontSize: 12, fontWeight: 600, color: ledgerEmeraldColor, marginTop: 2, whiteSpace: 'nowrap' }}>
+                            Nipples Added: {dayjs(r.nippleAddedLaterDateIso).format('DD MMM YYYY')}
+                          </div>
+                        )}
+                        {showShiftedLater && (
+                          <div style={{ fontSize: 12, fontWeight: 600, color: ledgerPurpleColor, marginTop: 2, whiteSpace: 'nowrap' }}>
+                            Shifted to SOC: {dayjs(r.shiftedToSocDateIso).format('DD MMM YYYY')}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  },
+                },
+                {
+                  title: 'ENTRY / REF # & BATCH #',
+                  key: 'entryBatch',
+                  width: 175,
+                  render: (_: any, r: RecentPackingLog) => (
+                    <div>
+                      <div style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 12, color: antToken.colorText, whiteSpace: 'nowrap' }}>
+                        {r.entryNumber || '—'}
+                      </div>
+                      <Tag color="purple" style={{ margin: '2px 0 0 0', fontFamily: 'monospace', fontWeight: 700, fontSize: 11 }}>
+                        {r.batchNo}
+                      </Tag>
+                    </div>
+                  ),
+                },
+                {
+                  title: 'ACTIVITY TYPE',
+                  key: 'activityType',
+                  width: 170,
+                  render: (_: any, r: RecentPackingLog) => {
+                    if (r.activityType === 'NIPPLE_COMPLETED') {
+                      return (
+                        <Tag color="cyan" icon={<CheckCircleFilled />} style={{ fontWeight: 700, margin: 0 }}>
+                          Nipple Completed
+                        </Tag>
+                      );
+                    }
+                    if (r.activityType === 'SHIFTED_TO_SOC') {
+                      return (
+                        <Tag color="blue" icon={<SwapOutlined />} style={{ fontWeight: 700, margin: 0 }}>
+                          Shifted to SOC
+                        </Tag>
+                      );
+                    }
+                    if (r.activityType === 'PACKED_WITHOUT_NIPPLE' || r.withoutNipple || r.status === 'WITHOUT_NIPPLE') {
+                      return (
+                        <Tag color="warning" icon={<ClockCircleOutlined />} style={{ fontWeight: 700, margin: 0 }}>
+                          Packed Without Nipple
+                        </Tag>
+                      );
+                    }
+                    return (
+                      <Tag color="success" icon={<CheckCircleFilled />} style={{ fontWeight: 700, margin: 0 }}>
+                        Packed Full Set
+                      </Tag>
+                    );
+                  },
+                },
+                {
+                  title: 'ITEM CODE & NAME',
+                  key: 'item',
+                  width: 260,
+                  render: (_: any, r: RecentPackingLog) => (
+                    <div>
+                      {r.fgItemCode && (
+                        <Tag color="orange" style={{ fontFamily: 'monospace', fontWeight: 800, fontSize: 11, margin: '0 0 2px 0' }}>
+                          {r.fgItemCode}
+                        </Tag>
+                      )}
+                      <div style={{ fontSize: 12, fontWeight: 600, color: antToken.colorText, lineHeight: 1.3 }}>
+                        {r.fgItemName || '—'}
+                      </div>
+                    </div>
+                  ),
+                },
+                {
+                  title: 'CUSTOMER & SOC #',
+                  key: 'customerSoc',
+                  width: 220,
+                  render: (_: any, r: RecentPackingLog) => {
+                    if (r.activityType === 'SHIFTED_TO_SOC') {
+                      return (
+                        <div>
+                          <div style={{ fontSize: 11.5, fontWeight: 700, color: antToken.colorText }}>
+                            Safety Stock → {r.customerName}
+                          </div>
+                          {r.socNo && r.socNo !== '—' && (
+                            <Tag color="blue" style={{ margin: '2px 0 0 0', fontWeight: 700, fontSize: 11 }}>
+                              {r.socNo}
+                            </Tag>
+                          )}
+                        </div>
+                      );
+                    }
+                    if (r.customerName === 'SAFETY STOCK' || r.socNo === 'SAFETY_STOCK') {
+                      return (
+                        <Tag color="gold" style={{ fontWeight: 800, margin: 0 }}>
+                          Safety Stock
+                        </Tag>
+                      );
+                    }
+                    return (
+                      <div>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: antToken.colorText }}>
+                          {r.customerName || '—'}
+                        </div>
+                        {r.socNo && r.socNo !== '—' && (
+                          <Tag color="blue" style={{ margin: '2px 0 0 0', fontWeight: 700, fontSize: 11 }}>
+                            {r.socNo}
+                          </Tag>
+                        )}
+                      </div>
+                    );
+                  },
+                },
+                {
+                  title: 'CARTONS (CTN) & GROSS (GRS)',
+                  key: 'qty',
+                  width: 155,
+                  align: 'right' as const,
+                  render: (_: any, r: RecentPackingLog) => (
+                    <div style={{ whiteSpace: 'nowrap' }}>
+                      <strong style={{ fontSize: 13, color: antToken.colorText }}>
+                        {formatNumber(r.cartons, 0)} CTN
+                      </strong>
+                      <div style={{ fontSize: 11, color: antToken.colorTextSecondary }}>
+                        {formatNumber(r.gross, 0)} GRS{r.isActivityEvent ? ' · Movement' : ''}
+                      </div>
+                    </div>
+                  ),
+                },
+                {
+                  title: 'STATUS & ACTIONS',
+                  key: 'statusActions',
+                  width: 245,
+                  align: 'center' as const,
+                  render: (_: any, r: RecentPackingLog) => {
+                    const parentRow = (r.sourceEntryId && baseEntryMap.get(r.sourceEntryId)) || r;
+                    const isPending = !r.isActivityEvent && (Boolean(r.withoutNipple) || r.status === 'WITHOUT_NIPPLE');
+                    const isShift = r.activityType === 'SHIFTED_TO_SOC';
+                    const isNippleAddedLater = !r.isActivityEvent && Boolean(r.nippleAddedLaterDateIso);
+                    const isFromSafetyStock = !r.isActivityEvent && Boolean(r.allocatedFromSafetyStock || r.shiftedToSocDateIso);
+                    return (
+                      <Space size={4} wrap style={{ justifyContent: 'center' }}>
+                        {isShift ? (
+                          <Tag color="purple" style={{ fontWeight: 800, margin: 0, fontSize: 10.5 }}>SHIFTED TO SOC</Tag>
+                        ) : isPending ? (
+                          <Tag color="warning" style={{ fontWeight: 800, margin: 0, fontSize: 10.5 }}>PENDING NIPPLE</Tag>
+                        ) : isNippleAddedLater ? (
+                          <Tooltip title={`Originally packed without nipples; nipples completed on ${dayjs(r.nippleAddedLaterDateIso).format('DD MMM YYYY')}.`}>
+                            <Tag color="geekblue" style={{ fontWeight: 800, margin: 0, fontSize: 10.5 }}>NIPPLE ADDED LATER</Tag>
+                          </Tooltip>
+                        ) : (
+                          <Tag color="success" style={{ fontWeight: 800, margin: 0, fontSize: 10.5 }}>COMPLETED</Tag>
+                        )}
+                        {isFromSafetyStock && (
+                          <Tooltip title={r.shiftedToSocDateIso ? `Originally packed into Safety Stock; shifted to ${r.socNo} on ${dayjs(r.shiftedToSocDateIso).format('DD MMM YYYY')}.` : 'Originally packed into Safety Stock and allocated to this SOC.'}>
+                            <Tag
+                              color="purple"
+                              style={{
+                                fontWeight: 800,
+                                margin: 0,
+                                fontSize: 10.5,
+                                color: ledgerPurpleColor,
+                                borderColor: ledgerPurpleColor,
+                              }}
+                            >
+                              FROM SAFETY STOCK
+                            </Tag>
+                          </Tooltip>
+                        )}
+                        <Tooltip title="View Details">
+                          <Button
+                            type="text"
+                            size="small"
+                            icon={<EyeOutlined style={{ color: antToken.colorPrimary }} />}
+                            onClick={() => handleOpenViewModal(parentRow)}
+                          />
+                        </Tooltip>
+                        {isPending && (
+                          <Tooltip title="Add Nipple & Complete Batch">
+                            <Button
+                              size="small"
+                              type="primary"
+                              icon={<PlusCircleOutlined />}
+                              onClick={() => handleOpenAddNippleModal(r)}
+                              style={{ fontWeight: 700, fontSize: 11, height: 22, padding: '0 6px' }}
+                            >
+                              Add Nipple
+                            </Button>
+                          </Tooltip>
+                        )}
+                        {!r.isActivityEvent && !r.isOpeningStock && (
+                          <Tooltip title="Edit Packing Entry">
+                            <Button
+                              type="text"
+                              size="small"
+                              icon={<EditOutlined style={{ color: '#d97706' }} />}
+                              onClick={() => {
+                                handleEditEntry(r);
+                                setEntryModalOpen(true);
+                                setIsModalMinimized(false);
+                                setModalPos({ x: 0, y: 0 });
+                              }}
+                            />
+                          </Tooltip>
+                        )}
+                      </Space>
+                    );
+                  },
+                },
+              ]}
+            />
+          </div>
+        </Card>
 
         {/* ── Date-Grouped Packing Register Table ── */}
         <Card
@@ -9466,7 +10504,9 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             <Col xs={24} sm={8} lg={6}>
               <div>
                 <span style={{ fontSize: 11.5, fontWeight: 700, color: (selectedCustomer !== 'SAFETY STOCK' && !socNo) ? '#ef4444' : '#059669', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <span>📋 SOC # {matchingCustomerSocs.length > 1 ? `(${matchingCustomerSocs.length} Orders Available)` : ''}</span>
+                  <span>
+                    📋 SOC #{matchingCustomerSocs.length > 0 ? ` (${matchingCustomerSocs.length} ${matchingCustomerSocs.length === 1 ? 'Order' : 'Orders'} Available)` : ''}
+                  </span>
                   {(selectedCustomer !== 'SAFETY STOCK' && !socNo) ? <span style={{ color: '#ef4444', fontWeight: 900 }}>*</span> : <span style={{ color: '#10b981', fontWeight: 900 }}>✔</span>}
                 </span>
                 {selectedCustomer === 'SAFETY STOCK' ? (
@@ -9475,7 +10515,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                     style={{ fontWeight: 700, borderRadius: 6, width: '100%', background: 'rgba(234, 179, 8, 0.1)', color: '#eab308' }}
                     value="N/A (Safety Stock)"
                   />
-                ) : matchingCustomerSocs.length > 1 ? (
+                ) : matchingCustomerSocs.length > 0 ? (
                   <Select
                     status={!socNo ? 'error' : undefined}
                     placeholder="Select SOC # (Required)..."
@@ -9483,18 +10523,35 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                     value={socNo || undefined}
                     onChange={handleSocChange}
                     popupMatchSelectWidth={false}
-                    options={matchingCustomerSocs.map((so) => {
-                      const totalCtn = so.items?.reduce((acc: number, it: any) => {
-                        const itemFactors = getItemPackagingFactors(it.item?.itemCode, it.item?.name || it.description);
-                        const ctnFromOrder = it.packageQuantity || it.pkg_quantity || it.pkgQuantity;
-                        const itemCtn = ctnFromOrder ? Number(ctnFromOrder) : Math.round((Number(it.quantity) || 0) / itemFactors.grossPerCarton);
-                        return acc + itemCtn;
-                      }, 0) || 0;
-                      return {
-                        value: so.orderNumber || so.order_number,
-                        label: `${so.orderNumber || so.order_number} (${totalCtn} CTN · ${so.status || 'Active'})`,
-                      };
-                    })}
+                    options={(() => {
+                      const opts = matchingCustomerSocs.map((so) => {
+                        const totalCtn = so.items?.reduce((acc: number, it: any) => {
+                          const itemFactors = getItemPackagingFactors(it.item?.itemCode, it.item?.name || it.description);
+                          const ctnFromOrder = it.packageQuantity || it.pkg_quantity || it.pkgQuantity;
+                          const itemCtn = ctnFromOrder ? Number(ctnFromOrder) : Math.round((Number(it.quantity) || 0) / itemFactors.grossPerCarton);
+                          return acc + itemCtn;
+                        }, 0) || 0;
+                        const orderNum = so.orderNumber || so.order_number;
+                        const isHistoricalLinked = Boolean(editingEntryId) && !isSocOpenForNewPacking(so);
+                        const statusLabel = `${so.status || 'Active'}${isHistoricalLinked ? ' · Linked' : ''}`;
+                        return {
+                          value: orderNum,
+                          label: `${orderNum} (${totalCtn} CTN · ${statusLabel})`,
+                        };
+                      });
+                      if (
+                        editingEntryId &&
+                        editingOriginalSocNo &&
+                        editingOriginalSocNo !== 'SAFETY_STOCK' &&
+                        !opts.some((o) => String(o.value).toLowerCase() === editingOriginalSocNo.toLowerCase())
+                      ) {
+                        opts.push({
+                          value: editingOriginalSocNo,
+                          label: `${editingOriginalSocNo} (Linked Historical Order)`,
+                        });
+                      }
+                      return opts;
+                    })()}
                   />
                 ) : (
                   <Input

@@ -30,6 +30,7 @@ import {
 import PageHeader from '../../../components/shared/PageHeader';
 import { useHeaderActions } from '../../../components/layout/headerActionsStore';
 import { tabSessionCache, TAB_REFRESH_EVENT } from '../../../services/tabSessionCache';
+import { getLookupsSnapshot, prefetchAllLookups } from '../../../services/lookupsCache';
 import {
   PlusOutlined,
   ReloadOutlined,
@@ -1088,16 +1089,21 @@ const EntryList: React.FC = () => {
   const [fMachineNo, setFMachineNo] = useState<string>('');
   const [fStatus, setFStatus] = useState<string>();
 
-  // Fetch warehouses for lookup filter
+  // Hydrate warehouses from global lookupsCache (eliminates redundant /warehouses fetches)
   useEffect(() => {
-    const p = apiService.get<{ data: { id: string; name: string; warehouseCode: string }[] }>('/warehouses', { limit: 200 });
-    if (p && typeof (p as any).then === 'function') {
-      p.then((res) => {
-        setWarehouses(res?.data || []);
-      }).catch(() => {
+    const snap = getLookupsSnapshot();
+    if (snap.warehouses?.length > 0) {
+      setWarehouses(snap.warehouses);
+    }
+    prefetchAllLookups()
+      .then((fresh) => {
+        if (fresh?.warehouses?.length > 0) {
+          setWarehouses(fresh.warehouses);
+        }
+      })
+      .catch(() => {
         // silent fallback
       });
-    }
   }, []);
 
   // Which pane of the main <Tabs> is on screen. Controlled so KPI cards

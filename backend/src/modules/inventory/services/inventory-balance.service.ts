@@ -699,8 +699,8 @@ export class InventoryBalanceService {
       );
     }
 
-    balance.reserved = Number(balance.reserved) + quantity;
-    balance.available = Number(balance.available) - quantity;
+    balance.reserved = Number((Number(balance.reserved || 0) + quantity).toFixed(4));
+    balance.available = Number((Number(balance.onHand || 0) - balance.reserved).toFixed(4));
     return this.repo.save(balance);
   }
 
@@ -718,8 +718,8 @@ export class InventoryBalanceService {
       throw new BadRequestException(`No inventory balance found for this item in this warehouse`);
     }
 
-    balance.reserved = Number(balance.reserved) - quantity;
-    balance.available = Number(balance.available) + quantity;
+    balance.reserved = Number(Math.max(0, Number(balance.reserved || 0) - quantity).toFixed(4));
+    balance.available = Number((Number(balance.onHand || 0) - balance.reserved).toFixed(4));
     return this.repo.save(balance);
   }
 
