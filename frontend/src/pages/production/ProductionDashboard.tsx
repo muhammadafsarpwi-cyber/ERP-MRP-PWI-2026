@@ -26,6 +26,7 @@ import {
   InboxOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
+import { getFiscalQuarterInfo, getPreviousFiscalQuarterInfo } from '../../utils/fiscalYear';
 import {
   ResponsiveContainer,
   AreaChart,
@@ -752,15 +753,13 @@ export const ProductionDashboard: React.FC = () => {
       from = dayjs().subtract(1, 'month').startOf('month').format('YYYY-MM-DD');
       to = dayjs().subtract(1, 'month').endOf('month').format('YYYY-MM-DD');
     } else if (key === 'quarter') {
-      const currentMonth = dayjs().month();
-      const startQuarterMonth = Math.floor(currentMonth / 3) * 3;
-      from = dayjs().month(startQuarterMonth).startOf('month').format('YYYY-MM-DD');
-      to = dayjs().month(startQuarterMonth + 2).endOf('month').format('YYYY-MM-DD');
+      const q = getFiscalQuarterInfo();
+      from = q.startDate;
+      to = q.endDate;
     } else if (key === 'lastQuarter') {
-      const currentMonth = dayjs().month();
-      const startQuarterMonth = Math.floor(currentMonth / 3) * 3;
-      from = dayjs().month(startQuarterMonth - 3).startOf('month').format('YYYY-MM-DD');
-      to = dayjs().month(startQuarterMonth - 1).endOf('month').format('YYYY-MM-DD');
+      const prevQ = getPreviousFiscalQuarterInfo();
+      from = prevQ.startDate;
+      to = prevQ.endDate;
     } else if (key === 'custom') {
       setShowFilters(true);
       return;

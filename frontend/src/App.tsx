@@ -40,6 +40,7 @@ import {
 import {
   SalesQuotationManagement,
   SalesOrderManagement,
+  OrderCommandFulfillment,
   SalesOrderDivisionReview,
   SalesDeliveryManagement,
   SalesInvoiceManagement,
@@ -191,6 +192,7 @@ const App: React.FC = () => {
                   <Route path="/sales/finished-goods" element={<FinishedGoodsInventory />} />
                   <Route path="/sales/quotations" element={<SalesQuotationManagement />} />
                   <Route path="/sales/orders" element={<SalesOrderManagement />} />
+                  <Route path="/sales/order-command" element={<OrderCommandFulfillment />} />
                   <Route path="/sales/orders-division-review" element={<SalesOrderDivisionReview />} />
                   <Route path="/sales/deliveries" element={<SalesDeliveryManagement />} />
                   <Route path="/sales/packages" element={<DispatchPackagesPage />} />

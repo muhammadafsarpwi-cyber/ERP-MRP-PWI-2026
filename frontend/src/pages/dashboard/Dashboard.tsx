@@ -106,7 +106,9 @@ const Dashboard: React.FC = () => {
   // on login/refresh/open, and Requirement 1 — the DIV-SPD Spoke Division
   // is the default active division instead of "All Divisions".
   const [dateRangePreset, setDateRangePreset] = useState<DateRangePreset>(
-    () => cachedTab?.dateRangePreset ?? DEFAULT_DATE_RANGE_PRESET,
+    () => (cachedTab?.dateRangePreset && cachedTab.dateRangePreset !== 'lastEntry'
+      ? cachedTab.dateRangePreset
+      : DEFAULT_DATE_RANGE_PRESET),
   );
   const [lastEntryDate, setLastEntryDate] = useState<string | null>(
     () => cachedTab?.lastEntryDate ?? cachedTab?.summary?.productionEntries?.lastEntryDate ?? null,
@@ -140,6 +142,7 @@ const Dashboard: React.FC = () => {
     });
   }
   const defaultDivisionIdRef = useRef<string | undefined>(undefined);
+  const [divisionsResolved, setDivisionsResolved] = useState<boolean>(Boolean(cachedTab));
 
   const [divisions, setDivisions] = useState<Array<{ id: string; name: string; divisionCode?: string }>>([]);
   const [sections, setSections] = useState<Array<{ id: string; name: string }>>([]);
@@ -194,6 +197,7 @@ const Dashboard: React.FC = () => {
       if (shiftRes.status === 'fulfilled' && shiftRes.value.success) setShifts(shiftRes.value.data);
     }).finally(() => {
       // Release the initial loader even when the options request fails.
+      setDivisionsResolved(true);
       resolveDivisionsRef.current?.();
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -563,13 +567,15 @@ const Dashboard: React.FC = () => {
         onRemove={handleRemoveFilter}
       />
 
-      {/* ━━━ TOP CUSTOMERS CARDS (Top Sales by Volume & Relative Share) ━━━ */}
+      {/* ━━━ TOP CUSTOMERS CARDS (Total Order Load & Top Sales by Volume) ━━━ */}
       <TopCustomersRow
         loading={secondaryLoading}
         dateRangePreset={dateRangePreset}
         appliedFilters={appliedFilters}
         lastEntryDate={lastEntryDate}
         customRange={customRange}
+        divisionLabel={divisions.find((d) => d.id === appliedFilters.divisionId)?.name}
+        divisionReady={divisionsResolved}
         onViewAll={() => navigate('/customers/analytics')}
         onQuickAction={() => navigate('/customers/analytics')}
       />

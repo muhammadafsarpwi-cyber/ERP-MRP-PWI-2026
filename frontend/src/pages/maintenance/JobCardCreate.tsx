@@ -19,6 +19,7 @@ import {
   Typography,
 } from 'antd';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { getFiscalQuarterInfoFromParts } from '../../utils/fiscalYear';
 import { useWorkspaceTabStore } from '../../store/workspaceTabStore';
 import {
   ApartmentOutlined,
@@ -485,8 +486,8 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
 
     const now = dayjs();
     const currentMonthKey = now.format('YYYY-MM');
-    const currentQuarter = Math.floor(now.month() / 3) + 1;
-    const currentQuarterKey = `${now.year()}-Q${currentQuarter}`;
+    const curFq = getFiscalQuarterInfoFromParts(now.year(), now.month() + 1);
+    const currentQuarterKey = `${curFq.fyStartYear}-Q${curFq.quarter}`;
 
     let lifetimeSpend = 0;
     let thisMonthSpend = 0;
@@ -495,7 +496,7 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
 
     // Monthly breakdown (e.g. Nov 2026: 2, Oct 2026: 4, Sep 2026: 5) + Cost Rollup
     const monthMap = new Map<string, { monthKey: string; label: string; count: number; totalCost: number }>();
-    // Quarterly breakdown (e.g. Q4 2026, Q3 2026) + Cost Rollup
+    // Pakistani Fiscal Quarterly breakdown (e.g. Q2 FY 2026–27, Q1 FY 2026–27) + Cost Rollup
     const quarterMap = new Map<string, { quarterKey: string; label: string; count: number; totalCost: number }>();
 
     for (const card of machineHistoryCards) {
@@ -510,9 +511,9 @@ export const JobCardCreate: React.FC<JobCardCreateProps> = ({
       const monthKey = d.format('YYYY-MM');
       const shortMon = d.format('MMM');
       const yr = d.format('YYYY');
-      const qNum = Math.floor(d.month() / 3) + 1;
-      const quarterKey = `${yr}-Q${qNum}`;
-      const quarterLabel = `Q${qNum} ${yr}`;
+      const fq = getFiscalQuarterInfoFromParts(d.year(), d.month() + 1);
+      const quarterKey = `${fq.fyStartYear}-Q${fq.quarter}`;
+      const quarterLabel = fq.quarterLabel;
 
       if (monthKey === currentMonthKey) {
         thisMonthSpend += cardCost;

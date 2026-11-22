@@ -130,6 +130,13 @@ const DEFAULT_CACHE_RULES: CacheRule[] = [
     tags: ['dashboard'],
     perUser: true,
   },
+  {
+    id: 'sales:order-command-overview',
+    pattern: /^\/sales\/orders\/command-overview$/,
+    ttlMs: 15_000,
+    tags: ['sales-command', 'sales-orders'],
+    perUser: true,
+  },
 ];
 
 const INVALIDATION_RULES: Array<{ pattern: RegExp; tags: string[] | 'ALL' }> = [
@@ -144,7 +151,7 @@ const INVALIDATION_RULES: Array<{ pattern: RegExp; tags: string[] | 'ALL' }> = [
   { pattern: /^\/team-chat(\/|$)/, tags: ['team-chat:users', 'team-chat:conversations'] },
   { pattern: /^\/(sections|master-data\/(operations|categories|item-types|route-types))(\/|$)/, tags: ['masters', 'items', 'routings', 'dashboard'] },
   { pattern: /^\/customer(\/|$)/, tags: ['customers', 'dashboard'] },
-  { pattern: /^\/(sales|procurement|inventory|production|store|bom)(\/|$)/, tags: ['nipple-alerts', 'routings', 'dashboard'] },
+  { pattern: /^\/(sales|procurement|inventory|production|store|bom)(\/|$)/, tags: ['nipple-alerts', 'routings', 'dashboard', 'sales-command', 'sales-orders'] },
   { pattern: /^\/(notifications|communication)(\/|$)/, tags: ['comm-summary'] },
   { pattern: /^\/admin\/(users|roles|permissions|recycle-bin)(\/|$)/, tags: 'ALL' },
 ];

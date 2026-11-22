@@ -19,6 +19,10 @@ import {
   assertDivisionInScope,
   DivisionAccess,
 } from '../../../common/division-scope.util';
+import {
+  buildOrderCommandOverview,
+  OrderCommandOverviewResponse,
+} from './sales-order-command.util';
 
 @Injectable()
 export class SalesOrderService {
@@ -1008,5 +1012,231 @@ export class SalesOrderService {
     const maxNum = result?.maxNum || 0;
     const nextNum = maxNum + 1;
     return `${prefix}${String(nextNum).padStart(5, '0')}`;
+  }
+
+  /**
+   * Single-call aggregated Command & Fulfillment overview across ALL open, completed,
+   * and cancelled sales orders (all months), computing exact Dispatched, Pending,
+   * Ready Packed (FIFO age in days), Remaining to Pack, Linked Gate Passes, and Customer 360.
+   */
+  async getCommandOverview(
+    companyId?: string,
+    filters: { divisionId?: string; customerId?: string } = {},
+    allowedDivisionIds?: DivisionAccess,
+  ): Promise<OrderCommandOverviewResponse> {
+    if (filters.divisionId) {
+      assertDivisionInScope(filters.divisionId, allowedDivisionIds);
+    }
+
+    if (Array.isArray(allowedDivisionIds) && allowedDivisionIds.length === 0) {
+      return buildOrderCommandOverview({
+        orderRows: [],
+        deliveryRows: [],
+        packingRows: [],
+        packingLogRows: [],
+        divisions: [],
+      });
+    }
+
+    // 1. Parameterized Orders + Order Items + Customers + Divisions Query
+    const orderParams: any[] = [];
+    const orderWhere: string[] = ['so.deleted_at IS NULL'];
+    if (companyId) {
+      orderParams.push(companyId);
+      orderWhere.push(`so.company_id = $${orderParams.length}`);
+    }
+    if (filters.divisionId) {
+      orderParams.push(filters.divisionId);
+      orderWhere.push(`so.division_id = $${orderParams.length}`);
+    } else if (Array.isArray(allowedDivisionIds) && allowedDivisionIds.length > 0) {
+      orderParams.push(allowedDivisionIds);
+      orderWhere.push(`so.division_id = ANY($${orderParams.length})`);
+    }
+    if (filters.customerId) {
+      orderParams.push(filters.customerId);
+      orderWhere.push(`so.customer_id = $${orderParams.length}`);
+    }
+
+    // 2. Divisions Query (respecting division scope)
+    const divParams: any[] = [];
+    const divWhere: string[] = ['COALESCE(is_active, true) = true'];
+    if (companyId) {
+      divParams.push(companyId);
+      divWhere.push(`company_id = $${divParams.length}`);
+    }
+    if (Array.isArray(allowedDivisionIds) && allowedDivisionIds.length > 0) {
+      divParams.push(allowedDivisionIds);
+      divWhere.push(`id = ANY($${divParams.length})`);
+    }
+
+    // 3. Deliveries + Packing + Activity Logs Params (company-scoped)
+    const companyOnlyParams: any[] = companyId ? [companyId] : [];
+    const companyCond = (alias: string) => (companyId ? `AND ${alias}.company_id = $1` : '');
+
+    const manager = this.repo.manager;
+    const [orderRows, deliveryRows, packingRows, packingLogRows, openingStockRows, divisions] = await Promise.all([
+      manager.query(
+        `SELECT
+           so.id AS order_id,
+           so.order_number,
+           so.customer_id,
+           so.customer_po,
+           so.division_id,
+           so.section_id,
+           TO_CHAR(so.order_date, 'YYYY-MM-DD') AS order_date,
+           TO_CHAR(so.delivery_date, 'YYYY-MM-DD') AS delivery_date,
+           so.currency,
+           COALESCE(so.subtotal, 0)::float AS order_subtotal,
+           COALESCE(so.discount_amount, 0)::float AS order_discount,
+           COALESCE(so.tax_amount, 0)::float AS order_tax,
+           COALESCE(so.freight_amount, 0)::float AS order_freight,
+           COALESCE(so.total_amount, 0)::float AS order_total,
+           COALESCE(so.status, 'Draft') AS order_status,
+           so.notes AS order_notes,
+           so.created_at AS order_created_at,
+           sc.customer_code,
+           sc.company_name AS customer_name,
+           sc.contact_person,
+           sc.email AS customer_email,
+           sc.phone AS customer_phone,
+           sc.mobile AS customer_mobile,
+           COALESCE(sc.credit_days, 0)::int AS credit_days,
+           COALESCE(
+             NULLIF(TRIM(pc.payment_terms), ''),
+             CASE WHEN COALESCE(sc.credit_days, 0) > 0 THEN ('Net ' || sc.credit_days || ' Days') ELSE 'Standard' END
+           ) AS payment_terms,
+           d.division_code,
+           d.name AS division_name,
+           soi.id AS order_item_id,
+           soi.line_number,
+           soi.item_id,
+           i.item_code,
+           COALESCE(i.name, soi.description, 'Item') AS item_name,
+           i.packaging_size,
+           i.packaging_unit,
+           COALESCE(bu.code, 'PCS') AS base_uom_code,
+           COALESCE(ou.code, su.code, bu.code, 'GRS') AS uom_code,
+           COALESCE(soi.quantity, 0)::float AS ordered_qty,
+           COALESCE(soi.shipped_quantity, 0)::float AS soi_shipped_qty,
+           COALESCE(soi.unit_price, 0)::float AS unit_price,
+           COALESCE(soi.discount_percent, 0)::float AS discount_percent,
+           COALESCE(soi.tax_amount, 0)::float AS line_tax_amount,
+           COALESCE(soi.line_total, 0)::float AS line_total
+         FROM erp_sales.sales_orders so
+         LEFT JOIN erp_sales.customers sc ON sc.id = so.customer_id
+         LEFT JOIN public.customers pc ON pc.id = so.customer_id
+         LEFT JOIN public.divisions d ON d.id = so.division_id
+         LEFT JOIN erp_sales.sales_order_items soi ON soi.sales_order_id = so.id
+         LEFT JOIN public.items i ON i.id = soi.item_id
+         LEFT JOIN public.uoms bu ON bu.id = i.base_uom_id
+         LEFT JOIN public.uoms su ON su.id = i.sales_uom_id
+         LEFT JOIN public.uoms ou ON ou.id = soi.uom_id
+         WHERE ${orderWhere.join(' AND ')}
+         ORDER BY so.order_date DESC NULLS LAST, so.created_at DESC, soi.line_number ASC NULLS LAST`,
+        orderParams,
+      ),
+      manager.query(
+        `SELECT
+           sd.id AS delivery_id,
+           sd.delivery_number,
+           sd.gate_pass_number,
+           sd.sales_order_id,
+           so_hdr.order_number AS header_soc_number,
+           TO_CHAR(sd.delivery_date, 'YYYY-MM-DD') AS delivery_date,
+           sd.carrier,
+           sd.tracking_number,
+           UPPER(COALESCE(sd.status, 'DRAFT')) AS status,
+           COALESCE(sd.total_amount, 0)::float AS delivery_total_amount,
+           sdl.item_id,
+           sdl.description AS line_description,
+           COALESCE(sdl.quantity, 0)::float AS line_qty
+         FROM erp_sales.sales_deliveries sd
+         LEFT JOIN erp_sales.sales_orders so_hdr ON so_hdr.id = sd.sales_order_id
+         LEFT JOIN erp_sales.sales_delivery_lines sdl ON sdl.delivery_id = sd.id
+         WHERE sd.deleted_at IS NULL
+           ${companyCond('sd')}
+           AND UPPER(COALESCE(sd.status, 'DRAFT')) <> 'CANCELLED'
+         ORDER BY sd.delivery_date DESC NULLS LAST, sd.created_at DESC`,
+        companyOnlyParams,
+      ),
+      manager.query(
+        `SELECT
+           pe.id,
+           pe.entry_number,
+           TO_CHAR(pe.entry_date, 'YYYY-MM-DD') AS entry_date,
+           pe.item_id,
+           COALESCE(pe.actual_quantity, 0)::float AS actual_quantity,
+           pe.remarks,
+           COALESCE(pe.packing_mode, 'FULL_SET') AS effective_packing_mode
+         FROM public.production_entries pe
+         WHERE pe.deleted_at IS NULL
+           ${companyCond('pe')}
+           AND pe.is_active = true
+           AND COALESCE(pe.packing_mode, 'FULL_SET') <> 'WITHOUT_NIPPLE'
+           AND pe.remarks ~* 'SOC-[A-Za-z0-9-]+'
+         ORDER BY pe.entry_date ASC, pe.created_at ASC`,
+        companyOnlyParams,
+      ),
+      manager
+        .query(
+          `SELECT
+             pal.production_entry_id,
+             pal.soc_no,
+             pal.item_id,
+             pal.activity_type,
+             TO_CHAR(pal.activity_date, 'YYYY-MM-DD') AS activity_date,
+             TO_CHAR(pal.original_packed_date, 'YYYY-MM-DD') AS original_packed_date,
+             COALESCE(pal.gross, 0)::float AS gross,
+             COALESCE(pal.pcs, 0)::float AS pcs
+           FROM public.packing_activity_logs pal
+           WHERE pal.soc_no IS NOT NULL
+             ${companyCond('pal')}
+             AND TRIM(pal.soc_no) <> ''
+           ORDER BY pal.activity_date ASC, pal.created_at ASC`,
+          companyOnlyParams,
+        )
+        .catch(() => []),
+      manager
+        .query(
+          `SELECT
+             sl.id,
+             sl.item_id,
+             TO_CHAR(sl.transaction_date, 'YYYY-MM-DD') AS transaction_date,
+             COALESCE(sl.quantity, 0)::float AS quantity,
+             sl.reference_number,
+             sl.notes,
+             COALESCE(bu.code, lu.code, 'PCS') AS base_uom_code
+           FROM public.stock_ledger sl
+           LEFT JOIN public.items i ON i.id = sl.item_id
+           LEFT JOIN public.uoms bu ON bu.id = i.base_uom_id
+           LEFT JOIN public.uoms lu ON lu.id = sl.uom_id
+           WHERE sl.direction = 'IN'
+             ${companyCond('sl')}
+             AND (sl.transaction_type = 'OPENING' OR sl.reference_type ILIKE '%OPEN_STOCK%')
+             AND sl.notes ~* 'SOC-[A-Za-z0-9-]+'
+           ORDER BY sl.transaction_date ASC, sl.created_at ASC`,
+          companyOnlyParams,
+        )
+        .catch(() => []),
+      manager.query(
+        `SELECT id, division_code AS "divisionCode", name
+         FROM public.divisions
+         WHERE ${divWhere.join(' AND ')}
+         ORDER BY name ASC`,
+        divParams,
+      ),
+    ]);
+
+    const todayPkt = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Karachi' }).format(new Date());
+
+    return buildOrderCommandOverview({
+      orderRows,
+      deliveryRows,
+      packingRows,
+      packingLogRows,
+      openingStockRows,
+      divisions,
+      todayIso: todayPkt,
+    });
   }
 }

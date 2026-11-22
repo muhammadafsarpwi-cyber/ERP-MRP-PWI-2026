@@ -102,7 +102,7 @@ const DISCOVERED_ROUTES: string[] = [
   '/customers/analytics',
   '/sales/analytics',
   '/sales/finished-goods',
-  '/sales/quotations', '/sales/orders', '/sales/orders-division-review', '/sales/deliveries',
+  '/sales/quotations', '/sales/orders', '/sales/order-command', '/sales/orders-division-review', '/sales/deliveries',
   '/sales/invoices', '/sales/returns',
   '/inventory', '/inventory/policies', '/inventory/batches',
   '/inventory/serial-numbers',

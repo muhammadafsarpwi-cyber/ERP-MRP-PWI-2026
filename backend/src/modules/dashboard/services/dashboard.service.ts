@@ -22,6 +22,12 @@ import { ItemBarcode } from '../../item/entities/item-barcode.entity';
 import { UomConversion } from '../../item/entities/uom-conversion.entity';
 import { applyDivisionScopeFilter } from '../../../common/division-scope.util';
 import { floorWiseDepartmentRank, sortDepartmentsFloorWise } from '../../../common/floor-wise-department.util';
+import {
+  buildDashboardOrderLoadAndTopCustomers,
+  DashboardSalesDeliveryRow,
+  DashboardSalesOrderRow,
+  DashboardTopCustomersResponse,
+} from './dashboard-sales-top.util';
 
 export interface DashboardFilters {
   divisionId?: string;
@@ -1947,6 +1953,96 @@ export class DashboardService {
         totalValue: Math.round(Number(s.totalValue) * 100) / 100,
       })),
     };
+  }
+
+  async getSalesTopCustomersAndLoad(
+    companyId: string,
+    filters?: DashboardFilters,
+  ): Promise<DashboardTopCustomersResponse> {
+    if (Array.isArray(filters?.allowedDivisionIds) && filters.allowedDivisionIds.length === 0) {
+      return buildDashboardOrderLoadAndTopCustomers({
+        orderRows: [],
+        deliveryRows: [],
+        dateFrom: filters?.dateFrom,
+        dateTo: filters?.dateTo,
+        divisionId: filters?.divisionId,
+        allowedDivisionIds: filters?.allowedDivisionIds,
+      });
+    }
+
+    const manager = this.salesOrderRepo.manager;
+    const [orderRows, deliveryRows]: [DashboardSalesOrderRow[], DashboardSalesDeliveryRow[]] = await Promise.all([
+      manager.query(
+        `
+        SELECT
+          so.id AS order_id,
+          so.order_number,
+          so.customer_id,
+          COALESCE(sc.customer_code, '') AS customer_code,
+          COALESCE(TRIM(sc.company_name), '') AS customer_name,
+          so.division_id,
+          TO_CHAR(COALESCE(so.order_date, so.created_at::date), 'YYYY-MM-DD') AS order_date,
+          COALESCE(so.status, 'Draft') AS order_status,
+          soi.id AS order_item_id,
+          soi.item_id,
+          COALESCE(u.code, su.code, bu.code, 'GRS') AS uom_code,
+          COALESCE(soi.quantity, 0)::float AS ordered_qty,
+          COALESCE(soi.shipped_quantity, 0)::float AS soi_shipped_qty
+        FROM erp_sales.sales_orders so
+        LEFT JOIN erp_sales.sales_order_items soi ON soi.sales_order_id = so.id
+        LEFT JOIN erp_sales.customers sc ON sc.id = so.customer_id
+        LEFT JOIN public.uoms u ON u.id = soi.uom_id
+        LEFT JOIN public.items itm ON itm.id = soi.item_id
+        LEFT JOIN public.uoms su ON su.id = itm.sales_uom_id
+        LEFT JOIN public.uoms bu ON bu.id = itm.base_uom_id
+        WHERE so.company_id = $1
+          AND so.deleted_at IS NULL
+          AND UPPER(COALESCE(so.status, '')) NOT IN ('DRAFT', 'CANCELLED', 'VOID')
+        `,
+        [companyId],
+      ),
+      manager.query(
+        `
+        SELECT
+          sd.id AS delivery_id,
+          sd.delivery_number,
+          TO_CHAR(COALESCE(sd.delivery_date, sd.created_at::date), 'YYYY-MM-DD') AS delivery_date,
+          COALESCE(sd.status, '') AS delivery_status,
+          sd.customer_id,
+          COALESCE(sc.customer_code, '') AS customer_code,
+          COALESCE(TRIM(sc.company_name), '') AS customer_name,
+          sd.sales_order_id AS hdr_order_id,
+          hso.order_number AS hdr_soc_number,
+          hso.division_id AS hdr_division_id,
+          sdl.item_id,
+          i.division_id AS item_division_id,
+          COALESCE(u.code, su.code, bu.code, 'GRS') AS uom_code,
+          COALESCE(sdl.quantity, 0)::float AS line_qty,
+          sdl.description AS line_description
+        FROM erp_sales.sales_delivery_lines sdl
+        INNER JOIN erp_sales.sales_deliveries sd ON sd.id = sdl.delivery_id
+        LEFT JOIN erp_sales.customers sc ON sc.id = sd.customer_id
+        LEFT JOIN erp_sales.sales_orders hso ON hso.id = sd.sales_order_id AND hso.deleted_at IS NULL
+        LEFT JOIN public.items i ON i.id = sdl.item_id
+        LEFT JOIN public.uoms u ON u.id = sdl.uom_id
+        LEFT JOIN public.uoms su ON su.id = i.sales_uom_id
+        LEFT JOIN public.uoms bu ON bu.id = i.base_uom_id
+        WHERE sd.company_id = $1
+          AND sd.deleted_at IS NULL
+          AND UPPER(COALESCE(sd.status, '')) IN ('CONFIRMED', 'DELIVERED', 'SHIPPED')
+        `,
+        [companyId],
+      ),
+    ]);
+
+    return buildDashboardOrderLoadAndTopCustomers({
+      orderRows,
+      deliveryRows,
+      dateFrom: filters?.dateFrom,
+      dateTo: filters?.dateTo,
+      divisionId: filters?.divisionId,
+      allowedDivisionIds: filters?.allowedDivisionIds,
+    });
   }
 
   async getDashboardSchedule(companyId: string, filters?: DashboardFilters) {

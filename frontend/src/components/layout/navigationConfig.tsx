@@ -269,6 +269,7 @@ export const NAV_ENTRIES: NavEntry[] = [
       { key: '/sales/finished-goods', label: 'Finished Goods Inventory', icon: DatabaseOutlined, color: 'purple', permissions: ['sales.orders.view'] },
       { key: '/sales/quotations', label: 'Quotations', icon: AppstoreOutlined, color: 'purple', permissions: ['sales.quotations.view'] },
       { key: '/sales/orders', label: 'Sales Orders', icon: ShoppingCartOutlined, color: 'purple', permissions: ['sales.orders.view'] },
+      { key: '/sales/order-command', label: 'Order Command & Fulfillment', icon: BranchesOutlined, color: 'purple', permissions: ['sales.orders.view'] },
       { key: '/sales/orders-division-review', label: 'Order Division Review', icon: ApartmentOutlined, color: 'purple', permissions: ['sales.orders.view'] },
       { key: '/sales/deliveries', label: 'Deliveries', icon: InboxOutlined, color: 'purple', permissions: ['sales.deliveries.view'] },
       { key: '/dispatch/packages', label: 'Dispatch Packages', icon: QrcodeOutlined, color: 'purple', permissions: ['sales.deliveries.view'] },

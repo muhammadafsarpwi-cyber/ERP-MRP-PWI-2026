@@ -74,6 +74,25 @@ export class SalesOrderController {
     return { success: true, data: nextNumber };
   }
 
+  @Get('command-overview')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('sales.orders.view')
+  @ApiOperation({ summary: 'Get all-time sales order command & fulfillment overview with Ready Packed aging' })
+  async getCommandOverview(
+    @Req() req: any,
+    @Query('divisionId') divisionId?: string,
+    @Query('customerId') customerId?: string,
+  ) {
+    const companyId = req.erpUser?.defaultCompanyId;
+    const overview = await this.service.getCommandOverview(
+      companyId,
+      { divisionId, customerId },
+      this.divisionScope(req),
+    );
+    return { success: true, data: overview };
+  }
+
   @Get(':id')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()

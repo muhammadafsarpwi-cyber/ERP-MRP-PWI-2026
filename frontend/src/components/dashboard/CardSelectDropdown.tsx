@@ -24,6 +24,7 @@ interface CardSelectDropdownProps {
   loading?: boolean;
   disabled?: boolean;
   disabledReason?: string;
+  hideAllOption?: boolean;
   placeholder?: string;
   badgeBg?: string;
   badgeColor?: string;
@@ -43,6 +44,7 @@ export const CardSelectDropdown: React.FC<CardSelectDropdownProps> = ({
   loading = false,
   disabled = false,
   disabledReason,
+  hideAllOption = false,
   placeholder,
   badgeBg = '#fef9c3',
   badgeColor = '#854d0e',
@@ -142,7 +144,7 @@ export const CardSelectDropdown: React.FC<CardSelectDropdownProps> = ({
       {/* Options List */}
       <div style={{ maxHeight: 260, overflowY: 'auto', padding: '4px 0' }}>
         {/* "All" Option */}
-        {!search && (
+        {!hideAllOption && !search && (
           <div
             onClick={() => {
               onSelect(undefined);
@@ -186,7 +188,7 @@ export const CardSelectDropdown: React.FC<CardSelectDropdownProps> = ({
         )}
 
         {/* Divider if All option is shown */}
-        {!search && options.length > 0 && (
+        {!hideAllOption && !search && options.length > 0 && (
           <div style={{ height: 1, background: 'var(--theme-border, #f1f5f9)', margin: '4px 8px' }} />
         )}
 

@@ -24,6 +24,10 @@ import {
   DivisionAccess,
 } from '../../../common/division-scope.util';
 import {
+  getCurrentFiscalYearInfo,
+  getFiscalQuarterInfo,
+} from '../../../common/fiscal-year.util';
+import {
   SalesAnalyticsFilterDto,
   SalesAnalyticsPeriod,
   CustomerRankingMetric,
@@ -140,19 +144,17 @@ export class SalesAnalyticsService {
           };
         }
         case SalesAnalyticsPeriod.THIS_QUARTER: {
-          const quarter = Math.floor(now.getMonth() / 3);
-          const start = new Date(now.getFullYear(), quarter * 3, 1);
-          const end = new Date(now.getFullYear(), (quarter + 1) * 3, 0);
+          const q = getFiscalQuarterInfo(now);
           return {
-            startDate: start.toISOString().split('T')[0],
-            endDate: end.toISOString().split('T')[0],
+            startDate: q.startDate,
+            endDate: q.endDate,
           };
         }
         case SalesAnalyticsPeriod.THIS_YEAR: {
-          const year = now.getFullYear();
+          const fy = getCurrentFiscalYearInfo(now);
           return {
-            startDate: `${year}-01-01`,
-            endDate: `${year}-12-31`,
+            startDate: fy.startDate,
+            endDate: fy.endDate,
           };
         }
         case SalesAnalyticsPeriod.CUSTOM:

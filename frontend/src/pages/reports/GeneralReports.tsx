@@ -18,6 +18,11 @@ import {
   MenuFoldOutlined, MenuUnfoldOutlined, DownOutlined, RightOutlined,
 } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
+import {
+  getCurrentFiscalYearInfo,
+  getFiscalQuarterInfo,
+  getPreviousFiscalQuarterInfo,
+} from '../../utils/fiscalYear';
 import apiService from '../../services/api';
 import dashboardService, { FilterOption } from '../../services/dashboardService';
 import { formatDecimal } from '../../utils/numberFormat';
@@ -1209,26 +1214,23 @@ export const GeneralReports: React.FC = () => {
         setToDate(now.subtract(1, 'month').endOf('month'));
         break;
       case 'this_quarter': {
-        const qIdx = Math.floor(now.month() / 3);
-        const qYr = now.year();
-        const startM = qIdx * 3;
-        setFromDate(dayjs(new Date(qYr, startM, 1)).startOf('day'));
-        setToDate(dayjs(new Date(qYr, startM + 2, 1)).endOf('month'));
+        const q = getFiscalQuarterInfo(now.toDate());
+        setFromDate(dayjs(q.startDate).startOf('day'));
+        setToDate(dayjs(q.endDate).endOf('day'));
         break;
       }
       case 'last_quarter': {
-        const curM = now.month();
-        const prevQIdx = (Math.floor(curM / 3) + 3) % 4;
-        const prevQYr = curM < 3 ? now.year() - 1 : now.year();
-        const startM = prevQIdx * 3;
-        setFromDate(dayjs(new Date(prevQYr, startM, 1)).startOf('day'));
-        setToDate(dayjs(new Date(prevQYr, startM + 2, 1)).endOf('month'));
+        const prevQ = getPreviousFiscalQuarterInfo(now.toDate());
+        setFromDate(dayjs(prevQ.startDate).startOf('day'));
+        setToDate(dayjs(prevQ.endDate).endOf('day'));
         break;
       }
-      case 'this_year':
-        setFromDate(now.startOf('year'));
-        setToDate(now.endOf('year'));
+      case 'this_year': {
+        const fy = getCurrentFiscalYearInfo(now.toDate());
+        setFromDate(dayjs(fy.startDate).startOf('day'));
+        setToDate(dayjs(fy.endDate).endOf('day'));
         break;
+      }
       case 'custom':
         break;
     }

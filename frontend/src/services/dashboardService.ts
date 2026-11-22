@@ -327,6 +327,39 @@ export interface CalendarActivityDay {
   totalActual: number;
 }
 
+export interface DashboardTopCustomerItem {
+  id: string;
+  code: string;
+  name: string;
+  salesGross: number;
+  cartons: number;
+  sharePct: number;
+  rank: number;
+  deliveryCount: number;
+}
+
+export interface DashboardOrderLoadSummary {
+  priorOpenPendingGross: number;
+  priorOpenOrdersCount: number;
+  periodNewOrdersGross: number;
+  periodNewOrdersCount: number;
+  totalOrderLoadGross: number;
+  totalSoldGross: number;
+  totalSoldCartons: number;
+  remainingBalanceGross: number;
+  remainingPct: number;
+  fulfillmentPct: number;
+  committedOrdersCount: number;
+  dateFrom: string | null;
+  dateTo: string | null;
+  divisionId: string | null;
+}
+
+export interface DashboardTopCustomersResponse {
+  summary: DashboardOrderLoadSummary;
+  topCustomers: DashboardTopCustomerItem[];
+}
+
 export interface FilterOption {
   id: string;
   name: string;
@@ -394,6 +427,12 @@ class DashboardService {
     if (code === 'DOZ' || code === 'DZ') return Math.round((n / 12) * 100) / 100;
     if (code === 'PAIR' || code === 'PRS') return Math.round((n / 72) * 100) / 100;
     return Math.round(n * 100) / 100;
+  }
+
+  async getSalesTopCustomers(
+    filters?: Pick<DashboardFilters, 'dateFrom' | 'dateTo' | 'divisionId'>,
+  ): Promise<{ success: boolean; data: DashboardTopCustomersResponse }> {
+    return apiService.get('/dashboard/sales/top-customers', this.buildParams(filters), { useEtag: true });
   }
 
   async getSales(): Promise<{ success: boolean; data: SalesOrderSummary }> {

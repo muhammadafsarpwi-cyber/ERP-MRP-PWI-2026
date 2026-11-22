@@ -1480,11 +1480,18 @@ export class MaintenanceJobCardService implements OnModuleInit {
       mtbf = Math.round(totalMinutesBetween / (approvedCards.length - 1) / 60);
     }
 
-    // Calculate Spare Parts Cost Rollups (Total, This Month, This Quarter)
+    // Calculate Spare Parts Cost Rollups (Total, This Month, This Pakistani Fiscal Quarter)
     const nowDate = new Date();
     const curYear = nowDate.getFullYear();
     const curMonth = nowDate.getMonth();
-    const curQuarter = Math.floor(curMonth / 3) + 1;
+    const toFiscalQuarterKey = (dt: Date) => {
+      const m = dt.getMonth() + 1;
+      const y = dt.getFullYear();
+      const fyStart = m >= 7 ? y : y - 1;
+      const q = m >= 7 && m <= 9 ? 1 : m >= 10 ? 2 : m <= 3 ? 3 : 4;
+      return `${fyStart}-Q${q}`;
+    };
+    const curQuarterKey = toFiscalQuarterKey(nowDate);
     let totalCost = 0;
     let thisMonthCost = 0;
     let thisQuarterCost = 0;
@@ -1499,7 +1506,7 @@ export class MaintenanceJobCardService implements OnModuleInit {
       const d = c.requestedAt ? new Date(c.requestedAt) : null;
       const cardYear = d ? d.getFullYear() : 0;
       const cardMonth = d ? d.getMonth() : -1;
-      const cardQuarter = d ? Math.floor(cardMonth / 3) + 1 : 0;
+      const cardQuarterKey = d && !Number.isNaN(d.getTime()) ? toFiscalQuarterKey(d) : '';
 
       const cardSpend = (c.parts || []).reduce((sum, p) => {
         const tc = p.totalCost != null ? Number(p.totalCost) : (p.unitCost != null ? Number(p.unitCost) * Number(p.quantity || 1) : 0);
@@ -1510,7 +1517,7 @@ export class MaintenanceJobCardService implements OnModuleInit {
       if (cardYear === curYear && cardMonth === curMonth) {
         thisMonthCost += cardSpend;
       }
-      if (cardYear === curYear && cardQuarter === curQuarter) {
+      if (cardQuarterKey && cardQuarterKey === curQuarterKey) {
         thisQuarterCost += cardSpend;
       }
     }

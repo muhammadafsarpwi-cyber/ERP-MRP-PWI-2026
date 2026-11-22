@@ -1,6 +1,12 @@
 import React from 'react';
 import { Card } from 'antd';
 import type { DashboardFilters as DashboardFiltersType } from '../../services/dashboardService';
+import {
+  getCurrentFiscalYearInfo,
+  getFiscalQuarterInfo,
+  getPreviousFiscalQuarterInfo,
+  getPreviousFiscalYearInfo,
+} from '../../utils/fiscalYear';
 
 /* ── Number / date formatting ─────────────────────────────────────────── */
 export const fmtQty = (n: number): string =>
@@ -84,20 +90,23 @@ export type DateRangePreset =
   | 'lastMonth'
   | 'thisQuarter'
   | 'lastQuarter'
+  | 'thisYear'
+  | 'lastYear'
   | 'custom';
 
 /** Dashboard opens on "This Month" by default on login/refresh/open. */
 export const DEFAULT_DATE_RANGE_PRESET: DateRangePreset = 'thisMonth';
 
 export const DATE_RANGE_PRESET_OPTIONS: Array<{ value: DateRangePreset; label: string }> = [
+  { value: 'thisMonth', label: 'This Month' },
+  { value: 'lastMonth', label: 'Last Month' },
+  { value: 'thisQuarter', label: 'This Quarter' },
+  { value: 'lastQuarter', label: 'Last Quarter' },
+  { value: 'thisYear', label: 'This Year' },
+  { value: 'lastYear', label: 'Last Year' },
   { value: 'today', label: 'Today' },
   { value: 'yesterday', label: 'Yesterday' },
-  { value: 'lastEntry', label: 'Last Entry (L.E)' },
-  { value: 'thisMonth', label: 'This Month' },
-  { value: 'lastMonth', label: 'Previous Month' },
-  { value: 'thisQuarter', label: 'This Quarter' },
-  { value: 'lastQuarter', label: 'Previous Quarter' },
-  { value: 'custom', label: 'Custom Range...' },
+  { value: 'custom', label: 'Custom' },
 ];
 
 /** `YYYY-MM-DD` in the browser's local timezone (production entries are local dates). */
@@ -137,15 +146,20 @@ export const dateRangePresetToFilters = (
       return { dateFrom: isoLocalDate(prevMonthStart), dateTo: isoLocalDate(prevMonthEnd) };
     }
     case 'thisQuarter': {
-      const quarterStart = new Date(today.getFullYear(), Math.floor(today.getMonth() / 3) * 3, 1);
-      return { dateFrom: isoLocalDate(quarterStart), dateTo: isoLocalDate(today) };
+      const q = getFiscalQuarterInfo(today);
+      return { dateFrom: q.startDate, dateTo: q.endDate };
     }
     case 'lastQuarter': {
-      const quarterStartMonth = Math.floor(today.getMonth() / 3) * 3;
-      const lastQuarterStart = new Date(today.getFullYear(), quarterStartMonth - 3, 1);
-      // Day 0 of the next month = last day of the previous month.
-      const lastQuarterEnd = new Date(today.getFullYear(), quarterStartMonth, 0);
-      return { dateFrom: isoLocalDate(lastQuarterStart), dateTo: isoLocalDate(lastQuarterEnd) };
+      const prevQ = getPreviousFiscalQuarterInfo(today);
+      return { dateFrom: prevQ.startDate, dateTo: prevQ.endDate };
+    }
+    case 'thisYear': {
+      const fy = getCurrentFiscalYearInfo(today);
+      return { dateFrom: fy.startDate, dateTo: fy.endDate };
+    }
+    case 'lastYear': {
+      const prevFy = getPreviousFiscalYearInfo(today);
+      return { dateFrom: prevFy.startDate, dateTo: prevFy.endDate };
     }
     case 'custom': {
       if (customRange && customRange[0] && customRange[1]) {

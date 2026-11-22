@@ -1,12 +1,18 @@
 import React, { useState } from 'react';
-import { Button, Tooltip, Tag, Grid, DatePicker, Badge } from 'antd';
+import { Button, Tag, Grid, DatePicker, Badge } from 'antd';
 import {
-  CalendarOutlined, SearchOutlined, FilterOutlined, ClearOutlined, ThunderboltOutlined,
+  CalendarOutlined, SearchOutlined, FilterOutlined, ClearOutlined,
   ShopOutlined, ApartmentOutlined, BuildOutlined, ClockCircleOutlined, ToolOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import type { DashboardFilters as SystemFilters, FilterOption, MachinePerformanceItem } from '../../services/dashboardService';
 import { DATE_RANGE_PRESET_OPTIONS, DateRangePreset, DEFAULT_DATE_RANGE_PRESET } from './dashboardShared';
+import {
+  getCurrentFiscalYearInfo,
+  getFiscalQuarterInfo,
+  getPreviousFiscalQuarterInfo,
+  getPreviousFiscalYearInfo,
+} from '../../utils/fiscalYear';
 import CardSelectDropdown from './CardSelectDropdown';
 
 const { useBreakpoint } = Grid;
@@ -123,7 +129,7 @@ const DashboardFilters: React.FC<DashboardFiltersProps> = ({
         boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.04)',
       }}
     >
-      {/* ── Top Header Row: Filter Toggle & Chips on Left | Quick L.E & Date Range on Right ── */}
+      {/* ── Top Header Row: Filter Toggle & Chips on Left | Date Range on Right ── */}
       <div
         style={{
           display: 'flex',
@@ -197,44 +203,31 @@ const DashboardFilters: React.FC<DashboardFiltersProps> = ({
           )}
         </div>
 
-        {/* Right: Quick L.E button, Date Range Card Dropdown, Custom Picker */}
+        {/* Right: Date Range Card Dropdown, Custom Picker */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          {/* Quick L.E (Last Entry) Button */}
-          <Tooltip title={lastEntryDate ? `Jump to Last Production Entry Date: ${lastEntryDate}` : 'Jump to Last Entry Date (L.E)'}>
-            <Button
-              size="middle"
-              type={dateRangePreset === 'lastEntry' ? 'primary' : 'default'}
-              icon={<ThunderboltOutlined />}
-              onClick={() => onDateRangeChange('lastEntry')}
-              loading={loading && dateRangePreset === 'lastEntry'}
-              style={{
-                fontWeight: 700,
-                fontSize: 12,
-                borderRadius: 8,
-                borderColor: dateRangePreset === 'lastEntry' ? undefined : 'var(--theme-border, #cbd5e1)',
-                color: dateRangePreset === 'lastEntry' ? '#ffffff' : 'var(--theme-primary, #0284c7)',
-                background: dateRangePreset === 'lastEntry' ? undefined : 'var(--theme-accent-soft, #f0f9ff)',
-              }}
-            >
-              L.E {lastEntryDate ? `(${lastEntryDate})` : ''}
-            </Button>
-          </Tooltip>
-
           {/* Date range selector with CardSelectDropdown */}
-          <div style={{ minWidth: 175 }}>
+          <div style={{ minWidth: 190 }}>
             <CardSelectDropdown
               label="Date Range"
               title="Select Date Range"
-              subtitle="Filter dashboard timeframe"
-              allLabel="Select Preset"
+              subtitle="Filter dashboard timeframe (Pakistani FY Jul–Jun)"
+              allLabel="This Month"
+              hideAllOption
               icon={<CalendarOutlined />}
-              options={DATE_RANGE_PRESET_OPTIONS.map((o) => ({
-                id: o.value,
-                name: o.value === 'lastEntry' && lastEntryDate ? `Last Entry (${lastEntryDate})` : o.label,
-                code: o.value === 'lastEntry' ? 'L.E' : undefined,
-                subtext: o.value === DEFAULT_DATE_RANGE_PRESET ? 'Default view' : undefined,
-              }))}
-              activeId={dateRangePreset}
+              options={DATE_RANGE_PRESET_OPTIONS.filter((o) => o.value !== 'lastEntry').map((o) => {
+                let subtext: string | undefined =
+                  o.value === DEFAULT_DATE_RANGE_PRESET ? 'Default view' : undefined;
+                if (o.value === 'thisQuarter') subtext = getFiscalQuarterInfo().fullLabel;
+                else if (o.value === 'lastQuarter') subtext = getPreviousFiscalQuarterInfo().fullLabel;
+                else if (o.value === 'thisYear') subtext = getCurrentFiscalYearInfo().fullLabel;
+                else if (o.value === 'lastYear') subtext = getPreviousFiscalYearInfo().fullLabel;
+                return {
+                  id: o.value,
+                  name: o.label,
+                  subtext,
+                };
+              })}
+              activeId={dateRangePreset === 'lastEntry' ? DEFAULT_DATE_RANGE_PRESET : dateRangePreset}
               onSelect={(v) => {
                 if (v) onDateRangeChange(v as DateRangePreset);
               }}

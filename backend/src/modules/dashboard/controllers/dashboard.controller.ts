@@ -278,6 +278,29 @@ export class DashboardController {
     return { success: true, data };
   }
 
+  @Get('sales/top-customers')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @ApiQuery({ name: 'dateFrom', required: false })
+  @ApiQuery({ name: 'dateTo', required: false })
+  @ApiQuery({ name: 'divisionId', required: false })
+  @ApiOperation({ summary: 'Period & division-scoped Total Order Load (prior open pending + new orders) and Top 3 Customers' })
+  async salesTopCustomers(
+    @Req() req: any,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+    @Query('divisionId') divisionId?: string,
+  ) {
+    const companyId = this.getCompanyId(req);
+    const data = await this.dashboardService.getSalesTopCustomersAndLoad(companyId, {
+      dateFrom,
+      dateTo,
+      divisionId,
+      allowedDivisionIds: this.divisions(req),
+    });
+    return { success: true, data };
+  }
+
   @Get('schedule')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
