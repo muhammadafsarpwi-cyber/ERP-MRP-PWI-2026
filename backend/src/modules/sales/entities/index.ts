@@ -6,5 +6,8 @@ export { SalesOrderItem } from './sales-order-item.entity';
 export { SalesDelivery } from './sales-delivery.entity';
 export { SalesDeliveryLine } from './sales-delivery-line.entity';
 export { SalesInvoice } from './sales-invoice.entity';
+export { SalesInvoiceLine } from './sales-invoice-line.entity';
 export { SalesReturn } from './sales-return.entity';
 export { SalesReturnLine } from './sales-return-line.entity';
+export { CustomerReceipt, CustomerReceiptType, CustomerPaymentMode, ChequeClearanceStatus } from './customer-receipt.entity';
+export { CustomerReceiptAllocation, AllocationType } from './customer-receipt-allocation.entity';

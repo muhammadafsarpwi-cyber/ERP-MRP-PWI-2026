@@ -305,107 +305,146 @@ function amountToWords(num: number): string {
 export function printInvoiceDocument(inv: any): void {
   if (!inv) return;
   const items = inv.items || inv.lines || [];
-  const custName = inv.customer?.name || inv.customer?.companyName || inv.companyName || 'Customer';
+  const custCode = inv.customer?.customerCode || '';
+  const custName = inv.customer?.companyName || inv.customer?.name || inv.companyName || 'Customer';
   const custAddress = inv.customer?.addressLine1 || inv.customer?.billingAddress || inv.customer?.address || 'Industrial Area';
-  const custPhone = inv.customer?.phone || '-';
-  const custNtn = inv.customer?.salesTaxNumber || inv.customer?.taxNumber || '-';
-  const custState = inv.customer?.state || 'Punjab';
+  const custCity = inv.customer?.city || '';
+  const custPhone = inv.customer?.phone || inv.customer?.mobile || '-';
+  const custNtn = inv.customer?.taxNumber || inv.customerTaxNumber || '-';
+  const custStrn = inv.customer?.salesTaxNumber || inv.customerStrn || '-';
+
+  const dnNo = inv.deliveryNumber || inv.relatedDelivery?.deliveryNumber || 'Direct Dispatch';
+  const gpNo = inv.gatePassNumber || inv.relatedDelivery?.gatePassNumber || '-';
+  const socNo = inv.socNumber || inv.salesOrder?.orderNumber || 'Direct Sale';
+  const divName = inv.divisionName || inv.salesOrder?.division?.name || '-';
+  const paymentTerms = inv.paymentTerms || inv.customer?.paymentTerms || 'Cash / Immediate';
 
   let totalQty = 0;
-  const rowsHtml = (items.length > 0 ? items : [
-    {
-      description: 'Finished Goods Wire Product',
-      hsnCode: '8505',
-      quantity: 1,
-      rate: Number(inv.totalAmount || inv.total || 1260),
-      taxableAmount: Number(inv.subtotal || inv.totalAmount || 1200),
-      taxAmount: Number(inv.taxAmount || 60),
-      amount: Number(inv.totalAmount || 1260),
-    }
-  ]).map((it: any, idx: number) => {
-    const pName = it.product || it.item?.name || it.description || it.productName || it.name || 'Finished Product';
-    const hsn = it.hsnCode || it.item?.itemCode || it.itemCode || '8505';
-    const qty = it.quantity || it.qty || 1;
-    const rate = it.rate ?? it.unitPrice ?? 0;
-    const taxable = it.taxableAmount ?? (qty * rate);
-    const taxAmt = it.gstAmount ?? it.taxAmount ?? (taxable * 0.05);
-    const halfTax = taxAmt / 2;
-    const taxPct = it.gstRate ? `${it.gstRate}%` : (it.taxRate ? `${it.taxRate}%` : '5%');
-    const total = it.amount ?? it.lineTotal ?? it.total ?? (taxable + taxAmt);
-    totalQty += Number(qty) || 0;
+  const normalizedRows =
+    items.length > 0
+      ? items
+      : [
+          {
+            description: inv.notes || 'Finished Goods Wire Product',
+            itemCode: null,
+            quantity: 1,
+            uom: 'Lot',
+            rate: Number(inv.subtotal || inv.totalAmount || 0),
+            taxableAmount: Number(inv.subtotal || inv.totalAmount || 0),
+            gstAmount: Number(inv.taxAmount || 0),
+            gstRate:
+              Number(inv.subtotal || 0) > 0 && Number(inv.taxAmount || 0) > 0
+                ? Math.round((Number(inv.taxAmount) / Number(inv.subtotal)) * 10000) / 100
+                : 0,
+            amount: Number(inv.totalAmount || 0),
+          },
+        ];
 
-    return `
-      <tr style="border-bottom: 1px solid #e2e8f0; font-size: 10px;">
-        <td style="text-align: center; padding: 6px 4px; width: 26px;">${idx + 1}</td>
-        <td style="padding: 6px 8px;"><strong>${pName}</strong></td>
-        <td style="text-align: center; padding: 6px 4px; color: #475569;">${hsn}</td>
-        <td style="text-align: right; padding: 6px 6px;">${qty}</td>
-        <td style="text-align: right; padding: 6px 6px;">${formatDecimal(rate)}</td>
-        <td style="text-align: right; padding: 6px 6px;">${formatDecimal(taxable)}</td>
-        <td style="text-align: center; padding: 6px 4px;">${taxPct}</td>
-        <td style="text-align: right; padding: 6px 6px;">${formatDecimal(halfTax)}</td>
-        <td style="text-align: right; padding: 6px 6px;">${formatDecimal(halfTax)}</td>
-        <td style="text-align: right; padding: 6px 8px; font-weight: 700;">${formatDecimal(total)}</td>
+  const rowsHtml = normalizedRows
+    .map((it: any, idx: number) => {
+      const code = it.itemCode || it.item?.itemCode || '';
+      const pName = it.product || it.item?.name || it.description || it.productName || it.name || 'Finished Product';
+      const uom = it.uom || it.uomCode || it.uom?.code || 'GRS';
+      const qty = Number(it.quantity ?? it.qty ?? 1);
+      const rate = Number(it.rate ?? it.unitPrice ?? 0);
+      const taxable = Number(it.taxableAmount ?? qty * rate);
+      const taxAmt = Number(it.gstAmount ?? it.taxAmount ?? 0);
+      const pctNum =
+        it.gstRate != null
+          ? Number(it.gstRate)
+          : it.taxRate != null
+          ? Number(it.taxRate)
+          : taxable > 0 && taxAmt > 0
+          ? Math.round((taxAmt / taxable) * 10000) / 100
+          : 0;
+      const total = Number(it.amount ?? it.lineTotal ?? it.total ?? taxable + taxAmt);
+      totalQty += qty;
+
+      return `
+      <tr style="border-bottom: 1px solid #cbd5e1; font-size: 10.5px;">
+        <td style="text-align: center; padding: 7px 4px; width: 28px; color: #475569;">${idx + 1}</td>
+        <td style="padding: 7px 8px;">
+          ${code ? `<div style="display: inline-block; font-family: monospace; font-size: 9.5px; font-weight: 800; color: #c2410c; background: #fff7ed; border: 1px solid #fdba74; padding: 1px 6px; border-radius: 3px; margin-bottom: 2px;">${code}</div>` : ''}
+          <div style="font-weight: 700; color: #0f172a;">${pName}</div>
+        </td>
+        <td style="padding: 7px 6px; font-size: 9.5px; color: #334155; font-family: monospace;">${it.socNumber || socNo || '-'}</td>
+        <td style="text-align: right; padding: 7px 6px; font-weight: 700;">${formatQty(qty)}</td>
+        <td style="text-align: center; padding: 7px 4px;">${uom}</td>
+        <td style="text-align: right; padding: 7px 6px;">${formatDecimal(rate)}</td>
+        <td style="text-align: right; padding: 7px 6px;">${formatDecimal(taxable)}</td>
+        <td style="text-align: center; padding: 7px 4px;">${pctNum}%</td>
+        <td style="text-align: right; padding: 7px 6px;">${formatDecimal(taxAmt)}</td>
+        <td style="text-align: right; padding: 7px 8px; font-weight: 800; color: #0f172a;">${formatDecimal(total)}</td>
       </tr>
     `;
-  }).join('');
+    })
+    .join('');
 
-  const subtotal = Number(inv.subtotal || inv.totalAmount || 1200);
-  const totalTax = Number(inv.taxAmount || 60);
-  const halfTax = totalTax / 2;
-  const grandTotal = Number(inv.totalAmount || (subtotal + totalTax));
+  const subtotal = Number(inv.subtotal || 0);
+  const totalTax = Number(inv.taxAmount || 0);
+  const grandTotal = Number(inv.totalAmount || subtotal + totalTax);
   const paidAmount = Number(inv.paidAmount || 0);
-  const balanceDue = Number(inv.outstandingAmount ?? inv.balance ?? (grandTotal - paidAmount));
+  const balanceDue = Number(inv.outstandingAmount ?? inv.balance ?? Math.max(0, grandTotal - paidAmount));
   const words = amountToWords(grandTotal);
+  const effectiveGstPct = subtotal > 0 && totalTax > 0 ? Math.round((totalTax / subtotal) * 10000) / 100 : 0;
 
   const bodyHtml = `
     <!-- Top Header -->
-    <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #0f172a; padding-bottom: 12px; margin-bottom: 12px;">
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2.5px solid #0f172a; padding-bottom: 12px; margin-bottom: 12px;">
       <div style="display: flex; align-items: center; gap: 12px;">
-        <img src="${getLogoUrl()}" alt="Pakistan Wire Industries (Pvt.) LTD" style="height: 54px; width: auto; max-width: 120px; object-fit: contain;" onerror="this.style.display='none'" />
+        <img src="${getLogoUrl()}" alt="Pakistan Wire Industries (Pvt.) LTD" style="height: 58px; width: auto; max-width: 120px; object-fit: contain;" onerror="this.style.display='none'" />
         <div>
-          <div style="font-size: 18px; font-weight: 800; color: #0f172a; line-height: 1.2;">Pakistan Wire Industries (Pvt.) LTD</div>
-          <div style="font-size: 11px; color: #475569; margin-top: 2px;">State: ${custState}</div>
+          <div style="font-size: 18px; font-weight: 900; color: #0f172a; line-height: 1.2; text-transform: uppercase;">Pakistan Wire Industries (Pvt.) LTD</div>
+          <div style="font-size: 10.5px; color: #334155; font-weight: 600; margin-top: 2px;">Plot 179, Block E, SITE Superhighway, Karachi, Pakistan</div>
+          <div style="font-size: 10px; color: #475569; margin-top: 2px;">NTN: <strong>0819234-7</strong> | STRN: <strong>17-00-9812-001</strong></div>
         </div>
       </div>
       <div style="text-align: right;">
-        <div style="display: inline-block; background: #181f2c; color: #ffffff; padding: 4px 14px; font-size: 13px; font-weight: 800; letter-spacing: 0.8px; border-radius: 2px; text-transform: uppercase;">
-          TAX INVOICE
+        <div style="display: inline-block; background: #0f172a; color: #ffffff; padding: 5px 14px; font-size: 12.5px; font-weight: 800; letter-spacing: 0.8px; border-radius: 3px; text-transform: uppercase;">
+          SALES TAX INVOICE
         </div>
-        <div style="font-size: 12px; font-weight: 800; color: #0f172a; margin-top: 4px; font-family: monospace;">${inv.invoiceNo || 'INV-0003'}</div>
-        <div style="font-size: 10px; color: #475569; margin-top: 1px;">Date: ${inv.invoiceDate || '30 Jul 2026'}</div>
-        <div style="font-size: 10px; color: #475569;">Due: ${inv.dueDate || '19 Aug 2026'}</div>
+        <div style="font-size: 13px; font-weight: 800; color: #0f172a; margin-top: 5px; font-family: monospace;">${inv.invoiceNo || '-'}</div>
+        <div style="font-size: 10px; color: #475569; margin-top: 2px;">Invoice Date: <strong>${inv.invoiceDate || '-'}</strong></div>
+        <div style="font-size: 10px; color: #b91c1c;">Due Date: <strong>${inv.dueDate || inv.invoiceDate || '-'}</strong></div>
       </div>
     </div>
 
-    <!-- 2-Column Details: BILL TO & SUMMARY -->
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
-      <div style="border: 1px solid #e2e8f0; border-radius: 4px; padding: 10px 12px; background: #fafafa;">
-        <div style="font-size: 10.5px; font-weight: 800; color: #64748b; text-transform: uppercase; margin-bottom: 4px; letter-spacing: 0.5px;">BILL TO</div>
+    <!-- 2-Column Details: BILL TO & DISPATCH / TAX PARTICULARS -->
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px;">
+      <div style="border: 1px solid #cbd5e1; border-radius: 4px; padding: 10px 12px; background: #f8fafc;">
+        <div style="font-size: 10px; font-weight: 800; color: #475569; text-transform: uppercase; margin-bottom: 5px; letter-spacing: 0.5px;">BUYER / BILL TO</div>
+        ${custCode ? `<div style="display: inline-block; font-family: monospace; font-size: 10px; font-weight: 800; color: #1d4ed8; background: #eff6ff; border: 1px solid #93c5fd; padding: 1px 6px; border-radius: 3px; margin-bottom: 3px;">${custCode}</div>` : ''}
         <div style="font-size: 13px; font-weight: 800; color: #0f172a;">${custName}</div>
-        <div style="font-size: 10.5px; color: #334155; margin-top: 2px;">${custAddress}</div>
+        <div style="font-size: 10.5px; color: #334155; margin-top: 2px;">${[custAddress, custCity].filter(Boolean).join(', ')}</div>
         <div style="font-size: 10.5px; color: #334155; margin-top: 2px;">Phone: ${custPhone}</div>
-        <div style="font-size: 10.5px; color: #334155;">GSTIN: <span style="font-family: monospace;">${custNtn}</span></div>
-        <div style="font-size: 10.5px; color: #334155;">State: ${custState}</div>
+        <div style="font-size: 10.5px; color: #334155; margin-top: 2px;">NTN: <span style="font-family: monospace;">${custNtn}</span> | STRN: <span style="font-family: monospace;">${custStrn}</span></div>
       </div>
 
-      <div style="border: 1px solid #e2e8f0; border-radius: 4px; padding: 10px 12px; background: #fafafa;">
-        <div style="font-size: 10.5px; font-weight: 800; color: #64748b; text-transform: uppercase; margin-bottom: 6px; letter-spacing: 0.5px;">SUMMARY</div>
+      <div style="border: 1px solid #cbd5e1; border-radius: 4px; padding: 10px 12px; background: #f8fafc;">
+        <div style="font-size: 10px; font-weight: 800; color: #475569; text-transform: uppercase; margin-bottom: 5px; letter-spacing: 0.5px;">DISPATCH & COMMERCIAL PARTICULARS</div>
         <div style="display: flex; justify-content: space-between; font-size: 10.5px; margin-bottom: 3px;">
-          <span style="color: #64748b;">Place of supply:</span>
-          <span style="font-weight: 700; color: #0f172a;">${custState}</span>
+          <span style="color: #64748b;">Division:</span>
+          <span style="font-weight: 700; color: #0f172a;">${divName}</span>
         </div>
         <div style="display: flex; justify-content: space-between; font-size: 10.5px; margin-bottom: 3px;">
-          <span style="color: #64748b;">Tax treatment:</span>
-          <span style="font-weight: 700; color: #0f172a;">Intra-state (SGST + CGST)</span>
+          <span style="color: #64748b;">Delivery Note #:</span>
+          <span style="font-weight: 700; color: #0f172a; font-family: monospace;">${dnNo}</span>
         </div>
         <div style="display: flex; justify-content: space-between; font-size: 10.5px; margin-bottom: 3px;">
-          <span style="color: #64748b;">Payment terms:</span>
-          <span style="font-weight: 700; color: #0f172a;">${inv.paymentTerms || 'net 30'}</span>
+          <span style="color: #64748b;">Gate Pass #:</span>
+          <span style="font-weight: 800; color: #0369a1; font-family: monospace;">${gpNo}</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; font-size: 10.5px; margin-bottom: 3px;">
+          <span style="color: #64748b;">Originating SOC #:</span>
+          <span style="font-weight: 700; color: #0f172a; font-family: monospace;">${socNo}</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; font-size: 10.5px; margin-bottom: 3px;">
+          <span style="color: #64748b;">Credit Terms:</span>
+          <span style="font-weight: 700; color: #0f172a;">${paymentTerms}</span>
         </div>
         <div style="display: flex; justify-content: space-between; font-size: 10.5px;">
           <span style="color: #64748b;">Status:</span>
-          <span style="font-weight: 800; color: ${inv.status === 'PAID' ? '#16a34a' : '#d97706'}; text-transform: capitalize;">${inv.status || 'Pending'}</span>
+          <span style="font-weight: 800; color: ${String(inv.status).toLowerCase() === 'paid' ? '#16a34a' : '#d97706'}; text-transform: uppercase;">${inv.status || 'Pending'}</span>
         </div>
       </div>
     </div>
@@ -413,25 +452,28 @@ export function printInvoiceDocument(inv: any): void {
     <!-- Items Table -->
     <table class="print-table" style="width: 100%; border-collapse: collapse; margin-bottom: 12px;">
       <thead>
-        <tr style="background: #181f2c; color: #ffffff; font-size: 10px;">
-          <th style="padding: 6px 4px; text-align: center; width: 26px;">#</th>
-          <th style="padding: 6px 8px; text-align: left;">DESCRIPTION</th>
-          <th style="padding: 6px 4px; text-align: center;">HSN</th>
+        <tr style="background: #0f172a; color: #ffffff; font-size: 10px;">
+          <th style="padding: 6px 4px; text-align: center; width: 28px;">#</th>
+          <th style="padding: 6px 8px; text-align: left;">ITEM CODE & DESCRIPTION</th>
+          <th style="padding: 6px 6px; text-align: left;">SOC #</th>
           <th style="padding: 6px 6px; text-align: right;">QTY</th>
+          <th style="padding: 6px 4px; text-align: center;">UOM</th>
           <th style="padding: 6px 6px; text-align: right;">RATE</th>
-          <th style="padding: 6px 6px; text-align: right;">TAXABLE</th>
-          <th style="padding: 6px 4px; text-align: center;">GST %</th>
-          <th style="padding: 6px 6px; text-align: right;">SGST</th>
-          <th style="padding: 6px 6px; text-align: right;">CGST</th>
-          <th style="padding: 6px 8px; text-align: right;">AMOUNT</th>
+          <th style="padding: 6px 6px; text-align: right;">SUBTOTAL</th>
+          <th style="padding: 6px 4px; text-align: center;">TAX %</th>
+          <th style="padding: 6px 6px; text-align: right;">SALES TAX</th>
+          <th style="padding: 6px 8px; text-align: right;">TOTAL (PKR)</th>
         </tr>
       </thead>
       <tbody>
         ${rowsHtml}
-        <tr style="border-top: 2px solid #181f2c; font-weight: 800; background: #f8fafc; font-size: 10.5px;">
-          <td colspan="3" style="padding: 6px 8px;">Total</td>
-          <td style="padding: 6px 6px; text-align: right;">${totalQty}</td>
-          <td colspan="5"></td>
+        <tr style="border-top: 2px solid #0f172a; font-weight: 800; background: #f8fafc; font-size: 10.5px;">
+          <td colspan="3" style="padding: 6px 8px;">TOTALS</td>
+          <td style="padding: 6px 6px; text-align: right;">${formatQty(totalQty)}</td>
+          <td colspan="2"></td>
+          <td style="padding: 6px 6px; text-align: right;">Rs ${formatDecimal(subtotal)}</td>
+          <td></td>
+          <td style="padding: 6px 6px; text-align: right;">Rs ${formatDecimal(totalTax)}</td>
           <td style="padding: 6px 8px; text-align: right;">Rs ${formatDecimal(grandTotal)}</td>
         </tr>
       </tbody>
@@ -441,66 +483,66 @@ export function printInvoiceDocument(inv: any): void {
     <div style="display: flex; justify-content: space-between; gap: 16px; margin-top: 10px;">
       <div style="flex: 1; border: 1px solid #cbd5e1; border-radius: 4px; padding: 10px 12px; background: #ffffff;">
         <div style="font-size: 10px; font-weight: 800; color: #64748b; text-transform: uppercase;">AMOUNT IN WORDS</div>
-        <div style="font-size: 11px; font-weight: 700; color: #0f172a; margin-top: 4px; margin-bottom: 12px;">
+        <div style="font-size: 11px; font-weight: 700; color: #0f172a; margin-top: 4px; margin-bottom: 10px;">
           ${words}
         </div>
-        <div style="font-size: 10px; font-weight: 800; color: #64748b; text-transform: uppercase;">NOTES:</div>
+        <div style="font-size: 10px; font-weight: 800; color: #64748b; text-transform: uppercase;">REMARKS / DISPATCH REFERENCE</div>
         <div style="font-size: 10.5px; color: #475569; margin-top: 4px;">
-          ${inv.notes || `Sample note for ${inv.invoiceNo || 'INV-0003'}`}
+          ${inv.notes || `Official Sales Tax Invoice for Delivery Note ${dnNo}${gpNo !== '-' ? ` (Gate Pass: ${gpNo})` : ''}.`}
         </div>
       </div>
 
-      <div style="width: 250px;">
+      <div style="width: 260px;">
         <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
           <tr>
-            <td style="padding: 3px 0; color: #64748b;">Subtotal</td>
-            <td style="padding: 3px 0; text-align: right; font-weight: 600;">Rs ${formatDecimal(subtotal)}</td>
+            <td style="padding: 4px 0; color: #64748b;">Subtotal (Excl. Tax)</td>
+            <td style="padding: 4px 0; text-align: right; font-weight: 600;">Rs ${formatDecimal(subtotal)}</td>
           </tr>
           <tr>
-            <td style="padding: 3px 0; color: #64748b;">SGST</td>
-            <td style="padding: 3px 0; text-align: right; font-weight: 600;">Rs ${formatDecimal(halfTax)}</td>
+            <td style="padding: 4px 0; color: #64748b;">Sales Tax / GST (${effectiveGstPct > 0 ? `${effectiveGstPct}%` : '0%'})</td>
+            <td style="padding: 4px 0; text-align: right; font-weight: 600;">Rs ${formatDecimal(totalTax)}</td>
           </tr>
-          <tr>
-            <td style="padding: 3px 0; color: #64748b;">CGST</td>
-            <td style="padding: 3px 0; text-align: right; font-weight: 600;">Rs ${formatDecimal(halfTax)}</td>
-          </tr>
-          <tr style="border-top: 1px solid #0f172a; border-bottom: 1px solid #0f172a; font-weight: 800;">
-            <td style="padding: 5px 0; font-size: 12px; color: #0f172a;">Total</td>
+          <tr style="border-top: 1.5px solid #0f172a; border-bottom: 1.5px solid #0f172a; font-weight: 800;">
+            <td style="padding: 5px 0; font-size: 12px; color: #0f172a;">Grand Total</td>
             <td style="padding: 5px 0; text-align: right; font-size: 12px;">Rs ${formatDecimal(grandTotal)}</td>
           </tr>
           <tr>
-            <td style="padding: 4px 0; color: #64748b;">Paid</td>
+            <td style="padding: 4px 0; color: #64748b;">Paid to Date</td>
             <td style="padding: 4px 0; text-align: right; font-weight: 600; color: #16a34a;">Rs ${formatDecimal(paidAmount)}</td>
           </tr>
           <tr style="font-weight: 800;">
-            <td style="padding: 4px 0; color: #dc2626; font-size: 12px;">Balance Due</td>
-            <td style="padding: 4px 0; text-align: right; color: #dc2626; font-size: 12px;">Rs ${formatDecimal(balanceDue)}</td>
+            <td style="padding: 4px 0; color: ${balanceDue > 0 ? '#dc2626' : '#16a34a'}; font-size: 12px;">Remaining Balance</td>
+            <td style="padding: 4px 0; text-align: right; color: ${balanceDue > 0 ? '#dc2626' : '#16a34a'}; font-size: 12px;">Rs ${formatDecimal(balanceDue)}</td>
           </tr>
         </table>
       </div>
     </div>
 
     <!-- Signatures -->
-    <div style="display: flex; justify-content: space-between; margin-top: 40px; padding: 0 16px;">
-      <div style="text-align: center; width: 180px;">
-        <div style="border-top: 1px solid #94a3b8; padding-top: 4px; font-size: 10.5px; color: #475569;">
-          Customer Signature
-        </div>
+    <div style="display: flex; justify-content: space-between; margin-top: 38px; padding: 0 12px;">
+      <div style="text-align: center; width: 170px;">
+        <div style="border-top: 1px solid #94a3b8; padding-top: 4px; font-size: 10px; color: #475569;">Prepared By</div>
       </div>
-      <div style="text-align: center; width: 230px;">
-        <div style="border-top: 1px solid #94a3b8; padding-top: 4px; font-size: 10.5px; font-weight: 700; color: #0f172a;">
-          for Pakistan Wire Industries (Pvt.) LTD
+      <div style="text-align: center; width: 170px;">
+        <div style="border-top: 1px solid #94a3b8; padding-top: 4px; font-size: 10px; color: #475569;">Accounts Verified</div>
+      </div>
+      <div style="text-align: center; width: 170px;">
+        <div style="border-top: 1px solid #94a3b8; padding-top: 4px; font-size: 10px; color: #475569;">Customer Signature</div>
+      </div>
+      <div style="text-align: center; width: 220px;">
+        <div style="border-top: 1px solid #94a3b8; padding-top: 4px; font-size: 10px; font-weight: 700; color: #0f172a;">
+          For Pakistan Wire Industries (Pvt.) LTD
         </div>
       </div>
     </div>
 
     <!-- Footer Disclaimer -->
-    <div style="text-align: center; margin-top: 24px; font-size: 9.5px; color: #94a3b8;">
-      Goods once sold are taken back only per the agreed return policy. This is a computer-generated document.
+    <div style="text-align: center; margin-top: 22px; font-size: 9.5px; color: #64748b;">
+      Goods once dispatched will be accepted back only with formal RMA authorization. Computer-generated Sales Tax Invoice.
     </div>
   `;
 
-  printHtmlContent(`Invoice - ${inv.invoiceNo || 'Print'}`, bodyHtml);
+  printHtmlContent(`Tax Invoice - ${inv.invoiceNo || 'Print'}`, bodyHtml);
 }
 
 // 1B. PURCHASE ORDER PRINT (Exact Match to User Reference Screenshot)
@@ -1659,25 +1701,65 @@ export function printCustomerStatementDocument(customer: any, statementData: any
   const custCode = customer.customerCode || 'N/A';
   const currency = statementData?.currency || customer.currencyCode || 'PKR';
 
+  const aging = statementData?.aging;
+  const agingHtml = aging
+    ? `
+      <div style="margin: 10px 0 12px; border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px 10px; background: #f8fafc;">
+        <div style="font-size: 10px; font-weight: 800; color: #334155; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">
+          RECEIVABLES AGING BREAKDOWN (${currency})
+        </div>
+        <table class="print-table" style="margin: 0;">
+          <thead>
+            <tr>
+              <th>Current</th>
+              <th>1–30 Days Overdue</th>
+              <th>31–60 Days Overdue</th>
+              <th>61–90 Days Overdue</th>
+              <th>90+ Days Overdue</th>
+              <th>Total Open</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style="text-align: right; font-weight: 700;">${formatDecimal(aging.current || 0)}</td>
+              <td style="text-align: right; font-weight: 700;">${formatDecimal(aging.days1to30 || 0)}</td>
+              <td style="text-align: right; font-weight: 700; color: #d97706;">${formatDecimal(aging.days31to60 || 0)}</td>
+              <td style="text-align: right; font-weight: 700; color: #ea580c;">${formatDecimal(aging.days61to90 || 0)}</td>
+              <td style="text-align: right; font-weight: 800; color: #dc2626;">${formatDecimal(aging.days90Plus || 0)}</td>
+              <td style="text-align: right; font-weight: 800;">${formatDecimal(aging.totalOpenBalance || 0)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    `
+    : '';
+
   const rowsHtml = entries.map((e: any, idx: number) => {
-    const d = e.entryDate || e.date || e.createdAt ? new Date(e.entryDate || e.date || e.createdAt).toLocaleDateString() : '-';
+    const d = e.transactionDate || e.entryDate || e.date || e.createdAt
+      ? new Date(e.transactionDate || e.entryDate || e.date || e.createdAt).toLocaleDateString()
+      : '-';
+    const dueStr = e.dueDate ? new Date(e.dueDate).toLocaleDateString() : '-';
     const docNo = e.documentNumber || e.voucherNo || e.reference || '-';
     const type = e.documentType || e.entryType || 'LEDGER';
-    const desc = e.narration || e.description || e.notes || 'Transaction';
+    const desc = [e.reference, e.socNumber ? `SOC: ${e.socNumber}` : '', e.poReference ? `PO: ${e.poReference}` : '', e.notes]
+      .filter(Boolean)
+      .join(' | ') || 'Transaction';
     const debit = Number(e.debit || 0);
     const credit = Number(e.credit || 0);
     const balance = Number(e.balance ?? e.runningBalance ?? 0);
+    const balSuffix = balance > 0 ? 'DR' : balance < 0 ? 'CR' : '';
 
     return `
       <tr>
         <td style="text-align: center; width: 32px;">${idx + 1}</td>
-        <td>${d}</td>
-        <td style="font-weight: 600;">${docNo}</td>
-        <td><span style="font-size: 10px; font-weight: 700; text-transform: uppercase;">${type}</span></td>
+        <td style="white-space: nowrap;">${d}</td>
+        <td style="font-weight: 600; font-family: monospace;">${docNo}</td>
+        <td><span style="font-size: 9.5px; font-weight: 700; text-transform: uppercase;">${String(type).replace(/_/g, ' ')}</span></td>
         <td>${desc}</td>
+        <td style="white-space: nowrap;">${dueStr}</td>
         <td style="text-align: right; color: ${debit > 0 ? '#dc2626' : 'inherit'};">${debit > 0 ? formatDecimal(debit) : '-'}</td>
         <td style="text-align: right; color: ${credit > 0 ? '#16a34a' : 'inherit'};">${credit > 0 ? formatDecimal(credit) : '-'}</td>
-        <td style="text-align: right; font-weight: 700;">${formatDecimal(balance)}</td>
+        <td style="text-align: right; font-weight: 700; white-space: nowrap;">${formatDecimal(Math.abs(balance))} ${balSuffix}</td>
       </tr>
     `;
   }).join('');
@@ -1688,8 +1770,8 @@ export function printCustomerStatementDocument(customer: any, statementData: any
         <img class="company-logo" src="${getLogoUrl()}" alt="Logo" onerror="this.style.display='none'" />
         <div>
           <div class="company-name">Pakistan Wire Industries (Pvt.) LTD</div>
-          <div class="company-sub">Accounts & Receivables Department | Lahore, Pakistan</div>
-          <div class="company-tax">NTN: 0819234-7 | STRN: 17-00-9812-001</div>
+          <div class="company-sub">Plot 179, Block E, SITE Superhighway, Karachi, Pakistan</div>
+          <div class="company-tax">Accounts &amp; Receivables Department | NTN: 0819234-7 | STRN: 17-00-9812-001</div>
         </div>
       </div>
       <div class="doc-badge-box">
@@ -1703,18 +1785,21 @@ export function printCustomerStatementDocument(customer: any, statementData: any
         <div class="info-card-title">CUSTOMER ACCOUNT</div>
         <div class="info-row"><span class="info-label">Customer Name:</span><span class="info-val">${custName}</span></div>
         <div class="info-row"><span class="info-label">Customer Code:</span><span class="info-val">${custCode}</span></div>
+        <div class="info-row"><span class="info-label">Payment Terms:</span><span class="info-val">${customer.paymentTerms || 'Standard'}</span></div>
         <div class="info-row"><span class="info-label">Phone:</span><span class="info-val">${customer.phone || '-'}</span></div>
-        <div class="info-row"><span class="info-label">City:</span><span class="info-val">${customer.city || '-'}</span></div>
-        <div class="info-row"><span class="info-label">NTN / STRN:</span><span class="info-val">${customer.taxNumber || '-'}</span></div>
+        <div class="info-row"><span class="info-label">City / Tax ID:</span><span class="info-val">${customer.city || '-'} | NTN: ${customer.taxNumber || '-'}</span></div>
       </div>
       <div class="info-card">
         <div class="info-card-title">STATEMENT SUMMARY (${currency})</div>
         <div class="info-row"><span class="info-label">Opening Balance:</span><span class="info-val">${currency} ${formatDecimal(statementData?.openingBalance || 0)}</span></div>
-        <div class="info-row"><span class="info-label">Total Debits (Invoices/Returns):</span><span class="info-val" style="color: #dc2626;">${currency} ${formatDecimal(statementData?.periodDebit || 0)}</span></div>
-        <div class="info-row"><span class="info-label">Total Credits (Payments/Adjustments):</span><span class="info-val" style="color: #16a34a;">${currency} ${formatDecimal(statementData?.periodCredit || 0)}</span></div>
-        <div class="info-row"><span class="info-label">Closing Outstanding:</span><span class="info-val" style="font-size: 13px; font-weight: 800; color: #dc2626;">${currency} ${formatDecimal(statementData?.closingBalance || 0)}</span></div>
+        <div class="info-row"><span class="info-label">Total Debits (Invoices / Notes):</span><span class="info-val" style="color: #dc2626;">${currency} ${formatDecimal(statementData?.periodDebit || 0)}</span></div>
+        <div class="info-row"><span class="info-label">Total Credits (Receipts / Returns):</span><span class="info-val" style="color: #16a34a;">${currency} ${formatDecimal(statementData?.periodCredit || 0)}</span></div>
+        <div class="info-row"><span class="info-label">Unadjusted Advance Balance:</span><span class="info-val" style="color: #0284c7;">${currency} ${formatDecimal(statementData?.unadjustedAdvanceBalance || 0)}</span></div>
+        <div class="info-row"><span class="info-label">Net Closing Balance:</span><span class="info-val" style="font-size: 13px; font-weight: 800; color: ${(statementData?.closingBalance || 0) >= 0 ? '#dc2626' : '#16a34a'};">${currency} ${formatDecimal(Math.abs(statementData?.closingBalance || 0))} ${(statementData?.closingBalance || 0) > 0 ? 'DR' : (statementData?.closingBalance || 0) < 0 ? 'CR' : ''}</span></div>
       </div>
     </div>
+
+    ${agingHtml}
 
     <table class="print-table">
       <thead>
@@ -1723,22 +1808,23 @@ export function printCustomerStatementDocument(customer: any, statementData: any
           <th>Date</th>
           <th>Doc / Voucher #</th>
           <th>Type</th>
-          <th>Narration</th>
+          <th>Reference &amp; Narration</th>
+          <th>Due Date</th>
           <th>Debit (${currency})</th>
           <th>Credit (${currency})</th>
           <th>Balance (${currency})</th>
         </tr>
       </thead>
       <tbody>
-        ${rowsHtml || '<tr><td colspan="8" style="text-align: center; padding: 16px;">No transactions found for this period</td></tr>'}
+        ${rowsHtml || '<tr><td colspan="9" style="text-align: center; padding: 16px;">No transactions found for this period</td></tr>'}
       </tbody>
     </table>
 
     <div class="totals-wrap">
       <table class="totals-table">
         <tr class="grand-total">
-          <td class="total-label">Closing Balance Due:</td>
-          <td class="total-val">${currency} ${formatDecimal(statementData?.closingBalance || 0)}</td>
+          <td class="total-label">Net Closing Balance:</td>
+          <td class="total-val">${currency} ${formatDecimal(Math.abs(statementData?.closingBalance || 0))} ${(statementData?.closingBalance || 0) > 0 ? 'DR' : (statementData?.closingBalance || 0) < 0 ? 'CR' : ''}</td>
         </tr>
       </table>
     </div>
@@ -1755,6 +1841,130 @@ export function printCustomerStatementDocument(customer: any, statementData: any
   `;
 
   printHtmlContent(`Statement - ${custName}`, bodyHtml);
+}
+
+// 7B. OFFICIAL PAYMENT RECEIPT VOUCHER (PRV / RCV-YYYY-NNNNN)
+export function printPaymentReceiptVoucher(receipt: any): void {
+  if (!receipt) return;
+  const currency = receipt.currency || 'PKR';
+  const custName = receipt.customerName || receipt.customer?.name || receipt.customer?.companyName || 'Valued Customer';
+  const custCode = receipt.customerCode || receipt.customer?.customerCode || '-';
+  const receiptDate = receipt.receiptDate ? dayjs(receipt.receiptDate).format('DD MMM YYYY') : dayjs().format('DD MMM YYYY');
+  const allocations = Array.isArray(receipt.allocations) ? receipt.allocations : [];
+  const totalAmt = Number(receipt.amount || 0);
+  const allocTotal = Number(receipt.allocatedAmount || 0);
+  const advanceAmt = Number(receipt.unallocatedAdvanceAmount || Math.max(0, totalAmt - allocTotal));
+
+  const allocRowsHtml = allocations.map((a: any, idx: number) => `
+    <tr>
+      <td style="text-align: center; width: 32px;">${idx + 1}</td>
+      <td style="font-family: monospace; font-weight: 700; color: #1d4ed8;">${a.invoiceNo || '-'}</td>
+      <td>${a.allocationDate ? dayjs(a.allocationDate).format('DD MMM YYYY') : receiptDate}</td>
+      <td style="text-transform: uppercase; font-size: 10px; font-weight: 700;">${String(a.allocationType || 'DIRECT').replace(/_/g, ' ')}</td>
+      <td style="text-align: right;">${formatDecimal(a.invoiceTotal || 0)}</td>
+      <td style="text-align: right; font-weight: 700; color: #16a34a;">${formatDecimal(a.allocatedAmount || 0)}</td>
+      <td style="text-align: right; font-weight: 700;">${formatDecimal(a.invoiceBalance ?? 0)}</td>
+    </tr>
+  `).join('');
+
+  const bodyHtml = `
+    <div class="company-header">
+      <div class="company-logo-info">
+        <img class="company-logo" src="${getLogoUrl()}" alt="Logo" onerror="this.style.display='none'" />
+        <div>
+          <div class="company-name">Pakistan Wire Industries (Pvt.) LTD</div>
+          <div class="company-sub">Plot 179, Block E, SITE Superhighway, Karachi, Pakistan</div>
+          <div class="company-tax">Accounts &amp; Receivables Department | NTN: 0819234-7 | STRN: 17-00-9812-001</div>
+        </div>
+      </div>
+      <div class="doc-badge-box">
+        <div class="doc-badge">PAYMENT RECEIPT VOUCHER</div>
+        <div class="doc-badge-sub">VOUCHER #: ${receipt.receiptNumber || '-'}</div>
+      </div>
+    </div>
+
+    <div class="info-grid">
+      <div class="info-card">
+        <div class="info-card-title">RECEIVED WITH THANKS FROM</div>
+        <div class="info-row"><span class="info-label">Customer Name:</span><span class="info-val">${custName}</span></div>
+        <div class="info-row"><span class="info-label">Customer Code:</span><span class="info-val" style="font-family: monospace;">${custCode}</span></div>
+        <div class="info-row"><span class="info-label">Division:</span><span class="info-val">${receipt.divisionName || 'All Divisions'}</span></div>
+        <div class="info-row"><span class="info-label">Phone / City:</span><span class="info-val">${receipt.customerPhone || '-'} | ${receipt.customerCity || '-'}</span></div>
+        <div class="info-row"><span class="info-label">Address:</span><span class="info-val">${receipt.customerAddress || '-'}</span></div>
+      </div>
+      <div class="info-card">
+        <div class="info-card-title">RECEIPT &amp; INSTRUMENT DETAILS</div>
+        <div class="info-row"><span class="info-label">Receipt Voucher #:</span><span class="info-val" style="font-family: monospace; font-weight: 800; color: #059669;">${receipt.receiptNumber || '-'}</span></div>
+        <div class="info-row"><span class="info-label">Receipt Date:</span><span class="info-val">${receiptDate}</span></div>
+        <div class="info-row"><span class="info-label">Receipt Type:</span><span class="info-val">${String(receipt.receiptType || 'INVOICE_PAYMENT').replace(/_/g, ' ')}</span></div>
+        <div class="info-row"><span class="info-label">Payment Mode:</span><span class="info-val">${String(receipt.paymentMode || 'BANK_TRANSFER').replace(/_/g, ' ')}</span></div>
+        <div class="info-row"><span class="info-label">Deposit Account / Bank:</span><span class="info-val">${receipt.bankAccountName || receipt.bankName || 'Cash / Bank'}</span></div>
+        ${receipt.chequeNumber ? `<div class="info-row"><span class="info-label">Cheque # / Date:</span><span class="info-val" style="font-family: monospace;">${receipt.chequeNumber}${receipt.chequeDate ? ` (${dayjs(receipt.chequeDate).format('DD MMM YYYY')})` : ''} — ${String(receipt.clearanceStatus || 'CLEARED').replace(/_/g, ' ')}</span></div>` : ''}
+        ${receipt.socNumber || receipt.poReference ? `<div class="info-row"><span class="info-label">SOC / PO Reference:</span><span class="info-val">${[receipt.socNumber, receipt.poReference].filter(Boolean).join(' / ')}</span></div>` : ''}
+        ${receipt.journalNumber ? `<div class="info-row"><span class="info-label">GL Journal #:</span><span class="info-val" style="font-family: monospace;">${receipt.journalNumber}</span></div>` : ''}
+      </div>
+    </div>
+
+    <div style="margin: 10px 0 12px; border: 1.5px solid #059669; border-radius: 6px; padding: 10px 14px; background: #ecfdf5; display: flex; justify-content: space-between; align-items: center;">
+      <div>
+        <div style="font-size: 10px; font-weight: 800; color: #065f46; text-transform: uppercase;">TOTAL AMOUNT RECEIVED (${currency})</div>
+        <div style="font-size: 11px; color: #047857; margin-top: 2px;">Status: <strong>${receipt.status || 'POSTED'}</strong>${receipt.clearanceStatus ? ` | Instrument: <strong>${String(receipt.clearanceStatus).replace(/_/g, ' ')}</strong>` : ''}</div>
+      </div>
+      <div style="font-size: 20px; font-weight: 900; color: #065f46;">Rs ${formatDecimal(totalAmt)}</div>
+    </div>
+
+    <table class="print-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Settled Invoice #</th>
+          <th>Allocation Date</th>
+          <th>Allocation Type</th>
+          <th>Invoice Total (${currency})</th>
+          <th>Allocated (${currency})</th>
+          <th>Remaining Balance (${currency})</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${allocRowsHtml || `<tr><td colspan="7" style="text-align: center; padding: 14px;">Recorded as Advance / On-Account Receipt (Rs ${formatDecimal(advanceAmt)} available for future invoice adjustment)</td></tr>`}
+      </tbody>
+    </table>
+
+    <div class="totals-wrap">
+      <table class="totals-table">
+        <tr>
+          <td class="total-label">Total Settled to Invoices:</td>
+          <td class="total-val">Rs ${formatDecimal(allocTotal)}</td>
+        </tr>
+        <tr>
+          <td class="total-label">Unallocated Advance Balance:</td>
+          <td class="total-val" style="color: #0284c7;">Rs ${formatDecimal(advanceAmt)}</td>
+        </tr>
+        <tr class="grand-total">
+          <td class="total-label">Total Receipt Amount:</td>
+          <td class="total-val" style="color: #059669;">Rs ${formatDecimal(totalAmt)}</td>
+        </tr>
+      </table>
+    </div>
+
+    ${receipt.remarks ? `
+      <div style="border: 1px solid #cbd5e1; border-radius: 4px; padding: 8px 12px; margin: 10px 0; font-size: 10.5px; background: #f8fafc;">
+        <strong>Remarks / Narration:</strong> ${receipt.remarks}
+      </div>
+    ` : ''}
+
+    <div class="signatures">
+      <div class="sig-box">Accounts Officer</div>
+      <div class="sig-box">Finance Manager</div>
+      <div class="sig-box">Customer / Representative Signature</div>
+    </div>
+
+    <div class="footer-note">
+      Printed from PWI ERP Financial Management System on ${new Date().toLocaleString()}
+    </div>
+  `;
+
+  printHtmlContent(`Payment Receipt Voucher - ${receipt.receiptNumber || 'Print'}`, bodyHtml);
 }
 
 /**

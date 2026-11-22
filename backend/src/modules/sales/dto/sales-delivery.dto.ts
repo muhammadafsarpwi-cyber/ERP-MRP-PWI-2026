@@ -122,6 +122,15 @@ export class CreateSalesDeliveryDto {
   @IsOptional()
   notes?: string;
 
+  @ApiPropertyOptional({ description: 'Authorized credit policy override flag' })
+  @IsOptional()
+  creditOverride?: boolean;
+
+  @ApiPropertyOptional({ description: 'Authorized credit policy override audit reason' })
+  @IsString()
+  @IsOptional()
+  creditOverrideReason?: string;
+
   @ApiPropertyOptional({ description: 'Delivery lines' })
   @IsArray()
   @IsOptional()

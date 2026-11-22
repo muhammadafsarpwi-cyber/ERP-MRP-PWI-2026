@@ -2,6 +2,7 @@ import { Controller, Get, Post, Patch, Delete, Body, Param, Query, Req, HttpCode
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { SalesDeliveryService } from '../services/sales-delivery.service';
 import { CreateSalesDeliveryDto } from '../dto';
+import { CreditOverrideDto } from '../dto/customer-receipt.dto';
 import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
 import { OrgScopeGuard, RequireOrgScope } from '../../auth/guards/org-scope.guard';
@@ -119,10 +120,10 @@ export class SalesDeliveryController {
   @RequirePermission('sales.deliveries.confirm')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Confirm sales delivery' })
-  async confirm(@Req() req: any, @Param('id') id: string) {
+  async confirm(@Req() req: any, @Param('id') id: string, @Body() body?: CreditOverrideDto) {
     const userId = req.user?.id;
     const companyId = req.erpUser?.defaultCompanyId;
-    const delivery = await this.service.confirm(id, userId, companyId, this.divisionScope(req));
+    const delivery = await this.service.confirm(id, userId, companyId, this.divisionScope(req), body);
     return { success: true, data: delivery, message: 'Sales delivery confirmed' };
   }
 
@@ -180,10 +181,10 @@ export class SalesDeliveryController {
   @RequirePermission('sales.deliveries.update')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create sales invoice from delivery' })
-  async convertToInvoice(@Req() req: any, @Param('id') id: string) {
+  async convertToInvoice(@Req() req: any, @Param('id') id: string, @Body() body?: any) {
     const userId = req.user?.id;
     const companyId = req.erpUser?.defaultCompanyId;
-    const invoice = await this.service.convertToInvoice(id, userId, companyId, this.divisionScope(req));
+    const invoice = await this.service.convertToInvoice(id, userId, companyId, this.divisionScope(req), body);
     return { success: true, data: invoice, message: `Invoice ${invoice.invoiceNo} created successfully` };
   }
 

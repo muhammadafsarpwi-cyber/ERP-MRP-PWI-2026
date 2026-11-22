@@ -5,19 +5,23 @@ import {
   SalesQuotation, SalesQuotationItem,
   SalesOrder, SalesOrderItem,
   SalesDelivery, SalesDeliveryLine,
-  SalesInvoice,
+  SalesInvoice, SalesInvoiceLine,
   SalesReturn, SalesReturnLine,
+  CustomerReceipt, CustomerReceiptAllocation,
 } from './entities';
 import { SalesQuotationService } from './services/sales-quotation.service';
 import { SalesOrderService } from './services/sales-order.service';
 import { SalesDeliveryService } from './services/sales-delivery.service';
 import { SalesInvoiceService } from './services/sales-invoice.service';
 import { SalesReturnService } from './services/sales-return.service';
+import { CustomerReceiptService } from './services/customer-receipt.service';
+import { CustomerCreditService } from './services/customer-credit.service';
 import { SalesQuotationController } from './controllers/sales-quotation.controller';
 import { SalesOrderController } from './controllers/sales-order.controller';
 import { SalesDeliveryController } from './controllers/sales-delivery.controller';
 import { SalesInvoiceController } from './controllers/sales-invoice.controller';
 import { SalesReturnController } from './controllers/sales-return.controller';
+import { SalesReceiptController } from './controllers/sales-receipt.controller';
 import { AuthModule } from '../auth/auth.module';
 import { PermissionModule } from '../permission/permission.module';
 import { UserModule } from '../user/user.module';
@@ -48,8 +52,9 @@ import { FinishedGoodsInventoryController } from './controllers/finished-goods-i
       SalesQuotation, SalesQuotationItem,
       SalesOrder, SalesOrderItem,
       SalesDelivery, SalesDeliveryLine,
-      SalesInvoice,
+      SalesInvoice, SalesInvoiceLine,
       SalesReturn, SalesReturnLine,
+      CustomerReceipt, CustomerReceiptAllocation,
       ProductionOrder,
       CustomerLedgerEntry,
       InventoryBalance,
@@ -78,6 +83,7 @@ import { FinishedGoodsInventoryController } from './controllers/finished-goods-i
     SalesDeliveryController,
     SalesInvoiceController,
     SalesReturnController,
+    SalesReceiptController,
   ],
   providers: [
     SalesAnalyticsService,
@@ -87,6 +93,8 @@ import { FinishedGoodsInventoryController } from './controllers/finished-goods-i
     SalesDeliveryService,
     SalesInvoiceService,
     SalesReturnService,
+    CustomerReceiptService,
+    CustomerCreditService,
   ],
   exports: [
     SalesAnalyticsService,
@@ -96,6 +104,8 @@ import { FinishedGoodsInventoryController } from './controllers/finished-goods-i
     SalesDeliveryService,
     SalesInvoiceService,
     SalesReturnService,
+    CustomerReceiptService,
+    CustomerCreditService,
   ],
 })
 export class SalesModule {}

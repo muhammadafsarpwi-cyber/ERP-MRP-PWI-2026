@@ -2,6 +2,7 @@ import {
   Entity,
   Column,
   ManyToOne,
+  OneToMany,
   JoinColumn,
   PrimaryGeneratedColumn,
   CreateDateColumn,
@@ -10,6 +11,9 @@ import {
 } from 'typeorm';
 import { SalesCustomer } from './sales-customer.entity';
 import { SalesOrder } from './sales-order.entity';
+import { SalesDelivery } from './sales-delivery.entity';
+import { SalesInvoiceLine } from './sales-invoice-line.entity';
+import { Division } from '../../organization/entities/division.entity';
 
 @Entity('sales_invoices', { schema: 'erp_sales' })
 export class SalesInvoice {
@@ -28,6 +32,38 @@ export class SalesInvoice {
   @ManyToOne(() => SalesOrder, { nullable: true })
   @JoinColumn({ name: 'sales_order_id' })
   salesOrder: SalesOrder;
+
+  @Column({ name: 'sales_delivery_id', type: 'uuid', nullable: true })
+  salesDeliveryId?: string | null;
+
+  @ManyToOne(() => SalesDelivery, { nullable: true })
+  @JoinColumn({ name: 'sales_delivery_id' })
+  salesDelivery?: SalesDelivery | null;
+
+  @Column({ name: 'delivery_number', type: 'varchar', length: 60, nullable: true })
+  deliveryNumber?: string | null;
+
+  @Column({ name: 'gate_pass_number', type: 'varchar', length: 60, nullable: true })
+  gatePassNumber?: string | null;
+
+  @Column({ name: 'division_id', type: 'uuid', nullable: true })
+  divisionId?: string | null;
+
+  @ManyToOne(() => Division, { nullable: true })
+  @JoinColumn({ name: 'division_id' })
+  division?: Division | null;
+
+  @Column({ name: 'payment_terms', type: 'varchar', length: 60, nullable: true })
+  paymentTerms?: string | null;
+
+  @Column({ name: 'document_type', type: 'varchar', length: 40, nullable: true, default: 'Tax Invoice' })
+  documentType?: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  notes?: string | null;
+
+  @OneToMany(() => SalesInvoiceLine, (line) => line.invoice)
+  lines?: SalesInvoiceLine[];
 
   @Column({ name: 'customer_id', type: 'uuid' })
   customerId: string;

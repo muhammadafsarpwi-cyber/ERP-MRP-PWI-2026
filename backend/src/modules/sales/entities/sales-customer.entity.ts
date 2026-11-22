@@ -53,7 +53,22 @@ export class SalesCustomer {
   @Column({ name: 'credit_days', type: 'integer', default: 0 })
   creditDays: number;
 
-  @Column({ type: 'varchar', length: 3, default: 'USD' })
+  @Column({ name: 'payment_terms', type: 'varchar', length: 50, nullable: true })
+  paymentTerms?: string | null;
+
+  @Column({ name: 'opening_balance', type: 'decimal', precision: 15, scale: 4, default: 0 })
+  openingBalance?: number;
+
+  @Column({ name: 'opening_balance_type', type: 'varchar', length: 10, default: 'DEBIT' })
+  openingBalanceType?: string;
+
+  @Column({ name: 'credit_hold', type: 'boolean', default: false })
+  creditHold?: boolean;
+
+  @Column({ name: 'credit_hold_reason', type: 'text', nullable: true })
+  creditHoldReason?: string | null;
+
+  @Column({ type: 'varchar', length: 3, default: 'PKR' })
   currency: string;
 
   @Column({ name: 'customer_type', type: 'varchar', length: 20, default: 'B2B' })

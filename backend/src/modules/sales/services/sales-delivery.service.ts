@@ -1,7 +1,16 @@
-import { Injectable, NotFoundException, BadRequestException, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { SalesDelivery, SalesDeliveryLine, SalesCustomer, SalesOrder, SalesOrderItem, SalesInvoice } from '../entities';
+import {
+  SalesDelivery,
+  SalesDeliveryLine,
+  SalesCustomer,
+  SalesOrder,
+  SalesOrderItem,
+  SalesInvoice,
+  SalesInvoiceLine,
+} from '../entities';
+import { Customer } from '../../customer/entities/customer.entity';
 import { Item, Uom, UomConversion } from '../../item/entities';
 import { InventoryBalanceService } from '../../inventory/services/inventory-balance.service';
 import { StockLedgerService } from '../../inventory/services/stock-ledger.service';
@@ -10,6 +19,14 @@ import {
   assertDivisionInScope,
   DivisionAccess,
 } from '../../../common/division-scope.util';
+import {
+  computeDeliveryInvoiceTotalsAndLines,
+  ensureSalesInvoiceSchema,
+  generateNextSalesInvoiceNo,
+  resolvePaymentTermsAndDueDate,
+} from './sales-invoice.util';
+import { customerNameMatchKeys } from './customer-match.util';
+import { CustomerCreditService } from './customer-credit.service';
 
 const isUuid = (val?: string | null): boolean =>
   typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
@@ -39,6 +56,14 @@ export class SalesDeliveryService implements OnModuleInit {
     private readonly uomConversionRepo: Repository<UomConversion>,
     private readonly balanceService: InventoryBalanceService,
     private readonly ledgerService: StockLedgerService,
+    @Optional()
+    @InjectRepository(SalesInvoiceLine)
+    private readonly invoiceLineRepo?: Repository<SalesInvoiceLine>,
+    @Optional()
+    @InjectRepository(Customer)
+    private readonly customerMasterRepo?: Repository<Customer>,
+    @Optional()
+    private readonly customerCreditService?: CustomerCreditService,
   ) {}
 
   async onModuleInit() {
@@ -49,6 +74,7 @@ export class SalesDeliveryService implements OnModuleInit {
     } catch (err: any) {
       this.logger.warn(`Could not auto-verify gate_pass_number column: ${err?.message || err}`);
     }
+    await ensureSalesInvoiceSchema(this.repo.manager, this.logger);
   }
 
   /**
@@ -110,6 +136,30 @@ export class SalesDeliveryService implements OnModuleInit {
       }
     }
 
+    const estimatedTotal = (dto.lines || []).reduce((sum: number, l: any) => {
+      const qty = Number(l?.quantity || 0);
+      const rate = Number(l?.unitPrice ?? l?.rate ?? 0);
+      const lTax = Number(l?.taxAmount || 0);
+      const lt = l?.lineTotal !== undefined && l?.lineTotal !== null ? Number(l.lineTotal) : qty * rate + lTax;
+      return sum + (Number.isFinite(lt) ? lt : 0);
+    }, 0);
+
+    let deliveryNotes = dto.notes || null;
+    if (this.customerCreditService && dto.customerId && dto.companyId) {
+      const { overrideAuditNote } = await this.customerCreditService.assertAllowedOrOverride({
+        companyId: dto.companyId,
+        customerId: dto.customerId,
+        proposedAmount: Math.round(estimatedTotal * 100) / 100,
+        documentLabel: 'New Delivery Note',
+        creditOverride: dto.creditOverride,
+        creditOverrideReason: dto.creditOverrideReason,
+        userId,
+      });
+      if (overrideAuditNote) {
+        deliveryNotes = deliveryNotes ? `${deliveryNotes}\n${overrideAuditNote}` : overrideAuditNote;
+      }
+    }
+
     const safeUserId = isUuid(userId) ? userId : null;
     const deliveryNumber = await this.generateDeliveryNumber(dto.companyId);
 
@@ -126,7 +176,7 @@ export class SalesDeliveryService implements OnModuleInit {
       carrier: dto.carrier || null,
       trackingNumber: dto.trackingNumber || null,
       gatePassNumber: dto.gatePassNumber ? String(dto.gatePassNumber).trim() : null,
-      notes: dto.notes || null,
+      notes: deliveryNotes,
       status: 'DRAFT',
       createdBy: safeUserId,
       updatedBy: safeUserId,
@@ -357,6 +407,39 @@ export class SalesDeliveryService implements OnModuleInit {
 
     const shippedStatuses = new Set(['CONFIRMED', 'DELIVERED', 'SHIPPED']);
 
+    // Batch-lookup linked non-deleted Sales Invoices for these Delivery Notes
+    const deliveryIds = rawDeliveries.map((sd: any) => sd.id).filter(Boolean);
+    const invoicedByDeliveryMap = new Map<
+      string,
+      { id: string; invoiceNo: string; status: string; totalAmount: number; balance: number }
+    >();
+    if (deliveryIds.length > 0 && this.repo?.manager?.query) {
+      try {
+        const invRows = await this.repo.manager.query(
+          `SELECT id, sales_delivery_id, invoice_no, status, total_amount, balance
+           FROM erp_sales.sales_invoices
+           WHERE sales_delivery_id = ANY($1)
+             AND deleted_at IS NULL
+             AND LOWER(COALESCE(status, 'pending')) <> 'cancelled'
+           ORDER BY created_at DESC`,
+          [deliveryIds],
+        );
+        for (const r of invRows || []) {
+          if (r.sales_delivery_id && !invoicedByDeliveryMap.has(r.sales_delivery_id)) {
+            invoicedByDeliveryMap.set(r.sales_delivery_id, {
+              id: r.id,
+              invoiceNo: r.invoice_no,
+              status: r.status || 'Pending',
+              totalAmount: Number(r.total_amount || 0),
+              balance: Number(r.balance ?? r.total_amount ?? 0),
+            });
+          }
+        }
+      } catch (err: any) {
+        this.logger.warn(`Failed to batch-load linked invoices for deliveries: ${err?.message || err}`);
+      }
+    }
+
     return rawDeliveries.map((sd: any) => {
       // Precompute per-SOC ordinal index for this delivery (CONFIRMED/SHIPPED/DELIVERED + current sd if DRAFT)
       const seqBySoc = new Map<string, { dispatchOrdinal: number; totalSocDispatches: number; dispatchLabel: string; shippedUpToByItem: Map<string, number> }>();
@@ -515,6 +598,8 @@ export class SalesDeliveryService implements OnModuleInit {
         uom: l.uomCode || 'GRS',
       }));
 
+      const linkedInvoice = invoicedByDeliveryMap.get(sd.id) || null;
+
       return {
         ...sd,
         lines,
@@ -532,6 +617,9 @@ export class SalesDeliveryService implements OnModuleInit {
         totalBalanceCartons: Math.round(totalBalanceCartons * 100) / 100,
         isCompleted,
         itemsSummary,
+        invoicedInvoice: linkedInvoice,
+        invoicedInvoiceNo: linkedInvoice?.invoiceNo || null,
+        isInvoiced: Boolean(linkedInvoice),
       };
     });
   }
@@ -565,7 +653,11 @@ export class SalesDeliveryService implements OnModuleInit {
 
     let relatedInvoices: any[] = [];
     try {
-      if (delivery.salesOrderId) {
+      relatedInvoices = await this.invoiceRepo.find({
+        where: { salesDeliveryId: delivery.id, companyId: delivery.companyId },
+        order: { createdAt: 'DESC' },
+      });
+      if (relatedInvoices.length === 0 && delivery.salesOrderId) {
         relatedInvoices = await this.invoiceRepo.find({
           where: { salesOrderId: delivery.salesOrderId, companyId: delivery.companyId },
           order: { createdAt: 'DESC' },
@@ -576,9 +668,18 @@ export class SalesDeliveryService implements OnModuleInit {
     }
 
     const [enriched] = await this.enrichDeliveriesWithSocData([delivery]);
+    const activeDeliveryInvoice =
+      relatedInvoices.find(
+        (inv) =>
+          inv.salesDeliveryId === delivery.id &&
+          String(inv.status || '').toLowerCase() !== 'cancelled',
+      ) || enriched?.invoicedInvoice || null;
 
     return Object.assign(delivery, enriched, {
       relatedInvoices,
+      invoicedInvoice: activeDeliveryInvoice,
+      invoicedInvoiceNo: activeDeliveryInvoice?.invoiceNo || null,
+      isInvoiced: Boolean(activeDeliveryInvoice),
       salesOrderNumber: enriched?.salesOrderNumber || delivery.salesOrder?.orderNumber || null,
       divisionName: delivery.salesOrder?.division?.name || null,
       sectionName: delivery.salesOrder?.section?.name || null,
@@ -737,13 +838,35 @@ export class SalesDeliveryService implements OnModuleInit {
     return this.confirm(id, userId, companyId, allowedDivisionIds);
   }
 
-  async confirm(id: string, userId?: string, companyId?: string, allowedDivisionIds?: DivisionAccess): Promise<SalesDelivery> {
+  async confirm(
+    id: string,
+    userId?: string,
+    companyId?: string,
+    allowedDivisionIds?: DivisionAccess,
+    overrideOptions?: { creditOverride?: boolean; creditOverrideReason?: string },
+  ): Promise<SalesDelivery> {
     const delivery = await this.findOne(id, companyId, allowedDivisionIds);
     if (delivery.status === 'CONFIRMED') {
       return delivery;
     }
     if (delivery.status !== 'DELIVERED' && delivery.status !== 'SHIPPED') {
       throw new BadRequestException('Can only confirm deliveries in DELIVERED or SHIPPED status');
+    }
+
+    if (this.customerCreditService) {
+      const { overrideAuditNote } = await this.customerCreditService.assertAllowedOrOverride({
+        companyId: delivery.companyId,
+        customerId: delivery.customerId,
+        proposedAmount: Number(delivery.totalAmount) || 0,
+        documentLabel: `Confirm Delivery ${delivery.deliveryNumber}`,
+        creditOverride: overrideOptions?.creditOverride,
+        creditOverrideReason: overrideOptions?.creditOverrideReason,
+        userId,
+      });
+      if (overrideAuditNote) {
+        delivery.notes = delivery.notes ? `${delivery.notes}\n${overrideAuditNote}` : overrideAuditNote;
+        await this.repo.save(delivery);
+      }
     }
 
     const lines = await this.lineRepo.find({ where: { deliveryId: id } });
@@ -911,51 +1034,154 @@ export class SalesDeliveryService implements OnModuleInit {
     return delivery;
   }
 
-  async convertToInvoice(id: string, userId?: string, companyId?: string, allowedDivisionIds?: DivisionAccess): Promise<SalesInvoice> {
+  async convertToInvoice(
+    id: string,
+    userId?: string,
+    companyId?: string,
+    allowedDivisionIds?: DivisionAccess,
+    options?: { invoiceDate?: string; dueDate?: string; paymentTerms?: string; notes?: string },
+  ): Promise<SalesInvoice> {
     const delivery = await this.findOne(id, companyId, allowedDivisionIds);
     const statusUpper = String(delivery.status || '').toUpperCase();
     if (statusUpper !== 'CONFIRMED' && statusUpper !== 'DELIVERED' && statusUpper !== 'SHIPPED') {
-      throw new BadRequestException('Can only create invoices for DELIVERED or CONFIRMED deliveries');
+      throw new BadRequestException('Can only create invoices for DELIVERED, SHIPPED, or CONFIRMED deliveries');
     }
 
-    // Duplicate protection
-    const existing = await this.invoiceRepo.findOne({
-      where: { salesOrderId: delivery.salesOrderId, companyId: delivery.companyId, totalAmount: delivery.totalAmount },
+    // Strict per-Delivery Note duplicate prevention (ignores cancelled/soft-deleted invoices)
+    const existingForDelivery = await this.invoiceRepo.findOne({
+      where: { salesDeliveryId: delivery.id, companyId: delivery.companyId },
+      order: { createdAt: 'DESC' },
     });
-    if (existing) {
-      return existing;
+    if (existingForDelivery && String(existingForDelivery.status || '').toLowerCase() !== 'cancelled') {
+      throw new BadRequestException(
+        `Delivery Note ${delivery.deliveryNumber} has already been converted to Sales Invoice ${existingForDelivery.invoiceNo}`,
+      );
     }
 
-    const year = new Date().getFullYear();
-    const prefix = `SI-${year}-`;
-    const result = await this.invoiceRepo
-      .createQueryBuilder('si')
-      .select("MAX(CAST(SUBSTRING(si.invoiceNo FROM 'SI-[0-9]{4}-([0-9]+)') AS INT))", 'maxNum')
-      .where('si.companyId = :companyId', { companyId: delivery.companyId })
-      .andWhere('si.invoiceNo LIKE :prefix', { prefix: `${prefix}%` })
-      .getRawOne();
-    const maxNum = result?.maxNum || 0;
-    const nextNum = maxNum + 1;
-    const invoiceNo = `${prefix}${String(nextNum).padStart(5, '0')}`;
+    await ensureSalesInvoiceSchema(this.repo.manager, this.logger);
 
-    const invoice = this.invoiceRepo.create({
-      companyId: delivery.companyId,
-      salesOrderId: delivery.salesOrderId || null,
-      customerId: delivery.customerId,
-      invoiceNo,
-      invoiceDate: new Date().toISOString().split('T')[0],
-      dueDate: delivery.expectedDate || null,
-      subtotal: Number(delivery.subtotal || 0),
-      discountAmount: 0,
-      taxAmount: Number(delivery.taxAmount || 0),
-      totalAmount: Number(delivery.totalAmount || 0),
-      paidAmount: 0,
-      balance: Number(delivery.totalAmount || 0),
-      status: 'Pending',
-      createdBy: userId || null,
+    const { subtotal, taxAmount, totalAmount, lines } = computeDeliveryInvoiceTotalsAndLines(delivery);
+
+    // Resolve Customer payment terms / credit days from master & sales customer records
+    let customerPaymentTerms: string | null = null;
+    let customerCreditDays: number = Number(delivery.customer?.creditDays || 0);
+    try {
+      if (this.customerMasterRepo && delivery.customer) {
+        let master = await this.customerMasterRepo.findOne({
+          where: { companyId: delivery.companyId, customerCode: delivery.customer.customerCode },
+        });
+        if (!master && delivery.customer.companyName) {
+          const masters = await this.customerMasterRepo.find({
+            where: { companyId: delivery.companyId },
+            select: ['id', 'name', 'legalName', 'paymentTerms', 'creditDays'],
+          });
+          const keys = customerNameMatchKeys(delivery.customer.companyName);
+          master =
+            masters.find(
+              (m) =>
+                customerNameMatchKeys(m.name).some((k) => keys.includes(k)) ||
+                customerNameMatchKeys(m.legalName).some((k) => keys.includes(k)),
+            ) || null;
+        }
+        if (master) {
+          customerPaymentTerms = master.paymentTerms || null;
+          if (!customerCreditDays && master.creditDays) {
+            customerCreditDays = Number(master.creditDays || 0);
+          }
+        }
+      }
+    } catch (err: any) {
+      this.logger.warn(`Master customer terms lookup non-fatal error: ${err?.message || err}`);
+    }
+
+    const invoiceDate = (options?.invoiceDate && String(options.invoiceDate).slice(0, 10)) || new Date().toISOString().split('T')[0];
+    const { paymentTerms, dueDate } = resolvePaymentTermsAndDueDate({
+      invoiceDate,
+      requestedTerms: options?.paymentTerms,
+      requestedDueDate: options?.dueDate,
+      customerPaymentTerms,
+      customerCreditDays,
+      fallbackExpectedDate: delivery.expectedDate,
     });
 
-    return this.invoiceRepo.save(invoice);
+    const socDisplay = delivery.salesOrderNumber || delivery.salesOrder?.orderNumber || null;
+    const defaultNoteParts = [`Generated from Delivery Note ${delivery.deliveryNumber}`];
+    if (delivery.gatePassNumber) defaultNoteParts.push(`Gate Pass: ${delivery.gatePassNumber}`);
+    if (socDisplay) defaultNoteParts.push(`SOC: ${socDisplay}`);
+
+    let invoiceNo = await generateNextSalesInvoiceNo(this.invoiceRepo);
+    const buildInvoicePayload = (num: string) =>
+      this.invoiceRepo.create({
+        companyId: delivery.companyId,
+        salesOrderId: delivery.salesOrderId || null,
+        salesDeliveryId: delivery.id,
+        deliveryNumber: delivery.deliveryNumber,
+        gatePassNumber: delivery.gatePassNumber || null,
+        divisionId: delivery.salesOrder?.divisionId || null,
+        customerId: delivery.customerId,
+        invoiceNo: num,
+        invoiceDate,
+        dueDate,
+        paymentTerms,
+        documentType: 'Tax Invoice',
+        subtotal,
+        discountAmount: 0,
+        taxAmount,
+        totalAmount,
+        paidAmount: 0,
+        balance: totalAmount,
+        status: 'Pending',
+        notes: options?.notes?.trim() || defaultNoteParts.join(' | '),
+        createdBy: isUuid(userId) ? userId : null,
+      });
+
+    let savedInvoice: SalesInvoice;
+    try {
+      savedInvoice = await this.invoiceRepo.save(buildInvoicePayload(invoiceNo));
+    } catch (err: any) {
+      if (String(err?.code) === '23505' || String(err?.message || '').includes('sales_invoices_invoice_no_key')) {
+        const m = invoiceNo.match(/^(SI-\d{4}-)(\d+)$/);
+        invoiceNo = m
+          ? `${m[1]}${String(Number(m[2]) + 1).padStart(5, '0')}`
+          : `${invoiceNo}-${Date.now().toString().slice(-4)}`;
+        savedInvoice = await this.invoiceRepo.save(buildInvoicePayload(invoiceNo));
+      } else {
+        throw err;
+      }
+    }
+
+    if (lines.length > 0 && this.invoiceLineRepo) {
+      try {
+        const lineEntities = lines.map((l) =>
+          this.invoiceLineRepo!.create({
+            invoiceId: savedInvoice.id,
+            lineNumber: l.lineNumber,
+            itemId: l.itemId,
+            itemCode: l.itemCode,
+            description: l.description,
+            socNumber: l.socNumber,
+            quantity: l.quantity,
+            uomId: l.uomId,
+            uomCode: l.uomCode,
+            unitPrice: l.unitPrice,
+            discountAmount: l.discountAmount,
+            taxRate: l.taxRate,
+            taxAmount: l.taxAmount,
+            lineTotal: l.lineTotal,
+          }),
+        );
+        savedInvoice.lines = await this.invoiceLineRepo.save(lineEntities);
+      } catch (err: any) {
+        this.logger.warn(`Could not persist sales_invoice_lines snapshot for ${savedInvoice.invoiceNo}: ${err?.message || err}`);
+      }
+    }
+
+    return Object.assign(savedInvoice, {
+      customer: delivery.customer,
+      salesOrder: delivery.salesOrder,
+      divisionName: delivery.divisionName || delivery.salesOrder?.division?.name || null,
+      socNumber: socDisplay,
+    });
   }
 
   async cancel(id: string, userId?: string, companyId?: string, allowedDivisionIds?: DivisionAccess): Promise<SalesDelivery> {

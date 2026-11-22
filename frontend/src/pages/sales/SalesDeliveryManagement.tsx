@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import {
-  Table, Button, Form, Input, Select, App, Modal,
+  Alert, Descriptions, Table, Button, Form, Input, Select, App, Modal,
   Row, Col, Tooltip, Tag, Badge, Popover, Progress, Spin, theme,
 } from 'antd';
 import {
@@ -18,7 +18,7 @@ import apiService from '../../services/api';
 import { formatDecimal } from '../../utils/numberFormat';
 import { ERPLineItems, ERPLine, DraggableResizableModal, PreConfirmVerificationCard } from '../../components/shared';
 import { resolveEffectiveTaxPercent, summarizeLinesTaxVerification } from '../../utils/salesTaxVerification';
-import { TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
+import { TAB_REFRESH_EVENT, triggerTabRefresh } from '../../services/tabSessionCache';
 import {
   getLookupsSnapshot,
   prefetchAllLookups,
@@ -95,13 +95,22 @@ interface SalesDelivery {
   }>;
   relatedInvoices?: Array<{
     id: string;
-    invoiceNumber: string;
+    invoiceNumber?: string;
     invoiceNo?: string;
     invoiceDate: string;
     status: string;
     totalAmount: number;
     paidAmount?: number;
   }>;
+  invoicedInvoice?: {
+    id: string;
+    invoiceNo: string;
+    status: string;
+    totalAmount: number;
+    balance: number;
+  } | null;
+  invoicedInvoiceNo?: string | null;
+  isInvoiced?: boolean;
 }
 
 interface DeliveryActionConfirmState {
@@ -215,6 +224,16 @@ const SalesDeliveryManagement: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [confirmModal, setConfirmModal] = useState<DeliveryActionConfirmState>(initialConfirmModalState);
   const [applyingConfirmTax, setApplyingConfirmTax] = useState(false);
+  const [customerCreditStatus, setCustomerCreditStatus] = useState<any>(null);
+  const [creditOverrideModal, setCreditOverrideModal] = useState<{
+    open: boolean;
+    mode: 'save' | 'confirm';
+    recordId?: string;
+    message?: string;
+    policy?: any;
+    payload?: any;
+  } | null>(null);
+  const [creditOverrideReason, setCreditOverrideReason] = useState('');
   const [form] = Form.useForm();
   const [lineItems, setLineItems] = useState<ERPLine[]>([]);
   const [companyId, setCompanyId] = useState('');
@@ -808,6 +827,7 @@ const SalesDeliveryManagement: React.FC = () => {
   const handleCreate = useCallback(async () => {
     setEditingItem(null);
     setSelectedSoInfo(null);
+    setCustomerCreditStatus(null);
     setCustomerSalesOrders([]);
     setCustomerPos([]);
     setModalDivisionId(filterDivision || undefined);
@@ -920,6 +940,14 @@ const SalesDeliveryManagement: React.FC = () => {
     form.setFieldsValue({ customerId, salesOrderId: undefined, salesOrderIds: [], customerPo: undefined });
     setSelectedSoInfo(null);
     setLineItems([]);
+    if (customerId) {
+      apiService
+        .get<any>(`/sales/receipts/customer/${customerId}/credit-status`)
+        .then((res) => setCustomerCreditStatus(res?.data || res))
+        .catch(() => setCustomerCreditStatus(null));
+    } else {
+      setCustomerCreditStatus(null);
+    }
 
     const currentDivId = modalDivisionId || form.getFieldValue('divisionId');
 
@@ -1353,6 +1381,18 @@ const SalesDeliveryManagement: React.FC = () => {
       fetchData(page, pageSize);
     } catch (error: any) {
       const resp = error?.response?.data;
+      if (resp?.code === 'CREDIT_POLICY_VIOLATION') {
+        setWarningModalVisible(false);
+        setCreditOverrideReason('');
+        setCreditOverrideModal({
+          open: true,
+          mode: 'save',
+          message: Array.isArray(resp.message) ? resp.message[0] : resp.message,
+          policy: resp.policy,
+          payload,
+        });
+        return;
+      }
       const msg = resp?.message || error?.message;
       message.error(Array.isArray(msg) ? msg[0] : (typeof msg === 'string' ? msg : 'Failed to save delivery'));
     } finally {
@@ -1695,6 +1735,11 @@ const SalesDeliveryManagement: React.FC = () => {
         break;
 
       case 'invoice':
+        if (record.isInvoiced || record.invoicedInvoiceNo || record.invoicedInvoice?.invoiceNo) {
+          const existingInvNo = record.invoicedInvoiceNo || record.invoicedInvoice?.invoiceNo || 'existing invoice';
+          message.warning(`Delivery Note ${dnNo} is already converted to Sales Invoice ${existingInvNo}.`);
+          return;
+        }
         setConfirmModal({
           visible: true,
           actionKey: 'invoice',
@@ -1707,12 +1752,12 @@ const SalesDeliveryManagement: React.FC = () => {
           iconColor: '#ea580c',
           record,
           question: `Do you want to convert Delivery Note ${dnNo} into a Sales Invoice?`,
-          description: `This will create an official Sales Invoice in the Accounts module with all dispatched items, unit prices, tax calculations, and receivable terms.`,
+          description: `This will create an official Sales Invoice in Sales -> Invoices carrying over all dispatched items, quantities, unit rates, 18% Sales Tax, Gate Pass #, Originating SOC #, Division, and Customer credit terms.`,
           impactDetails: [
-            `Delivery Note: ${dnNo}`,
+            `Delivery Note: ${dnNo}${record.gatePassNumber ? ` | Gate Pass: ${record.gatePassNumber}` : ''}`,
             `Customer: ${custName}`,
-            `Subtotal Amount: Rs ${formatDecimal(record.subtotal || 0)}`,
-            `Total Billing Amount: Rs ${formatDecimal(record.totalAmount || 0)}`,
+            `Subtotal: Rs ${formatDecimal(record.subtotal || 0)} | Tax: Rs ${formatDecimal(record.taxAmount || 0)}`,
+            `Grand Total: Rs ${formatDecimal(record.totalAmount || 0)}`,
           ],
           confirmBtnText: 'Convert to Sales Invoice',
           confirmBtnColor: '#ea580c',
@@ -1823,7 +1868,7 @@ const SalesDeliveryManagement: React.FC = () => {
     }
   };
 
-  const executeConfirmedAction = async () => {
+  const executeConfirmedAction = async (overrideOptions?: { creditOverride?: boolean; creditOverrideReason?: string }) => {
     if (!confirmModal.record || !confirmModal.actionKey) return;
     const { actionKey, record } = confirmModal;
 
@@ -1855,7 +1900,10 @@ const SalesDeliveryManagement: React.FC = () => {
             ? `Restoring ${record.deliveryNumber} back to DRAFT...`
             : `Updating delivery note status to ${targetLabel}...`,
         }));
-        await apiService.patch(`/sales/deliveries/${record.id}/${actionKey}`);
+        const patchBody = actionKey === 'confirm' && overrideOptions?.creditOverride === true
+          ? { creditOverride: true, creditOverrideReason: overrideOptions.creditOverrideReason }
+          : undefined;
+        await apiService.patch(`/sales/deliveries/${record.id}/${actionKey}`, patchBody);
         await fetchData(page, pageSize);
         if (detailVisible && detailItem?.id === record.id) {
           handleViewDetail(record);
@@ -1878,8 +1926,12 @@ const SalesDeliveryManagement: React.FC = () => {
         }));
         const res = await apiService.post<any>(`/sales/deliveries/${record.id}/convert-to-invoice`, {
           invoiceDate: dayjs().format('YYYY-MM-DD'),
-          notes: `Generated from Delivery Note ${record.deliveryNumber}`,
+          notes: `Generated from Delivery Note ${record.deliveryNumber}${record.gatePassNumber ? ` (Gate Pass: ${record.gatePassNumber})` : ''}`,
         });
+        const createdInvoice = res?.data || res;
+        const createdInvoiceNo = createdInvoice?.invoiceNo || 'created';
+        triggerTabRefresh('/sales/invoices');
+        triggerTabRefresh('/dashboard');
         await fetchData(page, pageSize);
         if (detailVisible && detailItem?.id === record.id) {
           handleViewDetail(record);
@@ -1888,7 +1940,7 @@ const SalesDeliveryManagement: React.FC = () => {
           ...prev,
           loading: false,
           completed: true,
-          successMessage: `Sales Invoice ${res?.invoiceNo || 'created'} generated successfully from ${record.deliveryNumber}!`,
+          successMessage: `Sales Invoice ${createdInvoiceNo} generated successfully from ${record.deliveryNumber}!`,
         }));
         setTimeout(() => {
           setConfirmModal(prev => ({ ...prev, visible: false, completed: false }));
@@ -1915,6 +1967,18 @@ const SalesDeliveryManagement: React.FC = () => {
       }
     } catch (error: any) {
       const resp = error?.response?.data;
+      if (resp?.code === 'CREDIT_POLICY_VIOLATION' && actionKey === 'confirm') {
+        setConfirmModal(prev => ({ ...prev, loading: false, completed: false }));
+        setCreditOverrideReason('');
+        setCreditOverrideModal({
+          open: true,
+          mode: 'confirm',
+          recordId: record.id,
+          message: Array.isArray(resp.message) ? resp.message[0] : resp.message,
+          policy: resp.policy,
+        });
+        return;
+      }
       const msg = resp?.message || error?.message || 'Failed to complete action.';
       const displayMsg = Array.isArray(msg) ? msg[0] : (typeof msg === 'string' ? msg : 'Operation failed');
       setConfirmModal(prev => ({
@@ -1978,9 +2042,21 @@ const SalesDeliveryManagement: React.FC = () => {
       render: (_, record) => {
         const cust = customers.find(c => c.id === record.customerId);
         const custName = cust?.companyName || cust?.name || record.companyName || 'Customer';
+        const linkedInvoiceNo = record.invoicedInvoiceNo || record.invoicedInvoice?.invoiceNo;
         return (
           <div className="inv-doc-cell">
             <div className="inv-doc-code">{record.deliveryNumber}</div>
+            {linkedInvoiceNo && (
+              <div className="inv-sub-row">
+                <Tag
+                  color="success"
+                  icon={<CheckCircleOutlined />}
+                  style={{ margin: 0, fontWeight: 700, fontSize: 11, fontFamily: 'monospace' }}
+                >
+                  Invoiced: {linkedInvoiceNo}
+                </Tag>
+              </div>
+            )}
             <div className="inv-sub-row">
               <span className="badge-inv-type">
                 <CarOutlined style={{ marginRight: 3 }} /> Delivery
@@ -2120,7 +2196,7 @@ const SalesDeliveryManagement: React.FC = () => {
                     fontFamily: 'monospace',
                     fontWeight: 800,
                     fontSize: 12.5,
-                    color: isDarkSurface ? '#F8FAFC' : '#0F172A',
+                    color: token.colorText,
                     whiteSpace: 'nowrap',
                   }}
                 >
@@ -2456,16 +2532,33 @@ const SalesDeliveryManagement: React.FC = () => {
                 </button>
               </Tooltip>
             )}
-            {['CONFIRMED', 'DELIVERED'].includes(s) && (
-              <Tooltip title="Generate Sales Invoice">
-                <button
-                  className="inv-action-btn"
-                  style={{ backgroundColor: '#ea580c', color: '#fff' }}
-                  onClick={() => requestActionConfirmation(record, 'invoice')}
-                >
-                  <FileTextOutlined />
-                </button>
-              </Tooltip>
+            {['CONFIRMED', 'DELIVERED', 'SHIPPED'].includes(s) && (
+              (record.isInvoiced || record.invoicedInvoiceNo || record.invoicedInvoice?.invoiceNo) ? (
+                <Tooltip title={`Already Invoiced (${record.invoicedInvoiceNo || record.invoicedInvoice?.invoiceNo})`}>
+                  <button
+                    className="inv-action-btn"
+                    style={{
+                      backgroundColor: token.colorSuccessBg,
+                      color: token.colorSuccess,
+                      border: `1px solid ${token.colorSuccessBorder}`,
+                      cursor: 'not-allowed',
+                    }}
+                    disabled
+                  >
+                    <CheckCircleOutlined />
+                  </button>
+                </Tooltip>
+              ) : (
+                <Tooltip title="Generate Sales Invoice">
+                  <button
+                    className="inv-action-btn"
+                    style={{ backgroundColor: '#ea580c', color: '#fff' }}
+                    onClick={() => requestActionConfirmation(record, 'invoice')}
+                  >
+                    <FileTextOutlined />
+                  </button>
+                </Tooltip>
+              )
             )}
             {s !== 'CANCELLED' && s !== 'CONFIRMED' && (
               <Tooltip title="Cancel Delivery">
@@ -3422,6 +3515,18 @@ const SalesDeliveryManagement: React.FC = () => {
                   options={modalCustomers.map((c) => ({ value: c.id, label: `${c.customerCode ? `[${c.customerCode}] ` : ''}${c.companyName || c.name}` }))}
                 />
               </Form.Item>
+              {customerCreditStatus && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: -12, marginBottom: 8 }}>
+                  <Tag color={customerCreditStatus.creditHold ? 'red' : customerCreditStatus.exceedsCreditLimit ? 'orange' : 'blue'} style={{ margin: 0 }}>
+                    Limit: {customerCreditStatus.creditLimit > 0 ? `Rs ${formatDecimal(customerCreditStatus.creditLimit)}` : 'Unlimited'}
+                  </Tag>
+                  <Tag color={customerCreditStatus.currentBalance > 0 ? 'volcano' : 'green'} style={{ margin: 0 }}>
+                    Bal: Rs {formatDecimal(Math.abs(customerCreditStatus.currentBalance || 0))} {customerCreditStatus.currentBalance > 0 ? 'DR' : ''}
+                  </Tag>
+                  <Tag style={{ margin: 0 }}>{customerCreditStatus.paymentTerms || 'Cash / Immediate'}</Tag>
+                  {customerCreditStatus.creditHold && <Tag color="error" style={{ margin: 0 }}>CREDIT HOLD</Tag>}
+                </div>
+              )}
             </Col>
             <Col span={8}>
               <Form.Item name="warehouseId" label="Warehouse">
@@ -3826,15 +3931,31 @@ const SalesDeliveryManagement: React.FC = () => {
                     Print Outward Gate Pass
                   </Button>
                   {['CONFIRMED', 'DELIVERED', 'SHIPPED'].includes((detailItem.status || '').toUpperCase()) && (
-                    <Button
-                      type="primary"
-                      icon={<FileTextOutlined />}
-                      block
-                      style={{ backgroundColor: '#ea580c', borderColor: '#ea580c' }}
-                      onClick={() => requestActionConfirmation(detailItem, 'invoice')}
-                    >
-                      Generate Sales Invoice
-                    </Button>
+                    (detailItem.isInvoiced || detailItem.invoicedInvoiceNo || detailItem.invoicedInvoice?.invoiceNo) ? (
+                      <Button
+                        icon={<CheckCircleOutlined />}
+                        block
+                        disabled
+                        style={{
+                          fontWeight: 700,
+                          color: token.colorSuccess,
+                          backgroundColor: token.colorSuccessBg,
+                          borderColor: token.colorSuccessBorder,
+                        }}
+                      >
+                        Invoiced: {detailItem.invoicedInvoiceNo || detailItem.invoicedInvoice?.invoiceNo}
+                      </Button>
+                    ) : (
+                      <Button
+                        type="primary"
+                        icon={<FileTextOutlined />}
+                        block
+                        style={{ backgroundColor: '#ea580c', borderColor: '#ea580c' }}
+                        onClick={() => requestActionConfirmation(detailItem, 'invoice')}
+                      >
+                        Generate Sales Invoice
+                      </Button>
+                    )
                   )}
                 </div>
 
@@ -4194,6 +4315,22 @@ const SalesDeliveryManagement: React.FC = () => {
                             label: 'Gate Pass #',
                             value: rec.gatePassNumber || 'Not Assigned',
                           },
+                          ...(rec.salesOrderNumber || rec.salesOrder?.orderNumber
+                            ? [
+                                {
+                                  label: 'Originating SOC #',
+                                  value: rec.salesOrderNumber || rec.salesOrder?.orderNumber || '-',
+                                },
+                              ]
+                            : []),
+                          ...(rec.divisionName || rec.salesOrder?.division?.name
+                            ? [
+                                {
+                                  label: 'Division',
+                                  value: rec.divisionName || rec.salesOrder?.division?.name || '-',
+                                },
+                              ]
+                            : []),
                           {
                             label: 'Customer Name',
                             value: getCustomerDisplayName(rec) || rec.companyName || 'N/A',
@@ -4387,7 +4524,7 @@ const SalesDeliveryManagement: React.FC = () => {
                     fontWeight: 700,
                   }}
                   icon={confirmModal.icon}
-                  onClick={executeConfirmedAction}
+                  onClick={() => void executeConfirmedAction()}
                 >
                   {confirmModal.confirmBtnText}
                 </Button>
@@ -4395,6 +4532,58 @@ const SalesDeliveryManagement: React.FC = () => {
             </div>
           )}
         </div>
+      </Modal>
+
+      <Modal
+        title="Credit Policy Override Authorization"
+        open={Boolean(creditOverrideModal?.open)}
+        onCancel={() => setCreditOverrideModal(null)}
+        okText="Authorize Override & Proceed"
+        okButtonProps={{ danger: true }}
+        onOk={() => {
+          if (!creditOverrideReason.trim() || creditOverrideReason.trim().length < 3) {
+            message.error('Please enter a brief authorization reason (minimum 3 characters)');
+            return;
+          }
+          const ctx = creditOverrideModal;
+          setCreditOverrideModal(null);
+          if (ctx?.mode === 'save' && ctx.payload) {
+            void executeSave({
+              ...ctx.payload,
+              creditOverride: true,
+              creditOverrideReason: creditOverrideReason.trim(),
+            });
+          } else if (ctx?.mode === 'confirm' && ctx.recordId) {
+            void executeConfirmedAction({
+              creditOverride: true,
+              creditOverrideReason: creditOverrideReason.trim(),
+            });
+          }
+        }}
+      >
+        {creditOverrideModal && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <Alert type="error" showIcon message={creditOverrideModal.message || 'Credit Policy Violation'} />
+            {creditOverrideModal.policy && (
+              <Descriptions size="small" bordered column={2}>
+                <Descriptions.Item label="Customer">{creditOverrideModal.policy.customerName}</Descriptions.Item>
+                <Descriptions.Item label="Payment Terms">{creditOverrideModal.policy.paymentTerms}</Descriptions.Item>
+                <Descriptions.Item label="Credit Limit">Rs {formatDecimal(creditOverrideModal.policy.creditLimit || 0)}</Descriptions.Item>
+                <Descriptions.Item label="Current Receivable">Rs {formatDecimal(creditOverrideModal.policy.currentBalance || 0)}</Descriptions.Item>
+                <Descriptions.Item label="Delivery Amount">Rs {formatDecimal(creditOverrideModal.policy.proposedAmount || 0)}</Descriptions.Item>
+                <Descriptions.Item label="Projected Balance">
+                  <strong>Rs {formatDecimal(creditOverrideModal.policy.projectedBalance || 0)}</strong>
+                </Descriptions.Item>
+              </Descriptions>
+            )}
+            <Input.TextArea
+              rows={3}
+              placeholder="Enter management authorization reason to override credit block..."
+              value={creditOverrideReason}
+              onChange={(e) => setCreditOverrideReason(e.target.value)}
+            />
+          </div>
+        )}
       </Modal>
     </div>
   );

@@ -274,6 +274,8 @@ export const NAV_ENTRIES: NavEntry[] = [
       { key: '/sales/deliveries', label: 'Deliveries', icon: InboxOutlined, color: 'purple', permissions: ['sales.deliveries.view'] },
       { key: '/dispatch/packages', label: 'Dispatch Packages', icon: QrcodeOutlined, color: 'purple', permissions: ['sales.deliveries.view'] },
       { key: '/sales/invoices', label: 'Invoices', icon: CalculatorOutlined, color: 'purple', permissions: ['sales.invoices.view'] },
+      { key: '/sales/receipts', label: 'Customer Payments', icon: WalletOutlined, color: 'purple', permissions: ['sales.invoices.view'] },
+      { key: '/sales/customers-ledger', label: 'Customers & Ledger', icon: TeamOutlined, color: 'purple', permissions: ['sales.invoices.view'] },
       { key: '/sales/returns', label: 'Sales Returns', icon: SwapOutlined, color: 'purple', permissions: ['sales.returns.view'] },
     ],
   },

@@ -23,6 +23,9 @@ import {
   buildOrderCommandOverview,
   OrderCommandOverviewResponse,
 } from './sales-order-command.util';
+import { CustomerCreditService } from './customer-credit.service';
+import { CreditOverrideDto } from '../dto/customer-receipt.dto';
+import { Optional } from '@nestjs/common';
 
 @Injectable()
 export class SalesOrderService {
@@ -49,6 +52,8 @@ export class SalesOrderService {
     private readonly productionOrderService: ProductionOrderService,
     private readonly balanceService: InventoryBalanceService,
     private readonly notificationsService: NotificationsService,
+    @Optional()
+    private readonly customerCreditService?: CustomerCreditService,
   ) {}
 
   /**
@@ -153,6 +158,38 @@ export class SalesOrderService {
       return str !== '' ? str : null;
     };
 
+    const estimatedItemsTotal = (dto.items || []).reduce((sum: number, it: any) => {
+      const qty = Number(it?.quantity || 0);
+      const rate = Number(it?.unitPrice || 0);
+      const disc = Number(it?.discountPercent || 0);
+      const tax = Number(it?.taxAmount || 0);
+      const lineTotal =
+        it?.lineTotal !== undefined && it?.lineTotal !== null
+          ? Number(it.lineTotal)
+          : qty * rate * (1 - disc / 100) + tax;
+      return sum + (Number.isFinite(lineTotal) ? lineTotal : 0);
+    }, 0);
+    const proposedOrderTotal =
+      dto.totalAmount !== undefined && Number(dto.totalAmount) > 0
+        ? Number(dto.totalAmount)
+        : Math.round((estimatedItemsTotal + Number(dto.freightAmount || 0)) * 100) / 100;
+
+    let notesWithAudit = sanitizeText(dto.notes);
+    if (this.customerCreditService && dto.customerId && dto.companyId) {
+      const { overrideAuditNote } = await this.customerCreditService.assertAllowedOrOverride({
+        companyId: dto.companyId,
+        customerId: dto.customerId,
+        proposedAmount: proposedOrderTotal,
+        documentLabel: `Sales Order ${orderNumber}`,
+        creditOverride: dto.creditOverride,
+        creditOverrideReason: dto.creditOverrideReason,
+        userId,
+      });
+      if (overrideAuditNote) {
+        notesWithAudit = notesWithAudit ? `${notesWithAudit}\n${overrideAuditNote}` : overrideAuditNote;
+      }
+    }
+
     const order = this.repo.create({
       companyId: dto.companyId,
       customerId: dto.customerId,
@@ -165,13 +202,14 @@ export class SalesOrderService {
       billToAddress: sanitizeText(dto.billToAddress),
       divisionId: sanitizeUuid(dto.divisionId),
       sectionId: sanitizeUuid(dto.sectionId),
-      currency: dto.currency || 'USD',
+      paymentTermId: sanitizeUuid(dto.paymentTermId),
+      currency: dto.currency || 'PKR',
       subtotal: dto.subtotal !== undefined ? Number(dto.subtotal) : 0,
       discountAmount: dto.discountAmount !== undefined ? Number(dto.discountAmount) : 0,
       taxAmount: dto.taxAmount !== undefined ? Number(dto.taxAmount) : 0,
       freightAmount: dto.freightAmount !== undefined ? Number(dto.freightAmount) : 0,
       totalAmount: dto.totalAmount !== undefined ? Number(dto.totalAmount) : 0,
-      notes: sanitizeText(dto.notes),
+      notes: notesWithAudit,
       status: 'Draft',
       createdBy: userId || null,
       updatedBy: userId || null,
@@ -634,9 +672,31 @@ export class SalesOrderService {
    * division assertion. Every handler is a thin status-transition wrapper, so
    * asserting once in `findOne` covers all of them without duplicating logic.
    */
-  async confirm(id: string, userId?: string, companyId?: string, allowedDivisionIds?: DivisionAccess): Promise<SalesOrder> {
+  async confirm(
+    id: string,
+    userId?: string,
+    companyId?: string,
+    allowedDivisionIds?: DivisionAccess,
+    overrideOptions?: CreditOverrideDto,
+  ): Promise<SalesOrder> {
     const order = await this.findOne(id, companyId, allowedDivisionIds);
     if (order.status !== 'Draft') throw new BadRequestException('Can only confirm orders in Draft status');
+
+    if (this.customerCreditService) {
+      const { overrideAuditNote } = await this.customerCreditService.assertAllowedOrOverride({
+        companyId: order.companyId,
+        customerId: order.customerId,
+        proposedAmount: Number(order.totalAmount) || 0,
+        documentLabel: `Confirm Sales Order ${order.orderNumber}`,
+        creditOverride: overrideOptions?.creditOverride,
+        creditOverrideReason: overrideOptions?.creditOverrideReason,
+        userId,
+      });
+      if (overrideAuditNote) {
+        order.notes = order.notes ? `${order.notes}\n${overrideAuditNote}` : overrideAuditNote;
+      }
+    }
+
     order.status = 'Confirmed';
     order.updatedBy = userId || null;
     return this.repo.save(order);

@@ -2,6 +2,7 @@ import { Controller, Get, Post, Patch, Delete, Body, Param, Query, Req, HttpCode
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { SalesInvoiceService } from '../services/sales-invoice.service';
 import { CreateSalesInvoiceDto } from '../dto';
+import { RecordInvoicePaymentDto } from '../dto/customer-receipt.dto';
 import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
 import { OrgScopeGuard, RequireOrgScope } from '../../auth/guards/org-scope.guard';
@@ -95,12 +96,23 @@ export class SalesInvoiceController {
   @RequireOrgScope()
   @RequirePermission('sales.invoices.post')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Record payment for sales invoice' })
-  async recordPayment(@Req() req: any, @Param('id') id: string, @Body('paidAmount') paidAmount: number) {
+  @ApiOperation({ summary: 'Record payment for sales invoice via unified Receipt & Ledger engine' })
+  async recordPayment(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() body: RecordInvoicePaymentDto,
+  ) {
     const userId = req.user?.id;
     const companyId = req.erpUser?.defaultCompanyId;
-    const invoice = await this.service.recordPayment(id, paidAmount, userId, companyId, this.divisionScope(req));
-    return { success: true, data: invoice, message: 'Payment recorded successfully' };
+    const invoice = await this.service.recordPayment(id, body, userId, companyId, this.divisionScope(req));
+    return {
+      success: true,
+      data: invoice,
+      receipt: (invoice as any).receipt || null,
+      message: (invoice as any).receipt?.receiptNumber
+        ? `Payment recorded (${(invoice as any).receipt.receiptNumber})`
+        : 'Payment recorded successfully',
+    };
   }
 
   @Delete(':id')

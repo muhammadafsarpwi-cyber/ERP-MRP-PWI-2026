@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  Table, Button, Form, Input, Select, App,
+  Alert, Table, Button, Form, Input, Select, App,
   InputNumber, Descriptions, DatePicker, Tooltip,
   Modal, Tag, Badge, theme,
 } from 'antd';
@@ -14,21 +14,28 @@ import {
   DeleteOutlined, BranchesOutlined, ShopOutlined,
   ThunderboltOutlined, BarcodeOutlined, CameraOutlined, SoundOutlined,
   SaveOutlined, ClearOutlined, CloseOutlined, SearchOutlined,
+  ApartmentOutlined, SafetyCertificateOutlined, ExclamationCircleFilled,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
+import { useNavigate } from 'react-router-dom';
 import apiService from '../../services/api';
 import { formatDecimal } from '../../utils/numberFormat';
-import { DeleteConfirmModal, SaveResultDialog, PreConfirmVerificationCard } from '../../components/shared';
+import { SaveResultDialog, PreConfirmVerificationCard } from '../../components/shared';
+import {
+  getInvoiceActionMeta,
+  type InvoiceActionKey,
+  type InvoiceActionMeta,
+} from './salesInvoiceActionConfirm';
 import { summarizeLinesTaxVerification } from '../../utils/salesTaxVerification';
 import type { SaveResultData, SaveResultPhase } from '../../components/shared/SaveResultDialog';
 import GlobalLoading from '../../components/shared/GlobalLoading';
-import { TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
+import { TAB_REFRESH_EVENT, triggerTabRefresh } from '../../services/tabSessionCache';
 import { useHeaderActions } from '../../components/layout/headerActionsStore';
 import dayjs from 'dayjs';
 import isSameOrBefore from 'dayjs/plugin/isSameOrBefore';
 import isSameOrAfter from 'dayjs/plugin/isSameOrAfter';
 import './SalesInvoiceManagement.css';
-import { printInvoiceDocument, printTableList } from '../../utils/printTemplates';
+import { printInvoiceDocument, printPaymentReceiptVoucher, printTableList } from '../../utils/printTemplates';
 import {
   formatWhatsAppPhoneWithCountryCode,
   renderWhatsAppTemplate,
@@ -43,8 +50,25 @@ interface SalesInvoice {
   invoiceNo: string;
   documentType?: string;
   salesOrderId?: string | null;
+  socNumber?: string | null;
+  salesOrder?: {
+    id: string;
+    orderNumber?: string;
+    divisionId?: string;
+    division?: { id?: string; name?: string };
+  } | null;
   salesDeliveryId?: string | null;
-  relatedDelivery?: { id: string; deliveryNumber: string; deliveryDate: string; status: string } | null;
+  deliveryNumber?: string | null;
+  gatePassNumber?: string | null;
+  divisionId?: string | null;
+  divisionName?: string | null;
+  relatedDelivery?: {
+    id: string | null;
+    deliveryNumber?: string | null;
+    gatePassNumber?: string | null;
+    deliveryDate?: string;
+    status?: string;
+  } | null;
   relatedQuotation?: { id: string; quotationNumber: string; quotationDate: string } | null;
   customerId: string;
   customer?: {
@@ -53,6 +77,11 @@ interface SalesInvoice {
     name?: string;
     customerCode?: string;
     paymentTerms?: string;
+    taxNumber?: string;
+    salesTaxNumber?: string;
+    addressLine1?: string;
+    billingAddress?: string;
+    phone?: string;
   };
   companyName?: string;
   customerName?: string;
@@ -70,6 +99,7 @@ interface SalesInvoice {
   outstandingAmount?: number;
   status: string;
   notes?: string;
+  items?: any[];
   createdAt: string;
 }
 
@@ -108,12 +138,20 @@ const DOCUMENT_TYPES = ['All types', 'invoice', 'quotation', 'proforma'];
 const SalesInvoiceManagement: React.FC = () => {
   const { message } = App.useApp();
   const { token } = theme.useToken();
+  const navigate = useNavigate();
   const [data, setData] = useState<SalesInvoice[]>([]);
   const [customers, setCustomers] = useState<CustomerOption[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
+  const [serverStatusCounts, setServerStatusCounts] = useState<{
+    all: number;
+    pending: number;
+    partial: number;
+    paid: number;
+    cancelled: number;
+  } | null>(null);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const [pageSize, setPageSize] = useState(25);
 
   // Chevron Process filter state (Reference Image)
   const [activeChevron, setActiveChevron] = useState<string>('ALL');
@@ -164,9 +202,18 @@ const SalesInvoiceManagement: React.FC = () => {
   const [detailVisible, setDetailVisible] = useState(false);
   const [detailItem, setDetailItem] = useState<any | null>(null);
   const [editingItem, setEditingItem] = useState<SalesInvoice | null>(null);
-  const [deleteModalVisible, setDeleteModalVisible] = useState(false);
-  const [itemToDelete, setItemToDelete] = useState<SalesInvoice | null>(null);
   const [printInvoiceItem, setPrintInvoiceItem] = useState<any | null>(null);
+  const [actionConfirm, setActionConfirm] = useState<{
+    visible: boolean;
+    meta: InvoiceActionMeta | null;
+    record: SalesInvoice | null;
+    submitting: boolean;
+  }>({
+    visible: false,
+    meta: null,
+    record: null,
+    submitting: false,
+  });
 
   // Save confirmation & SaveResultDialog states
   const [confirmInvoiceVisible, setConfirmInvoiceVisible] = useState(false);
@@ -182,6 +229,17 @@ const SalesInvoiceManagement: React.FC = () => {
   const [paymentVisible, setPaymentVisible] = useState(false);
   const [paymentInvoice, setPaymentInvoice] = useState<SalesInvoice | null>(null);
   const [paymentAmount, setPaymentAmount] = useState<number>(0);
+  const [paymentMode, setPaymentMode] = useState<string>('BANK_TRANSFER');
+  const [paymentBankAccountId, setPaymentBankAccountId] = useState<string | undefined>(undefined);
+  const [paymentBankName, setPaymentBankName] = useState<string>('');
+  const [paymentChequeNumber, setPaymentChequeNumber] = useState<string>('');
+  const [paymentChequeDate, setPaymentChequeDate] = useState<dayjs.Dayjs | null>(null);
+  const [paymentClearanceStatus, setPaymentClearanceStatus] = useState<string>('CLEARED');
+  const [paymentDate, setPaymentDate] = useState<dayjs.Dayjs | null>(dayjs());
+  const [paymentReferenceNo, setPaymentReferenceNo] = useState<string>('');
+  const [paymentNotes, setPaymentNotes] = useState<string>('');
+  const [bankAccounts, setBankAccounts] = useState<any[]>([]);
+  const [paymentSubmitting, setPaymentSubmitting] = useState<boolean>(false);
 
   // 1. Fetch Customers from Authoritative Customer Master & Sales Customer Master
   const fetchCustomers = useCallback(async () => {
@@ -221,27 +279,60 @@ const SalesInvoiceManagement: React.FC = () => {
     }
   }, []);
 
-  const getCustomerDisplayName = useCallback((record: any): string => {
-    if (!record) return '-';
+  const resolveCustomerParts = useCallback((record: any): { code: string | null; name: string } => {
+    if (!record) return { code: null, name: '-' };
     const c = record.customer;
     if (c) {
-      const code = c.customerCode ? `[${c.customerCode}] ` : '';
-      const name = c.companyName || c.name || c.legalName;
-      if (name) return `${code}${name}`;
+      const name = String(c.companyName || c.name || c.legalName || '').trim();
+      const code = c.customerCode ? String(c.customerCode).trim() : null;
+      if (name) return { code, name };
     }
-    if (record.companyName) return record.companyName;
-    if (record.customerName) return record.customerName;
     const targetId = record.customerId || (typeof record.customer === 'string' ? record.customer : record.customer?.id);
-    if (targetId) {
-      const found = customers.find(item => item.id === targetId);
-      if (found) {
-        const code = found.customerCode ? `[${found.customerCode}] ` : '';
-        const name = found.name;
-        if (name) return `${code}${name}`;
-      }
+    const found = targetId ? customers.find(item => item.id === targetId) : undefined;
+    if (found) {
+      return {
+        code: found.customerCode ? String(found.customerCode).trim() : null,
+        name: String(found.name || '').trim() || 'Customer',
+      };
     }
-    return record.customerId || 'Customer';
+    const fallbackName = String(record.companyName || record.customerName || record.customerId || 'Customer').trim();
+    const match = fallbackName.match(/^\s*\[([^\]]+)\]\s*(.+)$/);
+    if (match) return { code: match[1].trim(), name: match[2].trim() };
+    return { code: null, name: fallbackName };
   }, [customers]);
+
+  const getCustomerDisplayName = useCallback((record: any): string => {
+    const { code, name } = resolveCustomerParts(record);
+    return code ? `[${code}] ${name}` : name;
+  }, [resolveCustomerParts]);
+
+  const renderStackedCustomer = useCallback((record: any) => {
+    const { code, name } = resolveCustomerParts(record);
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
+        {code && (
+          <span
+            style={{
+              fontSize: 10.5,
+              fontWeight: 800,
+              fontFamily: 'monospace',
+              padding: '1px 6px',
+              borderRadius: 4,
+              backgroundColor: token.colorFillAlter,
+              border: `1px solid ${token.colorBorder}`,
+              color: token.colorPrimary,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {code}
+          </span>
+        )}
+        <span style={{ fontWeight: 700, color: token.colorText, lineHeight: 1.3 }}>
+          {name}
+        </span>
+      </div>
+    );
+  }, [resolveCustomerParts, token]);
 
   useEffect(() => {
     fetchCustomers();
@@ -254,15 +345,19 @@ const SalesInvoiceManagement: React.FC = () => {
       const params: any = { page: pageNum, limit: currentLimit };
       if (search) params.search = search;
       if (filterCustomer) params.customerId = filterCustomer;
-      const response = await apiService.get<{ data: SalesInvoice[]; total: number }>('/sales/invoices', params);
+      if (activeChevron && activeChevron !== 'ALL') params.status = activeChevron;
+      const response = await apiService.get<{ data: SalesInvoice[]; total: number; statusCounts?: any }>('/sales/invoices', params);
       setData(response.data || []);
       setTotal(response.total || 0);
+      if (response.statusCounts) {
+        setServerStatusCounts(response.statusCounts);
+      }
     } catch {
       message.error('Failed to fetch invoices');
     } finally {
       setLoading(false);
     }
-  }, [search, filterCustomer, pageSize, message]);
+  }, [search, filterCustomer, activeChevron, pageSize, message]);
 
   useEffect(() => {
     fetchData(page, pageSize);
@@ -280,17 +375,25 @@ const SalesInvoiceManagement: React.FC = () => {
     return () => window.removeEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
   }, [fetchData, page, pageSize]);
 
-  // Chevron status counts
+  // Chevron status counts (prefers full server-wide counts across all pages)
   const chevronCounts = useMemo(() => {
-    const counts = {
+    if (serverStatusCounts) {
+      return {
+        all: Number(serverStatusCounts.all || 0),
+        pending: Number(serverStatusCounts.pending || 0),
+        partial: Number(serverStatusCounts.partial || 0),
+        paid: Number(serverStatusCounts.paid || 0),
+        cancelled: Number(serverStatusCounts.cancelled || 0),
+      };
+    }
+    return {
       all: data.length,
-      pending: data.filter(d => ['Pending', 'Posted', 'pending'].includes(d.status)).length,
+      pending: data.filter(d => ['Pending', 'Posted', 'Draft', 'pending', 'posted', 'draft'].includes(d.status)).length,
       partial: data.filter(d => ['Partial', 'partial'].includes(d.status)).length,
-      paid: data.filter(d => ['Paid', 'paid'].includes(d.status)).length,
+      paid: data.filter(d => ['Paid', 'paid', 'Settled'].includes(d.status)).length,
       cancelled: data.filter(d => ['Cancelled', 'cancelled'].includes(d.status)).length,
     };
-    return counts;
-  }, [data]);
+  }, [data, serverStatusCounts]);
 
   // Client-side filtering for faceted inputs & active chevron
   const displayedInvoices = useMemo(() => {
@@ -671,11 +774,8 @@ const SalesInvoiceManagement: React.FC = () => {
     const target = record || detailItem;
     if (!target) return;
     try {
-      let fullItem = target;
-      if (!target.items || target.items.length === 0) {
-        const response = await apiService.get<any>(`/sales/invoices/${target.id}`);
-        fullItem = response?.data || response || target;
-      }
+      const response = await apiService.get<any>(`/sales/invoices/${target.id}`);
+      const fullItem = response?.data || response || target;
       setPrintInvoiceItem(fullItem);
       printInvoiceDocument(fullItem);
     } catch {
@@ -718,6 +818,21 @@ const SalesInvoiceManagement: React.FC = () => {
       discountAmount: calculatedTotalDiscount,
       taxAmount: calculatedTaxAmount,
       totalAmount: calculatedGrandTotal,
+      lines: createLines.map((l) => {
+        const taxable = Math.max(0, Number(l.quantity || 0) * Number(l.price || 0) - Number(l.discount || 0));
+        const ratePct = Number(l.gstRate || 0);
+        const taxAmt = Math.round(((taxable * ratePct) / 100) * 100) / 100;
+        return {
+          itemCode: l.itemCode,
+          description: l.productName,
+          quantity: Number(l.quantity || 1),
+          unitPrice: Number(l.price || 0),
+          discountAmount: Number(l.discount || 0),
+          taxRate: ratePct,
+          taxAmount: taxAmt,
+          lineTotal: Number(l.lineTotal || taxable + taxAmt),
+        };
+      }),
     };
 
     try {
@@ -759,6 +874,8 @@ const SalesInvoiceManagement: React.FC = () => {
         ],
       });
       setViewMode('list');
+      triggerTabRefresh('/sales/deliveries');
+      triggerTabRefresh('/dashboard');
       fetchData(page, pageSize);
     } catch (err: any) {
       const msg = err?.response?.data?.message || err?.message || 'Failed to save invoice';
@@ -769,7 +886,6 @@ const SalesInvoiceManagement: React.FC = () => {
   };
 
   const handleExecuteDeleteInvoice = async (record: SalesInvoice) => {
-    setDeleteModalVisible(false);
     setSaveResultOpen(true);
     setSaveResultPhase('loading');
     setSaveResultError(undefined);
@@ -786,7 +902,8 @@ const SalesInvoiceManagement: React.FC = () => {
         recordName: getCustomerDisplayName(record),
         tags: [{ label: 'DELETED', color: 'red' }],
       });
-      setItemToDelete(null);
+      triggerTabRefresh('/sales/deliveries');
+      triggerTabRefresh('/dashboard');
       fetchData(page, pageSize);
     } catch (err: any) {
       const msg = err?.response?.data?.message || err?.message || 'Failed to delete invoice';
@@ -817,6 +934,8 @@ const SalesInvoiceManagement: React.FC = () => {
           { label: `PKR ${formatDecimal(record.totalAmount)}`, color: 'green' },
         ],
       });
+      triggerTabRefresh('/sales/deliveries');
+      triggerTabRefresh('/dashboard');
       fetchData(page, pageSize);
       if (detailVisible) {
         handleViewDetail(record);
@@ -830,11 +949,26 @@ const SalesInvoiceManagement: React.FC = () => {
   };
 
   // Record Payment
-  const handleRecordPayment = (record: SalesInvoice) => {
+  const handleRecordPayment = async (record: SalesInvoice) => {
     setPaymentInvoice(record);
     const bal = Number(record.balance ?? (Number(record.totalAmount || 0) - Number(record.paidAmount || 0)));
     setPaymentAmount(bal);
+    setPaymentMode('BANK_TRANSFER');
+    setPaymentBankAccountId(undefined);
+    setPaymentBankName('');
+    setPaymentChequeNumber('');
+    setPaymentChequeDate(null);
+    setPaymentClearanceStatus('CLEARED');
+    setPaymentDate(dayjs());
+    setPaymentReferenceNo('');
+    setPaymentNotes('');
     setPaymentVisible(true);
+    if (bankAccounts.length === 0) {
+      try {
+        const res = await apiService.get<any>('/sales/receipts/bank-accounts');
+        setBankAccounts(res?.data || []);
+      } catch { /* ignore */ }
+    }
   };
 
   const handlePaymentSubmit = async () => {
@@ -843,13 +977,39 @@ const SalesInvoiceManagement: React.FC = () => {
       message.error('Payment amount must be greater than 0');
       return;
     }
+    setPaymentSubmitting(true);
     try {
-      await apiService.patch(`/sales/invoices/${paymentInvoice.id}/record-payment`, { paidAmount: paymentAmount });
-      message.success(`Payment of Rs ${formatDecimal(paymentAmount)} recorded successfully`);
+      const res = await apiService.patch<any>(`/sales/invoices/${paymentInvoice.id}/record-payment`, {
+        paidAmount: paymentAmount,
+        paymentMode,
+        bankAccountId: paymentBankAccountId || undefined,
+        bankName: paymentBankName || undefined,
+        chequeNumber: paymentChequeNumber || undefined,
+        chequeDate: paymentChequeDate ? paymentChequeDate.format('YYYY-MM-DD') : undefined,
+        clearanceStatus: paymentMode === 'CHEQUE' ? paymentClearanceStatus : 'CLEARED',
+        receiptDate: paymentDate ? paymentDate.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'),
+        referenceNo: paymentReferenceNo || undefined,
+        notes: paymentNotes || undefined,
+      });
+      const receipt = res?.receipt || res?.data?.receipt;
+      message.success(
+        receipt?.receiptNumber
+          ? `Payment of Rs ${formatDecimal(paymentAmount)} recorded (${receipt.receiptNumber})`
+          : `Payment of Rs ${formatDecimal(paymentAmount)} recorded successfully`,
+      );
       setPaymentVisible(false);
+      if (receipt) {
+        printPaymentReceiptVoucher(receipt);
+      }
+      triggerTabRefresh('/sales/receipts');
+      triggerTabRefresh('/customers');
+      triggerTabRefresh('/dashboard');
       fetchData(page, pageSize);
-    } catch {
-      message.error('Failed to record payment');
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || err?.message || 'Failed to record payment';
+      message.error(Array.isArray(msg) ? msg.join(', ') : msg);
+    } finally {
+      setPaymentSubmitting(false);
     }
   };
 
@@ -889,29 +1049,135 @@ const SalesInvoiceManagement: React.FC = () => {
     window.location.href = mailto;
   };
 
+  // Cancel invoice
+  const handleCancelInvoice = async (record: SalesInvoice) => {
+    try {
+      await apiService.patch(`/sales/invoices/${record.id}`, { status: 'Cancelled' });
+      message.success(`Invoice ${record.invoiceNo} marked as Cancelled`);
+      triggerTabRefresh('/sales/deliveries');
+      triggerTabRefresh('/customers');
+      triggerTabRefresh('/dashboard');
+      fetchData(page, pageSize);
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || err?.message || 'Failed to cancel invoice';
+      message.error(Array.isArray(msg) ? msg.join(', ') : msg);
+    }
+  };
+
+  // Mandatory Pre-Action Confirmation Dialog trigger
+  const requestActionConfirmation = (record: SalesInvoice, actionKey: InvoiceActionKey) => {
+    setActionConfirm({
+      visible: true,
+      meta: getInvoiceActionMeta(actionKey, record),
+      record,
+      submitting: false,
+    });
+  };
+
+  const closeActionConfirmation = () => {
+    setActionConfirm({
+      visible: false,
+      meta: null,
+      record: null,
+      submitting: false,
+    });
+  };
+
+  const executeConfirmedAction = async () => {
+    const targetRecord = actionConfirm.record;
+    const actionKey = actionConfirm.meta?.actionKey;
+    if (!targetRecord || !actionKey) return;
+
+    setActionConfirm((prev) => ({ ...prev, submitting: true }));
+    try {
+      switch (actionKey) {
+        case 'view':
+          closeActionConfirmation();
+          await handleViewDetail(targetRecord);
+          break;
+        case 'print':
+          closeActionConfirmation();
+          await handlePrintFormalInvoice(targetRecord);
+          break;
+        case 'post':
+          closeActionConfirmation();
+          await handlePostInvoice(targetRecord);
+          break;
+        case 'payment':
+          closeActionConfirmation();
+          await handleRecordPayment(targetRecord);
+          break;
+        case 'email':
+          closeActionConfirmation();
+          handleEmail(targetRecord);
+          break;
+        case 'whatsapp':
+          closeActionConfirmation();
+          handleWhatsApp(targetRecord);
+          break;
+        case 'edit':
+          closeActionConfirmation();
+          handleEdit(targetRecord);
+          break;
+        case 'cancel':
+          await handleCancelInvoice(targetRecord);
+          closeActionConfirmation();
+          break;
+        case 'delete':
+          closeActionConfirmation();
+          await handleExecuteDeleteInvoice(targetRecord);
+          break;
+      }
+    } catch {
+      setActionConfirm((prev) => ({ ...prev, submitting: false }));
+    }
+  };
+
   // Pixel-Perfect Columns mirroring the reference screenshot
   const columns: ColumnsType<SalesInvoice> = [
     {
       title: 'Document',
       key: 'document',
-      width: 220,
+      width: 280,
       render: (_, record) => {
-        const type = record.documentType || (record.invoiceNo?.startsWith('QUO') ? 'quotation' : 'invoice');
-        const custName = getCustomerDisplayName(record);
+        const type = record.documentType || (record.invoiceNo?.startsWith('QUO') ? 'quotation' : 'Tax Invoice');
+        const dnNo = record.deliveryNumber || record.relatedDelivery?.deliveryNumber;
+        const gpNo = record.gatePassNumber || record.relatedDelivery?.gatePassNumber;
+        const socNo = record.socNumber || record.salesOrder?.orderNumber;
         return (
           <div className="inv-doc-cell">
-            <div className="inv-doc-code">{record.invoiceNo}</div>
-            <div className="inv-sub-row">
-              <span className="badge-inv-type">
-                <FileTextOutlined style={{ marginRight: 3 }} /> Type
-              </span>
-              <span className="inv-sub-val" style={{ textTransform: 'lowercase' }}>{type}</span>
+            <div
+              className="inv-doc-code"
+              style={{ cursor: 'pointer', color: token.colorPrimary }}
+              onClick={() => handleViewDetail(record)}
+            >
+              {record.invoiceNo}
             </div>
-            <div className="inv-sub-row">
-              <span className="badge-inv-customer">
+            <div className="inv-sub-row" style={{ flexWrap: 'wrap', gap: 4 }}>
+              <span className="badge-inv-type">
+                <FileTextOutlined style={{ marginRight: 3 }} /> {type}
+              </span>
+              {dnNo && (
+                <Tag color="cyan" style={{ margin: 0, fontWeight: 700, fontSize: 10.5, fontFamily: 'monospace' }}>
+                  DN: {dnNo}
+                </Tag>
+              )}
+              {gpNo && (
+                <Tag color="geekblue" icon={<SafetyCertificateOutlined />} style={{ margin: 0, fontWeight: 700, fontSize: 10.5, fontFamily: 'monospace' }}>
+                  {gpNo}
+                </Tag>
+              )}
+              {socNo && (
+                <Tag color="purple" icon={<BranchesOutlined />} style={{ margin: 0, fontWeight: 700, fontSize: 10.5, fontFamily: 'monospace' }}>
+                  {socNo}
+                </Tag>
+              )}
+            </div>
+            <div className="inv-sub-row" style={{ alignItems: 'flex-start', marginTop: 2 }}>
+              <span className="badge-inv-customer" style={{ flexShrink: 0 }}>
                 <UserOutlined style={{ marginRight: 3 }} /> Customer
               </span>
-              <span className="inv-sub-val" style={{ color: '#2563eb' }}>{custName}</span>
+              {renderStackedCustomer(record)}
             </div>
           </div>
         );
@@ -920,23 +1186,32 @@ const SalesInvoiceManagement: React.FC = () => {
     {
       title: 'Dates',
       key: 'dates',
-      width: 200,
+      width: 230,
       render: (_, record) => {
-        const isOverdue = record.dueDate && dayjs(record.dueDate).isBefore(dayjs(), 'day') && Number(record.balance || record.totalAmount) > 0;
+        const balance = Number(record.balance ?? (Number(record.totalAmount || 0) - Number(record.paidAmount || 0)));
+        const isOverdue = record.dueDate && dayjs(record.dueDate).isBefore(dayjs(), 'day') && balance > 0;
+        const divName = record.divisionName || record.salesOrder?.division?.name;
         return (
           <div className="inv-doc-cell">
+            {divName && (
+              <div className="inv-sub-row">
+                <Tag color="blue" icon={<ApartmentOutlined />} style={{ margin: 0, fontWeight: 700, fontSize: 10.5 }}>
+                  {divName}
+                </Tag>
+              </div>
+            )}
             <div className="inv-sub-row">
               <span className="badge-inv-date">
-                <CalendarOutlined style={{ marginRight: 3 }} /> Date
+                <CalendarOutlined style={{ marginRight: 3 }} /> Invoice
               </span>
-              <span className="inv-sub-val">{record.invoiceDate ? dayjs(record.invoiceDate).format('MMM DD, YYYY') : '-'}</span>
+              <span className="inv-sub-val">{record.invoiceDate ? dayjs(record.invoiceDate).format('DD-MMM-YYYY') : '-'}</span>
             </div>
             <div className="inv-sub-row">
               <span className="badge-inv-due">
                 <ClockCircleOutlined style={{ marginRight: 3 }} /> Due
               </span>
               <span className="inv-sub-val" style={{ color: isOverdue ? '#dc2626' : undefined, fontWeight: isOverdue ? 700 : 600 }}>
-                {record.dueDate ? dayjs(record.dueDate).format('MMM DD, YYYY') : '-'}
+                {record.dueDate ? dayjs(record.dueDate).format('DD-MMM-YYYY') : 'Immediate'}
                 {isOverdue && <span style={{ color: '#dc2626', marginLeft: 4 }}>▲</span>}
               </span>
             </div>
@@ -944,7 +1219,7 @@ const SalesInvoiceManagement: React.FC = () => {
               <span className="badge-inv-terms">
                 Terms
               </span>
-              <span className="inv-sub-val">{record.paymentTerms || record.customer?.paymentTerms || 'net 30'}</span>
+              <span className="inv-sub-val">{record.paymentTerms || record.customer?.paymentTerms || 'Cash / Immediate'}</span>
             </div>
           </div>
         );
@@ -954,28 +1229,33 @@ const SalesInvoiceManagement: React.FC = () => {
       title: 'Amounts',
       key: 'amounts',
       width: 220,
-      render: (_, record) => (
-        <div className="inv-doc-cell">
-          <div className="inv-sub-row">
-            <span className="badge-inv-subtotal">
-              <UnorderedListOutlined style={{ marginRight: 3 }} /> Subtotal
-            </span>
-            <span className="inv-sub-val">Rs {formatDecimal(record.subtotal || record.totalAmount || 0)}</span>
+      render: (_, record) => {
+        const sub = Number(record.subtotal || 0);
+        const tax = Number(record.taxAmount || 0);
+        const pct = sub > 0 && tax > 0 ? Math.round((tax / sub) * 100) : 0;
+        return (
+          <div className="inv-doc-cell">
+            <div className="inv-sub-row">
+              <span className="badge-inv-subtotal">
+                <UnorderedListOutlined style={{ marginRight: 3 }} /> Subtotal
+              </span>
+              <span className="inv-sub-val">Rs {formatDecimal(sub || record.totalAmount || 0)}</span>
+            </div>
+            <div className="inv-sub-row">
+              <span className="badge-inv-tax">
+                <PercentageOutlined style={{ marginRight: 3 }} /> {pct > 0 ? `Tax (${pct}%)` : 'Tax'}
+              </span>
+              <span className="inv-sub-val">Rs {formatDecimal(tax)}</span>
+            </div>
+            <div className="inv-sub-row">
+              <span className="badge-inv-total">
+                <DollarOutlined style={{ marginRight: 3 }} /> Total
+              </span>
+              <span className="inv-sub-val" style={{ fontWeight: 800 }}>Rs {formatDecimal(record.totalAmount || 0)}</span>
+            </div>
           </div>
-          <div className="inv-sub-row">
-            <span className="badge-inv-tax">
-              <PercentageOutlined style={{ marginRight: 3 }} /> % Tax
-            </span>
-            <span className="inv-sub-val">Rs {formatDecimal(record.taxAmount || 0)}</span>
-          </div>
-          <div className="inv-sub-row">
-            <span className="badge-inv-total">
-              <DollarOutlined style={{ marginRight: 3 }} /> Total
-            </span>
-            <span className="inv-sub-val" style={{ fontWeight: 800 }}>Rs {formatDecimal(record.totalAmount || 0)}</span>
-          </div>
-        </div>
-      ),
+        );
+      },
     },
     {
       title: 'Payment',
@@ -1008,91 +1288,115 @@ const SalesInvoiceManagement: React.FC = () => {
       dataIndex: 'status',
       key: 'status',
       align: 'center',
-      width: 120,
+      width: 135,
       render: (status: string) => {
         const st = status || 'Pending';
-        return <span className={`status-pill status-${st.toLowerCase()}`}>{st}</span>;
+        const lower = st.toLowerCase();
+        const label = lower === 'pending' ? 'Pending Verification' : st;
+        return <span className={`status-pill status-${lower}`}>{label}</span>;
       },
     },
     {
       title: 'Actions',
       key: 'actions',
       align: 'center',
-      width: 230,
-      render: (_, record) => (
-        <div className="inv-actions-group">
-          <Tooltip title="View Invoice">
-            <button className="inv-action-btn inv-btn-view" onClick={() => handleViewDetail(record)}>
-              <EyeOutlined />
-            </button>
-          </Tooltip>
-          <Tooltip title="Print Formal Tax Invoice">
-            <button className="inv-action-btn inv-btn-print" onClick={() => handlePrintFormalInvoice(record)}>
-              <PrinterOutlined />
-            </button>
-          </Tooltip>
-          <Tooltip title="Email Invoice">
-            <button className="inv-action-btn inv-btn-email" onClick={() => handleEmail(record)}>
-              <MailOutlined />
-            </button>
-          </Tooltip>
-          <Tooltip title="Share via WhatsApp">
-            <button className="inv-action-btn inv-btn-wa" onClick={() => handleWhatsApp(record)}>
-              <WhatsAppOutlined />
-            </button>
-          </Tooltip>
-          {record.status?.toLowerCase() === 'draft' && (
-            <Tooltip title="Post to Customer Ledger">
+      width: 260,
+      render: (_, record) => {
+        const lowerStatus = String(record.status || 'pending').toLowerCase();
+        const canApprovePost = lowerStatus === 'pending' || lowerStatus === 'draft';
+        return (
+          <div className="inv-actions-group">
+            <Tooltip title="View / Verify Invoice">
               <button
-                className="inv-action-btn"
-                style={{ backgroundColor: '#16a34a', color: '#fff' }}
-                onClick={() => handlePostInvoice(record)}
+                type="button"
+                className="inv-action-btn inv-btn-view"
+                onClick={() => requestActionConfirmation(record, 'view')}
               >
-                <CheckCircleOutlined />
+                <EyeOutlined />
               </button>
             </Tooltip>
-          )}
-          <Tooltip title="Record Payment">
-            <button
-              className="inv-action-btn inv-btn-pay"
-              onClick={() => handleRecordPayment(record)}
-              disabled={record.status === 'Paid' || record.status === 'Cancelled'}
-            >
-              <DollarOutlined />
-            </button>
-          </Tooltip>
-          <Tooltip title="Edit Invoice">
-            <button
-              className="inv-action-btn inv-btn-edit"
-              onClick={() => handleEdit(record)}
-              disabled={record.status === 'Paid' || record.status === 'Cancelled'}
-            >
-              <EditOutlined />
-            </button>
-          </Tooltip>
-          <Tooltip title="Cancel Invoice">
-            <button
-              className="inv-action-btn inv-btn-cancel"
-              onClick={async () => {
-                await apiService.patch(`/sales/invoices/${record.id}`, { status: 'Cancelled' });
-                message.success('Invoice marked as Cancelled');
-                fetchData(page, pageSize);
-              }}
-              disabled={record.status === 'Cancelled'}
-            >
-              <StopOutlined />
-            </button>
-          </Tooltip>
-          <Tooltip title="Delete Invoice">
-            <button
-              className="inv-action-btn inv-btn-delete"
-              onClick={() => { setItemToDelete(record); setDeleteModalVisible(true); }}
-            >
-              <DeleteOutlined />
-            </button>
-          </Tooltip>
-        </div>
-      ),
+            <Tooltip title="Print Tax Invoice">
+              <button
+                type="button"
+                className="inv-action-btn inv-btn-print"
+                onClick={() => requestActionConfirmation(record, 'print')}
+              >
+                <PrinterOutlined />
+              </button>
+            </Tooltip>
+            {canApprovePost && (
+              <Tooltip title="Approve / Post to Customer Ledger">
+                <button
+                  type="button"
+                  className="inv-action-btn"
+                  style={{ backgroundColor: '#16a34a', color: '#fff' }}
+                  onClick={() => requestActionConfirmation(record, 'post')}
+                >
+                  <CheckCircleOutlined />
+                </button>
+              </Tooltip>
+            )}
+            <Tooltip title="Record Payment">
+              <button
+                type="button"
+                className="inv-action-btn inv-btn-pay"
+                onClick={() => requestActionConfirmation(record, 'payment')}
+                disabled={lowerStatus === 'paid' || lowerStatus === 'cancelled'}
+              >
+                <DollarOutlined />
+              </button>
+            </Tooltip>
+            <Tooltip title="Email Invoice">
+              <button
+                type="button"
+                className="inv-action-btn inv-btn-email"
+                onClick={() => requestActionConfirmation(record, 'email')}
+              >
+                <MailOutlined />
+              </button>
+            </Tooltip>
+            <Tooltip title="Share via WhatsApp">
+              <button
+                type="button"
+                className="inv-action-btn inv-btn-wa"
+                onClick={() => requestActionConfirmation(record, 'whatsapp')}
+              >
+                <WhatsAppOutlined />
+              </button>
+            </Tooltip>
+            <Tooltip title="Edit Invoice">
+              <button
+                type="button"
+                className="inv-action-btn inv-btn-edit"
+                onClick={() => requestActionConfirmation(record, 'edit')}
+                disabled={!canApprovePost}
+              >
+                <EditOutlined />
+              </button>
+            </Tooltip>
+            <Tooltip title="Cancel Invoice">
+              <button
+                type="button"
+                className="inv-action-btn inv-btn-cancel"
+                onClick={() => requestActionConfirmation(record, 'cancel')}
+                disabled={lowerStatus === 'cancelled' || lowerStatus === 'paid'}
+              >
+                <StopOutlined />
+              </button>
+            </Tooltip>
+            <Tooltip title="Delete Invoice">
+              <button
+                type="button"
+                className="inv-action-btn inv-btn-delete"
+                onClick={() => requestActionConfirmation(record, 'delete')}
+                disabled={lowerStatus === 'posted' || lowerStatus === 'paid'}
+              >
+                <DeleteOutlined />
+              </button>
+            </Tooltip>
+          </div>
+        );
+      },
     },
   ];
 
@@ -1138,7 +1442,7 @@ const SalesInvoiceManagement: React.FC = () => {
 
           {/* Form Card Title */}
           <div className="create-inv-card-title">
-            <FileTextOutlined style={{ color: '#0f172a' }} />
+            <FileTextOutlined style={{ color: token.colorPrimary }} />
             <span>{viewMode === 'edit' ? `Invoice #${editingItem?.invoiceNo}` : 'New Invoice'}</span>
           </div>
 
@@ -1357,7 +1661,7 @@ const SalesInvoiceManagement: React.FC = () => {
                           ]}
                         />
                       </td>
-                      <td style={{ textAlign: 'right', fontWeight: 700, color: '#0f172a' }}>
+                      <td style={{ textAlign: 'right', fontWeight: 700, color: token.colorText }}>
                         Rs {formatDecimal(line.lineTotal)}
                       </td>
                       <td style={{ textAlign: 'center' }}>
@@ -1486,31 +1790,31 @@ const SalesInvoiceManagement: React.FC = () => {
           <div className="inv-chevron-ribbon">
             <div
               className={`inv-chevron-item chev-all ${activeChevron === 'ALL' ? 'active' : ''}`}
-              onClick={() => setActiveChevron('ALL')}
+              onClick={() => { setActiveChevron('ALL'); setPage(1); }}
             >
               ALL ({chevronCounts.all})
             </div>
             <div
               className={`inv-chevron-item chev-pending ${activeChevron === 'PENDING' ? 'active' : ''}`}
-              onClick={() => setActiveChevron('PENDING')}
+              onClick={() => { setActiveChevron('PENDING'); setPage(1); }}
             >
               PENDING ({chevronCounts.pending})
             </div>
             <div
               className={`inv-chevron-item chev-partial ${activeChevron === 'PARTIAL' ? 'active' : ''}`}
-              onClick={() => setActiveChevron('PARTIAL')}
+              onClick={() => { setActiveChevron('PARTIAL'); setPage(1); }}
             >
               PARTIAL ({chevronCounts.partial})
             </div>
             <div
               className={`inv-chevron-item chev-paid ${activeChevron === 'PAID' ? 'active' : ''}`}
-              onClick={() => setActiveChevron('PAID')}
+              onClick={() => { setActiveChevron('PAID'); setPage(1); }}
             >
               PAID ({chevronCounts.paid})
             </div>
             <div
               className={`inv-chevron-item chev-cancelled ${activeChevron === 'CANCELLED' ? 'active' : ''}`}
-              onClick={() => setActiveChevron('CANCELLED')}
+              onClick={() => { setActiveChevron('CANCELLED'); setPage(1); }}
             >
               CANCELLED ({chevronCounts.cancelled})
             </div>
@@ -1548,8 +1852,8 @@ const SalesInvoiceManagement: React.FC = () => {
                   count={activeFilterCount}
                   style={{
                     marginLeft: 6,
-                    backgroundColor: showFilters ? '#ffffff' : 'var(--theme-primary, #3b82f6)',
-                    color: showFilters ? 'var(--theme-primary, #3b82f6)' : '#ffffff',
+                    backgroundColor: showFilters ? token.colorBgContainer : token.colorPrimary,
+                    color: showFilters ? token.colorPrimary : token.colorTextLightSolid,
                   }}
                 />
               )}
@@ -1857,26 +2161,28 @@ const SalesInvoiceManagement: React.FC = () => {
 
                 {/* Slate Action Buttons (Matching Image 3) */}
                 <div className="inv-sidebar-actions">
-                  <button className="inv-sidebar-btn" onClick={() => handlePrintFormalInvoice(detailItem)}>
-                    <PrinterOutlined /> Print Document
+                  <button type="button" className="inv-sidebar-btn" onClick={() => requestActionConfirmation(detailItem, 'print')}>
+                    <PrinterOutlined /> Print Tax Invoice
                   </button>
-                  <button className="inv-sidebar-btn" onClick={() => handleWhatsApp(detailItem)}>
+                  <button type="button" className="inv-sidebar-btn" onClick={() => requestActionConfirmation(detailItem, 'whatsapp')}>
                     <WhatsAppOutlined /> Share on WhatsApp
                   </button>
-                  {detailItem.status?.toLowerCase() === 'draft' && (
+                  {['pending', 'draft'].includes(String(detailItem.status || '').toLowerCase()) && (
                     <button
+                      type="button"
                       className="inv-sidebar-btn"
                       style={{ backgroundColor: '#16a34a' }}
-                      onClick={() => handlePostInvoice(detailItem)}
+                      onClick={() => requestActionConfirmation(detailItem, 'post')}
                     >
-                      <CheckCircleOutlined /> Post to Ledger
+                      <CheckCircleOutlined /> Approve &amp; Post to Ledger
                     </button>
                   )}
-                  {Number(detailItem.outstandingAmount ?? detailItem.balance) > 0 && (
+                  {Number(detailItem.outstandingAmount ?? detailItem.balance) > 0 && String(detailItem.status || '').toLowerCase() !== 'cancelled' && (
                     <button
+                      type="button"
                       className="inv-sidebar-btn"
                       style={{ backgroundColor: '#2563eb' }}
-                      onClick={() => handleRecordPayment(detailItem)}
+                      onClick={() => requestActionConfirmation(detailItem, 'payment')}
                     >
                       <DollarOutlined /> Record Payment
                     </button>
@@ -1890,7 +2196,7 @@ const SalesInvoiceManagement: React.FC = () => {
                   </div>
                   <div className="inv-sidebar-firm-name">Pakistan Wire Industries (Pvt.) LTD</div>
                   <div className="inv-sidebar-firm-text">
-                    Plot 42-B, Industrial Estate, Lahore, Pakistan<br />
+                    Plot 179, Block E, SITE Superhighway, Karachi, Pakistan<br />
                     NTN: 0819234-7 | STRN: 17-00-9812-001
                   </div>
                 </div>
@@ -1900,13 +2206,13 @@ const SalesInvoiceManagement: React.FC = () => {
                   <div className="inv-sidebar-sec-title">
                     <UserOutlined /> Bill To
                   </div>
-                  <div className="inv-sidebar-firm-name" style={{ color: '#2563eb' }}>
-                    {getCustomerDisplayName(detailItem)}
+                  <div style={{ marginBottom: 4 }}>
+                    {renderStackedCustomer(detailItem)}
                   </div>
                   <div className="inv-sidebar-firm-text">
-                    {detailItem.customer?.billingAddress || detailItem.customer?.addressLine1 || 'Main Warehouse, Industrial Area'}<br />
-                    Phone: {detailItem.customer?.phone || '+92 300 1234567'}<br />
-                    NTN: {detailItem.customer?.taxNumber || '27AAECM4001L1ZQ'}
+                    {detailItem.customer?.billingAddress || detailItem.customer?.addressLine1 || 'Industrial Area'}<br />
+                    Phone: {detailItem.customer?.phone || '-'}<br />
+                    NTN: {detailItem.customer?.taxNumber || '-'}
                   </div>
                 </div>
 
@@ -1919,31 +2225,49 @@ const SalesInvoiceManagement: React.FC = () => {
                     <span className="inv-sidebar-grid-label"># Number:</span>
                     <span className="inv-sidebar-grid-val">{detailItem.invoiceNo}</span>
 
-                    <span className="inv-sidebar-grid-label">Date:</span>
-                    <span className="inv-sidebar-grid-val">{detailItem.invoiceDate ? dayjs(detailItem.invoiceDate).format('MMM DD, YYYY') : '-'}</span>
-
-                    <span className="inv-sidebar-grid-label">Terms:</span>
-                    <span className="inv-sidebar-grid-val">{detailItem.paymentTerms || 'net 30'}</span>
-
-                    <span className="inv-sidebar-grid-label">Due Date:</span>
-                    <span className="inv-sidebar-grid-val" style={{ color: '#dc2626' }}>
-                      {detailItem.dueDate ? dayjs(detailItem.dueDate).format('MMM DD, YYYY') : '-'}
-                    </span>
-
-                    {detailItem.salesOrder?.orderNumber && (
+                    {(detailItem.divisionName || detailItem.salesOrder?.division?.name) && (
                       <>
-                        <span className="inv-sidebar-grid-label">SOC #:</span>
-                        <span className="inv-sidebar-grid-val" style={{ color: '#2563eb' }}>
-                          {detailItem.salesOrder.orderNumber}
+                        <span className="inv-sidebar-grid-label">Division:</span>
+                        <span className="inv-sidebar-grid-val" style={{ color: token.colorPrimary, fontWeight: 700 }}>
+                          {detailItem.divisionName || detailItem.salesOrder?.division?.name}
                         </span>
                       </>
                     )}
 
-                    {detailItem.relatedDelivery?.deliveryNumber && (
+                    <span className="inv-sidebar-grid-label">Date:</span>
+                    <span className="inv-sidebar-grid-val">{detailItem.invoiceDate ? dayjs(detailItem.invoiceDate).format('DD-MMM-YYYY') : '-'}</span>
+
+                    <span className="inv-sidebar-grid-label">Terms:</span>
+                    <span className="inv-sidebar-grid-val">{detailItem.paymentTerms || detailItem.customer?.paymentTerms || 'Cash / Immediate'}</span>
+
+                    <span className="inv-sidebar-grid-label">Due Date:</span>
+                    <span className="inv-sidebar-grid-val" style={{ color: '#dc2626' }}>
+                      {detailItem.dueDate ? dayjs(detailItem.dueDate).format('DD-MMM-YYYY') : 'Immediate'}
+                    </span>
+
+                    {(detailItem.socNumber || detailItem.salesOrder?.orderNumber) && (
+                      <>
+                        <span className="inv-sidebar-grid-label">SOC #:</span>
+                        <span className="inv-sidebar-grid-val" style={{ color: '#2563eb' }}>
+                          {detailItem.socNumber || detailItem.salesOrder?.orderNumber}
+                        </span>
+                      </>
+                    )}
+
+                    {(detailItem.deliveryNumber || detailItem.relatedDelivery?.deliveryNumber) && (
                       <>
                         <span className="inv-sidebar-grid-label">Delivery #:</span>
                         <span className="inv-sidebar-grid-val" style={{ color: '#059669' }}>
-                          {detailItem.relatedDelivery.deliveryNumber}
+                          {detailItem.deliveryNumber || detailItem.relatedDelivery?.deliveryNumber}
+                        </span>
+                      </>
+                    )}
+
+                    {(detailItem.gatePassNumber || detailItem.relatedDelivery?.gatePassNumber) && (
+                      <>
+                        <span className="inv-sidebar-grid-label">Gate Pass #:</span>
+                        <span className="inv-sidebar-grid-val" style={{ fontFamily: 'monospace', fontWeight: 800, color: token.colorPrimary }}>
+                          {detailItem.gatePassNumber || detailItem.relatedDelivery?.gatePassNumber}
                         </span>
                       </>
                     )}
@@ -1983,56 +2307,68 @@ const SalesInvoiceManagement: React.FC = () => {
                     <span>Document Pipeline & Accounting Flow</span>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, fontSize: 11.5 }}>
-                    <Tag color="blue">Order / SOC: {detailItem.salesOrder?.orderNumber || 'Direct Sale'}</Tag>
+                    <Tag color="blue">Order / SOC: {detailItem.socNumber || detailItem.salesOrder?.orderNumber || 'Direct Sale'}</Tag>
                     <span>&rarr;</span>
-                    <Tag color="cyan">Delivery: {detailItem.relatedDelivery?.deliveryNumber || 'Dispatched'}</Tag>
+                    <Tag color="cyan">
+                      Delivery: {detailItem.deliveryNumber || detailItem.relatedDelivery?.deliveryNumber || 'Direct Dispatch'}
+                      {(detailItem.gatePassNumber || detailItem.relatedDelivery?.gatePassNumber)
+                        ? ` (${detailItem.gatePassNumber || detailItem.relatedDelivery?.gatePassNumber})`
+                        : ''}
+                    </Tag>
                     <span>&rarr;</span>
                     <Tag color="purple" style={{ fontWeight: 700 }}>Invoice: {detailItem.invoiceNo}</Tag>
                     <span>&rarr;</span>
-                    <Tag color={detailItem.status?.toLowerCase() === 'draft' ? 'default' : 'green'}>
-                      {detailItem.status?.toLowerCase() === 'draft' ? 'Unposted' : 'Posted to Receivable Ledger'}
+                    <Tag color={['pending', 'draft'].includes(String(detailItem.status || '').toLowerCase()) ? 'warning' : 'green'}>
+                      {['pending', 'draft'].includes(String(detailItem.status || '').toLowerCase())
+                        ? 'Pending Accounts Verification'
+                        : detailItem.status === 'Cancelled'
+                        ? 'Cancelled'
+                        : 'Posted to Receivable Ledger'}
                     </Tag>
                   </div>
                 </div>
 
-                {/* Line Items Table (Black Header Row matching Image 3) */}
+                {/* Line Items Table */}
                 <div style={{ flex: 1, overflowX: 'auto' }}>
                   <table className="inv-items-table">
                     <thead>
                       <tr>
                         <th style={{ width: 40, textAlign: 'center' }}>#</th>
-                        <th style={{ minWidth: 200, textAlign: 'left' }}>PRODUCT</th>
-                        <th style={{ width: 100, textAlign: 'left' }}>HSN/CODE</th>
-                        <th style={{ width: 80, textAlign: 'right' }}>QTY</th>
-                        <th style={{ width: 100, textAlign: 'right' }}>RATE</th>
+                        <th style={{ minWidth: 220, textAlign: 'left' }}>ITEM CODE &amp; PRODUCT</th>
+                        <th style={{ width: 85, textAlign: 'right' }}>QTY</th>
+                        <th style={{ width: 95, textAlign: 'right' }}>RATE</th>
                         <th style={{ width: 80, textAlign: 'right' }}>DISC</th>
                         <th style={{ width: 100, textAlign: 'right' }}>TAXABLE</th>
-                        <th style={{ width: 65, textAlign: 'right' }}>GST %</th>
-                        <th style={{ width: 90, textAlign: 'right' }}>GST AMT</th>
+                        <th style={{ width: 65, textAlign: 'right' }}>TAX %</th>
+                        <th style={{ width: 90, textAlign: 'right' }}>TAX AMT</th>
                         <th style={{ width: 120, textAlign: 'right' }}>AMOUNT</th>
                       </tr>
                     </thead>
                     <tbody>
                       {(detailItem.items || []).map((it: any, idx: number) => (
                         <tr key={it.id || idx}>
-                          <td style={{ textAlign: 'center', color: '#64748b' }}>{it.index || idx + 1}</td>
+                          <td style={{ textAlign: 'center', color: token.colorTextSecondary }}>{it.index || idx + 1}</td>
                           <td>
-                            <div style={{ fontWeight: 600, color: 'var(--inv-text-primary, inherit)' }}>{it.product || it.description}</div>
+                            {it.itemCode && (
+                              <Tag color="orange" style={{ margin: '0 0 3px 0', fontFamily: 'monospace', fontWeight: 800, fontSize: 10.5 }}>
+                                {it.itemCode}
+                              </Tag>
+                            )}
+                            <div style={{ fontWeight: 700, color: token.colorText }}>{it.product || it.description}</div>
                             {it.description && it.description !== it.product && (
-                              <div style={{ fontSize: 11, color: '#64748b' }}>{it.description}</div>
+                              <div style={{ fontSize: 11, color: token.colorTextSecondary }}>{it.description}</div>
                             )}
                           </td>
-                          <td style={{ color: '#475569', fontFamily: 'monospace' }}>{it.hsnCode || it.itemCode || '-'}</td>
-                          <td style={{ textAlign: 'right', fontWeight: 600 }}>{it.quantity} {it.uom || 'PCS'}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 600 }}>{it.quantity} {it.uom || 'GRS'}</td>
                           <td style={{ textAlign: 'right' }}>Rs {formatDecimal(it.rate)}</td>
-                          <td style={{ textAlign: 'right', color: Number(it.discountAmount) > 0 ? '#ea580c' : '#94a3b8' }}>
+                          <td style={{ textAlign: 'right', color: Number(it.discountAmount) > 0 ? '#ea580c' : token.colorTextTertiary }}>
                             {Number(it.discountAmount) > 0 ? `Rs ${formatDecimal(it.discountAmount)}` : '-'}
                           </td>
-                          <td style={{ textAlign: 'right' }}>Rs {formatDecimal(it.taxableAmount || (it.quantity * it.rate))}</td>
-                          <td style={{ textAlign: 'right', color: token.colorTextSecondary }}>{it.gstRate ?? 18}%</td>
-                          <td style={{ textAlign: 'right', color: token.colorTextSecondary }}>Rs {formatDecimal(it.gstAmount || it.taxAmount || 0)}</td>
-                          <td style={{ textAlign: 'right', fontWeight: 800, color: 'var(--inv-text-primary, inherit)' }}>
-                            Rs {formatDecimal(it.amount || it.lineTotal)}
+                          <td style={{ textAlign: 'right' }}>Rs {formatDecimal(it.taxableAmount ?? (it.quantity * it.rate))}</td>
+                          <td style={{ textAlign: 'right', color: token.colorTextSecondary }}>{it.gstRate ?? 0}%</td>
+                          <td style={{ textAlign: 'right', color: token.colorTextSecondary }}>Rs {formatDecimal(it.gstAmount ?? it.taxAmount ?? 0)}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 800, color: token.colorText }}>
+                            Rs {formatDecimal(it.amount ?? it.lineTotal)}
                           </td>
                         </tr>
                       ))}
@@ -2098,20 +2434,39 @@ const SalesInvoiceManagement: React.FC = () => {
         open={paymentVisible}
         zIndex={2500}
         onOk={handlePaymentSubmit}
+        confirmLoading={paymentSubmitting}
         onCancel={() => setPaymentVisible(false)}
-        width={460}
+        width={620}
         centered
-        okText="Record Payment"
+        footer={[
+          <Button
+            key="multi"
+            icon={<WalletOutlined />}
+            onClick={() => {
+              const cid = paymentInvoice?.customerId;
+              const iid = paymentInvoice?.id;
+              setPaymentVisible(false);
+              navigate(`/sales/receipts?customerId=${encodeURIComponent(cid || '')}&invoiceId=${encodeURIComponent(iid || '')}&action=record`);
+            }}
+          >
+            Multi-Invoice / Advance Screen
+          </Button>,
+          <Button key="cancel" onClick={() => setPaymentVisible(false)}>
+            Cancel
+          </Button>,
+          <Button key="submit" type="primary" loading={paymentSubmitting} onClick={handlePaymentSubmit}>
+            Record &amp; Print Receipt
+          </Button>,
+        ]}
       >
         {paymentInvoice && (
           <div>
-            <Descriptions column={1} size="small" bordered style={{ marginBottom: 16 }}>
+            <Descriptions column={2} size="small" bordered style={{ marginBottom: 14 }}>
               <Descriptions.Item label="Invoice #">{paymentInvoice.invoiceNo}</Descriptions.Item>
               <Descriptions.Item label="Customer">
                 {getCustomerDisplayName(paymentInvoice)}
               </Descriptions.Item>
               <Descriptions.Item label="Total Amount">Rs {formatDecimal(paymentInvoice.totalAmount)}</Descriptions.Item>
-              <Descriptions.Item label="Already Paid">Rs {formatDecimal(paymentInvoice.paidAmount)}</Descriptions.Item>
               <Descriptions.Item label="Balance Due">
                 <span style={{ color: '#dc2626', fontWeight: 700 }}>
                   Rs {formatDecimal(paymentInvoice.balance ?? (Number(paymentInvoice.totalAmount || 0) - Number(paymentInvoice.paidAmount || 0)))}
@@ -2119,37 +2474,256 @@ const SalesInvoiceManagement: React.FC = () => {
               </Descriptions.Item>
             </Descriptions>
             <Form layout="vertical">
-              <Form.Item label="Received Payment Amount (Rs)" required>
-                <InputNumber
-                  style={{ width: '100%' }}
-                  min={1}
-                  precision={2}
-                  value={paymentAmount}
-                  onChange={(v) => setPaymentAmount(v ?? 0)}
-                />
-              </Form.Item>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <Form.Item label="Received Amount (Rs)" required style={{ marginBottom: 10 }}>
+                  <InputNumber
+                    style={{ width: '100%' }}
+                    min={1}
+                    precision={2}
+                    value={paymentAmount}
+                    onChange={(v) => setPaymentAmount(v ?? 0)}
+                  />
+                </Form.Item>
+                <Form.Item label="Receipt Date" style={{ marginBottom: 10 }}>
+                  <DatePicker
+                    style={{ width: '100%' }}
+                    value={paymentDate}
+                    onChange={(v) => setPaymentDate(v)}
+                    format="YYYY-MM-DD"
+                  />
+                </Form.Item>
+                <Form.Item label="Payment Mode" style={{ marginBottom: 10 }}>
+                  <Select
+                    value={paymentMode}
+                    onChange={(v) => setPaymentMode(v)}
+                    options={[
+                      { value: 'CASH', label: 'Cash' },
+                      { value: 'BANK_TRANSFER', label: 'Bank Transfer / IBFT' },
+                      { value: 'CHEQUE', label: 'Cheque' },
+                      { value: 'ONLINE', label: 'Online / Pay Order' },
+                      { value: 'OTHER', label: 'Other' },
+                    ]}
+                  />
+                </Form.Item>
+                <Form.Item label="Deposit Account (Cash / Bank GL)" style={{ marginBottom: 10 }}>
+                  <Select
+                    allowClear
+                    placeholder="Auto (1000 Cash / 1010 Bank)"
+                    value={paymentBankAccountId}
+                    onChange={(v) => setPaymentBankAccountId(v)}
+                    options={bankAccounts.map((b) => ({
+                      value: b.id,
+                      label: `${b.accountCode} — ${b.accountName}`,
+                    }))}
+                  />
+                </Form.Item>
+              </div>
+              {paymentMode === 'CHEQUE' && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <Form.Item label="Customer Bank Name" style={{ marginBottom: 10 }}>
+                    <Input value={paymentBankName} onChange={(e) => setPaymentBankName(e.target.value)} placeholder="e.g. HBL" />
+                  </Form.Item>
+                  <Form.Item label="Cheque Number" style={{ marginBottom: 10 }}>
+                    <Input value={paymentChequeNumber} onChange={(e) => setPaymentChequeNumber(e.target.value)} placeholder="Cheque #" />
+                  </Form.Item>
+                  <Form.Item label="Cheque Date" style={{ marginBottom: 10 }}>
+                    <DatePicker style={{ width: '100%' }} value={paymentChequeDate} onChange={(v) => setPaymentChequeDate(v)} format="YYYY-MM-DD" />
+                  </Form.Item>
+                  <Form.Item label="Clearance Status" style={{ marginBottom: 10 }}>
+                    <Select
+                      value={paymentClearanceStatus}
+                      onChange={(v) => setPaymentClearanceStatus(v)}
+                      options={[
+                        { value: 'CLEARED', label: 'Cleared' },
+                        { value: 'PENDING_CLEARANCE', label: 'Pending Clearance (PDC)' },
+                      ]}
+                    />
+                  </Form.Item>
+                </div>
+              )}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <Form.Item label="Reference / Slip #" style={{ marginBottom: 0 }}>
+                  <Input value={paymentReferenceNo} onChange={(e) => setPaymentReferenceNo(e.target.value)} placeholder="Slip / IBFT Reference" />
+                </Form.Item>
+                <Form.Item label="Notes" style={{ marginBottom: 0 }}>
+                  <Input value={paymentNotes} onChange={(e) => setPaymentNotes(e.target.value)} placeholder="Payment narration" />
+                </Form.Item>
+              </div>
             </Form>
           </div>
         )}
       </Modal>
 
-      {/* Enterprise Delete Confirmation Modal */}
-      <DeleteConfirmModal
-        open={deleteModalVisible}
-        itemType="Sales Invoice"
-        itemCode={itemToDelete?.invoiceNo}
-        itemName={itemToDelete ? getCustomerDisplayName(itemToDelete) : undefined}
-        description="Deleting an invoice cannot be undone if it has already been posted to customer ledger."
-        onConfirm={async () => {
-          if (itemToDelete) {
-            await handleExecuteDeleteInvoice(itemToDelete);
+      {/* Mandatory Pre-Action Confirmation Dialog */}
+      <Modal
+        open={actionConfirm.visible}
+        destroyOnClose
+        zIndex={2600}
+        centered
+        width={640}
+        onCancel={() => {
+          if (!actionConfirm.submitting) {
+            closeActionConfirmation();
           }
         }}
-        onCancel={() => {
-          setDeleteModalVisible(false);
-          setItemToDelete(null);
-        }}
-      />
+        title={
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', paddingRight: 24 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <ExclamationCircleFilled
+                style={{
+                  fontSize: 20,
+                  color: actionConfirm.meta?.isDanger ? token.colorError : token.colorPrimary,
+                }}
+              />
+              <span style={{ fontSize: 16, fontWeight: 700, color: token.colorText }}>
+                {actionConfirm.meta?.title || 'Confirm Action'}
+              </span>
+            </div>
+            {actionConfirm.meta && (
+              <Tag color={actionConfirm.meta.badgeColor} style={{ margin: 0, fontWeight: 700 }}>
+                {actionConfirm.meta.badgeLabel}
+              </Tag>
+            )}
+          </div>
+        }
+        footer={[
+          <Button
+            key="cancel"
+            onClick={closeActionConfirmation}
+            disabled={actionConfirm.submitting}
+          >
+            Cancel
+          </Button>,
+          <Button
+            key="confirm"
+            type="primary"
+            danger={Boolean(actionConfirm.meta?.isDanger)}
+            loading={actionConfirm.submitting}
+            onClick={() => void executeConfirmedAction()}
+          >
+            Confirm &amp; Proceed
+          </Button>,
+        ]}
+      >
+        {actionConfirm.record && actionConfirm.meta && (() => {
+          const rec = actionConfirm.record;
+          const dnNo = rec.deliveryNumber || rec.relatedDelivery?.deliveryNumber;
+          const gpNo = rec.gatePassNumber || rec.relatedDelivery?.gatePassNumber;
+          const subtotal = Number(rec.subtotal || 0);
+          const taxAmount = Number(rec.taxAmount || 0);
+          const totalAmount = Number(rec.totalAmount || 0);
+          const taxPct = subtotal > 0 && taxAmount > 0 ? Math.round((taxAmount / subtotal) * 100) : 0;
+
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14, paddingTop: 4 }}>
+              <div style={{ fontSize: 13.5, color: token.colorTextSecondary, lineHeight: 1.5 }}>
+                {actionConfirm.meta.description}
+              </div>
+
+              {actionConfirm.meta.showZeroTaxWarning && (
+                <Alert
+                  type="warning"
+                  showIcon
+                  message="Tax is currently Rs 0 (0%). Are you sure you want to post this invoice without 18% Tax?"
+                  style={{ fontWeight: 600 }}
+                />
+              )}
+
+              <div
+                style={{
+                  backgroundColor: token.colorFillAlter,
+                  border: `1px solid ${token.colorBorderSecondary}`,
+                  borderRadius: 10,
+                  padding: '14px 16px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 12,
+                }}
+              >
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))',
+                    gap: '12px 16px',
+                    alignItems: 'start',
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: token.colorTextTertiary, marginBottom: 4 }}>
+                      Invoice #
+                    </div>
+                    <div style={{ fontSize: 15, fontWeight: 800, fontFamily: 'monospace', color: token.colorPrimary }}>
+                      {rec.invoiceNo}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: token.colorTextTertiary, marginBottom: 4 }}>
+                      DN # &amp; Gate Pass #
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      <Tag color="cyan" style={{ margin: 0, fontFamily: 'monospace', fontWeight: 700 }}>
+                        {dnNo || 'No DN'}
+                      </Tag>
+                      <Tag color="geekblue" style={{ margin: 0, fontFamily: 'monospace', fontWeight: 700 }}>
+                        {gpNo || 'No GP'}
+                      </Tag>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: token.colorTextTertiary, marginBottom: 4 }}>
+                      Customer
+                    </div>
+                    {renderStackedCustomer(rec)}
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    borderTop: `1px solid ${token.colorBorderSecondary}`,
+                    paddingTop: 10,
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(3, 1fr)',
+                    gap: 12,
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', color: token.colorTextTertiary }}>
+                      Subtotal
+                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: token.colorText }}>
+                      Rs {formatDecimal(subtotal || totalAmount)}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', color: token.colorTextTertiary }}>
+                      {taxPct > 0 ? `Tax (${taxPct}%)` : 'Tax (Rs 0)'}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 14,
+                        fontWeight: 700,
+                        color: taxAmount > 0 ? token.colorSuccess : token.colorWarning,
+                      }}
+                    >
+                      Rs {formatDecimal(taxAmount)}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: token.colorTextTertiary }}>
+                      Grand Total
+                    </div>
+                    <div style={{ fontSize: 16, fontWeight: 800, color: token.colorPrimary }}>
+                      Rs {formatDecimal(totalAmount)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+      </Modal>
 
       {/* Enterprise Pre-Save Invoice Confirmation Dialog */}
       <Modal
@@ -2256,7 +2830,7 @@ const SalesInvoiceManagement: React.FC = () => {
                     Manufacturer of High Tensile Steel Wires, Galvanized Wires & Engineering Fasteners
                   </div>
                   <div style={{ fontSize: 10, color: '#555' }}>
-                    Factory: Plot 42-B, Industrial Estate, Lahore, Pakistan | Tel: +92 42 35889900
+                    Factory: Plot 179, Block E, SITE Superhighway, Karachi, Pakistan | Tel: +92 21 36410101
                   </div>
                   <div style={{ fontSize: 10, color: '#111', fontWeight: 700, marginTop: 1 }}>
                     NTN: 0819234-7 | STRN: 17-00-9812-001 | Sales Tax Reg. # 17-00-9812-001-99
@@ -2284,8 +2858,9 @@ const SalesInvoiceManagement: React.FC = () => {
               <div><strong>Invoice Date:</strong> {printInvoiceItem.invoiceDate}</div>
               <div><strong>Payment Terms:</strong> {printInvoiceItem.paymentTerms || 'net 30'}</div>
               <div><strong>Due Date:</strong> {printInvoiceItem.dueDate || 'Immediate'}</div>
-              <div><strong>Originating SOC #:</strong> <span style={{ fontWeight: 700 }}>{printInvoiceItem.salesOrder?.orderNumber || 'Direct Order'}</span></div>
-              <div><strong>Delivery Note #:</strong> {printInvoiceItem.relatedDelivery?.deliveryNumber || 'Direct Dispatch'}</div>
+              <div><strong>Originating SOC #:</strong> <span style={{ fontWeight: 700 }}>{printInvoiceItem.socNumber || printInvoiceItem.salesOrder?.orderNumber || 'Direct Order'}</span></div>
+              <div><strong>Delivery Note #:</strong> {printInvoiceItem.deliveryNumber || printInvoiceItem.relatedDelivery?.deliveryNumber || 'Direct Dispatch'}</div>
+              <div><strong>Gate Pass #:</strong> {printInvoiceItem.gatePassNumber || printInvoiceItem.relatedDelivery?.gatePassNumber || '-'}</div>
             </div>
 
             <div className="pwi-print-box">
@@ -2305,13 +2880,13 @@ const SalesInvoiceManagement: React.FC = () => {
             <thead>
               <tr>
                 <th style={{ width: 30, textAlign: 'center' }}>Sr</th>
+                <th style={{ width: 120, textAlign: 'left' }}>Item Code</th>
                 <th style={{ textAlign: 'left' }}>Description of Goods / Specifications</th>
-                <th style={{ width: 80, textAlign: 'left' }}>HSN Code</th>
                 <th style={{ width: 55, textAlign: 'right' }}>Qty</th>
                 <th style={{ width: 45, textAlign: 'center' }}>UOM</th>
                 <th style={{ width: 80, textAlign: 'right' }}>Rate (PKR)</th>
                 <th style={{ width: 90, textAlign: 'right' }}>Taxable Value</th>
-                <th style={{ width: 70, textAlign: 'right' }}>GST 18%</th>
+                <th style={{ width: 70, textAlign: 'right' }}>Tax</th>
                 <th style={{ width: 95, textAlign: 'right' }}>Total (PKR)</th>
               </tr>
             </thead>
@@ -2319,14 +2894,14 @@ const SalesInvoiceManagement: React.FC = () => {
               {(printInvoiceItem.items || []).map((it: any, idx: number) => (
                 <tr key={it.id || idx}>
                   <td style={{ textAlign: 'center' }}>{idx + 1}</td>
+                  <td style={{ fontFamily: 'monospace', fontWeight: 700, color: '#c2410c' }}>{it.itemCode || '-'}</td>
                   <td><strong>{it.product || it.description}</strong></td>
-                  <td>{it.hsnCode || '7217.10'}</td>
                   <td style={{ textAlign: 'right' }}>{it.quantity}</td>
-                  <td style={{ textAlign: 'center' }}>{it.uom || 'PCS'}</td>
+                  <td style={{ textAlign: 'center' }}>{it.uom || 'GRS'}</td>
                   <td style={{ textAlign: 'right' }}>{formatDecimal(it.rate)}</td>
-                  <td style={{ textAlign: 'right' }}>{formatDecimal(it.taxableAmount || (it.quantity * it.rate))}</td>
-                  <td style={{ textAlign: 'right' }}>{formatDecimal(it.gstAmount || it.taxAmount || 0)}</td>
-                  <td style={{ textAlign: 'right', fontWeight: 700 }}>{formatDecimal(it.amount || it.lineTotal)}</td>
+                  <td style={{ textAlign: 'right' }}>{formatDecimal(it.taxableAmount ?? (it.quantity * it.rate))}</td>
+                  <td style={{ textAlign: 'right' }}>{formatDecimal(it.gstAmount ?? it.taxAmount ?? 0)}</td>
+                  <td style={{ textAlign: 'right', fontWeight: 700 }}>{formatDecimal(it.amount ?? it.lineTotal)}</td>
                 </tr>
               ))}
             </tbody>

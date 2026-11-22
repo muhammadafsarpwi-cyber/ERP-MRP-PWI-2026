@@ -1,6 +1,6 @@
 import {
   Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpCode, HttpStatus,
-  UseGuards, Request,
+  UseGuards, Request, Inject, Optional, forwardRef,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { CustomerService } from '../services/customer.service';
@@ -9,6 +9,8 @@ import { CreateCustomerDto, CreateCustomerContactDto, CreateCustomerAddressDto }
 import { CustomerDocumentType } from '../entities';
 import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
+import { CustomerReceiptService } from '../../sales/services/customer-receipt.service';
+import { CustomerCreditService } from '../../sales/services/customer-credit.service';
 
 @ApiTags('customer/customers')
 @Controller('customer/customers')
@@ -18,6 +20,12 @@ export class CustomerController {
   constructor(
     private readonly customerService: CustomerService,
     private readonly ledgerService: CustomerLedgerService,
+    @Optional()
+    @Inject(forwardRef(() => CustomerReceiptService))
+    private readonly receiptService?: CustomerReceiptService,
+    @Optional()
+    @Inject(forwardRef(() => CustomerCreditService))
+    private readonly creditService?: CustomerCreditService,
   ) {}
 
   @Post()
@@ -179,6 +187,7 @@ export class CustomerController {
     @Query('fromDate') fromDate?: string,
     @Query('toDate') toDate?: string,
     @Query('documentType') documentType?: any,
+    @Query('divisionId') divisionId?: string,
     @Request() req?: any,
   ) {
     const customer = await this.customerService.findOne(id);
@@ -187,6 +196,7 @@ export class CustomerController {
       fromDate,
       toDate,
       documentType,
+      divisionId,
     });
     return { success: true, data: statement };
   }
@@ -201,6 +211,8 @@ export class CustomerController {
     @Query('fromDate') fromDate?: string,
     @Query('toDate') toDate?: string,
     @Query('documentType') documentType?: any,
+    @Query('divisionId') divisionId?: string,
+    @Query('search') search?: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
     @Request() req?: any,
@@ -211,10 +223,56 @@ export class CustomerController {
       fromDate,
       toDate,
       documentType,
+      divisionId,
+      search,
       page: Number(page) || 1,
-      limit: Number(limit) || 50,
+      limit: Number(limit) || 100,
     });
     return { success: true, ...ledger };
+  }
+
+  @Get(':id/aging')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('customer.customer.view')
+  @ApiOperation({ summary: 'Get customer 5-bucket AR aging breakdown' })
+  async getAging(@Param('id') id: string, @Request() req?: any) {
+    const customer = await this.customerService.findOne(id);
+    const companyId = customer.companyId || req?.user?.defaultCompanyId;
+    const aging = await this.ledgerService.getAgingAnalysis(id, companyId);
+    return { success: true, data: aging };
+  }
+
+  @Get(':id/credit-status')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('customer.customer.view')
+  @ApiOperation({ summary: 'Evaluate live customer credit policy & exposure' })
+  async getCreditStatus(
+    @Param('id') id: string,
+    @Query('proposedAmount') proposedAmount?: number,
+    @Request() req?: any,
+  ) {
+    const customer = await this.customerService.findOne(id);
+    const companyId = customer.companyId || req?.user?.defaultCompanyId;
+    if (this.creditService) {
+      const data = await this.creditService.evaluatePolicy(companyId, id, Number(proposedAmount) || 0);
+      return { success: true, data };
+    }
+    const summary = await this.ledgerService.getSummary(id, companyId);
+    return {
+      success: true,
+      data: {
+        customerId: id,
+        customerCode: customer.customerCode,
+        customerName: customer.name,
+        creditHold: Boolean(customer.creditHold),
+        creditHoldReason: customer.creditHoldReason || null,
+        creditLimit: Number(customer.creditLimit) || 0,
+        creditDays: Number(customer.creditDays) || 0,
+        paymentTerms: summary.paymentTerms,
+        currentBalance: summary.netReceivableBalance,
+        allowedWithoutOverride: !customer.creditHold,
+      },
+    };
   }
 
   @Get(':id/ledger/summary')
@@ -253,14 +311,78 @@ export class CustomerController {
   @Post(':id/ledger/payment')
   @UseGuards(PermissionGuard)
   @RequirePermission('customer.customer.update')
-  @ApiOperation({ summary: 'Record customer payment against invoices / ledger' })
+  @ApiOperation({ summary: 'Record customer payment / advance via unified Receipt & Allocation engine' })
   async recordPayment(
     @Param('id') id: string,
-    @Body() body: { amount: number; paymentDate?: string; paymentMethod?: string; reference?: string; notes?: string },
+    @Body() body: {
+      amount: number;
+      paymentDate?: string;
+      receiptDate?: string;
+      paymentMethod?: string;
+      paymentMode?: string;
+      receiptType?: string;
+      bankAccountId?: string;
+      bankName?: string;
+      chequeNumber?: string;
+      chequeDate?: string;
+      clearanceStatus?: string;
+      divisionId?: string;
+      salesOrderId?: string;
+      socNumber?: string;
+      poReference?: string;
+      autoAllocate?: boolean;
+      allocations?: Array<{ salesInvoiceId: string; allocatedAmount: number }>;
+      reference?: string;
+      referenceNo?: string;
+      notes?: string;
+      remarks?: string;
+    },
     @Request() req: any,
   ) {
     const customer = await this.customerService.findOne(id);
     const companyId = customer.companyId || req?.user?.defaultCompanyId;
+    const userId = req.user?.id;
+
+    if (this.receiptService) {
+      const rawMode = String(body.paymentMode || body.paymentMethod || 'BANK_TRANSFER').toUpperCase();
+      const normalizedMode = rawMode.includes('CASH')
+        ? 'CASH'
+        : rawMode.includes('CHEQUE') || rawMode.includes('CHQ')
+        ? 'CHEQUE'
+        : rawMode.includes('ONLINE') || rawMode.includes('PAYORDER')
+        ? 'ONLINE'
+        : rawMode.includes('BANK')
+        ? 'BANK_TRANSFER'
+        : 'OTHER';
+
+      const receipt = await this.receiptService.createReceipt(
+        {
+          companyId,
+          customerId: id,
+          divisionId: body.divisionId || customer.divisionId || undefined,
+          receiptDate: body.receiptDate || (body.paymentDate ? String(body.paymentDate).slice(0, 10) : undefined),
+          salesOrderId: body.salesOrderId,
+          socNumber: body.socNumber,
+          poReference: body.poReference,
+          receiptType: body.receiptType,
+          paymentMode: normalizedMode,
+          bankAccountId: body.bankAccountId,
+          bankName: body.bankName,
+          chequeNumber: body.chequeNumber,
+          chequeDate: body.chequeDate,
+          clearanceStatus: body.clearanceStatus,
+          amount: Number(body.amount) || 0,
+          referenceNo: body.referenceNo || body.reference,
+          remarks: body.remarks || body.notes,
+          autoAllocate: body.autoAllocate,
+          allocations: body.allocations,
+        },
+        userId,
+        companyId,
+      );
+      return { success: true, data: receipt, message: `Receipt ${receipt.receiptNumber} recorded successfully` };
+    }
+
     const docNum = `PAY-${Date.now().toString().slice(-6)}`;
     const entry = await this.ledgerService.recordEntry(
       companyId,
@@ -276,7 +398,7 @@ export class CustomerController {
         notes: body.notes || 'Recorded from Customer 360 View',
         status: 'POSTED',
       },
-      req.user?.id,
+      userId,
     );
     return { success: true, data: entry, message: 'Payment recorded successfully' };
   }

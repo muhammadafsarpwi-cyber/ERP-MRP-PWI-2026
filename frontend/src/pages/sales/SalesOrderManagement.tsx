@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Table, Button, Form, Input, Select, App,
+  Alert, Table, Button, Form, Input, Select, App,
   InputNumber, Row, Col, Descriptions, Divider, Tooltip, Tag, Modal, Badge, Checkbox, theme,
 } from 'antd';
 import {
@@ -344,6 +344,31 @@ const SalesOrderManagement: React.FC = () => {
   const watchedDeliveryDate = Form.useWatch('deliveryDate', form);
   const watchedOrderDate = Form.useWatch('orderDate', form);
   const watchedSocNumber = Form.useWatch('socNumber', form);
+  const [customerCreditStatus, setCustomerCreditStatus] = useState<any>(null);
+  const [creditOverrideModal, setCreditOverrideModal] = useState<{
+    open: boolean;
+    policy?: any;
+    message?: string;
+    mode: 'save' | 'action';
+    saveValues?: any;
+    actionId?: string;
+    actionName?: string;
+  } | null>(null);
+  const [creditOverrideReason, setCreditOverrideReason] = useState('');
+
+  useEffect(() => {
+    if (!modalVisible || !selectedCustomerId) {
+      setCustomerCreditStatus(null);
+      return;
+    }
+    const orderEstTotal = lineItems.reduce((s, l) => s + (Number((l as any).lineTotal) || Number(l.quantity || 0) * Number((l as any).unitPrice || 0)), 0);
+    apiService
+      .get<any>(`/sales/receipts/customer/${selectedCustomerId}/credit-status`, {
+        proposedAmount: Math.round(orderEstTotal * 100) / 100,
+      })
+      .then((res) => setCustomerCreditStatus(res?.data || res))
+      .catch(() => setCustomerCreditStatus(null));
+  }, [modalVisible, selectedCustomerId, lineItems]);
 
   // Downstream Workflow: Delivery / Loading Advice Modal State
   interface DeliveryLineItem {
@@ -910,7 +935,7 @@ const SalesOrderManagement: React.FC = () => {
     }
   };
 
-  const executeOrderSave = async (values: any) => {
+  const executeOrderSave = async (values: any, overrideOptions?: { creditOverride?: boolean; creditOverrideReason?: string }) => {
     setConfirmOrderVisible(false);
     setSaveResultOpen(true);
     setSaveResultPhase('loading');
@@ -922,7 +947,10 @@ const SalesOrderManagement: React.FC = () => {
     const diffs = isEdit ? computeOrderChanges(editingItem, values, lineItems, customers, divisions) : [];
 
     try {
-      const payload = buildSalesOrderPayload(values, lineItems, editingItem?.orderNumber);
+      const payload = {
+        ...buildSalesOrderPayload(values, lineItems, editingItem?.orderNumber),
+        ...(overrideOptions?.creditOverride ? overrideOptions : {}),
+      };
       let res: any;
       if (isEdit && editingItem) {
         res = await apiService.patch(`/sales/orders/${editingItem.id}`, payload);
@@ -971,20 +999,33 @@ const SalesOrderManagement: React.FC = () => {
       setEditingItem(null);
       fetchData(page, pageSize);
     } catch (error) {
-      const msg: any = (error as any)?.response?.data?.message || (error as any)?.message || 'Failed to save order';
+      const errData: any = (error as any)?.response?.data;
+      if (errData?.code === 'CREDIT_POLICY_VIOLATION') {
+        setSaveResultOpen(false);
+        setCreditOverrideReason('');
+        setCreditOverrideModal({
+          open: true,
+          policy: errData.policy,
+          message: errData.message,
+          mode: 'save',
+          saveValues: values,
+        });
+        return;
+      }
+      const msg: any = errData?.message || (error as any)?.message || 'Failed to save order';
       setSaveResultPhase('error');
       setSaveResultError(Array.isArray(msg) ? msg.join(', ') : msg);
       setSaveResultRetry(() => () => executeOrderSave(values));
     }
   };
 
-  const handleAction = async (id: string, action: string) => {
+  const handleAction = async (id: string, action: string, overrideOptions?: { creditOverride?: boolean; creditOverrideReason?: string }) => {
     setSaveResultOpen(true);
     setSaveResultPhase('loading');
     setSaveResultError(undefined);
 
     try {
-      await apiService.patch(`/sales/orders/${id}/${action}`);
+      await apiService.patch(`/sales/orders/${id}/${action}`, overrideOptions || {});
       setSaveResultPhase('success');
       setSaveResultSuccessTitle(`Order ${action.toUpperCase()} Successfully`);
       setSaveResultData({
@@ -996,7 +1037,21 @@ const SalesOrderManagement: React.FC = () => {
       });
       fetchData(page, pageSize);
     } catch (err: any) {
-      const msg = err?.response?.data?.message || err?.message || `Failed to ${action} order`;
+      const errData = err?.response?.data;
+      if (errData?.code === 'CREDIT_POLICY_VIOLATION') {
+        setSaveResultOpen(false);
+        setCreditOverrideReason('');
+        setCreditOverrideModal({
+          open: true,
+          policy: errData.policy,
+          message: errData.message,
+          mode: 'action',
+          actionId: id,
+          actionName: action,
+        });
+        return;
+      }
+      const msg = errData?.message || err?.message || `Failed to ${action} order`;
       setSaveResultPhase('error');
       setSaveResultError(Array.isArray(msg) ? msg.join(', ') : msg);
       setSaveResultRetry(() => () => handleAction(id, action));
@@ -2736,6 +2791,20 @@ const SalesOrderManagement: React.FC = () => {
                               <UserOutlined style={{ marginRight: 5 }} />
                               {custObj?.companyName || custObj?.name || 'Customer Selected'}
                             </div>
+                            {customerCreditStatus && (
+                              <div style={{ marginTop: 6, fontSize: 11, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                                <Tag color={customerCreditStatus.creditHold ? 'red' : customerCreditStatus.exceedsCreditLimit ? 'orange' : 'blue'} style={{ margin: 0 }}>
+                                  Limit: {customerCreditStatus.creditLimit > 0 ? `Rs ${formatDecimal(customerCreditStatus.creditLimit)}` : 'Unlimited'}
+                                </Tag>
+                                <Tag color={customerCreditStatus.currentBalance > 0 ? 'volcano' : 'green'} style={{ margin: 0 }}>
+                                  Bal: Rs {formatDecimal(Math.abs(customerCreditStatus.currentBalance || 0))} {customerCreditStatus.currentBalance > 0 ? 'DR' : ''}
+                                </Tag>
+                                <Tag color="geekblue" style={{ margin: 0 }}>
+                                  {customerCreditStatus.paymentTerms || 'Cash / Immediate'}
+                                </Tag>
+                                {customerCreditStatus.creditHold && <Tag color="error" style={{ margin: 0 }}>CREDIT HOLD</Tag>}
+                              </div>
+                            )}
                           </div>
                         );
                       })()
@@ -3881,6 +3950,59 @@ const SalesOrderManagement: React.FC = () => {
         onRetry={saveResultRetry}
         onClose={() => setSaveResultOpen(false)}
       />
+
+      {/* Credit Policy Override Modal */}
+      <Modal
+        title="Credit Policy Check — Authorized Override Required"
+        open={Boolean(creditOverrideModal?.open)}
+        zIndex={2600}
+        onCancel={() => setCreditOverrideModal(null)}
+        okText="Proceed with Authorized Override"
+        okButtonProps={{ danger: true }}
+        onOk={() => {
+          if (!creditOverrideReason.trim() || creditOverrideReason.trim().length < 3) {
+            message.error('Please enter an explicit override authorization reason (min 3 characters)');
+            return;
+          }
+          const ctx = creditOverrideModal;
+          setCreditOverrideModal(null);
+          if (ctx?.mode === 'save' && ctx.saveValues) {
+            void executeOrderSave(ctx.saveValues, {
+              creditOverride: true,
+              creditOverrideReason: creditOverrideReason.trim(),
+            });
+          } else if (ctx?.mode === 'action' && ctx.actionId && ctx.actionName) {
+            void handleAction(ctx.actionId, ctx.actionName, {
+              creditOverride: true,
+              creditOverrideReason: creditOverrideReason.trim(),
+            });
+          }
+        }}
+      >
+        {creditOverrideModal && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <Alert type="error" showIcon message={creditOverrideModal.message || 'Credit Policy Violation'} />
+            {creditOverrideModal.policy && (
+              <Descriptions bordered size="small" column={2}>
+                <Descriptions.Item label="Customer">{creditOverrideModal.policy.customerName}</Descriptions.Item>
+                <Descriptions.Item label="Payment Terms">{creditOverrideModal.policy.paymentTerms}</Descriptions.Item>
+                <Descriptions.Item label="Credit Limit">Rs {formatDecimal(creditOverrideModal.policy.creditLimit || 0)}</Descriptions.Item>
+                <Descriptions.Item label="Current Receivable">Rs {formatDecimal(creditOverrideModal.policy.currentBalance || 0)}</Descriptions.Item>
+                <Descriptions.Item label="Document Amount">Rs {formatDecimal(creditOverrideModal.policy.proposedAmount || 0)}</Descriptions.Item>
+                <Descriptions.Item label="Projected Exposure">
+                  <strong style={{ color: '#dc2626' }}>Rs {formatDecimal(creditOverrideModal.policy.projectedBalance || 0)}</strong>
+                </Descriptions.Item>
+              </Descriptions>
+            )}
+            <Input.TextArea
+              rows={3}
+              placeholder="Enter authorized finance/director approval note (recorded permanently in Order Audit Notes)..."
+              value={creditOverrideReason}
+              onChange={(e) => setCreditOverrideReason(e.target.value)}
+            />
+          </div>
+        )}
+      </Modal>
     </div>
   );
 };

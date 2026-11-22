@@ -10,6 +10,7 @@ import { PermissionModule } from '../permission/permission.module';
 import { UserModule } from '../user/user.module';
 import { NotificationsModule } from '../notification/notification.module';
 import { BarcodeModule } from '../barcode/barcode.module';
+import { SalesModule } from '../sales/sales.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { BarcodeModule } from '../barcode/barcode.module';
     forwardRef(() => UserModule),
     NotificationsModule,
     forwardRef(() => BarcodeModule),
+    forwardRef(() => SalesModule),
   ],
   controllers: [CustomerController],
   providers: [CustomerService, CustomerLedgerService, CustomerDemoSeederService],

@@ -77,9 +77,29 @@ export class CustomerService implements OnModuleInit {
           "notes" text,
           CONSTRAINT "fk_customer_ledger_customer" FOREIGN KEY ("customer_id") REFERENCES "customers"("id") ON DELETE RESTRICT
         );
+        ALTER TABLE "customer_ledger" ADD COLUMN IF NOT EXISTS "division_id" uuid;
+        ALTER TABLE "customer_ledger" ADD COLUMN IF NOT EXISTS "sales_order_id" uuid;
+        ALTER TABLE "customer_ledger" ADD COLUMN IF NOT EXISTS "soc_number" varchar(60);
+        ALTER TABLE "customer_ledger" ADD COLUMN IF NOT EXISTS "po_reference" varchar(100);
+        ALTER TABLE "customer_ledger" ADD COLUMN IF NOT EXISTS "payment_mode" varchar(30);
+        ALTER TABLE "customer_ledger" ADD COLUMN IF NOT EXISTS "receipt_id" uuid;
+        ALTER TABLE "customer_ledger" ADD COLUMN IF NOT EXISTS "sales_invoice_id" uuid;
         CREATE INDEX IF NOT EXISTS "idx_customer_ledger_company_customer" ON "customer_ledger"("company_id", "customer_id", "transaction_date");
+        CREATE INDEX IF NOT EXISTS "idx_customer_ledger_invoice" ON "customer_ledger"("sales_invoice_id");
+        CREATE INDEX IF NOT EXISTS "idx_customer_ledger_receipt" ON "customer_ledger"("receipt_id");
+
+        CREATE SCHEMA IF NOT EXISTS erp_sales;
+        ALTER TABLE erp_sales.customers ADD COLUMN IF NOT EXISTS division_id uuid;
+        ALTER TABLE erp_sales.customers ADD COLUMN IF NOT EXISTS credit_limit numeric(15,2) DEFAULT 0;
+        ALTER TABLE erp_sales.customers ADD COLUMN IF NOT EXISTS credit_days integer DEFAULT 0;
+        ALTER TABLE erp_sales.customers ADD COLUMN IF NOT EXISTS payment_terms varchar(50);
+        ALTER TABLE erp_sales.customers ADD COLUMN IF NOT EXISTS opening_balance numeric(15,4) DEFAULT 0;
+        ALTER TABLE erp_sales.customers ADD COLUMN IF NOT EXISTS opening_balance_type varchar(10) DEFAULT 'DEBIT';
+        ALTER TABLE erp_sales.customers ADD COLUMN IF NOT EXISTS credit_hold boolean DEFAULT false;
+        ALTER TABLE erp_sales.customers ADD COLUMN IF NOT EXISTS credit_hold_reason text;
       `);
-      this.logger.log('Customer master and ledger database schema verified successfully.');
+      await this.syncAllSalesCustomers();
+      this.logger.log('Customer master, synced sales customers, and ledger database schema verified successfully.');
       // Auto demo seeding disabled to keep only genuine PWI business customers
     } catch (err) {
       this.logger.warn(`Customer master schema init error: ${err}`);
@@ -138,11 +158,41 @@ export class CustomerService implements OnModuleInit {
     return `CUS-${abbr}-${String(nextNum).padStart(3, '0')}`;
   }
 
+  private inferCreditDays(paymentTerms?: string | null, creditDays?: number | null): number {
+    if (creditDays !== undefined && creditDays !== null && Number(creditDays) >= 0) {
+      const n = Math.round(Number(creditDays));
+      if (n > 0) return n;
+    }
+    const raw = String(paymentTerms || '').trim().toLowerCase();
+    if (!raw || raw.includes('cash') || raw.includes('immediate') || raw.includes('advance') || raw.includes('bill-to-bill')) {
+      return 0;
+    }
+    const m = raw.match(/(\d+)/);
+    return m?.[1] ? Math.max(0, Number(m[1])) : 0;
+  }
+
+  async syncAllSalesCustomers(): Promise<void> {
+    try {
+      const allCustomers = await this.repo.find();
+      for (const c of allCustomers) {
+        await this.syncSalesCustomer(c);
+      }
+    } catch (err) {
+      this.logger.warn(`Failed initial bulk sync of erp_sales.customers: ${err}`);
+    }
+  }
+
   private async syncSalesCustomer(saved: Customer): Promise<void> {
     try {
+      const normalizedDays = this.inferCreditDays(saved.paymentTerms, saved.creditDays);
       await this.repo.manager.query(
-        `INSERT INTO erp_sales.customers (id, company_id, customer_code, company_name, contact_person, email, phone, division_id, status, is_active, currency)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        `INSERT INTO erp_sales.customers (
+           id, company_id, customer_code, company_name, contact_person, email, phone,
+           division_id, tax_id, credit_limit, credit_days, payment_terms,
+           opening_balance, opening_balance_type, credit_hold, credit_hold_reason,
+           status, is_active, currency
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
          ON CONFLICT (id) DO UPDATE SET
            customer_code = EXCLUDED.customer_code,
            company_name = EXCLUDED.company_name,
@@ -150,6 +200,15 @@ export class CustomerService implements OnModuleInit {
            email = EXCLUDED.email,
            phone = EXCLUDED.phone,
            division_id = EXCLUDED.division_id,
+           tax_id = EXCLUDED.tax_id,
+           credit_limit = EXCLUDED.credit_limit,
+           credit_days = EXCLUDED.credit_days,
+           payment_terms = EXCLUDED.payment_terms,
+           opening_balance = EXCLUDED.opening_balance,
+           opening_balance_type = EXCLUDED.opening_balance_type,
+           credit_hold = EXCLUDED.credit_hold,
+           credit_hold_reason = EXCLUDED.credit_hold_reason,
+           currency = EXCLUDED.currency,
            status = EXCLUDED.status,
            is_active = EXCLUDED.is_active`,
         [
@@ -161,6 +220,14 @@ export class CustomerService implements OnModuleInit {
           saved.email || null,
           saved.phone || null,
           saved.divisionId || null,
+          saved.taxNumber || null,
+          Number(saved.creditLimit) || 0,
+          normalizedDays,
+          saved.paymentTerms || null,
+          Number(saved.openingBalance) || 0,
+          saved.openingBalanceType || 'DEBIT',
+          Boolean(saved.creditHold),
+          saved.creditHoldReason || null,
           saved.status || 'Active',
           saved.isActive !== false,
           saved.currencyCode || 'PKR',
@@ -355,6 +422,7 @@ export class CustomerService implements OnModuleInit {
       const total = allMatched.length;
       const start = (page - 1) * limit;
       const data = allMatched.slice(start, start + limit);
+      await this.enrichLiveFinancialStats(data);
       return { data, total };
     }
 
@@ -362,7 +430,67 @@ export class CustomerService implements OnModuleInit {
     qb.skip((page - 1) * limit).take(limit);
 
     const [data, total] = await qb.getManyAndCount();
+    await this.enrichLiveFinancialStats(data);
     return { data, total };
+  }
+
+  private async enrichLiveFinancialStats(customers: Customer[]): Promise<void> {
+    if (!customers?.length || typeof this.repo.manager?.query !== 'function') return;
+    try {
+      const ids = customers.map((c) => c.id);
+      const [ledgerRows, advanceRows, invRows]: [any[], any[], any[]] = await Promise.all([
+        this.repo.manager.query(
+          `SELECT customer_id,
+                  COALESCE(SUM(debit), 0) AS total_debit,
+                  COALESCE(SUM(credit), 0) AS total_credit
+           FROM public.customer_ledger
+           WHERE customer_id = ANY($1::uuid[])
+           GROUP BY customer_id`,
+          [ids],
+        ).catch(() => []),
+        this.repo.manager.query(
+          `SELECT customer_id,
+                  COALESCE(SUM(unallocated_advance_amount), 0) AS unallocated_advance
+           FROM erp_sales.customer_receipts
+           WHERE customer_id = ANY($1::uuid[])
+             AND deleted_at IS NULL
+             AND status = 'POSTED'
+             AND COALESCE(clearance_status, 'CLEARED') <> 'BOUNCED'
+           GROUP BY customer_id`,
+          [ids],
+        ).catch(() => []),
+        this.repo.manager.query(
+          `SELECT customer_id,
+                  COUNT(*)::int AS open_invoices_count,
+                  COALESCE(SUM(balance), 0) AS open_invoices_balance
+           FROM erp_sales.sales_invoices
+           WHERE customer_id = ANY($1::uuid[])
+             AND deleted_at IS NULL
+             AND LOWER(COALESCE(status, 'pending')) <> 'cancelled'
+             AND COALESCE(balance, 0) > 0
+           GROUP BY customer_id`,
+          [ids],
+        ).catch(() => []),
+      ]);
+
+      const ledgerMap = new Map((ledgerRows || []).map((r: any) => [r.customer_id, r]));
+      const advMap = new Map((advanceRows || []).map((r: any) => [r.customer_id, Number(r.unallocated_advance) || 0]));
+      const invMap = new Map((invRows || []).map((r: any) => [r.customer_id, r]));
+
+      for (const c of customers as any[]) {
+        const led = ledgerMap.get(c.id);
+        const adv = advMap.get(c.id) || 0;
+        const inv = invMap.get(c.id);
+        const debit = led ? Number(led.total_debit) || 0 : 0;
+        const credit = led ? Number(led.total_credit) || 0 : 0;
+        c.currentBalance = Math.round((debit - credit) * 100) / 100;
+        c.unadjustedAdvanceBalance = Math.round(adv * 100) / 100;
+        c.openInvoicesCount = inv ? Number(inv.open_invoices_count) || 0 : 0;
+        c.openInvoicesBalance = inv ? Number(inv.open_invoices_balance) || 0 : 0;
+      }
+    } catch {
+      // Non-fatal in unit tests or pre-migration state
+    }
   }
 
   async findOne(id: string): Promise<Customer> {
@@ -449,7 +577,9 @@ export class CustomerService implements OnModuleInit {
     customer.status = 'ACTIVE';
     customer.isActive = true;
     customer.updatedBy = userId || null;
-    return this.repo.save(customer);
+    const saved = await this.repo.save(customer);
+    await this.syncSalesCustomer(saved);
+    return saved;
   }
 
   async deactivate(id: string, userId?: string): Promise<Customer> {
@@ -457,7 +587,9 @@ export class CustomerService implements OnModuleInit {
     customer.status = 'INACTIVE';
     customer.isActive = false;
     customer.updatedBy = userId || null;
-    return this.repo.save(customer);
+    const saved = await this.repo.save(customer);
+    await this.syncSalesCustomer(saved);
+    return saved;
   }
 
   async seedDemo(companyId: string, userId?: string): Promise<Customer[]> {

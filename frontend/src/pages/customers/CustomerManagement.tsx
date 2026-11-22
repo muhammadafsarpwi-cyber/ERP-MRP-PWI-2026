@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  Button, Form, Input, Select, App,
+  Button, Card, Form, Input, Select, App, Alert, Statistic,
   InputNumber, Row, Col, Descriptions, DatePicker, Tabs, List, Badge, Tooltip,
   Modal, Space, Table, Switch, Upload, Tag, Empty, Collapse, theme,
 } from 'antd';
@@ -12,7 +12,7 @@ import {
   FileTextOutlined, HomeOutlined, BankOutlined, CheckCircleOutlined,
   BarcodeOutlined, AuditOutlined, InboxOutlined, StopOutlined,
   DollarCircleOutlined, InfoCircleOutlined, HistoryOutlined,
-  GlobalOutlined, SafetyCertificateOutlined,
+  GlobalOutlined, SafetyCertificateOutlined, SwapOutlined, WarningOutlined,
   SaveOutlined, CloseOutlined, CalendarOutlined, SyncOutlined,
   PlusCircleOutlined, ApartmentOutlined, SettingOutlined,
 } from '@ant-design/icons';
@@ -32,7 +32,12 @@ import { TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import { useHeaderActions } from '../../components/layout/headerActionsStore';
 import dayjs from 'dayjs';
 import './CustomerManagement.css';
-import { printCustomerStatementDocument, printInvoiceDocument, printTableList } from '../../utils/printTemplates';
+import {
+  printCustomerStatementDocument,
+  printInvoiceDocument,
+  printPaymentReceiptVoucher,
+  printTableList,
+} from '../../utils/printTemplates';
 import { useUserStore } from '../../store/userStore';
 
 const { TabPane } = Tabs;
@@ -97,6 +102,10 @@ interface Customer {
   leadSource?: string;
   totalOrders: number;
   totalRevenue: number;
+  currentBalance?: number;
+  unadjustedAdvanceBalance?: number;
+  openInvoicesCount?: number;
+  openInvoicesBalance?: number;
   taxNumber?: string;
   registrationNumber?: string;
   status: string;
@@ -156,6 +165,15 @@ interface CustomerLedgerEntry {
   currency: string;
   dueDate?: string;
   paymentTerms?: string;
+  divisionId?: string;
+  divisionName?: string;
+  socNumber?: string;
+  poReference?: string;
+  paymentMode?: string;
+  receiptId?: string;
+  salesInvoiceId?: string;
+  overdueDays?: number;
+  invoiceStatus?: string;
   status: string;
   notes?: string;
 }
@@ -165,12 +183,37 @@ interface CustomerLedgerSummary {
   customerCode: string;
   customerName: string;
   currency: string;
+  openingBalance?: number;
+  totalInvoiced?: number;
+  totalDebitNotes?: number;
+  totalReceiptsAndAdvances?: number;
+  totalReturnsAndCredits?: number;
+  unadjustedAdvanceBalance?: number;
+  netReceivableBalance?: number;
   totalDebit: number;
   totalCredit: number;
   outstandingBalance: number;
   balanceType: 'DEBIT' | 'CREDIT' | 'ZERO';
   lastTransactionDate: string | null;
   transactionCount: number;
+  creditLimit?: number;
+  creditDays?: number;
+  paymentTerms?: string;
+  creditHold?: boolean;
+  creditHoldReason?: string | null;
+  aging?: {
+    current: number;
+    days1to30: number;
+    days31to60: number;
+    days61to90: number;
+    days90Plus: number;
+    totalOpenBalance: number;
+    overdueAmount: number;
+    overdueInvoiceCount: number;
+    openInvoiceCount: number;
+  };
+  openInvoices?: any[];
+  availableAdvances?: any[];
 }
 
 const CUSTOMER_TYPES = [
@@ -192,7 +235,16 @@ const STATUS_OPTIONS = ['ACTIVE', 'INACTIVE', 'SUSPENDED', 'BLACKLISTED', 'LEAD'
 const TAX_STATUS_OPTIONS = ['REGISTERED', 'NON_REGISTERED', 'FILER', 'NON_FILER', 'EXEMPT'];
 const OPENING_BALANCE_TYPES = ['DEBIT', 'CREDIT'];
 const PRICE_LISTS = ['Standard Wholesale', 'Retail Standard', 'Dealer Tier 1', 'Distributor Special', 'Export FOB'];
-const PAYMENT_TERMS_OPTIONS = ['Immediate / Cash', 'Advance Payment', 'NET 15', 'NET 30', 'NET 45', 'NET 60', 'Cash on Delivery'];
+const PAYMENT_TERMS_OPTIONS = [
+  'Cash / Immediate',
+  'Net 7 Days',
+  'Net 15 Days',
+  'Net 30 Days',
+  'Net 60 Days',
+  'Net 90 Days',
+  'Bill-to-Bill',
+  'Advance Payment',
+];
 const ADDRESS_TYPES = ['BILLING', 'SHIPPING', 'OFFICE', 'BOTH'];
 
 const DEFAULT_STATES = [
@@ -267,12 +319,24 @@ const CustomerManagement: React.FC = () => {
   const [customerItems, setCustomerItems] = useState<any[]>([]);
   const [itemsLoading, setItemsLoading] = useState(false);
 
-  // Customer 360 View Tabs & Payment State (Reference Images 2 & 3)
-  const [c360ActiveTab, setC360ActiveTab] = useState<'overview' | 'invoices' | 'payments' | 'returns' | 'products'>('overview');
+  // Customer 360 View Tabs & Payment State
+  const [c360ActiveTab, setC360ActiveTab] = useState<'ledger' | 'overview' | 'invoices' | 'payments' | 'returns' | 'products'>('ledger');
   const [c360SearchText, setC360SearchText] = useState('');
+  const [ledgerDocFilter, setLedgerDocFilter] = useState<string>('ALL');
+  const [ledgerDivisionFilter, setLedgerDivisionFilter] = useState<string | undefined>(undefined);
+  const [ledgerDateRange, setLedgerDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null);
+  const [customerReceipts, setCustomerReceipts] = useState<any[]>([]);
+  const [bankAccounts, setBankAccounts] = useState<any[]>([]);
   const [recordPaymentModalVisible, setRecordPaymentModalVisible] = useState(false);
   const [paymentLoading, setPaymentLoading] = useState(false);
+  const [paymentAllocMap, setPaymentAllocMap] = useState<Record<string, number>>({});
+  const [watchedPayMode, setWatchedPayMode] = useState<string>('BANK_TRANSFER');
+  const [watchedPayAmt, setWatchedPayAmt] = useState<number>(0);
   const [paymentForm] = Form.useForm();
+  const [adjustAdvModalVisible, setAdjustAdvModalVisible] = useState(false);
+  const [adjustAdvAllocMap, setAdjustAdvAllocMap] = useState<Record<string, number>>({});
+  const [adjustAdvNotes, setAdjustAdvNotes] = useState<string>('');
+  const [adjustAdvSubmitting, setAdjustAdvSubmitting] = useState(false);
 
   const [form] = Form.useForm();
   const [contactForm] = Form.useForm();
@@ -406,7 +470,7 @@ const CustomerManagement: React.FC = () => {
       }
       if (filterState) {
         const matchesState = (c.state && c.state.toLowerCase() === filterState.toLowerCase()) ||
-                             (c.city && c.city.toLowerCase() === filterState.toLowerCase());
+          (c.city && c.city.toLowerCase() === filterState.toLowerCase());
         if (!matchesState) return false;
       }
       if (filterBalance) {
@@ -454,11 +518,22 @@ const CustomerManagement: React.FC = () => {
   };
 
   // Fetch Authoritative Customer Ledger
-  const fetchCustomerLedger = useCallback(async (customerId: string) => {
+  const fetchCustomerLedger = useCallback(async (
+    customerId: string,
+    filters?: { fromDate?: string; toDate?: string; documentType?: string; divisionId?: string; search?: string },
+  ) => {
     setLedgerLoading(true);
     try {
+      const params: any = { limit: 500 };
+      if (filters?.fromDate) params.fromDate = filters.fromDate;
+      if (filters?.toDate) params.toDate = filters.toDate;
+      if (filters?.documentType && filters.documentType !== 'ALL') params.documentType = filters.documentType;
+      if (filters?.divisionId) params.divisionId = filters.divisionId;
+      if (filters?.search?.trim()) params.search = filters.search.trim();
+
       const res = await apiService.get<{ data: CustomerLedgerEntry[]; total: number; summary: CustomerLedgerSummary }>(
-        `/customer/customers/${customerId}/ledger`
+        `/customer/customers/${customerId}/ledger`,
+        params,
       );
       setLedgerEntries(res.data || []);
       setLedgerSummary(res.summary || null);
@@ -469,6 +544,19 @@ const CustomerManagement: React.FC = () => {
       setLedgerLoading(false);
     }
   }, []);
+
+  const fetchCustomerReceipts = useCallback(async (customerId: string) => {
+    try {
+      const [recRes, bankRes] = await Promise.all([
+        apiService.get<any>('/sales/receipts', { customerId, limit: 200 }).catch(() => ({ data: [] })),
+        bankAccounts.length === 0 ? apiService.get<any>('/sales/receipts/bank-accounts').catch(() => ({ data: [] })) : Promise.resolve(null),
+      ]);
+      setCustomerReceipts(recRes?.data || []);
+      if (bankRes?.data) setBankAccounts(bankRes.data);
+    } catch {
+      setCustomerReceipts([]);
+    }
+  }, [bankAccounts.length]);
 
   // Fetch Official Customer Statement
   const fetchCustomerStatement = useCallback(async (customerId: string, from?: string, to?: string, docType?: string) => {
@@ -646,7 +734,7 @@ const CustomerManagement: React.FC = () => {
       taxNumber: '',
       openingBalance: 0,
       creditLimit: 0,
-      creditDays: 0,
+      creditDays: 30,
       isActive: true,
       addressLine1: '',
       currencyCode: 'PKR',
@@ -657,11 +745,12 @@ const CustomerManagement: React.FC = () => {
       taxStatus: 'REGISTERED',
       openingBalanceType: 'DEBIT',
       priceList: 'Standard Wholesale',
-      paymentTerms: 'NET 30',
+      paymentTerms: 'Net 30 Days',
       status: 'ACTIVE',
-      city: 'Lahore',
+      city: 'Karachi',
       country: 'Pakistan',
       creditHold: false,
+      creditHoldReason: '',
     });
     setModalVisible(true);
   }, [form, divisions]);
@@ -775,16 +864,25 @@ const CustomerManagement: React.FC = () => {
     setModalVisible(true);
   };
 
-  const handleView = async (record: Customer) => {
+  const handleView = async (
+    record: Customer,
+    initialTab: 'ledger' | 'overview' | 'invoices' | 'payments' | 'returns' | 'products' = 'ledger',
+  ) => {
     try {
       const res = await apiService.get<{ data: Customer }>(`/customer/customers/${record.id}`);
       setSelectedCustomer(res.data);
       setDetailVisible(true);
       setActiveChevron('ALL');
+      setC360ActiveTab(initialTab);
+      setC360SearchText('');
+      setLedgerDocFilter('ALL');
+      setLedgerDivisionFilter(undefined);
+      setLedgerDateRange(null);
       void fetchCustomerLedger(record.id);
       void fetchCustomerStatement(record.id);
       void fetchCustomerItems(record.id);
       void fetchSalesSummary(record.id);
+      void fetchCustomerReceipts(record.id);
     } catch {
       message.error('Failed to load customer details');
     }
@@ -795,9 +893,22 @@ const CustomerManagement: React.FC = () => {
     const state = location.state as any;
     if (state?.entityId || state?.customerId) {
       const custId = state.entityId || state.customerId;
-      handleView({ id: custId } as any);
+      void handleView({ id: custId } as any, 'ledger');
     }
   }, [location.state]);
+
+  // Auto-open Customer 360 & Financial Ledger when deep-linked via /customers?customerId=<id>&tab=ledger
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const qCustomerId = params.get('customerId')?.trim();
+    if (!qCustomerId) return;
+    const rawTab = (params.get('tab') || 'ledger').toLowerCase();
+    const validTabs = ['ledger', 'overview', 'invoices', 'payments', 'returns', 'products'] as const;
+    const targetTab = (validTabs as readonly string[]).includes(rawTab)
+      ? (rawTab as 'ledger' | 'overview' | 'invoices' | 'payments' | 'returns' | 'products')
+      : 'ledger';
+    void handleView({ id: qCustomerId } as any, targetTab);
+  }, [location.search]);
 
   const handleSubmit = async () => {
     try {
@@ -1035,27 +1146,27 @@ const CustomerManagement: React.FC = () => {
                 </Tag>
               )}
             </div>
-          {record.legalName && record.legalName !== record.name && (
-            <div style={{ fontSize: 11, color: '#64748b', fontStyle: 'italic' }}>
-              {record.legalName}
+            {record.legalName && record.legalName !== record.name && (
+              <div style={{ fontSize: 11, color: '#64748b', fontStyle: 'italic' }}>
+                {record.legalName}
+              </div>
+            )}
+            <div className="customer-sub-row">
+              <span className="badge-phone">
+                <PhoneOutlined /> Phone
+              </span>
+              <span className="customer-sub-val">{record.phone || record.mobile || '-'}</span>
             </div>
-          )}
-          <div className="customer-sub-row">
-            <span className="badge-phone">
-              <PhoneOutlined /> Phone
-            </span>
-            <span className="customer-sub-val">{record.phone || record.mobile || '-'}</span>
+            <div className="customer-sub-row">
+              <span className="badge-email">
+                <MailOutlined /> Email
+              </span>
+              <span className="customer-sub-val email-val">{record.email || '-'}</span>
+            </div>
           </div>
-          <div className="customer-sub-row">
-            <span className="badge-email">
-              <MailOutlined /> Email
-            </span>
-            <span className="customer-sub-val email-val">{record.email || '-'}</span>
-          </div>
-        </div>
-      );
+        );
+      },
     },
-  },
     {
       title: 'Division',
       key: 'division',
@@ -1125,13 +1236,13 @@ const CustomerManagement: React.FC = () => {
       title: 'Location & Tax',
       key: 'location',
       render: (_, record) => {
-        const stateName = record.state || record.city || 'Punjab';
+        const stateName = record.state || record.city || '-';
         const gstin = record.salesTaxNumber || record.taxNumber || 'Not Registered';
         return (
           <div className="location-cell-wrapper">
             <div className="location-top-row">
               <span className="badge-state">
-                <EnvironmentOutlined /> State
+                <EnvironmentOutlined /> Region
               </span>
               <span className="location-state-title">{stateName}</span>
             </div>
@@ -1154,10 +1265,13 @@ const CustomerManagement: React.FC = () => {
     {
       title: 'Commercial & Balance',
       key: 'balance',
-      sorter: (a, b) => (Number(a.totalRevenue || a.openingBalance || a.creditLimit || 0)) - (Number(b.totalRevenue || b.openingBalance || b.creditLimit || 0)),
+      sorter: (a, b) =>
+        Number(a.currentBalance ?? a.openingBalance ?? a.creditLimit ?? 0) -
+        Number(b.currentBalance ?? b.openingBalance ?? b.creditLimit ?? 0),
       render: (_, record) => {
-        const balanceDue = record.totalRevenue !== undefined && record.totalRevenue !== null ? record.totalRevenue : 0;
-        const opening = record.openingBalance || 0;
+        const balanceDue = record.currentBalance !== undefined ? Number(record.currentBalance) : 0;
+        const advBal = Number(record.unadjustedAdvanceBalance || 0);
+        const opening = Number(record.openingBalance || 0);
         return (
           <div className="balance-cell-wrapper">
             <div className="balance-row">
@@ -1165,25 +1279,33 @@ const CustomerManagement: React.FC = () => {
                 <WalletOutlined /> Opening
               </span>
               <span className="balance-val-normal">
-                {record.currencyCode || 'PKR'} {formatDecimal(opening)} ({record.openingBalanceType || 'DR'})
+                {record.currencyCode || 'PKR'} {formatDecimal(opening)} ({record.openingBalanceType || 'DEBIT'})
               </span>
             </div>
             <div className="balance-row">
               <span className="badge-balance-due">
-                <ArrowDownOutlined /> Balance Due
+                <ArrowDownOutlined /> Net Balance
               </span>
-              <span className="balance-val-due">
-                {record.currencyCode || 'PKR'} {formatDecimal(balanceDue)}
+              <span className="balance-val-due" style={{ color: balanceDue < 0 ? '#16a34a' : undefined }}>
+                {record.currencyCode || 'PKR'} {formatDecimal(Math.abs(balanceDue))} {balanceDue > 0 ? 'DR' : balanceDue < 0 ? 'CR' : ''}
               </span>
             </div>
             <div className="balance-row">
               <span className="badge-invoices">
-                <DollarCircleOutlined /> Limit
+                <DollarCircleOutlined /> Limit / Terms
               </span>
               <span className="balance-val-invoices">
                 {record.currencyCode || 'PKR'} {formatDecimal(record.creditLimit || 0)}
+                {record.paymentTerms ? ` · ${record.paymentTerms}` : ''}
               </span>
             </div>
+            {advBal > 0 && (
+              <div className="balance-row">
+                <Tag color="blue" style={{ margin: 0, fontSize: 10.5, fontWeight: 700 }}>
+                  Advance: {record.currencyCode || 'PKR'} {formatDecimal(advBal)}
+                </Tag>
+              </div>
+            )}
           </div>
         );
       },
@@ -1404,154 +1526,345 @@ const CustomerManagement: React.FC = () => {
     return { moneyIn, moneyOut, cashInHand, owedToYou, youOwe };
   }, [ledgerSummary, selectedCustomer]);
 
-  // Customer 360 View Calculations (Reference Images 2 & 3)
+  // Live Customer 360 View Calculations (Zero Fake Fallback Data)
   const c360Invoices = useMemo(() => {
-    return ledgerEntries.filter(e => e.documentType === 'SALES_INVOICE' || e.documentType === 'OPENING_BALANCE');
-  }, [ledgerEntries]);
+    const openInvList = ledgerSummary?.openInvoices || [];
+    const openByNo = new Map<string, any>(openInvList.map((o: any) => [o.invoiceNo, o]));
+    const ledgerInvoices = ledgerEntries
+      .filter((e) => e.documentType === 'SALES_INVOICE')
+      .map((e) => {
+        const live = openByNo.get(e.documentNumber);
+        const total = Number(live?.totalAmount ?? e.debit ?? 0);
+        const paid = live ? Number(live.paidAmount || 0) : total;
+        const balance = live ? Number(live.balance || 0) : 0;
+        const dueDate = live?.dueDate || e.dueDate || null;
+        const daysOverdue = live?.daysOverdue ?? e.overdueDays ?? 0;
+        return {
+          id: live?.id || e.salesInvoiceId || e.id,
+          invoiceNo: e.documentNumber,
+          invoiceDate: e.transactionDate,
+          dueDate,
+          paymentTerms: live?.paymentTerms || e.paymentTerms || 'Standard',
+          divisionName: live?.divisionName || e.divisionName || null,
+          socNumber: live?.socNumber || e.socNumber || null,
+          totalAmount: total,
+          paidAmount: paid,
+          balance,
+          daysOverdue,
+          status: live?.status || e.invoiceStatus || (balance <= 0 ? 'Paid' : 'Posted'),
+        };
+      });
+
+    // Include any open invoices not yet posted to ledger
+    for (const oi of openInvList) {
+      if (!ledgerInvoices.some((li) => li.invoiceNo === oi.invoiceNo)) {
+        ledgerInvoices.push({
+          id: oi.id,
+          invoiceNo: oi.invoiceNo,
+          invoiceDate: oi.invoiceDate,
+          dueDate: oi.dueDate,
+          paymentTerms: oi.paymentTerms || 'Standard',
+          divisionName: oi.divisionName || null,
+          socNumber: oi.socNumber || null,
+          totalAmount: Number(oi.totalAmount || 0),
+          paidAmount: Number(oi.paidAmount || 0),
+          balance: Number(oi.balance || 0),
+          daysOverdue: oi.daysOverdue || 0,
+          status: oi.status || 'Pending',
+        });
+      }
+    }
+    return ledgerInvoices;
+  }, [ledgerEntries, ledgerSummary]);
 
   const c360Payments = useMemo(() => {
-    return ledgerEntries.filter(e => e.documentType === 'CUSTOMER_PAYMENT');
-  }, [ledgerEntries]);
+    return customerReceipts.length > 0
+      ? customerReceipts
+      : ledgerEntries.filter((e) => e.documentType === 'CUSTOMER_PAYMENT' || e.documentType === 'ADVANCE_RECEIPT');
+  }, [customerReceipts, ledgerEntries]);
 
   const c360Returns = useMemo(() => {
-    return ledgerEntries.filter(e => e.documentType === 'SALES_RETURN' || e.documentType === 'CREDIT_NOTE');
+    return ledgerEntries.filter((e) => e.documentType === 'SALES_RETURN' || e.documentType === 'CREDIT_NOTE');
   }, [ledgerEntries]);
 
   const c360FilteredInvoices = useMemo(() => {
-    let list: any[] = c360Invoices;
-    if (list.length === 0 && selectedCustomer) {
-      list = [
-        {
-          id: 'demo-inv-0003',
-          customerId: selectedCustomer.id,
-          transactionDate: selectedCustomer.customerSince || '2026-07-30',
-          documentType: 'SALES_INVOICE' as any,
-          documentNumber: 'INV-0003',
-          debit: selectedCustomer.totalRevenue || 1260,
-          credit: 0,
-          runningBalance: selectedCustomer.totalRevenue || 1260,
-          currency: selectedCustomer.currencyCode || 'PKR',
-          status: 'POSTED',
-          createdAt: selectedCustomer.customerSince || '2026-07-30',
-          updatedAt: selectedCustomer.customerSince || '2026-07-30',
-        }
-      ];
-    }
-    if (!c360SearchText) return list;
+    if (!c360SearchText) return c360Invoices;
     const q = c360SearchText.toLowerCase();
-    return list.filter(i => (i.documentNumber || '').toLowerCase().includes(q) || (i.status || '').toLowerCase().includes(q));
-  }, [c360Invoices, c360SearchText, selectedCustomer]);
+    return c360Invoices.filter(
+      (i) =>
+        (i.invoiceNo || '').toLowerCase().includes(q) ||
+        (i.status || '').toLowerCase().includes(q) ||
+        (i.socNumber || '').toLowerCase().includes(q),
+    );
+  }, [c360Invoices, c360SearchText]);
+
+  const c360OpeningBalance = useMemo(() => {
+    return Number(ledgerSummary?.openingBalance ?? selectedCustomer?.openingBalance ?? 0);
+  }, [ledgerSummary, selectedCustomer]);
 
   const c360TotalBilled = useMemo(() => {
-    return c360Invoices.reduce((acc, curr) => acc + (Number(curr.debit) || 0), 0) || (selectedCustomer?.totalRevenue || 1260);
-  }, [c360Invoices, selectedCustomer]);
+    return Number(
+      ledgerSummary?.totalInvoiced ??
+      c360Invoices.reduce((acc, curr) => acc + (Number(curr.totalAmount) || 0), 0),
+    );
+  }, [ledgerSummary, c360Invoices]);
 
   const c360TotalPaid = useMemo(() => {
-    return c360Payments.reduce((acc, curr) => acc + (Number(curr.credit) || 0), 0);
-  }, [c360Payments]);
+    return Number(ledgerSummary?.totalReceiptsAndAdvances ?? 0);
+  }, [ledgerSummary]);
+
+  const c360UnadjustedAdvance = useMemo(() => {
+    return Number(ledgerSummary?.unadjustedAdvanceBalance ?? selectedCustomer?.unadjustedAdvanceBalance ?? 0);
+  }, [ledgerSummary, selectedCustomer]);
 
   const c360BalanceDue = useMemo(() => {
-    if (selectedCustomer?.totalRevenue !== undefined && selectedCustomer?.totalRevenue !== null) {
-      return Number(selectedCustomer.totalRevenue);
-    }
-    return ledgerSummary?.outstandingBalance ?? (c360TotalBilled - c360TotalPaid);
-  }, [selectedCustomer, ledgerSummary, c360TotalBilled, c360TotalPaid]);
+    return Number(ledgerSummary?.netReceivableBalance ?? ledgerSummary?.outstandingBalance ?? selectedCustomer?.currentBalance ?? 0);
+  }, [ledgerSummary, selectedCustomer]);
+
+  const c360Aging = useMemo(() => {
+    return ledgerSummary?.aging || {
+      current: 0,
+      days1to30: 0,
+      days31to60: 0,
+      days61to90: 0,
+      days90Plus: 0,
+      totalOpenBalance: 0,
+      overdueAmount: 0,
+      overdueInvoiceCount: 0,
+      openInvoiceCount: 0,
+    };
+  }, [ledgerSummary]);
 
   const c360AvgInvoice = useMemo(() => {
-    const count = c360Invoices.length || 1;
-    return c360TotalBilled / count;
+    if (c360Invoices.length === 0) return 0;
+    return c360TotalBilled / c360Invoices.length;
   }, [c360TotalBilled, c360Invoices]);
 
   const c360FirstPurchaseDate = useMemo(() => {
-    if (c360Invoices.length > 0 && c360Invoices[0].transactionDate) {
-      return dayjs(c360Invoices[0].transactionDate).format('MMM DD, YYYY');
+    if (c360Invoices.length > 0 && c360Invoices[0].invoiceDate) {
+      return dayjs(c360Invoices[0].invoiceDate).format('MMM DD, YYYY');
     }
-    return selectedCustomer?.customerSince ? dayjs(selectedCustomer.customerSince).format('MMM DD, YYYY') : 'Jul 30, 2026';
-  }, [c360Invoices, selectedCustomer]);
+    return '—';
+  }, [c360Invoices]);
 
   const c360LastPurchaseDate = useMemo(() => {
-    if (c360Invoices.length > 0 && c360Invoices[c360Invoices.length - 1].transactionDate) {
-      return dayjs(c360Invoices[c360Invoices.length - 1].transactionDate).format('MMM DD, YYYY');
+    if (c360Invoices.length > 0 && c360Invoices[c360Invoices.length - 1].invoiceDate) {
+      return dayjs(c360Invoices[c360Invoices.length - 1].invoiceDate).format('MMM DD, YYYY');
     }
-    return selectedCustomer?.customerSince ? dayjs(selectedCustomer.customerSince).format('MMM DD, YYYY') : 'Jul 30, 2026';
-  }, [c360Invoices, selectedCustomer]);
+    return '—';
+  }, [c360Invoices]);
 
   const c360ActivityItems = useMemo(() => {
-    return ledgerEntries.slice(-5).reverse().map(e => ({
+    return ledgerEntries.slice(-6).reverse().map((e) => ({
       id: e.id,
-      title: `${e.documentType === 'SALES_INVOICE' ? 'Invoice' : e.documentType === 'CUSTOMER_PAYMENT' ? 'Payment' : 'Document'} ${e.documentNumber}`,
+      title: `${String(e.documentType || '').replace(/_/g, ' ')} · ${e.documentNumber}`,
       date: dayjs(e.transactionDate).format('MMM DD, YYYY'),
       amount: Number(e.debit) || Number(e.credit) || 0,
+      isCredit: Number(e.credit) > 0,
       raw: e,
     }));
   }, [ledgerEntries]);
+
+  const openCustomerRecordPayment = async (preselectInvoice?: any) => {
+    if (!selectedCustomer) return;
+    if (bankAccounts.length === 0) {
+      try {
+        const res = await apiService.get<any>('/sales/receipts/bank-accounts');
+        setBankAccounts(res?.data || []);
+      } catch { /* ignore */ }
+    }
+    paymentForm.resetFields();
+    const openList = ledgerSummary?.openInvoices || [];
+    const nextAlloc: Record<string, number> = {};
+    let defaultAmt = c360BalanceDue > 0 ? c360BalanceDue : 0;
+    if (preselectInvoice?.id) {
+      const bal = Number(preselectInvoice.balance || 0);
+      if (bal > 0) {
+        nextAlloc[preselectInvoice.id] = bal;
+        defaultAmt = bal;
+      }
+    } else if (openList.length > 0 && defaultAmt > 0) {
+      let rem = defaultAmt;
+      for (const inv of openList) {
+        if (rem <= 0.005) break;
+        const b = Number(inv.balance || 0);
+        if (b > 0) {
+          const take = Math.round(Math.min(rem, b) * 100) / 100;
+          nextAlloc[inv.id] = take;
+          rem = Math.round((rem - take) * 100) / 100;
+        }
+      }
+    }
+    setPaymentAllocMap(nextAlloc);
+    setWatchedPayMode('BANK_TRANSFER');
+    setWatchedPayAmt(defaultAmt);
+    paymentForm.setFieldsValue({
+      amount: defaultAmt,
+      paymentDate: dayjs(),
+      paymentMethod: 'BANK_TRANSFER',
+      receiptType: openList.length > 0 ? 'INVOICE_PAYMENT' : 'ADVANCE_PAYMENT',
+      clearanceStatus: 'CLEARED',
+      divisionId: selectedCustomer.divisionId || undefined,
+    });
+    setRecordPaymentModalVisible(true);
+  };
 
   const handleRecordPayment = async () => {
     if (!selectedCustomer) return;
     try {
       const values = await paymentForm.validateFields();
+      const allocations = Object.entries(paymentAllocMap)
+        .filter(([, amt]) => Number(amt) > 0)
+        .map(([salesInvoiceId, allocatedAmount]) => ({
+          salesInvoiceId,
+          allocatedAmount: Math.round(Number(allocatedAmount) * 100) / 100,
+        }));
+      const allocSum = allocations.reduce((s, a) => s + a.allocatedAmount, 0);
+      if (allocSum > Number(values.amount) + 0.01) {
+        message.error('Allocated invoice total cannot exceed the received amount');
+        return;
+      }
+
+      setPaymentLoading(true);
       setRecordPaymentModalVisible(false);
       setSaveResultOpen(true);
       setSaveResultPhase('loading');
       setSaveResultError(undefined);
 
-      await apiService.post(`/customer/customers/${selectedCustomer.id}/ledger/payment`, {
+      const res = await apiService.post<any>(`/customer/customers/${selectedCustomer.id}/ledger/payment`, {
         amount: values.amount,
-        paymentDate: values.paymentDate ? values.paymentDate.toISOString() : new Date().toISOString(),
-        paymentMethod: values.paymentMethod || 'Bank Transfer',
-        reference: values.reference || '',
-        notes: values.notes || 'Recorded from Customer 360 View',
+        receiptDate: values.paymentDate ? values.paymentDate.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'),
+        paymentMode: values.paymentMethod || 'BANK_TRANSFER',
+        receiptType: values.receiptType,
+        bankAccountId: values.bankAccountId || undefined,
+        bankName: values.bankName || undefined,
+        chequeNumber: values.chequeNumber || undefined,
+        chequeDate: values.chequeDate ? values.chequeDate.format('YYYY-MM-DD') : undefined,
+        clearanceStatus: values.paymentMethod === 'CHEQUE' ? (values.clearanceStatus || 'CLEARED') : 'CLEARED',
+        divisionId: values.divisionId || selectedCustomer.divisionId || undefined,
+        socNumber: values.socNumber || undefined,
+        poReference: values.poReference || undefined,
+        referenceNo: values.reference || undefined,
+        notes: values.notes || 'Recorded from Customer 360 Ledger',
+        allocations,
       });
+      const receipt = res?.data || res;
       setSaveResultPhase('success');
-      setSaveResultSuccessTitle('Payment Recorded Successfully');
+      setSaveResultSuccessTitle('Receipt Voucher Recorded Successfully');
       setSaveResultData({
-        title: 'Payment Recorded Successfully',
-        message: `Payment of PKR ${Number(values.amount).toLocaleString()} credited to ${selectedCustomer.name}.`,
-        recordType: 'Customer Code',
-        recordCode: selectedCustomer.customerCode,
+        title: `Receipt ${receipt?.receiptNumber || ''} Posted`,
+        message: `Receipt of PKR ${formatDecimal(values.amount)} credited to ${selectedCustomer.name}.`,
+        recordType: 'Voucher #',
+        recordCode: receipt?.receiptNumber || selectedCustomer.customerCode,
         recordName: selectedCustomer.name,
         tags: [
-          { label: `PKR ${Number(values.amount).toLocaleString()}`, color: 'green' },
-          { label: values.paymentMethod || 'Bank Transfer', color: 'blue' },
+          { label: `PKR ${formatDecimal(values.amount)}`, color: 'green' },
+          { label: String(values.paymentMethod || 'BANK_TRANSFER').replace(/_/g, ' '), color: 'blue' },
+          ...(receipt?.unallocatedAdvanceAmount > 0
+            ? [{ label: `Advance: PKR ${formatDecimal(receipt.unallocatedAdvanceAmount)}`, color: 'cyan' as const }]
+            : []),
         ],
       });
       paymentForm.resetFields();
       void fetchCustomerLedger(selectedCustomer.id);
       void fetchCustomerStatement(selectedCustomer.id);
       void fetchSalesSummary(selectedCustomer.id);
+      void fetchCustomerReceipts(selectedCustomer.id);
       fetchCustomers(page, pageSize);
     } catch (err: any) {
       const errMsg = err?.response?.data?.message || err?.message || 'Failed to record payment';
       setSaveResultPhase('error');
       setSaveResultError(Array.isArray(errMsg) ? errMsg.join(', ') : errMsg);
       setSaveResultRetry(() => () => handleRecordPayment());
+    } finally {
+      setPaymentLoading(false);
     }
   };
 
-  const handleExportInvoicesCsv = () => {
-    if (c360FilteredInvoices.length === 0) {
-      message.warning('No invoices to export');
+  const handleOpenAdjustAdvance = () => {
+    setAdjustAdvAllocMap({});
+    setAdjustAdvNotes('');
+    setAdjustAdvModalVisible(true);
+  };
+
+  const handleSubmitAdjustAdvance = async () => {
+    if (!selectedCustomer) return;
+    const invoiceAllocations = Object.entries(adjustAdvAllocMap)
+      .filter(([, amt]) => Number(amt) > 0)
+      .map(([salesInvoiceId, allocatedAmount]) => ({
+        salesInvoiceId,
+        allocatedAmount: Math.round(Number(allocatedAmount) * 100) / 100,
+      }));
+    if (invoiceAllocations.length === 0) {
+      message.error('Please enter adjustment amount on at least one open invoice');
       return;
     }
-    const headers = ['Number', 'Type', 'Date', 'Status', 'Total', 'Paid', 'Due'];
-    const rows = c360FilteredInvoices.map((inv: any) => [
-      `"${inv.documentNumber || 'INV-0003'}"`,
-      `"invoice"`,
-      `"${dayjs(inv.transactionDate).format('YYYY-MM-DD')}"`,
-      `"pending"`,
-      inv.debit || 1260,
-      0,
-      inv.debit || 1260,
+    setAdjustAdvSubmitting(true);
+    try {
+      await apiService.post('/sales/receipts/apply-advance', {
+        customerId: selectedCustomer.id,
+        adjustmentDate: dayjs().format('YYYY-MM-DD'),
+        notes: adjustAdvNotes || undefined,
+        invoiceAllocations,
+      });
+      message.success('Customer advance adjusted against selected invoices');
+      setAdjustAdvModalVisible(false);
+      void fetchCustomerLedger(selectedCustomer.id);
+      void fetchCustomerStatement(selectedCustomer.id);
+      void fetchSalesSummary(selectedCustomer.id);
+      void fetchCustomerReceipts(selectedCustomer.id);
+      fetchCustomers(page, pageSize);
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || err?.message || 'Failed to adjust advance';
+      message.error(Array.isArray(msg) ? msg.join(', ') : msg);
+    } finally {
+      setAdjustAdvSubmitting(false);
+    }
+  };
+
+  const handleExportLedgerCsv = () => {
+    if (ledgerEntries.length === 0) {
+      message.warning('No customer ledger transactions to export');
+      return;
+    }
+    const headers = [
+      'Date',
+      'Document Type',
+      'Voucher / Doc #',
+      'Division',
+      'SOC #',
+      'PO Ref',
+      'Payment Mode',
+      'Reference',
+      'Due Date',
+      'Overdue Days',
+      'Debit (PKR)',
+      'Credit (PKR)',
+      'Running Balance',
+    ];
+    const rows = ledgerEntries.map((e: any) => [
+      `"${dayjs(e.transactionDate).format('YYYY-MM-DD')}"`,
+      `"${String(e.documentType || '').replace(/_/g, ' ')}"`,
+      `"${e.documentNumber || ''}"`,
+      `"${e.divisionName || ''}"`,
+      `"${e.socNumber || ''}"`,
+      `"${e.poReference || ''}"`,
+      `"${e.paymentMode || ''}"`,
+      `"${(e.reference || e.notes || '').replace(/"/g, '""')}"`,
+      `"${e.dueDate ? dayjs(e.dueDate).format('YYYY-MM-DD') : ''}"`,
+      e.overdueDays || 0,
+      e.debit || 0,
+      e.credit || 0,
+      e.runningBalance || 0,
     ]);
-    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-    const encodedUri = encodeURI(csvContent);
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
     const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `customer_invoices_${selectedCustomer?.customerCode || 'export'}.csv`);
+    link.setAttribute('href', encodeURI(csvContent));
+    link.setAttribute('download', `customer_ledger_${selectedCustomer?.customerCode || 'export'}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    message.success('Invoices exported to CSV');
+    message.success('Customer ledger exported to CSV');
   };
 
   // Customer Statement Columns
@@ -2298,34 +2611,31 @@ const CustomerManagement: React.FC = () => {
               </Col>
             </Row>
 
-            {/* Row 3: State (decides the GST split), GSTIN, Opening Balance */}
+            {/* Row 3: Province / Region, NTN / Tax Number, Opening Balance */}
             <Row gutter={[16, 12]}>
               <Col xs={24} sm={12} md={8}>
                 <Form.Item
                   name="state"
                   label={
                     <span className="reference-field-label">
-                      <BankOutlined className="reference-field-icon" /> State (decides the GST split)
+                      <BankOutlined className="reference-field-icon" /> Province / Region
                     </span>
                   }
                 >
                   <Select
-                    placeholder="Select or enter state / region..."
+                    placeholder="Select province / region..."
                     allowClear
                     showSearch
                     optionFilterProp="children"
                   >
-                    <Select.Option value="Punjab">Punjab</Select.Option>
                     <Select.Option value="Sindh">Sindh</Select.Option>
+                    <Select.Option value="Punjab">Punjab</Select.Option>
                     <Select.Option value="Khyber Pakhtunkhwa">Khyber Pakhtunkhwa (KPK)</Select.Option>
                     <Select.Option value="Balochistan">Balochistan</Select.Option>
                     <Select.Option value="Islamabad Capital Territory">Islamabad Capital Territory (ICT)</Select.Option>
                     <Select.Option value="Azad Jammu & Kashmir">Azad Jammu & Kashmir (AJK)</Select.Option>
                     <Select.Option value="Gilgit-Baltistan">Gilgit-Baltistan (GB)</Select.Option>
-                    <Select.Option value="Dubai">Dubai</Select.Option>
-                    <Select.Option value="Abu Dhabi">Abu Dhabi</Select.Option>
-                    <Select.Option value="Sharjah">Sharjah</Select.Option>
-                    <Select.Option value="Other">Other / International</Select.Option>
+                    <Select.Option value="Export / International">Export / International</Select.Option>
                   </Select>
                 </Form.Item>
               </Col>
@@ -2334,11 +2644,11 @@ const CustomerManagement: React.FC = () => {
                   name="taxNumber"
                   label={
                     <span className="reference-field-label">
-                      <AuditOutlined className="reference-field-icon" /> GSTIN
+                      <AuditOutlined className="reference-field-icon" /> NTN / Tax Number
                     </span>
                   }
                 >
-                  <Input placeholder="GSTIN / NTN / Tax ID" />
+                  <Input placeholder="e.g. 0819234-7" />
                 </Form.Item>
               </Col>
               <Col xs={24} sm={12} md={8}>
@@ -2346,7 +2656,7 @@ const CustomerManagement: React.FC = () => {
                   name="openingBalance"
                   label={
                     <span className="reference-field-label">
-                      <WalletOutlined className="reference-field-icon" /> Opening Balance
+                      <WalletOutlined className="reference-field-icon" /> Opening Balance (PKR)
                     </span>
                   }
                   initialValue={0}
@@ -2356,17 +2666,50 @@ const CustomerManagement: React.FC = () => {
               </Col>
             </Row>
 
-            {/* Row 4: Credit Days, Credit Limit, Active Toggle */}
+            {/* Row 4: Payment Terms, Credit Days, Credit Limit */}
             <Row gutter={[16, 12]}>
+              <Col xs={24} sm={12} md={8}>
+                <Form.Item
+                  name="paymentTerms"
+                  label={
+                    <span className="reference-field-label">
+                      <AuditOutlined className="reference-field-icon" /> Payment Terms
+                    </span>
+                  }
+                  initialValue="Net 30 Days"
+                >
+                  <Select
+                    onChange={(val: string) => {
+                      const low = String(val || '').toLowerCase();
+                      const inferred = low.includes('7')
+                        ? 7
+                        : low.includes('15')
+                          ? 15
+                          : low.includes('30')
+                            ? 30
+                            : low.includes('60')
+                              ? 60
+                              : low.includes('90')
+                                ? 90
+                                : 0;
+                      form.setFieldsValue({ creditDays: inferred });
+                    }}
+                  >
+                    {PAYMENT_TERMS_OPTIONS.map((p) => (
+                      <Select.Option key={p} value={p}>{p}</Select.Option>
+                    ))}
+                  </Select>
+                </Form.Item>
+              </Col>
               <Col xs={24} sm={12} md={8}>
                 <Form.Item
                   name="creditDays"
                   label={
                     <span className="reference-field-label">
-                      <CalendarOutlined className="reference-field-icon" /> Credit Days (sets the due date)
+                      <CalendarOutlined className="reference-field-icon" /> Credit Days
                     </span>
                   }
-                  initialValue={0}
+                  initialValue={30}
                 >
                   <InputNumber style={{ width: '100%' }} min={0} />
                 </Form.Item>
@@ -2376,7 +2719,7 @@ const CustomerManagement: React.FC = () => {
                   name="creditLimit"
                   label={
                     <span className="reference-field-label">
-                      <CheckCircleOutlined className="reference-field-icon" /> Credit Limit (0 = unlimited)
+                      <CheckCircleOutlined className="reference-field-icon" /> Credit Limit (0 = Unlimited)
                     </span>
                   }
                   initialValue={0}
@@ -2384,7 +2727,37 @@ const CustomerManagement: React.FC = () => {
                   <InputNumber style={{ width: '100%' }} min={0} />
                 </Form.Item>
               </Col>
-              <Col xs={24} sm={12} md={8}>
+            </Row>
+
+            {/* Row 5: Credit Hold, Reason, Active Toggle */}
+            <Row gutter={[16, 12]}>
+              <Col xs={24} sm={8} md={6}>
+                <Form.Item
+                  name="creditHold"
+                  valuePropName="checked"
+                  initialValue={false}
+                  label={
+                    <span className="reference-field-label">
+                      <StopOutlined className="reference-field-icon" /> Credit Hold
+                    </span>
+                  }
+                >
+                  <Switch checkedChildren="ON HOLD" unCheckedChildren="Clear" />
+                </Form.Item>
+              </Col>
+              <Col xs={24} sm={10} md={12}>
+                <Form.Item
+                  name="creditHoldReason"
+                  label={
+                    <span className="reference-field-label">
+                      <WarningOutlined className="reference-field-icon" /> Credit Hold Reason
+                    </span>
+                  }
+                >
+                  <Input placeholder="Optional reason if account is placed on credit hold" />
+                </Form.Item>
+              </Col>
+              <Col xs={24} sm={6} md={6}>
                 <Form.Item
                   name="isActive"
                   valuePropName="checked"
@@ -2395,10 +2768,7 @@ const CustomerManagement: React.FC = () => {
                     </span>
                   }
                 >
-                  <Switch
-                    checkedChildren="Active"
-                    unCheckedChildren="Inactive"
-                  />
+                  <Switch checkedChildren="Active" unCheckedChildren="Inactive" />
                 </Form.Item>
               </Col>
             </Row>
@@ -2471,13 +2841,6 @@ const CustomerManagement: React.FC = () => {
                     </Form.Item>
                   </Col>
                   <Col xs={24} sm={12} md={8}>
-                    <Form.Item name="paymentTerms" label="Payment Terms" initialValue="NET 30">
-                      <Select>
-                        {PAYMENT_TERMS_OPTIONS.map(p => <Select.Option key={p} value={p}>{p}</Select.Option>)}
-                      </Select>
-                    </Form.Item>
-                  </Col>
-                  <Col xs={24} sm={12} md={8}>
                     <Form.Item name="priceList" label="Default Price List" initialValue="Standard Wholesale">
                       <Select>
                         {PRICE_LISTS.map(p => <Select.Option key={p} value={p}>{p}</Select.Option>)}
@@ -2507,7 +2870,7 @@ const CustomerManagement: React.FC = () => {
         </div>
       </DraggableResizableModal>
 
-      {/* Customer 360 View Modal — Pixel-Perfect Reference Design matching Image 2 & 3 */}
+      {/* Enterprise Customer 360 Financial Ledger & Account Modal */}
       <Modal
         wrapClassName="customer-360-modal"
         title={null}
@@ -2515,547 +2878,892 @@ const CustomerManagement: React.FC = () => {
         open={detailVisible}
         onCancel={() => setDetailVisible(false)}
         footer={null}
-        width={1160}
+        width={1260}
         destroyOnClose
       >
         {selectedCustomer && (
-          <div>
-            {/* Dark Navy Header matching Screenshot */}
-            <div className="c360-header">
-              <div className="c360-header-title">
-                <UserOutlined style={{ fontSize: 18 }} />
-                <span>{selectedCustomer.name} — 360 view</span>
-              </div>
+          <div style={{ backgroundColor: token.colorBgContainer, color: token.colorText }}>
+            {/* Top Modal Header */}
+            <div
+              style={{
+                backgroundColor: token.colorFillAlter,
+                borderBottom: `1px solid ${token.colorBorderSecondary}`,
+                padding: '14px 20px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: 10,
+              }}
+            >
+              <Space size={10}>
+                <UserOutlined style={{ fontSize: 18, color: token.colorPrimary }} />
+                <span style={{ fontSize: 16, fontWeight: 800, color: token.colorText }}>
+                  {selectedCustomer.name} — Customer Financial Ledger &amp; 360° Account
+                </span>
+                <Tag color={selectedCustomer.status === 'ACTIVE' ? 'green' : 'default'}>
+                  {selectedCustomer.status || 'ACTIVE'}
+                </Tag>
+                {selectedCustomer.creditHold && (
+                  <Tag color="red" icon={<StopOutlined />}>
+                    CREDIT HOLD{selectedCustomer.creditHoldReason ? `: ${selectedCustomer.creditHoldReason}` : ''}
+                  </Tag>
+                )}
+              </Space>
               <CloseOutlined
-                className="reference-modal-close-btn"
+                style={{ fontSize: 16, cursor: 'pointer', color: token.colorTextSecondary }}
                 onClick={() => setDetailVisible(false)}
               />
             </div>
 
-            {/* Modal Body: Split into Left Sidebar & Right Main Area */}
-            <div className="c360-container">
+            {/* Body Split: Left Sidebar & Right Workspace */}
+            <div style={{ display: 'flex', minHeight: 620, flexWrap: 'nowrap' }}>
               {/* Left Sidebar */}
-              <div className="c360-sidebar">
-                {/* Initials Avatar Box */}
-                <div className="c360-avatar-box">
-                  {selectedCustomer.customerCode ? selectedCustomer.customerCode.replace(/^CUS-|^DEMO-CUS-/, 'C') : selectedCustomer.name.slice(0, 2).toUpperCase()}
-                </div>
-
-                {/* Customer Name */}
-                <div className="c360-name">{selectedCustomer.name}</div>
-
-                {/* Status Pill Badge */}
-                <div className={`c360-status-pill ${selectedCustomer.status === 'ACTIVE' ? 'c360-status-active' : 'c360-status-inactive'}`}>
-                  {selectedCustomer.status === 'ACTIVE' ? 'Active' : selectedCustomer.status}
-                </div>
-
-                {/* Balance Due Coral/Pink Box */}
-                <div className="c360-balance-box">
-                  <div className="c360-balance-title">BALANCE DUE</div>
-                  <div className="c360-balance-amount">
-                    Rs {formatDecimal(c360BalanceDue)}
-                  </div>
-                </div>
-
-                {/* Customer Details List with Icons */}
-                <div className="c360-info-list">
-                  <div className="c360-info-row">
-                    <span className="c360-info-label"><ApartmentOutlined style={{ color: '#10b981' }} /> Division</span>
-                    <span className="c360-info-val">
-                      {selectedCustomer.divisionName || divisions.find(d => d.id === selectedCustomer.divisionId)?.name || 'Wire Drawing Division'}
-                    </span>
-                  </div>
-                  <div className="c360-info-row">
-                    <span className="c360-info-label"><UserOutlined style={{ color: '#10b981' }} /> Contact</span>
-                    <span className="c360-info-val">{selectedCustomer.contactPerson || '—'}</span>
-                  </div>
-                  <div className="c360-info-row">
-                    <span className="c360-info-label"><PhoneOutlined style={{ color: '#10b981' }} /> Phone</span>
-                    <span className="c360-info-val">{selectedCustomer.phone || '-'}</span>
-                  </div>
-                  <div className="c360-info-row">
-                    <span className="c360-info-label"><MailOutlined style={{ color: '#10b981' }} /> Email</span>
-                    <span className="c360-info-val">{selectedCustomer.email || '-'}</span>
-                  </div>
-                  <div className="c360-info-row">
-                    <span className="c360-info-label"><BankOutlined style={{ color: '#10b981' }} /> State</span>
-                    <span className="c360-info-val">{selectedCustomer.state || 'Punjab'}</span>
-                  </div>
-                  <div className="c360-info-row">
-                    <span className="c360-info-label"><AuditOutlined style={{ color: '#10b981' }} /> GSTIN</span>
-                    <span className="c360-info-val" style={{ fontFamily: 'monospace' }}>
-                      {selectedCustomer.salesTaxNumber || selectedCustomer.taxNumber || '-'}
-                    </span>
-                  </div>
-                  <div className="c360-info-row">
-                    <span className="c360-info-label"><CalendarOutlined style={{ color: '#10b981' }} /> Customer since</span>
-                    <span className="c360-info-val">
-                      {selectedCustomer.customerSince ? dayjs(selectedCustomer.customerSince).format('MMM DD, YYYY') : dayjs(selectedCustomer.createdAt).format('MMM DD, YYYY')}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Address Section */}
-                <div style={{ fontSize: 12 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700, color: '#475569', marginBottom: 2 }}>
-                    <EnvironmentOutlined style={{ color: '#10b981' }} /> Address
-                  </div>
-                  <div style={{ color: '#0f172a', fontWeight: 600, paddingLeft: 18 }}>
-                    {selectedCustomer.addressLine1 || selectedCustomer.billingAddress || '-'}
-                  </div>
-                </div>
-
-                {/* Financial Breakdown Summary */}
-                <div className="c360-fin-list">
-                  <div className="c360-fin-row">
-                    <span style={{ color: '#64748b', display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <WalletOutlined /> Opening
-                    </span>
-                    <span style={{ fontWeight: 700 }}>
-                      Rs {formatDecimal(selectedCustomer.openingBalance || 0)}
-                    </span>
-                  </div>
-                  <div className="c360-fin-row">
-                    <span style={{ color: '#64748b', display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <FileTextOutlined /> Billed
-                    </span>
-                    <span style={{ fontWeight: 700 }}>
-                      Rs {formatDecimal(salesSummary?.totalInvoiced ?? c360TotalBilled)}
-                    </span>
-                  </div>
-                  <div className="c360-fin-row">
-                    <span style={{ color: '#64748b', display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <DollarCircleOutlined /> Received
-                    </span>
-                    <span style={{ fontWeight: 700, color: '#16a34a' }}>
-                      Rs {formatDecimal(salesSummary?.paidAmount ?? c360TotalPaid)}
-                    </span>
-                  </div>
-                  <div className="c360-fin-row">
-                    <span style={{ color: '#64748b', display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <HistoryOutlined /> Credited
-                    </span>
-                    <span style={{ fontWeight: 700 }}>
-                      Rs {formatDecimal(salesSummary?.totalReturned || 0)}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Open Full Statement Button */}
-                <Button
-                  className="btn-open-statement"
-                  icon={<FileTextOutlined />}
-                  onClick={() => {
-                    printCustomerStatementDocument(selectedCustomer, statementData || {
-                      customer: selectedCustomer,
-                      entries: ledgerEntries,
-                      closingBalance: c360BalanceDue,
-                    });
+              <div
+                style={{
+                  width: 280,
+                  minWidth: 280,
+                  borderRight: `1px solid ${token.colorBorderSecondary}`,
+                  padding: '16px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 12,
+                  backgroundColor: token.colorBgContainer,
+                }}
+              >
+                <div
+                  style={{
+                    width: 56,
+                    height: 56,
+                    borderRadius: 10,
+                    backgroundColor: token.colorPrimary,
+                    color: '#fff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: 20,
+                    fontWeight: 800,
+                    margin: '0 auto',
                   }}
                 >
-                  Open full statement
-                </Button>
-              </div>
-
-              {/* Right Main Content Area */}
-              <div className="c360-main">
-                {/* Navigation Bar */}
-                <div className="c360-nav">
-                  <div className="c360-tabs">
-                    <button
-                      className={`c360-tab-btn ${c360ActiveTab === 'overview' ? 'active' : ''}`}
-                      onClick={() => setC360ActiveTab('overview')}
-                    >
-                      <EyeOutlined /> Overview
-                    </button>
-                    <button
-                      className={`c360-tab-btn ${c360ActiveTab === 'invoices' ? 'active' : ''}`}
-                      onClick={() => setC360ActiveTab('invoices')}
-                    >
-                      <FileTextOutlined /> Invoices <span className="c360-tab-badge">{c360Invoices.length || 1}</span>
-                    </button>
-                    <button
-                      className={`c360-tab-btn ${c360ActiveTab === 'payments' ? 'active' : ''}`}
-                      onClick={() => setC360ActiveTab('payments')}
-                    >
-                      <WalletOutlined /> Payments <span className="c360-tab-badge">{c360Payments.length}</span>
-                    </button>
-                    <button
-                      className={`c360-tab-btn ${c360ActiveTab === 'returns' ? 'active' : ''}`}
-                      onClick={() => setC360ActiveTab('returns')}
-                    >
-                      <HistoryOutlined /> Returns <span className="c360-tab-badge">{c360Returns.length}</span>
-                    </button>
-                    <button
-                      className={`c360-tab-btn ${c360ActiveTab === 'products' ? 'active' : ''}`}
-                      onClick={() => setC360ActiveTab('products')}
-                    >
-                      <AuditOutlined /> Products <span className="c360-tab-badge">{customerItems.length || 1}</span>
-                    </button>
+                  {selectedCustomer.customerCode
+                    ? selectedCustomer.customerCode.replace(/^CUS-|^DEMO-CUS-/, '').slice(0, 4)
+                    : selectedCustomer.name.slice(0, 2).toUpperCase()}
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: 15, fontWeight: 800, color: token.colorText }}>{selectedCustomer.name}</div>
+                  <div style={{ fontSize: 11.5, fontFamily: 'monospace', color: token.colorTextSecondary }}>
+                    {selectedCustomer.customerCode}
                   </div>
-
-                  <Button
-                    type="primary"
-                    className="btn-c360-record-payment"
-                    icon={<PlusCircleOutlined />}
-                    onClick={() => {
-                      paymentForm.resetFields();
-                      paymentForm.setFieldsValue({
-                        amount: c360BalanceDue,
-                        paymentDate: dayjs(),
-                        paymentMethod: 'Bank Transfer',
-                      });
-                      setRecordPaymentModalVisible(true);
-                    }}
-                  >
-                    Record Payment
-                  </Button>
                 </div>
 
-                {/* Tab 1: Overview Tab */}
-                {c360ActiveTab === 'overview' && (
-                  <div>
-                    {/* Top 4 KPI Cards */}
-                    <div className="c360-kpi-grid-4">
-                      <div className="c360-kpi-card">
-                        <div className="c360-kpi-title">BILLABLE INVOICES</div>
-                        <div className="c360-kpi-val">{c360Invoices.length || 1}</div>
+                {/* Net Receivable Box */}
+                <div
+                  style={{
+                    border: `1px solid ${c360BalanceDue > 0 ? token.colorErrorBorder : token.colorSuccessBorder}`,
+                    backgroundColor: token.colorFillAlter,
+                    borderRadius: 8,
+                    padding: '10px 12px',
+                    textAlign: 'center',
+                  }}
+                >
+                  <div style={{ fontSize: 10.5, fontWeight: 800, color: token.colorTextSecondary, textTransform: 'uppercase' }}>
+                    {c360BalanceDue < 0 ? 'UNADJUSTED CREDIT BALANCE' : 'NET RECEIVABLE BALANCE'}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 20,
+                      fontWeight: 900,
+                      color: c360BalanceDue > 0 ? '#dc2626' : '#16a34a',
+                      marginTop: 2,
+                    }}
+                  >
+                    Rs {formatDecimal(Math.abs(c360BalanceDue))} {c360BalanceDue > 0 ? 'DR' : c360BalanceDue < 0 ? 'CR' : ''}
+                  </div>
+                </div>
+
+                {/* Metadata Rows */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 7, fontSize: 12 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                    <span style={{ color: token.colorTextSecondary }}>Division:</span>
+                    <span style={{ fontWeight: 600, textAlign: 'right' }}>
+                      {selectedCustomer.division?.name ||
+                        selectedCustomer.divisionName ||
+                        divisions.find((d) => d.id === selectedCustomer.divisionId)?.name ||
+                        '—'}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                    <span style={{ color: token.colorTextSecondary }}>Payment Terms:</span>
+                    <span style={{ fontWeight: 700, color: token.colorPrimary }}>
+                      {ledgerSummary?.paymentTerms || selectedCustomer.paymentTerms || 'Cash / Immediate'}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                    <span style={{ color: token.colorTextSecondary }}>Credit Limit:</span>
+                    <span style={{ fontWeight: 700 }}>
+                      {Number(selectedCustomer.creditLimit) > 0
+                        ? `Rs ${formatDecimal(selectedCustomer.creditLimit)}`
+                        : 'Unlimited'}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                    <span style={{ color: token.colorTextSecondary }}>Contact:</span>
+                    <span style={{ fontWeight: 600 }}>{selectedCustomer.contactPerson || '—'}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                    <span style={{ color: token.colorTextSecondary }}>Phone:</span>
+                    <span style={{ fontWeight: 600 }}>{selectedCustomer.phone || '—'}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                    <span style={{ color: token.colorTextSecondary }}>Region / City:</span>
+                    <span style={{ fontWeight: 600 }}>
+                      {[selectedCustomer.city, selectedCustomer.state].filter(Boolean).join(', ') || '—'}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                    <span style={{ color: token.colorTextSecondary }}>NTN / STRN:</span>
+                    <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>
+                      {selectedCustomer.taxNumber || selectedCustomer.salesTaxNumber || '—'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Action Buttons Stack in Sidebar */}
+                <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <Button
+                    type="primary"
+                    block
+                    icon={<PlusCircleOutlined />}
+                    onClick={() => void openCustomerRecordPayment()}
+                  >
+                    + Record Payment / Advance
+                  </Button>
+                  <Button
+                    block
+                    icon={<SwapOutlined />}
+                    disabled={c360UnadjustedAdvance <= 0 || !(ledgerSummary?.openInvoices?.length)}
+                    onClick={handleOpenAdjustAdvance}
+                  >
+                    Adjust Advance ({c360UnadjustedAdvance > 0 ? `Rs ${formatDecimal(c360UnadjustedAdvance)}` : '0'})
+                  </Button>
+                  <Button
+                    block
+                    icon={<PrinterOutlined />}
+                    onClick={() => {
+                      printCustomerStatementDocument(
+                        selectedCustomer,
+                        statementData || {
+                          customer: selectedCustomer,
+                          openingBalance: c360OpeningBalance,
+                          periodDebit: ledgerSummary?.totalDebit || 0,
+                          periodCredit: ledgerSummary?.totalCredit || 0,
+                          unadjustedAdvanceBalance: c360UnadjustedAdvance,
+                          closingBalance: c360BalanceDue,
+                          aging: c360Aging,
+                          entries: ledgerEntries,
+                        },
+                      );
+                    }}
+                  >
+                    Print Customer Statement
+                  </Button>
+                  <Button block icon={<FileExcelOutlined />} onClick={handleExportLedgerCsv}>
+                    Export CSV
+                  </Button>
+                </div>
+              </div>
+
+              {/* Right Main Ledger & Financial Workspace */}
+              <div style={{ flex: 1, padding: '16px 20px', overflowY: 'auto', minWidth: 0 }}>
+                {/* Real-Time 5-Metric Account Summary Strip */}
+                <Row gutter={[10, 10]} style={{ marginBottom: 12 }}>
+                  <Col xs={12} sm={8} md={4} lg={5}>
+                    <div
+                      style={{
+                        border: `1px solid ${token.colorBorderSecondary}`,
+                        borderRadius: 8,
+                        padding: '8px 10px',
+                        backgroundColor: token.colorFillAlter,
+                      }}
+                    >
+                      <div style={{ fontSize: 10, fontWeight: 800, color: token.colorTextSecondary, textTransform: 'uppercase' }}>
+                        Opening Balance
                       </div>
-                      <div className="c360-kpi-card">
-                        <div className="c360-kpi-title">AVERAGE INVOICE</div>
-                        <div className="c360-kpi-val">Rs {formatDecimal(c360AvgInvoice)}</div>
-                      </div>
-                      <div className="c360-kpi-card">
-                        <div className="c360-kpi-title">BALANCE DUE</div>
-                        <div className="c360-kpi-val">Rs {formatDecimal(c360BalanceDue)}</div>
-                      </div>
-                      <div className="c360-kpi-card">
-                        <div className="c360-kpi-title">OVERDUE</div>
-                        <div className="c360-kpi-val val-red">1 · Rs {formatDecimal(c360BalanceDue)}</div>
+                      <div style={{ fontSize: 14.5, fontWeight: 800, marginTop: 2 }}>
+                        Rs {formatDecimal(Math.abs(c360OpeningBalance))}
                       </div>
                     </div>
-
-                    {/* Second Row 5 Metric Cards */}
-                    <div className="c360-kpi-grid-5">
-                      <div className="c360-sub-kpi-card">
-                        <CalendarOutlined className="c360-sub-kpi-icon" />
-                        <div>
-                          <div className="c360-sub-kpi-title">FIRST PURCHASE</div>
-                          <div className="c360-sub-kpi-val">{c360FirstPurchaseDate}</div>
-                        </div>
+                  </Col>
+                  <Col xs={12} sm={8} md={5} lg={5}>
+                    <div
+                      style={{
+                        border: `1px solid ${token.colorBorderSecondary}`,
+                        borderRadius: 8,
+                        padding: '8px 10px',
+                        backgroundColor: token.colorFillAlter,
+                      }}
+                    >
+                      <div style={{ fontSize: 10, fontWeight: 800, color: token.colorTextSecondary, textTransform: 'uppercase' }}>
+                        Total Invoiced (Debit)
                       </div>
-                      <div className="c360-sub-kpi-card">
-                        <CalendarOutlined className="c360-sub-kpi-icon" />
-                        <div>
-                          <div className="c360-sub-kpi-title">LAST PURCHASE</div>
-                          <div className="c360-sub-kpi-val">{c360LastPurchaseDate}</div>
-                        </div>
-                      </div>
-                      <div className="c360-sub-kpi-card">
-                        <FileTextOutlined className="c360-sub-kpi-icon" />
-                        <div>
-                          <div className="c360-sub-kpi-title">DOCUMENTS</div>
-                          <div className="c360-sub-kpi-val">{ledgerEntries.length || 1}</div>
-                        </div>
-                      </div>
-                      <div className="c360-sub-kpi-card">
-                        <WalletOutlined className="c360-sub-kpi-icon" />
-                        <div>
-                          <div className="c360-sub-kpi-title">PAYMENTS RECEIVED</div>
-                          <div className="c360-sub-kpi-val">{c360Payments.length}</div>
-                        </div>
-                      </div>
-                      <div className="c360-sub-kpi-card">
-                        <HistoryOutlined className="c360-sub-kpi-icon" />
-                        <div>
-                          <div className="c360-sub-kpi-title">RETURNS RAISED</div>
-                          <div className="c360-sub-kpi-val">{c360Returns.length}</div>
-                        </div>
+                      <div style={{ fontSize: 14.5, fontWeight: 800, color: '#dc2626', marginTop: 2 }}>
+                        Rs {formatDecimal(c360TotalBilled)}
                       </div>
                     </div>
-
-                    {/* Alert Banner */}
-                    {c360BalanceDue > 0 && (
-                      <div className="c360-alert-banner">
-                        <CloseCircleOutlined style={{ fontSize: 16 }} />
-                        <span>1 invoice is past due, totalling Rs {formatDecimal(c360BalanceDue)}</span>
+                  </Col>
+                  <Col xs={12} sm={8} md={5} lg={5}>
+                    <div
+                      style={{
+                        border: `1px solid ${token.colorBorderSecondary}`,
+                        borderRadius: 8,
+                        padding: '8px 10px',
+                        backgroundColor: token.colorFillAlter,
+                      }}
+                    >
+                      <div style={{ fontSize: 10, fontWeight: 800, color: token.colorTextSecondary, textTransform: 'uppercase' }}>
+                        Receipts &amp; Advances (Credit)
                       </div>
-                    )}
-
-                    {/* Latest Activity Feed */}
-                    <div className="c360-activity-header">
-                      <HistoryOutlined /> LATEST ACTIVITY
+                      <div style={{ fontSize: 14.5, fontWeight: 800, color: '#16a34a', marginTop: 2 }}>
+                        Rs {formatDecimal(c360TotalPaid)}
+                      </div>
                     </div>
-                    <div>
-                      {c360ActivityItems.length > 0 ? (
-                        c360ActivityItems.map((act, idx) => (
-                          <div key={idx} className="c360-activity-item">
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                              <FileTextOutlined style={{ color: '#10b981', fontSize: 16 }} />
-                              <span style={{ fontWeight: 600 }}>{act.title}</span>
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
-                              <span style={{ color: '#64748b', fontSize: 12 }}>{act.date}</span>
-                              <span style={{ fontWeight: 800, fontSize: 13, color: '#0f172a' }}>
-                                Rs {formatDecimal(act.amount)}
-                              </span>
-                              <Button
+                  </Col>
+                  <Col xs={12} sm={12} md={5} lg={4}>
+                    <div
+                      style={{
+                        border: `1px solid ${token.colorBorderSecondary}`,
+                        borderRadius: 8,
+                        padding: '8px 10px',
+                        backgroundColor: token.colorFillAlter,
+                      }}
+                    >
+                      <div style={{ fontSize: 10, fontWeight: 800, color: token.colorTextSecondary, textTransform: 'uppercase' }}>
+                        Unadjusted Advance
+                      </div>
+                      <div style={{ fontSize: 14.5, fontWeight: 800, color: '#0284c7', marginTop: 2 }}>
+                        Rs {formatDecimal(c360UnadjustedAdvance)}
+                      </div>
+                    </div>
+                  </Col>
+                  <Col xs={24} sm={12} md={5} lg={5}>
+                    <div
+                      style={{
+                        border: `1px solid ${c360BalanceDue > 0 ? token.colorErrorBorder : token.colorSuccessBorder}`,
+                        borderRadius: 8,
+                        padding: '8px 10px',
+                        backgroundColor: token.colorFillAlter,
+                      }}
+                    >
+                      <div style={{ fontSize: 10, fontWeight: 800, color: token.colorTextSecondary, textTransform: 'uppercase' }}>
+                        Net Receivable Balance
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 14.5,
+                          fontWeight: 900,
+                          color: c360BalanceDue > 0 ? '#dc2626' : '#16a34a',
+                          marginTop: 2,
+                        }}
+                      >
+                        Rs {formatDecimal(Math.abs(c360BalanceDue))} {c360BalanceDue > 0 ? 'DR' : c360BalanceDue < 0 ? 'CR' : ''}
+                      </div>
+                    </div>
+                  </Col>
+                </Row>
+
+                {/* 5-Bucket AR Aging Bar */}
+                <div
+                  style={{
+                    border: `1px solid ${token.colorBorderSecondary}`,
+                    borderRadius: 8,
+                    padding: '8px 12px',
+                    marginBottom: 14,
+                    backgroundColor: token.colorFillAlter,
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                    <span style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: token.colorTextSecondary }}>
+                      Accounts Receivable Aging Breakdown
+                    </span>
+                    <span style={{ fontSize: 11, color: token.colorTextSecondary }}>
+                      Open Invoices: <strong>{c360Aging.openInvoiceCount}</strong> · Overdue:{' '}
+                      <strong style={{ color: c360Aging.overdueInvoiceCount > 0 ? '#dc2626' : '#16a34a' }}>
+                        {c360Aging.overdueInvoiceCount} (Rs {formatDecimal(c360Aging.overdueAmount)})
+                      </strong>
+                    </span>
+                  </div>
+                  <Row gutter={[8, 6]}>
+                    {[
+                      { label: 'Current', val: c360Aging.current, color: '#16a34a' },
+                      { label: '1–30 Days', val: c360Aging.days1to30, color: '#0284c7' },
+                      { label: '31–60 Days', val: c360Aging.days31to60, color: '#d97706' },
+                      { label: '61–90 Days', val: c360Aging.days61to90, color: '#ea580c' },
+                      { label: '90+ Days Overdue', val: c360Aging.days90Plus, color: '#dc2626' },
+                    ].map((b) => (
+                      <Col key={b.label} xs={12} sm={8} md={4} lg={4} style={{ flex: 1 }}>
+                        <div
+                          style={{
+                            border: `1px solid ${token.colorBorderSecondary}`,
+                            borderLeft: `3px solid ${b.color}`,
+                            borderRadius: 6,
+                            padding: '5px 8px',
+                            backgroundColor: token.colorBgContainer,
+                          }}
+                        >
+                          <div style={{ fontSize: 10, color: token.colorTextSecondary, fontWeight: 700 }}>{b.label}</div>
+                          <div style={{ fontSize: 12.5, fontWeight: 800, color: Number(b.val) > 0 ? b.color : token.colorTextTertiary }}>
+                            Rs {formatDecimal(b.val)}
+                          </div>
+                        </div>
+                      </Col>
+                    ))}
+                  </Row>
+                </div>
+
+                {/* Tab Navigation */}
+                <Tabs
+                  activeKey={c360ActiveTab}
+                  onChange={(k) => setC360ActiveTab(k as any)}
+                  items={[
+                    {
+                      key: 'ledger',
+                      label: (
+                        <span>
+                          <AuditOutlined /> Customer Ledger ({ledgerEntries.length})
+                        </span>
+                      ),
+                      children: (
+                        <div>
+                          {/* Ledger Filter Toolbar */}
+                          <Row gutter={[8, 8]} style={{ marginBottom: 10 }} align="middle">
+                            <Col xs={24} sm={8} md={7}>
+                              <Input
+                                allowClear
                                 size="small"
-                                icon={<PrinterOutlined />}
-                                onClick={() => {
-                                  printInvoiceDocument({
-                                    invoiceNo: act.raw?.documentNumber || 'INV-0003',
-                                    invoiceDate: dayjs(act.raw?.transactionDate).format('DD MMM YYYY'),
-                                    dueDate: '19 Aug 2026',
-                                    customer: selectedCustomer,
-                                    totalAmount: act.amount,
-                                    outstandingAmount: act.amount,
+                                placeholder="Search voucher, invoice, SOC, PO, cheque..."
+                                value={c360SearchText}
+                                onChange={(e) => {
+                                  const v = e.target.value;
+                                  setC360SearchText(v);
+                                  void fetchCustomerLedger(selectedCustomer.id, {
+                                    documentType: ledgerDocFilter,
+                                    divisionId: ledgerDivisionFilter,
+                                    fromDate: ledgerDateRange?.[0]?.format('YYYY-MM-DD'),
+                                    toDate: ledgerDateRange?.[1]?.format('YYYY-MM-DD'),
+                                    search: v,
                                   });
                                 }}
                               />
-                            </div>
+                            </Col>
+                            <Col xs={12} sm={5} md={4}>
+                              <Select
+                                size="small"
+                                style={{ width: '100%' }}
+                                value={ledgerDocFilter}
+                                onChange={(val) => {
+                                  setLedgerDocFilter(val);
+                                  void fetchCustomerLedger(selectedCustomer.id, {
+                                    documentType: val,
+                                    divisionId: ledgerDivisionFilter,
+                                    fromDate: ledgerDateRange?.[0]?.format('YYYY-MM-DD'),
+                                    toDate: ledgerDateRange?.[1]?.format('YYYY-MM-DD'),
+                                    search: c360SearchText,
+                                  });
+                                }}
+                                options={[
+                                  { value: 'ALL', label: 'All Types' },
+                                  { value: 'OPENING_BALANCE', label: 'Opening' },
+                                  { value: 'SALES_INVOICE', label: 'Sales Invoice' },
+                                  { value: 'CUSTOMER_PAYMENT', label: 'Receipt' },
+                                  { value: 'ADVANCE_RECEIPT', label: 'Advance' },
+                                  { value: 'ADVANCE_ADJUSTMENT', label: 'Advance Adjusted' },
+                                  { value: 'CREDIT_NOTE', label: 'Credit Note' },
+                                  { value: 'DEBIT_NOTE', label: 'Debit Note' },
+                                ]}
+                              />
+                            </Col>
+                            <Col xs={12} sm={5} md={5}>
+                              <Select
+                                allowClear
+                                size="small"
+                                placeholder="All Divisions"
+                                style={{ width: '100%' }}
+                                value={ledgerDivisionFilter}
+                                onChange={(val) => {
+                                  setLedgerDivisionFilter(val);
+                                  void fetchCustomerLedger(selectedCustomer.id, {
+                                    documentType: ledgerDocFilter,
+                                    divisionId: val,
+                                    fromDate: ledgerDateRange?.[0]?.format('YYYY-MM-DD'),
+                                    toDate: ledgerDateRange?.[1]?.format('YYYY-MM-DD'),
+                                    search: c360SearchText,
+                                  });
+                                }}
+                                options={divisions.map((d) => ({ value: d.id, label: d.name }))}
+                              />
+                            </Col>
+                            <Col xs={24} sm={6} md={8}>
+                              <DatePicker.RangePicker
+                                size="small"
+                                style={{ width: '100%' }}
+                                value={ledgerDateRange}
+                                onChange={(vals) => {
+                                  setLedgerDateRange(vals as any);
+                                  void fetchCustomerLedger(selectedCustomer.id, {
+                                    documentType: ledgerDocFilter,
+                                    divisionId: ledgerDivisionFilter,
+                                    fromDate: vals?.[0]?.format('YYYY-MM-DD'),
+                                    toDate: vals?.[1]?.format('YYYY-MM-DD'),
+                                    search: c360SearchText,
+                                  });
+                                }}
+                              />
+                            </Col>
+                          </Row>
+
+                          <Table
+                            rowKey={(r) => r.id}
+                            loading={ledgerLoading}
+                            dataSource={ledgerEntries}
+                            size="small"
+                            scroll={{ x: 960 }}
+                            pagination={{ pageSize: 15, size: 'small' }}
+                            locale={{ emptyText: 'No financial ledger transactions recorded for this customer yet.' }}
+                            columns={[
+                              {
+                                title: 'Date',
+                                dataIndex: 'transactionDate',
+                                width: 95,
+                                render: (val: string) => dayjs(val).format('YYYY-MM-DD'),
+                              },
+                              {
+                                title: 'Document Type',
+                                dataIndex: 'documentType',
+                                width: 140,
+                                render: (type: string) => {
+                                  const colorMap: Record<string, string> = {
+                                    OPENING_BALANCE: 'default',
+                                    SALES_INVOICE: 'orange',
+                                    CUSTOMER_PAYMENT: 'green',
+                                    ADVANCE_RECEIPT: 'cyan',
+                                    ADVANCE_ADJUSTMENT: 'blue',
+                                    CREDIT_NOTE: 'purple',
+                                    SALES_RETURN: 'purple',
+                                    DEBIT_NOTE: 'red',
+                                  };
+                                  return <Tag color={colorMap[type] || 'default'}>{String(type || '').replace(/_/g, ' ')}</Tag>;
+                                },
+                              },
+                              {
+                                title: 'Voucher / Doc #',
+                                dataIndex: 'documentNumber',
+                                width: 145,
+                                render: (val: string) => (
+                                  <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{val || '-'}</span>
+                                ),
+                              },
+                              {
+                                title: 'SOC / PO / Ref',
+                                key: 'ref',
+                                render: (_, rec) => (
+                                  <div style={{ fontSize: 11.5 }}>
+                                    {rec.socNumber && <Tag color="purple" style={{ marginRight: 4 }}>{rec.socNumber}</Tag>}
+                                    {rec.poReference && <Tag color="geekblue" style={{ marginRight: 4 }}>PO: {rec.poReference}</Tag>}
+                                    <span>{rec.reference || rec.notes || '-'}</span>
+                                  </div>
+                                ),
+                              },
+                              {
+                                title: 'Division',
+                                dataIndex: 'divisionName',
+                                width: 130,
+                                render: (v: string) => v || '—',
+                              },
+                              {
+                                title: 'Mode',
+                                dataIndex: 'paymentMode',
+                                width: 100,
+                                render: (v: string) => (v ? <Tag>{v.replace(/_/g, ' ')}</Tag> : '—'),
+                              },
+                              {
+                                title: 'Due / Overdue',
+                                key: 'due',
+                                width: 120,
+                                render: (_, rec) => (
+                                  <div style={{ fontSize: 11.5 }}>
+                                    <div>{rec.dueDate ? dayjs(rec.dueDate).format('YYYY-MM-DD') : '—'}</div>
+                                    {Number(rec.overdueDays) > 0 && (
+                                      <Tag color="red" style={{ margin: 0, fontSize: 10 }}>
+                                        {rec.overdueDays}d overdue
+                                      </Tag>
+                                    )}
+                                  </div>
+                                ),
+                              },
+                              {
+                                title: 'Debit',
+                                dataIndex: 'debit',
+                                align: 'right',
+                                width: 110,
+                                render: (val: number) =>
+                                  Number(val) > 0 ? (
+                                    <span style={{ color: '#dc2626', fontWeight: 700 }}>Rs {formatDecimal(val)}</span>
+                                  ) : (
+                                    '—'
+                                  ),
+                              },
+                              {
+                                title: 'Credit',
+                                dataIndex: 'credit',
+                                align: 'right',
+                                width: 110,
+                                render: (val: number) =>
+                                  Number(val) > 0 ? (
+                                    <span style={{ color: '#16a34a', fontWeight: 700 }}>Rs {formatDecimal(val)}</span>
+                                  ) : (
+                                    '—'
+                                  ),
+                              },
+                              {
+                                title: 'Running Balance',
+                                dataIndex: 'runningBalance',
+                                align: 'right',
+                                width: 135,
+                                render: (val: number) => {
+                                  const num = Number(val) || 0;
+                                  return (
+                                    <span style={{ fontWeight: 800, color: num > 0 ? '#dc2626' : num < 0 ? '#16a34a' : token.colorText }}>
+                                      Rs {formatDecimal(Math.abs(num))} {num > 0 ? 'DR' : num < 0 ? 'CR' : ''}
+                                    </span>
+                                  );
+                                },
+                              },
+                            ]}
+                          />
+                        </div>
+                      ),
+                    },
+                    {
+                      key: 'overview',
+                      label: (
+                        <span>
+                          <EyeOutlined /> Overview
+                        </span>
+                      ),
+                      children: (
+                        <div>
+                          <Row gutter={[10, 10]} style={{ marginBottom: 14 }}>
+                            <Col xs={12} md={6}>
+                              <Card size="small">
+                                <Statistic title="Total Invoices" value={c360Invoices.length} />
+                              </Card>
+                            </Col>
+                            <Col xs={12} md={6}>
+                              <Card size="small">
+                                <Statistic title="Average Invoice" value={c360AvgInvoice} precision={2} prefix="Rs" />
+                              </Card>
+                            </Col>
+                            <Col xs={12} md={6}>
+                              <Card size="small">
+                                <Statistic title="First Invoice Date" value={c360FirstPurchaseDate} />
+                              </Card>
+                            </Col>
+                            <Col xs={12} md={6}>
+                              <Card size="small">
+                                <Statistic title="Latest Invoice Date" value={c360LastPurchaseDate} />
+                              </Card>
+                            </Col>
+                          </Row>
+
+                          {c360Aging.overdueAmount > 0 && (
+                            <Alert
+                              type="warning"
+                              showIcon
+                              style={{ marginBottom: 14 }}
+                              message={`${c360Aging.overdueInvoiceCount} overdue invoice(s) totalling Rs ${formatDecimal(c360Aging.overdueAmount)}`}
+                            />
+                          )}
+
+                          <div style={{ fontSize: 12, fontWeight: 800, marginBottom: 8, textTransform: 'uppercase', color: token.colorTextSecondary }}>
+                            Latest Financial Activity
                           </div>
-                        ))
-                      ) : (
-                        <div className="c360-activity-item">
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                            <FileTextOutlined style={{ color: '#10b981', fontSize: 16 }} />
-                            <span style={{ fontWeight: 600 }}>Invoice INV-0003</span>
-                          </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
-                            <span style={{ color: '#64748b', fontSize: 12 }}>Jul 30, 2026</span>
-                            <span style={{ fontWeight: 800, fontSize: 13, color: '#0f172a' }}>
-                              Rs {formatDecimal(c360BalanceDue || 1260)}
-                            </span>
-                            <Button
+                          {c360ActivityItems.length === 0 ? (
+                            <Empty description="No activity recorded for this customer yet." />
+                          ) : (
+                            <List
                               size="small"
-                              icon={<PrinterOutlined />}
-                              onClick={() => {
-                                printInvoiceDocument({
-                                  invoiceNo: 'INV-0003',
-                                  invoiceDate: '30 Jul 2026',
-                                  dueDate: '19 Aug 2026',
-                                  customer: selectedCustomer,
-                                  totalAmount: c360BalanceDue || 1260,
-                                  outstandingAmount: c360BalanceDue || 1260,
-                                });
-                              }}
+                              bordered
+                              dataSource={c360ActivityItems}
+                              renderItem={(act: any) => (
+                                <List.Item>
+                                  <Space>
+                                    <FileTextOutlined style={{ color: act.isCredit ? '#16a34a' : token.colorPrimary }} />
+                                    <strong>{act.title}</strong>
+                                    <span style={{ color: token.colorTextSecondary, fontSize: 12 }}>{act.date}</span>
+                                  </Space>
+                                  <strong style={{ color: act.isCredit ? '#16a34a' : '#dc2626' }}>
+                                    Rs {formatDecimal(act.amount)}
+                                  </strong>
+                                </List.Item>
+                              )}
+                            />
+                          )}
+                        </div>
+                      ),
+                    },
+                    {
+                      key: 'invoices',
+                      label: (
+                        <span>
+                          <FileTextOutlined /> Invoices ({c360Invoices.length})
+                        </span>
+                      ),
+                      children: (
+                        <div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
+                            <Space>
+                              <Button size="small" icon={<FileExcelOutlined />} onClick={handleExportLedgerCsv}>
+                                CSV
+                              </Button>
+                              <Button
+                                size="small"
+                                icon={<PrinterOutlined />}
+                                onClick={() =>
+                                  printTableList(
+                                    `Customer Invoices - ${selectedCustomer.name}`,
+                                    ['Invoice #', 'Date', 'Due Date', 'Status', 'Total', 'Paid', 'Balance Due'],
+                                    c360FilteredInvoices.map((inv) => [
+                                      inv.invoiceNo,
+                                      dayjs(inv.invoiceDate).format('YYYY-MM-DD'),
+                                      inv.dueDate ? dayjs(inv.dueDate).format('YYYY-MM-DD') : '-',
+                                      inv.status,
+                                      formatDecimal(inv.totalAmount),
+                                      formatDecimal(inv.paidAmount),
+                                      formatDecimal(inv.balance),
+                                    ]),
+                                  )
+                                }
+                              >
+                                Print
+                              </Button>
+                            </Space>
+                            <Input
+                              size="small"
+                              placeholder="Search invoices..."
+                              style={{ width: 220 }}
+                              value={c360SearchText}
+                              onChange={(e) => setC360SearchText(e.target.value)}
+                              allowClear
                             />
                           </div>
+                          <Table
+                            rowKey={(r) => r.id || r.invoiceNo}
+                            dataSource={c360FilteredInvoices}
+                            size="small"
+                            pagination={{ pageSize: 10, size: 'small' }}
+                            locale={{ emptyText: 'No sales invoices issued for this customer yet.' }}
+                            columns={[
+                              {
+                                title: 'Invoice #',
+                                dataIndex: 'invoiceNo',
+                                render: (val: string) => (
+                                  <span style={{ fontFamily: 'monospace', fontWeight: 700, color: token.colorPrimary }}>{val}</span>
+                                ),
+                              },
+                              {
+                                title: 'Date',
+                                dataIndex: 'invoiceDate',
+                                render: (d: string) => (d ? dayjs(d).format('MMM DD, YYYY') : '-'),
+                              },
+                              {
+                                title: 'Due Date',
+                                dataIndex: 'dueDate',
+                                render: (d: string, r: any) => (
+                                  <Space size={4}>
+                                    <span>{d ? dayjs(d).format('MMM DD, YYYY') : '-'}</span>
+                                    {r.daysOverdue > 0 && r.balance > 0 && <Tag color="red">{r.daysOverdue}d late</Tag>}
+                                  </Space>
+                                ),
+                              },
+                              {
+                                title: 'Status',
+                                dataIndex: 'status',
+                                render: (st: string) => {
+                                  const lower = String(st || '').toLowerCase();
+                                  const col = lower === 'paid' ? 'green' : lower === 'partial' ? 'blue' : 'gold';
+                                  return <Tag color={col}>{st}</Tag>;
+                                },
+                              },
+                              {
+                                title: 'Total',
+                                dataIndex: 'totalAmount',
+                                align: 'right',
+                                render: (v: number) => `Rs ${formatDecimal(v)}`,
+                              },
+                              {
+                                title: 'Paid',
+                                dataIndex: 'paidAmount',
+                                align: 'right',
+                                render: (v: number) => <span style={{ color: '#16a34a' }}>Rs {formatDecimal(v)}</span>,
+                              },
+                              {
+                                title: 'Balance Due',
+                                dataIndex: 'balance',
+                                align: 'right',
+                                render: (v: number) => (
+                                  <strong style={{ color: Number(v) > 0 ? '#dc2626' : '#16a34a' }}>
+                                    Rs {formatDecimal(v)}
+                                  </strong>
+                                ),
+                              },
+                              {
+                                title: 'Action',
+                                align: 'center',
+                                render: (_, inv: any) =>
+                                  Number(inv.balance) > 0 ? (
+                                    <Button size="small" type="primary" onClick={() => void openCustomerRecordPayment(inv)}>
+                                      Pay
+                                    </Button>
+                                  ) : (
+                                    <Tag color="green">Settled</Tag>
+                                  ),
+                              },
+                            ]}
+                          />
                         </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Tab 2: Invoices Tab (Matching Reference Image 3) */}
-                {c360ActiveTab === 'invoices' && (
-                  <div>
-                    {/* Toolbar */}
-                    <div className="c360-toolbar">
-                      <Space>
-                        <Button
-                          className="btn-c360-dark"
-                          icon={<FileTextOutlined />}
-                          onClick={() => handleExportInvoicesCsv()}
-                        >
-                          CSV
-                        </Button>
-                        <Button
-                          className="btn-c360-dark"
-                          icon={<PrinterOutlined />}
-                          onClick={() => {
-                            printTableList('Customer Invoices', ['Number', 'Type', 'Date', 'Status', 'Total', 'Paid', 'Due'], c360FilteredInvoices.map((inv) => [
-                              inv.documentNumber || 'INV-0003',
-                              'invoice',
-                              dayjs(inv.transactionDate).format('MMM DD, YYYY'),
-                              'pending',
-                              formatDecimal(inv.debit || 1260),
-                              '0.00',
-                              formatDecimal(inv.debit || 1260),
-                            ]));
-                          }}
-                        >
-                          Print
-                        </Button>
-                      </Space>
-                      <Input
-                        placeholder="Search..."
-                        style={{ width: 220 }}
-                        value={c360SearchText}
-                        onChange={(e) => setC360SearchText(e.target.value)}
-                        allowClear
-                      />
-                    </div>
-
-                    {/* Dark-Headed Invoices Table */}
-                    <Table
-                      className="c360-dark-table"
-                      dataSource={c360FilteredInvoices}
-                      rowKey={(r) => r.id || r.documentNumber}
-                      pagination={{ pageSize: 10, size: 'small' }}
-                      size="small"
-                      columns={[
-                        {
-                          title: 'Number',
-                          dataIndex: 'documentNumber',
-                          key: 'documentNumber',
-                          render: (val, record) => (
-                            <span
-                              style={{ color: '#10b981', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}
-                              onClick={() => {
-                                printInvoiceDocument({
-                                  invoiceNo: val || 'INV-0003',
-                                  invoiceDate: dayjs(record.transactionDate).format('DD MMM YYYY'),
-                                  dueDate: record.dueDate ? dayjs(record.dueDate).format('DD MMM YYYY') : '19 Aug 2026',
-                                  customer: selectedCustomer,
-                                  totalAmount: record.debit || 1260,
-                                  outstandingAmount: record.debit || 1260,
-                                });
-                              }}
-                            >
-                              <FileTextOutlined /> {val || 'INV-0003'}
-                            </span>
-                          ),
-                        },
-                        {
-                          title: 'Type',
-                          key: 'type',
-                          render: () => 'invoice',
-                        },
-                        {
-                          title: 'Date',
-                          dataIndex: 'transactionDate',
-                          key: 'date',
-                          render: (d) => dayjs(d).format('MMM DD, YYYY'),
-                        },
-                        {
-                          title: 'Status',
-                          key: 'status',
-                          render: () => (
-                            <Space size={4}>
-                              <span style={{ color: '#d97706', fontWeight: 600 }}>pending</span>
-                              <Tag color="volcano" style={{ fontWeight: 700, fontSize: 10, padding: '0 4px', lineHeight: '18px' }}>5d late</Tag>
-                            </Space>
-                          ),
-                        },
-                        {
-                          title: 'Total',
-                          dataIndex: 'debit',
-                          key: 'total',
-                          align: 'right',
-                          render: (val) => `Rs ${formatDecimal(val || 1260)}`,
-                        },
-                        {
-                          title: 'Paid',
-                          key: 'paid',
-                          align: 'right',
-                          render: () => 'Rs 0.00',
-                        },
-                        {
-                          title: 'Due',
-                          dataIndex: 'debit',
-                          key: 'due',
-                          align: 'right',
-                          render: (val) => (
-                            <span style={{ fontWeight: 700, color: '#0f172a' }}>
-                              Rs {formatDecimal(val || 1260)}
-                            </span>
-                          ),
-                        },
-                      ]}
-                    />
-                  </div>
-                )}
-
-                {/* Tab 3: Payments Tab */}
-                {c360ActiveTab === 'payments' && (
-                  <div>
-                    <div className="c360-toolbar">
-                      <Space>
-                        <Button className="btn-c360-dark" icon={<FileTextOutlined />}>CSV</Button>
-                        <Button className="btn-c360-dark" icon={<PrinterOutlined />}>Print</Button>
-                      </Space>
-                      <Input placeholder="Search payments..." style={{ width: 220 }} allowClear />
-                    </div>
-                    <Table
-                      className="c360-dark-table"
-                      dataSource={c360Payments}
-                      rowKey={(r) => r.id || r.documentNumber}
-                      size="small"
-                      columns={[
-                        { title: 'Number', dataIndex: 'documentNumber', key: 'num', render: (v) => <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#10b981' }}>{v}</span> },
-                        { title: 'Type', key: 'type', render: () => 'payment' },
-                        { title: 'Date', dataIndex: 'transactionDate', key: 'date', render: (d) => dayjs(d).format('MMM DD, YYYY') },
-                        { title: 'Payment Method / Ref', dataIndex: 'reference', key: 'ref', render: (v) => v || 'Cash / Bank' },
-                        { title: 'Amount', dataIndex: 'credit', key: 'amt', align: 'right', render: (v) => <span style={{ color: '#16a34a', fontWeight: 700 }}>Rs {formatDecimal(v)}</span> },
-                        { title: 'Status', key: 'status', render: () => <Tag color="success">POSTED</Tag> },
-                      ]}
-                    />
-                  </div>
-                )}
-
-                {/* Tab 4: Returns Tab */}
-                {c360ActiveTab === 'returns' && (
-                  <div>
-                    <div className="c360-toolbar">
-                      <Space>
-                        <Button className="btn-c360-dark" icon={<FileTextOutlined />}>CSV</Button>
-                        <Button className="btn-c360-dark" icon={<PrinterOutlined />}>Print</Button>
-                      </Space>
-                      <Input placeholder="Search returns..." style={{ width: 220 }} allowClear />
-                    </div>
-                    <Table
-                      className="c360-dark-table"
-                      dataSource={c360Returns}
-                      rowKey={(r) => r.id || r.documentNumber}
-                      size="small"
-                      columns={[
-                        { title: 'Number', dataIndex: 'documentNumber', key: 'num', render: (v) => <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#f59e0b' }}>{v}</span> },
-                        { title: 'Date', dataIndex: 'transactionDate', key: 'date', render: (d) => dayjs(d).format('MMM DD, YYYY') },
-                        { title: 'Reason / Ref', dataIndex: 'reference', key: 'ref', render: (v) => v || 'Sales Return' },
-                        { title: 'Amount', dataIndex: 'credit', key: 'amt', align: 'right', render: (v) => `Rs ${formatDecimal(v)}` },
-                        { title: 'Status', key: 'status', render: () => <Tag color="warning">PROCESSED</Tag> },
-                      ]}
-                    />
-                  </div>
-                )}
-
-                {/* Tab 5: Products Tab */}
-                {c360ActiveTab === 'products' && (
-                  <div>
-                    <div className="c360-toolbar">
-                      <Space>
-                        <Button className="btn-c360-dark" icon={<FileTextOutlined />}>CSV</Button>
-                        <Button className="btn-c360-dark" icon={<PrinterOutlined />}>Print</Button>
-                      </Space>
-                      <Input placeholder="Search products..." style={{ width: 220 }} allowClear />
-                    </div>
-                    <Table
-                      className="c360-dark-table"
-                      dataSource={customerItems.length > 0 ? customerItems : [
-                        { itemCode: 'FG-WIR-001', itemName: 'Product 5 (Galvanized Steel Wire)', uom: 'litre / KG', totalQuantity: 10, totalSalesValue: 1260, lastSaleDate: '2026-07-30' }
-                      ]}
-                      rowKey={(r) => r.itemCode || r.id}
-                      size="small"
-                      columns={[
-                        { title: 'Item Code', dataIndex: 'itemCode', key: 'code', render: (c) => <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#2563eb' }}>{c}</span> },
-                        { title: 'Product Name', dataIndex: 'itemName', key: 'name', render: (n) => <span style={{ fontWeight: 600 }}>{n}</span> },
-                        { title: 'UOM', dataIndex: 'uom', key: 'uom', align: 'center', render: (u) => <Tag color="cyan">{u || 'PCS'}</Tag> },
-                        { title: 'Total Qty', dataIndex: 'totalQuantity', key: 'qty', align: 'right', render: (q) => formatDecimal(q || 0) },
-                        { title: 'Total Sales Value', dataIndex: 'totalSalesValue', key: 'val', align: 'right', render: (v) => <span style={{ fontWeight: 700, color: '#16a34a' }}>Rs {formatDecimal(v || 0)}</span> },
-                        { title: 'Last Sale Date', dataIndex: 'lastSaleDate', key: 'date', align: 'center', render: (d) => d ? dayjs(d).format('MMM DD, YYYY') : '-' },
-                      ]}
-                    />
-                  </div>
-                )}
+                      ),
+                    },
+                    {
+                      key: 'payments',
+                      label: (
+                        <span>
+                          <WalletOutlined /> Receipts &amp; Advances ({c360Payments.length})
+                        </span>
+                      ),
+                      children: (
+                        <Table
+                          rowKey={(r) => r.id || r.receiptNumber || r.documentNumber}
+                          dataSource={c360Payments}
+                          size="small"
+                          locale={{ emptyText: 'No customer receipts or advance payments recorded yet.' }}
+                          columns={[
+                            {
+                              title: 'Voucher #',
+                              render: (_, r: any) => (
+                                <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#16a34a' }}>
+                                  {r.receiptNumber || r.documentNumber}
+                                </span>
+                              ),
+                            },
+                            {
+                              title: 'Date',
+                              render: (_, r: any) => dayjs(r.receiptDate || r.transactionDate).format('MMM DD, YYYY'),
+                            },
+                            {
+                              title: 'Mode & Clearance',
+                              render: (_, r: any) => (
+                                <Space size={4}>
+                                  <Tag color="cyan">{String(r.paymentMode || 'RECEIPT').replace(/_/g, ' ')}</Tag>
+                                  {r.clearanceStatus && (
+                                    <Tag color={r.clearanceStatus === 'BOUNCED' ? 'red' : r.clearanceStatus === 'PENDING_CLEARANCE' ? 'gold' : 'green'}>
+                                      {String(r.clearanceStatus).replace(/_/g, ' ')}
+                                    </Tag>
+                                  )}
+                                </Space>
+                              ),
+                            },
+                            {
+                              title: 'Amount',
+                              align: 'right',
+                              render: (_, r: any) => (
+                                <strong style={{ color: '#16a34a' }}>Rs {formatDecimal(r.amount ?? r.credit ?? 0)}</strong>
+                              ),
+                            },
+                            {
+                              title: 'Unallocated Advance',
+                              align: 'right',
+                              render: (_, r: any) =>
+                                Number(r.unallocatedAdvanceAmount) > 0 ? (
+                                  <Tag color="blue">Rs {formatDecimal(r.unallocatedAdvanceAmount)}</Tag>
+                                ) : (
+                                  '—'
+                                ),
+                            },
+                            {
+                              title: 'Print',
+                              align: 'center',
+                              render: (_, r: any) =>
+                                r.receiptNumber ? (
+                                  <Button size="small" icon={<PrinterOutlined />} onClick={() => printPaymentReceiptVoucher(r)} />
+                                ) : null,
+                            },
+                          ]}
+                        />
+                      ),
+                    },
+                    {
+                      key: 'returns',
+                      label: (
+                        <span>
+                          <HistoryOutlined /> Credit Notes &amp; Returns ({c360Returns.length})
+                        </span>
+                      ),
+                      children: (
+                        <Table
+                          rowKey={(r) => r.id || r.documentNumber}
+                          dataSource={c360Returns}
+                          size="small"
+                          locale={{ emptyText: 'No sales returns or credit notes issued for this customer.' }}
+                          columns={[
+                            {
+                              title: 'Document #',
+                              dataIndex: 'documentNumber',
+                              render: (v: string) => <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{v}</span>,
+                            },
+                            {
+                              title: 'Date',
+                              dataIndex: 'transactionDate',
+                              render: (d: string) => dayjs(d).format('MMM DD, YYYY'),
+                            },
+                            { title: 'Reason / Reference', dataIndex: 'reference', render: (v: string) => v || '-' },
+                            {
+                              title: 'Credit Amount',
+                              dataIndex: 'credit',
+                              align: 'right',
+                              render: (v: number) => `Rs ${formatDecimal(v)}`,
+                            },
+                          ]}
+                        />
+                      ),
+                    },
+                    {
+                      key: 'products',
+                      label: (
+                        <span>
+                          <AuditOutlined /> Purchased Products ({customerItems.length})
+                        </span>
+                      ),
+                      children: (
+                        <Table
+                          rowKey={(r) => r.id || r.itemCode}
+                          loading={itemsLoading}
+                          dataSource={customerItems}
+                          size="small"
+                          locale={{ emptyText: 'No billed or ordered items found for this customer yet.' }}
+                          columns={itemHistoryColumns}
+                        />
+                      ),
+                    },
+                  ]}
+                />
               </div>
             </div>
           </div>
         )}
       </Modal>
 
-      {/* Record Payment Modal */}
+      {/* Upgraded Record Payment / Advance Modal with Bill-to-Bill Invoice Allocations */}
       <Modal
         wrapClassName="reference-customer-modal"
         title={null}
@@ -3063,13 +3771,13 @@ const CustomerManagement: React.FC = () => {
         open={recordPaymentModalVisible}
         onCancel={() => setRecordPaymentModalVisible(false)}
         footer={null}
-        width={520}
+        width={760}
         destroyOnClose
       >
         <div className="reference-modal-header">
           <div className="reference-modal-title">
             <PlusCircleOutlined style={{ fontSize: 16 }} />
-            <span>Record Payment: {selectedCustomer?.name}</span>
+            <span>Record Payment / Advance: {selectedCustomer?.name}</span>
           </div>
           <CloseOutlined
             className="reference-modal-close-btn"
@@ -3078,52 +3786,186 @@ const CustomerManagement: React.FC = () => {
         </div>
         <div className="reference-modal-body">
           <Form form={paymentForm} layout="vertical" onFinish={handleRecordPayment}>
-            <Form.Item
-              name="amount"
-              label={<span className="reference-field-label"><DollarCircleOutlined className="reference-field-icon" /> Amount Received (PKR) <span style={{ color: '#ef4444' }}>*</span></span>}
-              rules={[{ required: true, message: 'Please enter payment amount' }]}
-            >
-              <InputNumber style={{ width: '100%' }} min={1} />
-            </Form.Item>
+            <Row gutter={12}>
+              <Col xs={12} sm={8}>
+                <Form.Item
+                  name="amount"
+                  label="Amount Received (PKR)"
+                  rules={[{ required: true, message: 'Enter payment amount' }]}
+                >
+                  <InputNumber
+                    style={{ width: '100%' }}
+                    min={1}
+                    precision={2}
+                    onChange={(v) => setWatchedPayAmt(Number(v) || 0)}
+                  />
+                </Form.Item>
+              </Col>
+              <Col xs={12} sm={8}>
+                <Form.Item name="paymentDate" label="Receipt Date" rules={[{ required: true }]}>
+                  <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" />
+                </Form.Item>
+              </Col>
+              <Col xs={12} sm={8}>
+                <Form.Item name="receiptType" label="Receipt Classification">
+                  <Select
+                    options={[
+                      { value: 'INVOICE_PAYMENT', label: 'Invoice Payment (Bill-to-Bill)' },
+                      { value: 'ADVANCE_PAYMENT', label: 'Advance Payment' },
+                      { value: 'ON_ACCOUNT', label: 'On Account' },
+                    ]}
+                  />
+                </Form.Item>
+              </Col>
+              <Col xs={12} sm={8}>
+                <Form.Item name="paymentMethod" label="Payment Mode">
+                  <Select
+                    onChange={(v) => setWatchedPayMode(v)}
+                    options={[
+                      { value: 'CASH', label: 'Cash' },
+                      { value: 'BANK_TRANSFER', label: 'Bank Transfer / IBFT' },
+                      { value: 'CHEQUE', label: 'Cheque' },
+                      { value: 'ONLINE', label: 'Online / PayOrder' },
+                      { value: 'OTHER', label: 'Other' },
+                    ]}
+                  />
+                </Form.Item>
+              </Col>
+              <Col xs={12} sm={8}>
+                <Form.Item name="bankAccountId" label="Deposit Account (GL)">
+                  <Select
+                    allowClear
+                    placeholder="Auto (Cash / Bank GL)"
+                    options={bankAccounts.map((a) => ({
+                      value: a.id,
+                      label: `${a.accountCode} — ${a.accountName}`,
+                    }))}
+                  />
+                </Form.Item>
+              </Col>
+              <Col xs={12} sm={8}>
+                <Form.Item name="divisionId" label="Division">
+                  <Select
+                    allowClear
+                    placeholder="Select Division"
+                    options={divisions.map((d) => ({ value: d.id, label: d.name }))}
+                  />
+                </Form.Item>
+              </Col>
+            </Row>
 
-            <Form.Item
-              name="paymentDate"
-              label={<span className="reference-field-label"><CalendarOutlined className="reference-field-icon" /> Payment Date <span style={{ color: '#ef4444' }}>*</span></span>}
-              rules={[{ required: true, message: 'Please select payment date' }]}
-            >
-              <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" />
-            </Form.Item>
+            {watchedPayMode === 'CHEQUE' && (
+              <Row gutter={12}>
+                <Col xs={12} sm={6}>
+                  <Form.Item name="bankName" label="Bank Name">
+                    <Input placeholder="e.g. HBL" />
+                  </Form.Item>
+                </Col>
+                <Col xs={12} sm={6}>
+                  <Form.Item name="chequeNumber" label="Cheque #">
+                    <Input placeholder="Cheque No." />
+                  </Form.Item>
+                </Col>
+                <Col xs={12} sm={6}>
+                  <Form.Item name="chequeDate" label="Cheque Date">
+                    <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" />
+                  </Form.Item>
+                </Col>
+                <Col xs={12} sm={6}>
+                  <Form.Item name="clearanceStatus" label="Clearance">
+                    <Select
+                      options={[
+                        { value: 'CLEARED', label: 'Cleared' },
+                        { value: 'PENDING_CLEARANCE', label: 'Pending Clearance' },
+                      ]}
+                    />
+                  </Form.Item>
+                </Col>
+              </Row>
+            )}
 
-            <Form.Item
-              name="paymentMethod"
-              label={<span className="reference-field-label"><BankOutlined className="reference-field-icon" /> Payment Method</span>}
-              initialValue="Bank Transfer"
-            >
-              <Select>
-                <Select.Option value="Cash">Cash</Select.Option>
-                <Select.Option value="Bank Transfer">Bank Transfer</Select.Option>
-                <Select.Option value="Cheque">Cheque</Select.Option>
-                <Select.Option value="Online / PayOrder">Online / PayOrder</Select.Option>
-              </Select>
-            </Form.Item>
+            <Row gutter={12}>
+              <Col xs={12} sm={8}>
+                <Form.Item name="socNumber" label="SOC # (Optional)">
+                  <Input placeholder="SOC-2026-xxxxx" />
+                </Form.Item>
+              </Col>
+              <Col xs={12} sm={8}>
+                <Form.Item name="poReference" label="PO Reference (Optional)">
+                  <Input placeholder="Customer PO #" />
+                </Form.Item>
+              </Col>
+              <Col xs={24} sm={8}>
+                <Form.Item name="reference" label="Bank Slip / IBFT Ref">
+                  <Input placeholder="Reference #" />
+                </Form.Item>
+              </Col>
+            </Row>
 
-            <Form.Item
-              name="reference"
-              label={<span className="reference-field-label"><AuditOutlined className="reference-field-icon" /> Cheque # / Slip # / Reference</span>}
-            >
-              <Input placeholder="e.g. CHQ-998822" />
-            </Form.Item>
+            {(ledgerSummary?.openInvoices || []).length > 0 && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <strong style={{ fontSize: 12.5 }}>Bill-to-Bill Open Invoice Allocation</strong>
+                  <Button
+                    size="small"
+                    onClick={() => {
+                      let rem = watchedPayAmt;
+                      const m: Record<string, number> = {};
+                      for (const inv of ledgerSummary?.openInvoices || []) {
+                        if (rem <= 0) break;
+                        const b = Number(inv.balance) || 0;
+                        if (b > 0) {
+                          const take = Math.round(Math.min(rem, b) * 100) / 100;
+                          m[inv.id] = take;
+                          rem = Math.round((rem - take) * 100) / 100;
+                        }
+                      }
+                      setPaymentAllocMap(m);
+                    }}
+                  >
+                    Auto-Allocate Oldest First
+                  </Button>
+                </div>
+                <Table
+                  rowKey="id"
+                  size="small"
+                  pagination={false}
+                  dataSource={ledgerSummary?.openInvoices || []}
+                  columns={[
+                    { title: 'Invoice #', dataIndex: 'invoiceNo', render: (v) => <strong>{v}</strong> },
+                    {
+                      title: 'Balance Due',
+                      dataIndex: 'balance',
+                      align: 'right',
+                      render: (v) => <span style={{ color: '#dc2626' }}>Rs {formatDecimal(v)}</span>,
+                    },
+                    {
+                      title: 'Allocate Now (Rs)',
+                      width: 170,
+                      render: (_, inv: any) => (
+                        <InputNumber
+                          size="small"
+                          min={0}
+                          max={Number(inv.balance)}
+                          precision={2}
+                          style={{ width: 130 }}
+                          value={paymentAllocMap[inv.id] || 0}
+                          onChange={(val) => setPaymentAllocMap((p) => ({ ...p, [inv.id]: Number(val) || 0 }))}
+                        />
+                      ),
+                    },
+                  ]}
+                />
+              </div>
+            )}
 
-            <Form.Item
-              name="notes"
-              label={<span className="reference-field-label"><FileTextOutlined className="reference-field-icon" /> Payment Notes</span>}
-            >
+            <Form.Item name="notes" label="Remarks / Narration">
               <Input.TextArea rows={2} placeholder="Optional remarks" />
             </Form.Item>
 
             <div className="reference-modal-footer">
               <Button type="primary" htmlType="submit" icon={<SaveOutlined />} loading={paymentLoading} className="btn-ref-save">
-                Save Payment
+                Save Receipt Voucher
               </Button>
               <Button icon={<CloseOutlined />} className="btn-ref-cancel" onClick={() => setRecordPaymentModalVisible(false)}>
                 Cancel
@@ -3131,6 +3973,66 @@ const CustomerManagement: React.FC = () => {
             </div>
           </Form>
         </div>
+      </Modal>
+
+      {/* Adjust Unallocated Advance Modal */}
+      <Modal
+        title={
+          <Space>
+            <SwapOutlined style={{ color: '#0284c7' }} />
+            <span>Adjust Unallocated Advance — {selectedCustomer?.name}</span>
+          </Space>
+        }
+        open={adjustAdvModalVisible}
+        onCancel={() => setAdjustAdvModalVisible(false)}
+        width={680}
+        okText="Apply Advance to Invoices"
+        confirmLoading={adjustAdvSubmitting}
+        onOk={() => void handleSubmitAdjustAdvance()}
+      >
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={`Available Unadjusted Advance: Rs ${formatDecimal(c360UnadjustedAdvance)}`}
+        />
+        <Table
+          rowKey="id"
+          size="small"
+          pagination={false}
+          dataSource={ledgerSummary?.openInvoices || []}
+          columns={[
+            { title: 'Invoice #', dataIndex: 'invoiceNo', render: (v) => <strong>{v}</strong> },
+            { title: 'Due Date', dataIndex: 'dueDate', render: (v) => v || '-' },
+            {
+              title: 'Balance Due',
+              dataIndex: 'balance',
+              align: 'right',
+              render: (v) => <span style={{ color: '#dc2626', fontWeight: 700 }}>Rs {formatDecimal(v)}</span>,
+            },
+            {
+              title: 'Adjust Amount (Rs)',
+              width: 170,
+              render: (_, inv: any) => (
+                <InputNumber
+                  size="small"
+                  min={0}
+                  max={Number(inv.balance)}
+                  precision={2}
+                  style={{ width: 135 }}
+                  value={adjustAdvAllocMap[inv.id] || 0}
+                  onChange={(val) => setAdjustAdvAllocMap((p) => ({ ...p, [inv.id]: Number(val) || 0 }))}
+                />
+              ),
+            },
+          ]}
+        />
+        <Input
+          style={{ marginTop: 10 }}
+          placeholder="Adjustment remarks (optional)"
+          value={adjustAdvNotes}
+          onChange={(e) => setAdjustAdvNotes(e.target.value)}
+        />
       </Modal>
 
       {/* Add Contact Person Modal */}
@@ -3305,10 +4207,10 @@ const CustomerManagement: React.FC = () => {
         onDeactivateInstead={
           customerToDelete?.status === 'ACTIVE'
             ? async () => {
-                if (customerToDelete) {
-                  await handleExecuteDeactivate(customerToDelete);
-                }
+              if (customerToDelete) {
+                await handleExecuteDeactivate(customerToDelete);
               }
+            }
             : undefined
         }
         deactivateLabel="Deactivate Customer Instead"

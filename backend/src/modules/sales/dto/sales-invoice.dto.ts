@@ -24,6 +24,36 @@ export class CreateSalesInvoiceDto {
   @IsOptional()
   salesOrderId?: string;
 
+  @ApiPropertyOptional({ description: 'Sales Delivery ID' })
+  @IsUUID()
+  @IsOptional()
+  salesDeliveryId?: string;
+
+  @ApiPropertyOptional({ description: 'Delivery Note Number' })
+  @IsString()
+  @IsOptional()
+  deliveryNumber?: string;
+
+  @ApiPropertyOptional({ description: 'Gate Pass Number' })
+  @IsString()
+  @IsOptional()
+  gatePassNumber?: string;
+
+  @ApiPropertyOptional({ description: 'Division ID' })
+  @IsUUID()
+  @IsOptional()
+  divisionId?: string;
+
+  @ApiPropertyOptional({ description: 'Payment Terms' })
+  @IsString()
+  @IsOptional()
+  paymentTerms?: string;
+
+  @ApiPropertyOptional({ description: 'Document Type' })
+  @IsString()
+  @IsOptional()
+  documentType?: string;
+
   @ApiProperty({ description: 'Customer ID' })
   @IsUUID()
   @IsNotEmpty()

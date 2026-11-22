@@ -146,6 +146,26 @@ export class CreateSalesOrderDto {
   @IsOptional()
   notes?: string;
 
+  @ApiPropertyOptional({ description: 'Payment term ID' })
+  @ValidateIf((o) => Boolean(o.paymentTermId && String(o.paymentTermId).trim()))
+  @IsUUID()
+  @IsOptional()
+  paymentTermId?: string;
+
+  @ApiPropertyOptional({ description: 'Payment terms label' })
+  @IsString()
+  @IsOptional()
+  paymentTerms?: string;
+
+  @ApiPropertyOptional({ description: 'Authorized credit policy override flag' })
+  @IsOptional()
+  creditOverride?: boolean;
+
+  @ApiPropertyOptional({ description: 'Authorized credit policy override audit reason' })
+  @IsString()
+  @IsOptional()
+  creditOverrideReason?: string;
+
   @ApiPropertyOptional({ description: 'Division ID' })
   @ValidateIf((o) => Boolean(o.divisionId && String(o.divisionId).trim()))
   @Matches(/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/, {

@@ -2,6 +2,7 @@ import { Controller, Get, Post, Patch, Delete, Body, Param, Query, Req, HttpCode
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { SalesOrderService } from '../services/sales-order.service';
 import { CreateSalesOrderDto } from '../dto';
+import { CreditOverrideDto } from '../dto/customer-receipt.dto';
 import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
 import { OrgScopeGuard, RequireOrgScope } from '../../auth/guards/org-scope.guard';
@@ -134,10 +135,10 @@ export class SalesOrderController {
   @RequirePermission('sales.orders.approve')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Confirm sales order' })
-  async confirm(@Req() req: any, @Param('id') id: string) {
+  async confirm(@Req() req: any, @Param('id') id: string, @Body() body?: CreditOverrideDto) {
     const userId = req.user?.id;
     const companyId = req.erpUser?.defaultCompanyId;
-    const order = await this.service.confirm(id, userId, companyId, this.divisionScope(req));
+    const order = await this.service.confirm(id, userId, companyId, this.divisionScope(req), body);
     return { success: true, data: order, message: 'Sales order confirmed' };
   }
 

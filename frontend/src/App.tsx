@@ -45,6 +45,7 @@ import {
   SalesDeliveryManagement,
   SalesInvoiceManagement,
   SalesReturnManagement,
+  CustomerPayments,
   SalesAnalyticsDashboard,
   FinishedGoodsInventory,
 } from './pages/sales';
@@ -199,6 +200,8 @@ const App: React.FC = () => {
                   <Route path="/dispatch/packages" element={<DispatchPackagesPage />} />
                   <Route path="/sales/invoices" element={<SalesInvoiceManagement />} />
                   <Route path="/invoices" element={<SalesInvoiceManagement />} />
+                  <Route path="/sales/receipts" element={<CustomerPayments />} />
+                  <Route path="/sales/customers-ledger" element={<CustomerManagement />} />
                   <Route path="/sales/returns" element={<SalesReturnManagement />} />
                   <Route path="/inventory" element={<Inventory />} />
                   <Route path="/inventory/finished-goods" element={<Navigate to="/inventory" replace />} />
