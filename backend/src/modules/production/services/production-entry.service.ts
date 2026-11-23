@@ -4840,6 +4840,10 @@ addToDept(org, {
       }
       completedRemarks += ` | Orig. Packed: ${origPackedDateStr} | Nipple Stock Deducted: ${completionDateStr} (${deductedGross} GRS / ${deductedPcs} PCS from WH-002) | Partial Completion from ${entry.entryNumber} (${completedCartons} of ${totalCartons} CTN) | Completed by User`;
 
+      const lockedPackingTargetPcs = Math.round(
+        (125 + Math.max(0, Number(entry.overtimeHours) || 0) * (125 / 8)) * 1440,
+      );
+
       const completedEntry = this.entryRepo.create({
         companyId: entry.companyId,
         entryNumber: await this.generateEntryNumber(companyId),
@@ -4857,8 +4861,9 @@ addToDept(org, {
         coilSize: entry.coilSize,
         itemId: entry.itemId,
         uomId: entry.uomId,
-        targetQuantity: Math.round(Number(entry.targetQuantity || 0) * ratio),
+        targetQuantity: lockedPackingTargetPcs,
         actualQuantity: Number(deductedPcs),
+        overtimeHours: Number(entry.overtimeHours) || 0,
         packingMode: 'FULL_SET',
         rawMaterialWarehouseId: entry.rawMaterialWarehouseId,
         warehouseId: entry.warehouseId,

@@ -120,6 +120,14 @@ export function summarizeLinesTaxVerification(
 
     const rawName = raw.item?.name || raw.itemName || raw.productName || raw.description || 'Item';
     const cleanName = String(rawName).replace(/\s*\[SOC:[^\]]+\]/i, '').trim() || 'Item';
+    const uomCode = raw.uom?.code || raw.uomCode || 'GRS';
+    const pkgSize = Number(raw.packagingSize ?? raw.item?.packagingSize ?? 0);
+    const explicitCartons = Number(raw.cartons ?? raw.packageQuantity ?? 0);
+    const cartons = explicitCartons > 0
+      ? explicitCartons
+      : (pkgSize > 0 && qty > 0
+          ? round2(qty / pkgSize)
+          : (String(uomCode).toUpperCase().startsWith('GR') && qty > 0 ? round2(qty / 10) : 0));
 
     return {
       key: String(raw.id || `${idx}`),
@@ -127,9 +135,9 @@ export function summarizeLinesTaxVerification(
       itemCode: raw.item?.itemCode || raw.itemCode || raw.item?.code || null,
       itemName: cleanName,
       quantity: qty,
-      uomCode: raw.uom?.code || raw.uomCode || 'GRS',
-      cartons: Number(raw.cartons ?? raw.packageQuantity ?? 0),
-      packagingUnit: raw.packagingUnit || raw.item?.packagingUnit || 'CTN',
+      uomCode,
+      cartons,
+      packagingUnit: String(raw.packagingUnit || raw.item?.packagingUnit || 'CTN').toUpperCase(),
       unitPrice,
       discountPercent,
       taxPercent,

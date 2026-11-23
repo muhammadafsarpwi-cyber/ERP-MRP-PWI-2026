@@ -464,17 +464,11 @@ const parseHandPackingEntry = (e: any): RecentPackingLog | null => {
     socNo: pick('SOC') || '—',
     packagingStyle: pick('Style') || 'OEM Packing',
     line: pick('Line') || 'Spoke Boxing & Nipple Station A',
-    targetCartons: (() => {
-      const rawTargetQty = toNum(e.targetQuantity ?? e.target_quantity);
-      const otHrs = toNum(e.overtimeHours ?? e.overtime_hours);
-      const baseTargetCartonsCalculated = rawTargetQty > 0
-        ? Math.round(((rawTargetQty / PCS_PER_CARTON) / (1 + (otHrs > 0 ? otHrs / 8 : 0))) * 10) / 10
-        : (getSavedPackingTargetConfig().baseCartons || 125);
-      return (baseTargetCartonsCalculated === 100 || !baseTargetCartonsCalculated)
-        ? (getSavedPackingTargetConfig().baseCartons || 125)
-        : baseTargetCartonsCalculated;
+    targetCartons: 125,
+    targetPcs: (() => {
+      const otHrs = Math.max(0, toNum(e.overtimeHours ?? e.overtime_hours) || parseFloat(pick('OT')) || 0);
+      return Math.round((125 + otHrs * (125 / 8)) * PCS_PER_CARTON);
     })(),
-    targetPcs: toNum(e.targetQuantity ?? e.target_quantity) || (125 * PCS_PER_CARTON),
     fgItemId: e.itemId || e.item_id || e.item?.id || '',
     fgItemCode: e.item?.itemCode || '',
     fgItemName: e.item?.name || '',
@@ -4638,27 +4632,23 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
     setMasterItems((prev) => prev.filter((r) => r.key !== key));
   }, [masterItems.length, message]);
 
-  // Derived Daily Target in Cartons, Gross, and PCS (Automatically scaled with Overtime!)
+  // Derived Daily Target in Cartons, Gross, and PCS (Strictly Formula-Locked: 125 Base CTN per 8h + 15.625 CTN/hr OT)
   const { targetInCartons, targetInGross, targetInPcs, baseTargetCartons, overtimeTargetCartons } = useMemo(() => {
-    let baseCtn = 0;
-    if (targetUnit === 'CTN') baseCtn = targetCartons;
-    else if (targetUnit === 'GRS') baseCtn = targetCartons / conversionFactors.grossPerCarton;
-    else if (targetUnit === 'PCS') baseCtn = targetCartons / conversionFactors.pcsPerCarton;
-
-    // Linear Overtime scaling: 8 hours base -> each OT hour adds (base / 8) cartons to target
-    const otCtn = overtimeHours > 0 ? (overtimeHours * (baseCtn / 8)) : 0;
+    const baseCtn = 125;
+    const otHrs = Math.max(0, Number(overtimeHours) || 0);
+    const otCtn = otHrs * (125 / 8); // 15.625 CTN/hour
     const totalCtn = baseCtn + otCtn;
 
     const grs = totalCtn * conversionFactors.grossPerCarton;
     const pcs = grs * conversionFactors.pcsPerGross;
     return {
-      baseTargetCartons: Math.round(baseCtn * 100) / 100,
-      overtimeTargetCartons: Math.round(otCtn * 100) / 100,
-      targetInCartons: Math.round(totalCtn * 100) / 100,
+      baseTargetCartons: 125,
+      overtimeTargetCartons: Math.round(otCtn * 10) / 10,
+      targetInCartons: Math.round(totalCtn * 10) / 10,
       targetInGross: Math.round(grs * 100) / 100,
       targetInPcs: Math.round(pcs),
     };
-  }, [targetCartons, targetUnit, conversionFactors, overtimeHours]);
+  }, [conversionFactors, overtimeHours]);
 
   // Aggregated totals across all Finished Goods master lines
   const totals = useMemo(() => {
@@ -7915,10 +7905,8 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
         const totalRejectionPcs = physicalItems.reduce((s, r) => s + (r.rejectionPcs || 0), 0);
 
         const dayOtHours = physicalItems.length > 0 ? Math.max(0, ...physicalItems.map((r) => r.overtimeHours || 0)) : 0;
-        const activeBase = getSavedPackingTargetConfig().baseCartons || 125;
-        const rawTarget = physicalItems[0]?.targetCartons;
-        const baseTarget = (rawTarget && rawTarget !== 100) ? rawTarget : activeBase;
-        const otTarget = dayOtHours > 0 ? (dayOtHours * (baseTarget / 8)) : 0;
+        const baseTarget = 125; // Strictly locked to 125 Cartons per 8-hour shift (15.625 CTN/hour)
+        const otTarget = dayOtHours > 0 ? (dayOtHours * (125 / 8)) : 0;
         const effectiveTargetCartons = Math.round((baseTarget + otTarget) * 10) / 10;
         const achievementPct = effectiveTargetCartons > 0
           ? Math.min(100, Math.round(((producedCartons || totalCartons) / effectiveTargetCartons) * 1000) / 10)
@@ -8772,23 +8760,26 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
       {
         title: <span style={{ fontWeight: 800, fontSize: 13 }}>Fixed Target & OT</span>,
         key: 'fixedTarget',
-        width: 190,
-        render: (r: any) => (
-          <div>
-            <Tag color="cyan" style={{ fontWeight: 800, fontSize: 13, padding: '2px 8px', borderRadius: 4, margin: 0, whiteSpace: 'nowrap' }}>
-              🎯 {r.effectiveTargetCartons} Cartons
-            </Tag>
-            {r.dayOtHours > 0 ? (
-              <div style={{ fontSize: 11, color: '#f59e0b', fontWeight: 700, marginTop: 3, whiteSpace: 'nowrap' }}>
-                {r.baseTargetCartons} Base (8h) + {Math.round(r.dayOtHours * (r.baseTargetCartons / 8))} ({r.dayOtHours}h OT)
-              </div>
-            ) : (
-              <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', marginTop: 2, whiteSpace: 'nowrap' }}>
-                Standard 8h Base Target
-              </div>
-            )}
-          </div>
-        ),
+        width: 195,
+        render: (r: any) => {
+          const otCtnDisplay = Math.round((r.dayOtHours || 0) * (125 / 8) * 10) / 10;
+          return (
+            <div>
+              <Tag color="cyan" style={{ fontWeight: 800, fontSize: 13, padding: '2px 8px', borderRadius: 4, margin: 0, whiteSpace: 'nowrap' }}>
+                🎯 {r.effectiveTargetCartons} Cartons
+              </Tag>
+              {r.dayOtHours > 0 ? (
+                <div style={{ fontSize: 11, color: '#f59e0b', fontWeight: 700, marginTop: 3, whiteSpace: 'nowrap' }}>
+                  125 Base (8h) + {otCtnDisplay} ({r.dayOtHours}h OT)
+                </div>
+              ) : (
+                <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', marginTop: 2, whiteSpace: 'nowrap' }}>
+                  125 Base (8h) · Standard Target
+                </div>
+              )}
+            </div>
+          );
+        },
       },
       {
         title: <span style={{ fontWeight: 800, fontSize: 13 }}>Day Total Packed & Weight</span>,
@@ -8879,9 +8870,8 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 setSelectedDivisionId(r.divisionId);
                 form.setFieldValue('divisionId', r.divisionId);
               }
-              const activeStd = getSavedPackingTargetConfig().baseCartons || 125;
-              const sessionBaseTarget = (r.baseTargetCartons && r.baseTargetCartons !== 100) ? r.baseTargetCartons : activeStd;
-              setTargetCartons(sessionBaseTarget);
+              const sessionBaseTarget = 125;
+              setTargetCartons(125);
               setLockedSession({
                 isLocked: true,
                 dateKey: r.dateKey,
@@ -10370,7 +10360,7 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
             <Col xs={24} sm={12} lg={7}>
               <div>
                 <span style={{ fontSize: 11.5, fontWeight: 700, color: '#10b981', marginBottom: 4, display: 'block' }}>
-                  🎯 Shift Target
+                  🎯 Shift Target (Formula-Locked)
                 </span>
                 <div style={{
                   display: 'flex',
@@ -10384,54 +10374,21 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                   height: 32,
                   boxSizing: 'border-box',
                 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <InputNumber
-                      min={1}
-                      max={50000}
-                      controls={false}
-                      disabled={!!lockedSession?.isLocked}
-                      value={targetCartons}
-                      onChange={(val) => {
-                        const newTarget = val ? Number(val) : (getSavedPackingTargetConfig().baseCartons || 125);
-                        setTargetCartons(newTarget);
-                        setMasterItems((prev) =>
-                          prev.map((r) => ({
-                            ...r,
-                            targetCartons: newTarget,
-                          }))
-                        );
-                      }}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
+                    <span
                       style={{
-                        width: 70,
                         fontWeight: 900,
-                        fontSize: 14,
-                        textAlign: 'center',
+                        fontSize: 13,
+                        padding: '1px 8px',
                         borderRadius: 4,
-                        height: 24,
-                        lineHeight: '22px',
-                        background: 'var(--theme-card-bg, #0f172a)',
-                        color: 'var(--theme-heading, var(--theme-text, #0f172a))',
-                        borderColor: 'var(--theme-border, #334155)',
+                        background: 'var(--theme-surface-alt, rgba(16, 185, 129, 0.18))',
+                        color: '#10b981',
+                        border: '1px solid rgba(16, 185, 129, 0.4)',
+                        whiteSpace: 'nowrap',
                       }}
-                    />
-                    <span style={{ fontWeight: 800, fontSize: 12, color: 'var(--theme-text, #cbd5e1)' }}>
-                      Cartons
+                    >
+                      🔒 125 Cartons (8h)
                     </span>
-                    {onNavigateTab && (
-                      <Tooltip title="Configure Authoritative Shift Target in Tab 5">
-                        <Button
-                          size="small"
-                          type="text"
-                          disabled={!!lockedSession?.isLocked}
-                          icon={<SettingOutlined style={{ color: '#10b981', fontSize: 13 }} />}
-                          onClick={() => {
-                            setEntryModalOpen(false);
-                            onNavigateTab('target-config');
-                          }}
-                          style={{ padding: '0 2px', height: 22 }}
-                        />
-                      </Tooltip>
-                    )}
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', minWidth: 0 }}>
                     <span style={{ fontSize: 11.5, fontWeight: 800, color: '#10b981', whiteSpace: 'nowrap' }}>
@@ -10440,10 +10397,10 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                     <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--theme-text-muted, #94a3b8)', whiteSpace: 'nowrap' }}>
                       {overtimeHours > 0 ? (
                         <span style={{ color: '#f59e0b', marginRight: 3 }}>
-                          {targetCartons} Base + {formatNumber(overtimeTargetCartons, 1)} ({overtimeHours}h OT) ·
+                          125 Base (8h) + {formatNumber(overtimeTargetCartons, 1)} ({overtimeHours}h OT) ·
                         </span>
                       ) : null}
-                      {formatNumber(targetInGross, 0)} GRS ({formatNumber(targetInPcs, 0)} PCS)
+                      {formatNumber(targetInGross, targetInGross % 1 === 0 ? 0 : 1)} GRS ({formatNumber(targetInPcs, 0)} PCS)
                     </div>
                   </div>
                 </div>
@@ -11906,33 +11863,17 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
               }
               style={{ height: '100%', borderRadius: 8, border: '1.5px solid #cbd5e1', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}
             >
-              {/* Target Definition Control */}
-              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', padding: '8px 12px', borderRadius: 8, marginBottom: 10 }}>
+              {/* Target Definition Control (Read-Only Formula-Locked) */}
+              <div style={{ background: 'var(--theme-surface-alt, #f8fafc)', border: '1px solid var(--theme-border, #e2e8f0)', padding: '8px 12px', borderRadius: 8, marginBottom: 10 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                  <Text strong style={{ fontSize: 12 }}>Daily Total Packing Target:</Text>
-                  <Space size={6}>
-                    <InputNumber
-                      controls={false}
-                      min={1}
-                      value={targetCartons}
-                      onChange={(v) => setTargetCartons(v || 50)}
-                      style={{ width: 85, fontWeight: 700 }}
-                    />
-                    <Select
-                      value={targetUnit}
-                      onChange={(u) => setTargetUnit(u)}
-                      style={{ width: 80, fontWeight: 600 }}
-                      options={[
-                        { value: 'CTN', label: 'Cartons' },
-                        { value: 'GRS', label: 'Gross' },
-                        { value: 'PCS', label: 'PCS' },
-                      ]}
-                    />
-                  </Space>
+                  <Text strong style={{ fontSize: 12 }}>Daily Total Packing Target (Formula-Locked):</Text>
+                  <Tag color="cyan" style={{ margin: 0, fontWeight: 800 }}>
+                    🔒 125 Base (8h) + OT
+                  </Tag>
                 </div>
-                <div style={{ display: 'flex', gap: 10, fontSize: 11, color: '#64748b' }}>
+                <div style={{ display: 'flex', gap: 10, fontSize: 11, color: 'var(--theme-text-secondary, #64748b)' }}>
                   <span>🎯 <strong>{formatNumber(targetInCartons, 1)}</strong> Cartons</span>
-                  <span>= <strong>{formatNumber(targetInGross, 0)}</strong> Gross</span>
+                  <span>= <strong>{formatNumber(targetInGross, 1)}</strong> Gross</span>
                   <span>= <strong>{formatNumber(targetInPcs, 0)}</strong> PCS</span>
                 </div>
               </div>

@@ -148,10 +148,17 @@ export class ResponseCacheInterceptor implements NestInterceptor {
     const userKey = perUser ? String(req?.erpUser?.id || req?.user?.id || 'anon') : 'shared';
 
     const queryObj = req?.query && typeof req.query === 'object' ? req.query : {};
-    const sortedQuery = Object.keys(queryObj)
+    const normalizedQuery: Record<string, unknown> = { ...queryObj };
+    if (queryObj.sortBy || queryObj.sortField) {
+      normalizedQuery.sortBy = String(queryObj.sortBy || queryObj.sortField).trim();
+    }
+    if (queryObj.sortOrder) {
+      normalizedQuery.sortOrder = String(queryObj.sortOrder).trim().toUpperCase();
+    }
+    const sortedQuery = Object.keys(normalizedQuery)
       .filter((k) => k !== 'nocache' && k !== '_')
       .sort()
-      .map((k) => `${k}=${JSON.stringify(queryObj[k])}`)
+      .map((k) => `${k}=${JSON.stringify(normalizedQuery[k])}`)
       .join('&');
 
     return `${ruleId}|${companyId}|${divisionScope}|${userKey}|${normalizedPath}?${sortedQuery}`;

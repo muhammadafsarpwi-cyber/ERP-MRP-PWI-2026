@@ -24,13 +24,39 @@ export const PCS_PER_GROSS = 144;
 export const GROSS_PER_CARTON = 10;
 export const PCS_PER_CARTON = 1440;
 
+// Fixed Formula-Locked Packing Target Constants (Zero Manual Override Allowed)
+export const FIXED_BASE_PACKING_CARTONS = 125;
+export const FIXED_PACKING_SHIFT_HOURS = 8;
+export const PACKING_CARTONS_PER_HOUR = FIXED_BASE_PACKING_CARTONS / FIXED_PACKING_SHIFT_HOURS; // 15.625 CTN/hr
+
+export function computeLockedPackingTarget(overtimeHours: number = 0) {
+  const otHrs = Math.max(0, Number(overtimeHours) || 0);
+  const baseCartons = FIXED_BASE_PACKING_CARTONS; // Strictly 125 CTN per 8h shift
+  const rawOtCartons = otHrs * PACKING_CARTONS_PER_HOUR; // OT_Hours * 15.625
+  const rawTotalCartons = baseCartons + rawOtCartons;
+  const otCartonsDisplay = Math.round(rawOtCartons * 10) / 10; // e.g. 31.3 for 2h OT, 46.9 for 3h OT
+  const totalCartonsDisplay = Math.round(rawTotalCartons * 10) / 10; // e.g. 156.3 for 2h OT, 171.9 for 3h OT
+  const totalGross = Math.round(rawTotalCartons * GROSS_PER_CARTON * 100) / 100;
+  const totalPcs = Math.round(rawTotalCartons * PCS_PER_CARTON);
+  return {
+    baseCartons,
+    otHours: otHrs,
+    rawOtCartons,
+    rawTotalCartons,
+    otCartonsDisplay,
+    totalCartonsDisplay,
+    totalGross,
+    totalPcs,
+  };
+}
+
 export const DEFAULT_PACKING_TARGET: PackingShiftTargetConfig = {
-  baseCartons: 125, // 125 Cartons = 1,250 Gross = 180,000 PCS (8-Hour Shift)
-  shiftHours: 8,
+  baseCartons: FIXED_BASE_PACKING_CARTONS, // 125 Cartons = 1,250 Gross = 180,000 PCS (8-Hour Shift)
+  shiftHours: FIXED_PACKING_SHIFT_HOURS,
   shiftName: 'General (8:30 AM - 5:30 PM)',
-  notes: 'Standard 8-Hour Packing Line Authoritative Shift Target',
+  notes: 'Formula-Locked 8-Hour Packing Line Standard Shift Target (125 CTN Base + 15.625 CTN/hr OT)',
   updatedAt: new Date().toISOString(),
-  updatedBy: 'System Standard',
+  updatedBy: 'System Formula Locked',
 };
 
 export const getSavedPackingTargetConfig = (): PackingShiftTargetConfig => {
@@ -38,34 +64,26 @@ export const getSavedPackingTargetConfig = (): PackingShiftTargetConfig => {
     const raw = localStorage.getItem(PACKING_TARGET_STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed.baseCartons === 'number' && parsed.baseCartons > 0) {
-        // Automatically migrate legacy default 100 CTN to the authoritative 125 CTN standard
-        const baseCartons = parsed.baseCartons === 100 ? 125 : Number(parsed.baseCartons);
-        return {
-          baseCartons,
-          shiftHours: Number(parsed.shiftHours) || 8,
-          shiftName: String(parsed.shiftName || 'General (8:30 AM - 5:30 PM)'),
-          notes: String(parsed.notes || ''),
-          updatedAt: parsed.updatedAt || '',
-          updatedBy: parsed.updatedBy || '',
-        };
+      if (parsed && parsed.baseCartons !== FIXED_BASE_PACKING_CARTONS) {
+        localStorage.setItem(PACKING_TARGET_STORAGE_KEY, JSON.stringify(DEFAULT_PACKING_TARGET));
       }
     }
-  } catch (err) {
-    console.warn('Failed to read packing target from storage', err);
+  } catch {
+    // Ignore storage access errors
   }
   return DEFAULT_PACKING_TARGET;
 };
 
 export const savePackingTargetConfig = (config: PackingShiftTargetConfig): void => {
   try {
+    // Base target is strictly formula-locked to 125 Cartons per 8-hour shift
     const payload: PackingShiftTargetConfig = {
-      baseCartons: Number(config.baseCartons) || 125,
-      shiftHours: Number(config.shiftHours) || 8,
+      baseCartons: FIXED_BASE_PACKING_CARTONS,
+      shiftHours: FIXED_PACKING_SHIFT_HOURS,
       shiftName: config.shiftName || 'General (8:30 AM - 5:30 PM)',
-      notes: config.notes || '',
+      notes: config.notes || DEFAULT_PACKING_TARGET.notes,
       updatedAt: new Date().toISOString(),
-      updatedBy: config.updatedBy || 'Operator',
+      updatedBy: 'System Formula Locked',
     };
     localStorage.setItem(PACKING_TARGET_STORAGE_KEY, JSON.stringify(payload));
     window.dispatchEvent(new CustomEvent(PACKING_TARGET_EVENT, { detail: payload }));

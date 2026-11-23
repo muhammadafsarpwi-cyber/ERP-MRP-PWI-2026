@@ -49,16 +49,16 @@ export const PackingShiftTargetSetup: React.FC<PackingShiftTargetSetupProps> = (
     return () => window.removeEventListener(PACKING_TARGET_EVENT, handleTargetUpdate);
   }, []);
 
-  // Live conversions based on the current cartons input
-  const currentCartons = Number(cartonsInput) > 0 ? Number(cartonsInput) : 125;
-  const currentGross = currentCartons * GROSS_PER_CARTON; // 10 GRS / CTN
+  // Live conversions based on the fixed formula-locked 125 Cartons per 8-hour shift
+  const currentCartons = 125;
+  const currentGross = currentCartons * GROSS_PER_CARTON; // 10 GRS / CTN = 1,250 GRS
   const currentPcs = currentGross * PCS_PER_GROSS; // 144 PCS / GRS -> 180,000 PCS for 125 CTN
-  const currentHours = Number(shiftHoursInput) > 0 ? Number(shiftHoursInput) : 8;
+  const currentHours = 8;
 
-  // Hourly Productivity Rate
-  const cartonsPerHour = Math.round((currentCartons / currentHours) * 10) / 10;
-  const grossPerHour = Math.round((currentGross / currentHours) * 10) / 10;
-  const pcsPerHour = Math.round(currentPcs / currentHours);
+  // Hourly Productivity Rate (15.625 CTN/hr = 156.25 GRS/hr = 22,500 PCS/hr)
+  const cartonsPerHour = 15.625;
+  const grossPerHour = 156.25;
+  const pcsPerHour = 22500;
 
   // Line Cycle Pace (for standard 8-worker chain)
   const pcsPerWorkerHour = Math.round(pcsPerHour / 8);
@@ -270,98 +270,45 @@ export const PackingShiftTargetSetup: React.FC<PackingShiftTargetSetupProps> = (
               marginBottom: 16,
             }}
           >
-            {/* Quick Preset Buttons */}
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--theme-text-muted, #64748b)', marginBottom: 8 }}>
-                Quick Preset Targets:
-              </div>
-              <Space wrap size={8}>
-                <Button
-                  size="middle"
-                  onClick={() => applyPreset(50)}
-                  type={cartonsInput === 50 ? 'primary' : 'default'}
-                  style={{ fontWeight: 700, borderRadius: 6 }}
-                >
-                  50 Cartons (500 GRS)
-                </Button>
-                <Button
-                  size="middle"
-                  onClick={() => applyPreset(75)}
-                  type={cartonsInput === 75 ? 'primary' : 'default'}
-                  style={{ fontWeight: 700, borderRadius: 6 }}
-                >
-                  75 Cartons (750 GRS)
-                </Button>
-                <Button
-                  size="middle"
-                  onClick={() => applyPreset(100)}
-                  type={cartonsInput === 100 ? 'primary' : 'default'}
-                  style={{ fontWeight: 700, borderRadius: 6 }}
-                >
-                  100 Cartons (1,000 GRS)
-                </Button>
-                <Button
-                  size="middle"
-                  onClick={() => applyPreset(125)}
-                  type={cartonsInput === 125 ? 'primary' : 'default'}
-                  style={{ fontWeight: 800, borderRadius: 6, background: cartonsInput === 125 ? '#059669' : undefined, borderColor: '#059669' }}
-                >
-                  🎯 125 Cartons (Standard Baseline)
-                </Button>
-                <Button
-                  size="middle"
-                  onClick={() => applyPreset(150)}
-                  type={cartonsInput === 150 ? 'primary' : 'default'}
-                  style={{ fontWeight: 700, borderRadius: 6 }}
-                >
-                  150 Cartons (1,500 GRS)
-                </Button>
-                <Button
-                  size="middle"
-                  onClick={() => applyPreset(200)}
-                  type={cartonsInput === 200 ? 'primary' : 'default'}
-                  style={{ fontWeight: 800, borderRadius: 6, background: cartonsInput === 200 ? '#0284c7' : undefined, borderColor: '#0284c7' }}
-                >
-                  🚀 200 Cartons (Peak Production)
-                </Button>
-              </Space>
-            </div>
+            {/* Formula-Locked Standard Banner */}
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 16, borderRadius: 6, fontWeight: 600 }}
+              message="Formula-Locked Standard: Base Shift (8 hours) = 125 Cartons (1,250 Gross / 180,000 PCS · 15.625 CTN/hr). Target scales automatically with Overtime Hours only."
+            />
 
             <Divider style={{ margin: '14px 0' }} />
 
-            {/* Target Edit Fields */}
+            {/* Target Read-Only Fields */}
             <Row gutter={[16, 14]}>
               <Col xs={24} sm={12}>
                 <label style={{ display: 'block', fontWeight: 800, fontSize: 13, color: 'var(--theme-text, #1e293b)', marginBottom: 6 }}>
-                  Base Shift Target (Cartons):
+                  Base Shift Target (Formula-Locked):
                 </label>
                 <InputNumber
-                  min={1}
-                  max={50000}
-                  value={cartonsInput}
-                  onChange={(val) => setCartonsInput(val ? Number(val) : 100)}
+                  value={125}
+                  disabled
                   addonAfter="Cartons"
                   style={{ width: '100%', fontWeight: 900, fontSize: 16 }}
                 />
                 <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #64748b)', marginTop: 4 }}>
-                  1 Carton = 10 Gross = 1,440 Finished Goods Pieces
+                  1 Carton = 10 Gross = 1,440 Finished Goods Pieces (Read-Only)
                 </div>
               </Col>
 
               <Col xs={24} sm={12}>
                 <label style={{ display: 'block', fontWeight: 800, fontSize: 13, color: 'var(--theme-text, #1e293b)', marginBottom: 6 }}>
-                  Planned Shift Duration:
+                  Planned Shift Duration (Formula-Locked):
                 </label>
                 <InputNumber
-                  min={1}
-                  max={24}
-                  value={shiftHoursInput}
-                  onChange={(val) => setShiftHoursInput(val ? Number(val) : 8)}
+                  value={8}
+                  disabled
                   addonAfter="Hours"
                   style={{ width: '100%', fontWeight: 700 }}
                 />
                 <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #64748b)', marginTop: 4 }}>
-                  Standard factory general shift = 8 planned working hours
+                  Standard factory general shift = 8 planned working hours (15.625 CTN/hr)
                 </div>
               </Col>
 

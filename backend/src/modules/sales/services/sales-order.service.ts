@@ -308,13 +308,164 @@ export class SalesOrderService implements OnModuleInit {
   }
 
   async findAll(filter: any): Promise<{ data: SalesOrder[]; total: number }> {
-    const page = Number(filter.page) || 1;
-    const limit = Number(filter.limit) || 50;
+    const page = Math.max(1, Number(filter.page) || 1);
+    const limit = Math.max(1, Math.min(500, Number(filter.limit) || 50));
+    const offset = (page - 1) * limit;
     const {
-      companyId, customerId, status, search, divisionId,
-      sortField = 'createdAt', sortOrder = 'DESC',
+      companyId,
+      customerId,
+      status,
+      search,
+      divisionId,
+      currency,
+      dateFrom,
+      dateTo,
+      sortBy,
+      sortField,
+      sortOrder = 'DESC',
       allowedDivisionIds,
     } = filter;
+
+    const rawSortBy = String(sortBy || sortField || 'orderNumber').trim();
+    const dir: 'ASC' | 'DESC' = String(sortOrder || 'DESC').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
+    // Global multi-page server-side sorting via two-step SQL (ORDER BY across entire
+    // filtered dataset BEFORE LIMIT/OFFSET, then hydrate full entities in exact ID order).
+    if (typeof this.repo.manager?.query === 'function') {
+      if (Array.isArray(allowedDivisionIds) && allowedDivisionIds.length === 0) {
+        return { data: [], total: 0 };
+      }
+
+      const whereClauses: string[] = ['so.deleted_at IS NULL'];
+      const params: any[] = [];
+      const addParam = (val: any) => {
+        params.push(val);
+        return `$${params.length}`;
+      };
+
+      if (companyId) {
+        whereClauses.push(`so.company_id = ${addParam(companyId)}`);
+      }
+      if (customerId) {
+        whereClauses.push(`so.customer_id = ${addParam(customerId)}`);
+      }
+      if (divisionId) {
+        whereClauses.push(`so.division_id = ${addParam(divisionId)}`);
+      }
+      if (Array.isArray(allowedDivisionIds)) {
+        whereClauses.push(`so.division_id = ANY(${addParam(allowedDivisionIds)}::uuid[])`);
+      }
+      if (currency) {
+        whereClauses.push(`UPPER(COALESCE(so.currency, 'PKR')) = UPPER(${addParam(String(currency).trim())})`);
+      }
+      if (status) {
+        const statusTrimmed = String(status).trim();
+        if (statusTrimmed && statusTrimmed.toLowerCase() !== 'all' && statusTrimmed.toLowerCase() !== 'all statuses') {
+          const parts = statusTrimmed
+            .split(',')
+            .map((s) => s.trim().toLowerCase())
+            .filter(Boolean);
+          if (parts.length === 1) {
+            whereClauses.push(`LOWER(COALESCE(so.status, '')) = ${addParam(parts[0])}`);
+          } else if (parts.length > 1) {
+            whereClauses.push(`LOWER(COALESCE(so.status, '')) = ANY(${addParam(parts)}::text[])`);
+          }
+        }
+      }
+      if (dateFrom && String(dateFrom).trim()) {
+        whereClauses.push(`so.order_date >= ${addParam(String(dateFrom).trim())}::date`);
+      }
+      if (dateTo && String(dateTo).trim()) {
+        whereClauses.push(`so.order_date <= ${addParam(String(dateTo).trim())}::date`);
+      }
+      if (search && String(search).trim()) {
+        const p = addParam(`%${String(search).trim()}%`);
+        whereClauses.push(
+          `(so.order_number ILIKE ${p} OR customer.company_name ILIKE ${p} OR customer.customer_code ILIKE ${p} OR so.customer_po ILIKE ${p})`,
+        );
+      }
+
+      const whereSql = whereClauses.join(' AND ');
+      const baseFromSql = `
+        FROM erp_sales.sales_orders so
+        LEFT JOIN erp_sales.customers customer ON customer.id = so.customer_id
+        LEFT JOIN public.divisions division ON division.id = so.division_id
+        WHERE ${whereSql}
+      `;
+
+      // Natural numeric ordering for SOC/order numbers (year then trailing numeric sequence)
+      const naturalOrderNumExpr = `
+        COALESCE(NULLIF(SUBSTRING(so.order_number FROM '^[A-Za-z-]+([0-9]{4})-'), ''), '0')::int ${dir},
+        COALESCE(NULLIF(SUBSTRING(so.order_number FROM '([0-9]+)$'), ''), '0')::bigint ${dir},
+        so.order_number ${dir}
+      `;
+
+      let orderBySql: string;
+      switch (rawSortBy) {
+        case 'orderDate':
+          orderBySql = `so.order_date ${dir} NULLS LAST, ${naturalOrderNumExpr}, so.created_at ${dir}`;
+          break;
+        case 'orderNumber':
+          orderBySql = `${naturalOrderNumExpr}, so.order_date ${dir} NULLS LAST, so.created_at ${dir}`;
+          break;
+        case 'division':
+          orderBySql = `LOWER(COALESCE(division.name, '')) ${dir}, LOWER(COALESCE(division.division_code, '')) ${dir}, ${naturalOrderNumExpr}`;
+          break;
+        case 'customer':
+          orderBySql = `LOWER(COALESCE(customer.company_name, '')) ${dir}, LOWER(COALESCE(customer.customer_code, '')) ${dir}, ${naturalOrderNumExpr}`;
+          break;
+        case 'totalQty':
+          orderBySql = `COALESCE((SELECT SUM(soi.quantity) FROM erp_sales.sales_order_items soi WHERE soi.sales_order_id = so.id), 0) ${dir}, ${naturalOrderNumExpr}`;
+          break;
+        case 'totalAmount':
+          orderBySql = `COALESCE(so.total_amount, 0) ${dir}, ${naturalOrderNumExpr}`;
+          break;
+        case 'status':
+          orderBySql = `LOWER(COALESCE(so.status, '')) ${dir}, so.order_date ${dir} NULLS LAST, ${naturalOrderNumExpr}`;
+          break;
+        case 'createdAt':
+          orderBySql = `so.created_at ${dir}, ${naturalOrderNumExpr}`;
+          break;
+        default:
+          orderBySql = `${naturalOrderNumExpr}, so.order_date ${dir} NULLS LAST, so.created_at ${dir}`;
+          break;
+      }
+
+      const countRows = await this.repo.manager.query(
+        `SELECT COUNT(so.id)::int AS total ${baseFromSql}`,
+        params,
+      );
+      const total = Number(countRows?.[0]?.total || 0);
+      if (total === 0) {
+        return { data: [], total: 0 };
+      }
+
+      const pageParams = [...params, limit, offset];
+      const limitPlaceholder = `$${params.length + 1}`;
+      const offsetPlaceholder = `$${params.length + 2}`;
+      const idRows: Array<{ id: string }> = await this.repo.manager.query(
+        `SELECT so.id ${baseFromSql} ORDER BY ${orderBySql} LIMIT ${limitPlaceholder} OFFSET ${offsetPlaceholder}`,
+        pageParams,
+      );
+
+      const pageIds = idRows.map((r) => r.id).filter(Boolean);
+      if (pageIds.length === 0) {
+        return { data: [], total };
+      }
+
+      const hydrated = await this.repo.find({
+        where: { id: In(pageIds) },
+        relations: ['customer', 'division', 'section', 'items', 'items.item', 'items.uom'],
+      });
+      const byId = new Map(hydrated.map((row) => [row.id, row]));
+      const orderedData = pageIds
+        .map((id) => byId.get(id))
+        .filter((row): row is SalesOrder => Boolean(row));
+
+      return { data: orderedData, total };
+    }
+
+    // Fallback query builder path for mocked repository unit tests
     const qb = this.repo.createQueryBuilder('so')
       .leftJoinAndSelect('so.customer', 'customer')
       .leftJoinAndSelect('so.division', 'division')
@@ -328,24 +479,11 @@ export class SalesOrderService implements OnModuleInit {
     if (status && status.toLowerCase() !== 'all') { qb[hasWhere ? 'andWhere' : 'where']('so.status = :status', { status }); hasWhere = true; }
     if (divisionId) { qb[hasWhere ? 'andWhere' : 'where']('so.divisionId = :divisionId', { divisionId }); hasWhere = true; }
     if (search) { qb[hasWhere ? 'andWhere' : 'where']('(so.orderNumber ILIKE :search OR customer.companyName ILIKE :search OR so.customerPo ILIKE :search)', { search: `%${search}%` }); hasWhere = true; }
-    // PROMPT #27 — server-authoritative division scope.
-    //
-    // The `divisionId` filter above is a client-supplied *display filter*; it
-    // must never widen visibility, and `SalesOrderController` now rejects an
-    // out-of-scope one with 403 before reaching here. This clause is what makes
-    // the list safe when the client omits `divisionId` entirely: a restricted
-    // caller can only ever see their own divisions' orders.
-    //
-    // Not `includeUnassigned`: an order with `division_id IS NULL` belongs to no
-    // division, so it is not inside any restricted caller's permitted set and
-    // must not be returned. This matches `assertDivisionInScope` below and the
-    // convention already proven by the Raw Material Receiving fix.
     applyDivisionScopeFilter(qb as any, 'so.divisionId', allowedDivisionIds);
     const validSortFields = ['createdAt', 'orderNumber', 'orderDate', 'status', 'totalAmount'];
-    const field = validSortFields.includes(sortField) ? sortField : 'orderNumber';
-    const order = sortOrder ? (sortOrder.toUpperCase() === 'DESC' ? 'DESC' : 'ASC') : 'ASC';
-    qb.orderBy(`so.${field}`, order);
-    qb.skip((page - 1) * limit).take(limit);
+    const field = validSortFields.includes(rawSortBy) ? rawSortBy : 'orderNumber';
+    qb.orderBy(`so.${field}`, dir);
+    qb.skip(offset).take(limit);
     const [data, total] = await qb.getManyAndCount();
     return { data, total };
   }

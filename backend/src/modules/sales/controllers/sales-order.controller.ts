@@ -41,13 +41,34 @@ export class SalesOrderController {
   @ApiOperation({ summary: 'List sales orders' })
   async findAll(
     @Req() req: any,
-    @Query('page') page?: number, @Query('limit') limit?: number, @Query('search') search?: string,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+    @Query('search') search?: string,
     @Query('customerId') customerId?: string,
-    @Query('status') status?: string, @Query('sortField') sortField?: string, @Query('sortOrder') sortOrder?: string,
+    @Query('divisionId') divisionId?: string,
+    @Query('currency') currency?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+    @Query('status') status?: string,
+    @Query('sortBy') sortBy?: string,
+    @Query('sortField') sortField?: string,
+    @Query('sortOrder') sortOrder?: string,
   ) {
     const companyId = req.erpUser?.defaultCompanyId;
     const result = await this.service.findAll({
-      page: Number(page) || 1, limit: Number(limit) || 20, search, companyId, customerId, status, sortField, sortOrder,
+      page: Number(page) || 1,
+      limit: Number(limit) || 20,
+      search,
+      companyId,
+      customerId,
+      divisionId,
+      currency,
+      dateFrom,
+      dateTo,
+      status,
+      sortBy: sortBy || sortField,
+      sortField: sortBy || sortField,
+      sortOrder,
       allowedDivisionIds: this.divisionScope(req),
     });
     return { success: true, ...result };

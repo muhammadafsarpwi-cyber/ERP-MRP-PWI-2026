@@ -169,7 +169,7 @@ const isMeterUomCode = (uom?: string | null): boolean => {
 };
 
 const SalesDeliveryManagement: React.FC = () => {
-  const { message } = App.useApp();
+  const { message, notification } = App.useApp();
   const { token } = theme.useToken();
   const location = useLocation();
   const routeTabId = location.pathname || '/sales/deliveries';
@@ -219,6 +219,8 @@ const SalesDeliveryManagement: React.FC = () => {
   const [detailItem, setDetailItem] = useState<SalesDelivery | null>(null);
   const [editingItem, setEditingItem] = useState<SalesDelivery | null>(null);
   const [warningModalVisible, setWarningModalVisible] = useState(false);
+  const [preSaveConfirmVisible, setPreSaveConfirmVisible] = useState(false);
+  const [pendingFormValues, setPendingFormValues] = useState<any>(null);
   const [pendingExcessWarnings, setPendingExcessWarnings] = useState<any[]>([]);
   const [pendingSavePayload, setPendingSavePayload] = useState<any>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -1171,8 +1173,8 @@ const SalesDeliveryManagement: React.FC = () => {
         const isMeter = isMeterUomCode(uom);
         const effWpm = isMeter
           ? ((l.finishedWeightPerMeter != null && Number(l.finishedWeightPerMeter) > 0)
-              ? Number(l.finishedWeightPerMeter)
-              : ((l.weightPerMeter != null && Number(l.weightPerMeter) > 0) ? Number(l.weightPerMeter) : 0))
+            ? Number(l.finishedWeightPerMeter)
+            : ((l.weightPerMeter != null && Number(l.weightPerMeter) > 0) ? Number(l.weightPerMeter) : 0))
           : 0;
         const totalWeightKg = isMeter && effWpm > 0 ? Number((qty * effWpm).toFixed(3)) : undefined;
         return {
@@ -1367,21 +1369,58 @@ const SalesDeliveryManagement: React.FC = () => {
     if (!payload) return;
     setIsSubmitting(true);
     try {
+      let res: any;
       if (editingItem) {
-        await apiService.patch(`/sales/deliveries/${editingItem.id}`, payload);
-        message.success('Delivery updated successfully');
+        res = await apiService.patch(`/sales/deliveries/${editingItem.id}`, payload);
       } else {
-        await apiService.post('/sales/deliveries', payload);
-        message.success('Delivery created successfully');
+        res = await apiService.post('/sales/deliveries', payload);
       }
+      const saved = (res as any)?.data || res || {};
+      const dnNumber = saved.deliveryNumber || editingItem?.deliveryNumber || 'DN-2026-NEW';
+      const gpNumber =
+        saved.gatePassNumber ||
+        payload.gatePassNumber ||
+        editingItem?.gatePassNumber ||
+        nextGatePassSuggestion ||
+        'Auto-Assigned';
+      const custObj = customers.find(
+        (c) => c.id === (payload.customerId || editingItem?.customerId),
+      );
+      const custName =
+        custObj?.companyName ||
+        custObj?.name ||
+        editingItem?.companyName ||
+        (editingItem as any)?.customerName ||
+        'Customer';
+
+      notification.success({
+        message: editingItem ? 'Sales Delivery Updated' : 'Sales Delivery Created',
+        description: (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12.5 }}>
+            <div>
+              <strong>Delivery Note:</strong> {dnNumber} &nbsp;|&nbsp; <strong>Gate Pass:</strong> {gpNumber}
+            </div>
+            <div>
+              <strong>Customer:</strong> {custName}
+              {custObj?.customerCode ? ` (${custObj.customerCode})` : ''}
+            </div>
+          </div>
+        ),
+        placement: 'topRight',
+        duration: 5,
+      });
+
+      setPreSaveConfirmVisible(false);
       setWarningModalVisible(false);
       setPendingSavePayload(null);
+      setPendingFormValues(null);
       setPendingExcessWarnings([]);
       setModalVisible(false);
       fetchData(page, pageSize);
     } catch (error: any) {
       const resp = error?.response?.data;
       if (resp?.code === 'CREDIT_POLICY_VIOLATION') {
+        setPreSaveConfirmVisible(false);
         setWarningModalVisible(false);
         setCreditOverrideReason('');
         setCreditOverrideModal({
@@ -1474,14 +1513,16 @@ const SalesDeliveryManagement: React.FC = () => {
         }),
       };
 
+      setPendingSavePayload(payload);
+      setPendingFormValues(values);
+
       if (excessLines.length > 0) {
         setPendingExcessWarnings(excessLines);
-        setPendingSavePayload(payload);
         setWarningModalVisible(true);
         return;
       }
 
-      await executeSave(payload);
+      setPreSaveConfirmVisible(true);
     } catch (error: any) {
       const resp = error?.response?.data;
       const msg = resp?.message || error?.message;
@@ -3731,10 +3772,13 @@ const SalesDeliveryManagement: React.FC = () => {
             size="large"
             loading={isSubmitting}
             disabled={isSubmitting}
-            onClick={() => executeSave()}
+            onClick={() => {
+              setWarningModalVisible(false);
+              setPreSaveConfirmVisible(true);
+            }}
             style={{ fontWeight: 700, height: 42, padding: '0 20px', backgroundColor: '#dc2626', borderColor: '#dc2626' }}
           >
-            Confirm & Dispatch Anyway
+            Proceed to Delivery Verification
           </Button>,
         ]}
       >
@@ -3815,6 +3859,255 @@ const SalesDeliveryManagement: React.FC = () => {
             Do you really want to confirm the delivery and gate pass with this excess quantity?
           </div>
         </div>
+      </Modal>
+
+      {/* ── MANDATORY PRE-SAVE DELIVERY VERIFICATION MODAL ── */}
+      <Modal
+        open={preSaveConfirmVisible}
+        onCancel={() => setPreSaveConfirmVisible(false)}
+        width={820}
+        centered
+        zIndex={2500}
+        title={
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 10,
+                background: 'linear-gradient(135deg, #ea580c 0%, #f97316 100%)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#ffffff',
+                fontSize: 20,
+                boxShadow: '0 4px 12px rgba(234, 88, 12, 0.35)',
+                flexShrink: 0,
+              }}
+            >
+              <SafetyCertificateOutlined />
+            </div>
+            <div>
+              <div style={{ fontSize: 10.5, fontWeight: 800, color: '#ea580c', textTransform: 'uppercase', letterSpacing: '0.8px' }}>
+                Pre-Save Delivery Verification
+              </div>
+              <div style={{ fontSize: 17, fontWeight: 800, color: token.colorText }}>
+                {editingItem
+                  ? `Confirm & Update Sales Delivery (${editingItem.deliveryNumber})`
+                  : 'Confirm & Save Sales Delivery / Gate Pass'}
+              </div>
+            </div>
+          </div>
+        }
+        footer={
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, paddingTop: 4 }}>
+            <Button
+              size="large"
+              onClick={() => setPreSaveConfirmVisible(false)}
+              disabled={isSubmitting}
+              style={{ fontWeight: 700, borderRadius: 8, height: 42, padding: '0 20px' }}
+            >
+              Back to Edit
+            </Button>
+            <Button
+              type="primary"
+              size="large"
+              icon={<CheckCircleOutlined />}
+              loading={isSubmitting}
+              disabled={isSubmitting}
+              onClick={() => void executeSave()}
+              style={{
+                fontWeight: 800,
+                borderRadius: 8,
+                height: 44,
+                padding: '0 26px',
+                background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)',
+                borderColor: '#059669',
+                boxShadow: '0 4px 14px rgba(5, 150, 105, 0.35)',
+              }}
+            >
+              {editingItem ? 'Confirm & Update Delivery' : 'Confirm & Save Delivery'}
+            </Button>
+          </div>
+        }
+      >
+        {(() => {
+          const vals = pendingFormValues || form.getFieldsValue();
+          const selCustomer = customers.find((c) => c.id === vals?.customerId);
+          const custName =
+            selCustomer?.companyName ||
+            selCustomer?.name ||
+            editingItem?.companyName ||
+            (editingItem as any)?.customerName ||
+            'Selected Customer';
+          const custCode = selCustomer?.customerCode || (editingItem as any)?.customer?.customerCode;
+
+          const selDivision = divisions.find(
+            (d) => d.id === (vals?.divisionId || modalDivisionId || selCustomer?.divisionId),
+          );
+          const selWarehouse = warehouses.find((w) => w.id === vals?.warehouseId);
+
+          const rawSoIds: string[] = Array.isArray(vals?.salesOrderIds)
+            ? vals.salesOrderIds
+            : vals?.salesOrderId
+              ? [vals.salesOrderId]
+              : [];
+          const matchedOrders = rawSoIds
+            .map(
+              (id) =>
+                customerSalesOrders.find((o) => o.id === id) ||
+                allSalesOrders.find((o) => o.id === id),
+            )
+            .filter(Boolean);
+          const socNumbers = Array.from(
+            new Set([
+              ...matchedOrders.map((o: any) => o.orderNumber).filter(Boolean),
+              ...lineItems.map((l) => l.salesOrderNumber).filter(Boolean),
+              ...(selectedSoInfo?.orderNumber ? [selectedSoInfo.orderNumber] : []),
+            ]),
+          );
+          const resolvedCustomerPo =
+            vals?.customerPo ||
+            matchedOrders.find((o: any) => o?.customerPo)?.customerPo ||
+            selectedSoInfo?.customerPo ||
+            null;
+
+          const validLines = lineItems.filter((l) => l.itemId && String(l.itemId).trim() !== '');
+          const verificationSummary = summarizeLinesTaxVerification(validLines, 18);
+          const gatePassDisplay =
+            (vals?.gatePassNumber && String(vals.gatePassNumber).trim()) ||
+            editingItem?.gatePassNumber ||
+            nextGatePassSuggestion ||
+            'Auto-Assigned';
+          const deliveryDateDisplay = vals?.deliveryDate
+            ? dayjs(vals.deliveryDate).format('DD-MMM-YYYY')
+            : dayjs().format('DD-MMM-YYYY');
+
+          return (
+            <div style={{ padding: '6px 0', display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <PreConfirmVerificationCard
+                summary={verificationSummary}
+                currency="Rs"
+                showSocColumn={true}
+                onApplyStandardTax={() => {
+                  const updatedLines = lineItems.map((l) => {
+                    const q = Number(l.quantity || 0);
+                    const r = Number(l.rate || 0);
+                    const d = Number(l.discountPercent || 0);
+                    const afterDisc = q * r * (1 - d / 100);
+                    return {
+                      ...l,
+                      taxPercent: 18,
+                      lineTotal: Math.round(afterDisc * 1.18 * 100) / 100,
+                    };
+                  });
+                  setLineItems(updatedLines);
+                  if (pendingSavePayload && Array.isArray(pendingSavePayload.lines)) {
+                    setPendingSavePayload({
+                      ...pendingSavePayload,
+                      lines: pendingSavePayload.lines.map((pl: any) => {
+                        const qty = Number(pl.quantity || 0);
+                        const rate = Number(pl.unitPrice || 0);
+                        const lineSub = Math.round(qty * rate * 100) / 100;
+                        const lineTax = Math.round(lineSub * 0.18 * 100) / 100;
+                        return {
+                          ...pl,
+                          taxAmount: lineTax,
+                          lineTotal: Math.round((lineSub + lineTax) * 100) / 100,
+                        };
+                      }),
+                    });
+                  }
+                  message.success('Standard 18% Tax applied to all delivery lines');
+                }}
+                headerItems={[
+                  {
+                    label: 'Customer',
+                    value: (
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 3 }}>
+                        <span style={{ fontWeight: 800, color: token.colorText, lineHeight: 1.3 }}>
+                          {custName}
+                        </span>
+                        {custCode && (
+                          <span
+                            style={{
+                              fontSize: 10.5,
+                              fontWeight: 800,
+                              fontFamily: 'monospace',
+                              padding: '1px 6px',
+                              borderRadius: 4,
+                              backgroundColor: token.colorFillAlter,
+                              border: `1px solid ${token.colorBorder}`,
+                              color: token.colorPrimary,
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {custCode}
+                          </span>
+                        )}
+                      </div>
+                    ),
+                  },
+                  {
+                    label: 'Division & Warehouse',
+                    value: selDivision ? `${selDivision.divisionCode} — ${selDivision.name}` : 'General Division',
+                    subtext: selWarehouse
+                      ? `WH: ${selWarehouse.warehouseCode} — ${selWarehouse.name}`
+                      : undefined,
+                  },
+                  {
+                    label: 'Sales Order(s) (SOC #)',
+                    value: socNumbers.length > 0 ? socNumbers.join(', ') : 'Direct Dispatch',
+                    subtext: `Customer PO #: ${resolvedCustomerPo || 'Not Provided'}`,
+                  },
+                  {
+                    label: 'Delivery Date & Gate Pass #',
+                    value: deliveryDateDisplay,
+                    subtext: (
+                      <span
+                        style={{
+                          display: 'inline-block',
+                          marginTop: 2,
+                          fontSize: 11,
+                          fontWeight: 800,
+                          fontFamily: 'monospace',
+                          padding: '1px 7px',
+                          borderRadius: 4,
+                          backgroundColor: 'rgba(16, 185, 129, 0.14)',
+                          border: '1px solid rgba(16, 185, 129, 0.35)',
+                          color: '#059669',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        Gate Pass: {gatePassDisplay}
+                      </span>
+                    ),
+                  },
+                ]}
+              />
+
+              <div
+                style={{
+                  padding: '10px 14px',
+                  borderRadius: 10,
+                  backgroundColor: token.colorFillAlter,
+                  border: `1px solid ${token.colorBorderSecondary}`,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: token.colorTextSecondary,
+                  textAlign: 'center',
+                }}
+              >
+                Please verify that the <strong style={{ color: token.colorText }}>Customer</strong>,{' '}
+                <strong style={{ color: token.colorText }}>SOC #</strong>,{' '}
+                <strong style={{ color: token.colorText }}>Gate Pass #</strong>,{' '}
+                <strong style={{ color: token.colorText }}>Quantities</strong>,{' '}
+                <strong style={{ color: token.colorText }}>Rates</strong>, and{' '}
+                <strong style={{ color: token.colorText }}>Tax</strong> above are accurate before saving.
+              </div>
+            </div>
+          );
+        })()}
       </Modal>
 
       {/* Detail Modal - Reference 2-Column Split Design */}
@@ -4169,8 +4462,8 @@ const SalesDeliveryManagement: React.FC = () => {
         centered
         width={
           ['ship', 'deliver', 'confirm', 'invoice'].includes(confirmModal.actionKey || '') &&
-          !confirmModal.loading &&
-          !confirmModal.completed
+            !confirmModal.loading &&
+            !confirmModal.completed
             ? 860
             : 580
         }
@@ -4281,10 +4574,10 @@ const SalesDeliveryManagement: React.FC = () => {
                     statusUpper === 'DELIVERED' || statusUpper === 'CONFIRMED'
                       ? 'green'
                       : statusUpper === 'SHIPPED'
-                      ? 'blue'
-                      : statusUpper === 'CANCELLED'
-                      ? 'red'
-                      : 'orange';
+                        ? 'blue'
+                        : statusUpper === 'CANCELLED'
+                          ? 'red'
+                          : 'orange';
                   const carrierDisplay = [rec.carrier || 'Standard Transport', rec.trackingNumber]
                     .filter(Boolean)
                     .join(' · ');
@@ -4317,19 +4610,19 @@ const SalesDeliveryManagement: React.FC = () => {
                           },
                           ...(rec.salesOrderNumber || rec.salesOrder?.orderNumber
                             ? [
-                                {
-                                  label: 'Originating SOC #',
-                                  value: rec.salesOrderNumber || rec.salesOrder?.orderNumber || '-',
-                                },
-                              ]
+                              {
+                                label: 'Originating SOC #',
+                                value: rec.salesOrderNumber || rec.salesOrder?.orderNumber || '-',
+                              },
+                            ]
                             : []),
                           ...(rec.divisionName || rec.salesOrder?.division?.name
                             ? [
-                                {
-                                  label: 'Division',
-                                  value: rec.divisionName || rec.salesOrder?.division?.name || '-',
-                                },
-                              ]
+                              {
+                                label: 'Division',
+                                value: rec.divisionName || rec.salesOrder?.division?.name || '-',
+                              },
+                            ]
                             : []),
                           {
                             label: 'Customer Name',
@@ -4390,8 +4683,8 @@ const SalesDeliveryManagement: React.FC = () => {
                           </span>
                           <Tag color={
                             confirmModal.record.status === 'DELIVERED' ? 'green' :
-                            confirmModal.record.status === 'SHIPPED' ? 'blue' :
-                            confirmModal.record.status === 'CANCELLED' ? 'red' : 'orange'
+                              confirmModal.record.status === 'SHIPPED' ? 'blue' :
+                                confirmModal.record.status === 'CANCELLED' ? 'red' : 'orange'
                           }>
                             {confirmModal.record.status}
                           </Tag>

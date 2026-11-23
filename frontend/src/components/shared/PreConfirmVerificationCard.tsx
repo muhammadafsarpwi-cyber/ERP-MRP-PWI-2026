@@ -239,14 +239,14 @@ const PreConfirmVerificationCard: React.FC<PreConfirmVerificationCardProps> = ({
                     </td>
 
                     <td style={{ padding: '9px 12px', textAlign: 'right', whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
+                      {line.cartons > 0 && (
+                        <span style={{ fontWeight: 700, color: '#059669', marginRight: 5 }}>
+                          {formatDecimal(line.cartons, 2)} {line.packagingUnit} ·
+                        </span>
+                      )}
                       <span style={{ fontWeight: 700, color: token.colorText }}>
                         {formatDecimal(line.quantity, 2)} {line.uomCode}
                       </span>
-                      {line.cartons > 0 && (
-                        <span style={{ color: token.colorTextSecondary, marginLeft: 4, fontSize: 11.5 }}>
-                          · {formatDecimal(line.cartons, 2)} {line.packagingUnit}
-                        </span>
-                      )}
                     </td>
 
                     <td style={{ padding: '9px 12px', textAlign: 'right', whiteSpace: 'nowrap', verticalAlign: 'middle' }}>

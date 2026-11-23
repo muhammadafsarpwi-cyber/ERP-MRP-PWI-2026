@@ -236,4 +236,63 @@ describe('SalesOrderService', () => {
       expect(repo.save).not.toHaveBeenCalled();
     });
   });
+
+  describe('findAll — global multi-page server-side sorting', () => {
+    it('applies ORDER BY across all filtered rows BEFORE LIMIT/OFFSET and preserves hydrated ID order', async () => {
+      const sqlCalls: Array<{ sql: string; params: any[] }> = [];
+      const orderHigh: SalesOrder = { ...mockOrder, id: 'b0000000-0000-0000-0000-000000000002', orderNumber: 'SOC-2026-05900', totalAmount: 16254500 };
+      const orderLow: SalesOrder = { ...mockOrder, id: 'b0000000-0000-0000-0000-000000000003', orderNumber: 'SOC-2026-05801', totalAmount: 120000 };
+
+      (repo as any).manager = {
+        query: jest.fn(async (sql: string, params: any[]) => {
+          sqlCalls.push({ sql, params });
+          if (sql.includes('COUNT(so.id)')) return [{ total: 42 }];
+          return [{ id: orderHigh.id }, { id: orderLow.id }];
+        }),
+      };
+      // Return hydrated rows in reverse order to verify ID-order preservation
+      repo.find.mockResolvedValue([orderLow, orderHigh]);
+
+      const res = await service.findAll({
+        companyId: UUID_COMPANY,
+        page: 1,
+        limit: 20,
+        sortBy: 'totalAmount',
+        sortOrder: 'DESC',
+      });
+
+      expect(res.total).toBe(42);
+      expect(res.data.map((r) => r.id)).toEqual([orderHigh.id, orderLow.id]);
+      const pageQuery = sqlCalls.find((c) => c.sql.includes('ORDER BY'));
+      expect(pageQuery).toBeDefined();
+      expect(pageQuery!.sql).toContain('COALESCE(so.total_amount, 0) DESC');
+      expect(pageQuery!.sql).toMatch(/ORDER BY[\s\S]+LIMIT \$2 OFFSET \$3/);
+      expect(pageQuery!.params).toEqual([UUID_COMPANY, 20, 0]);
+    });
+
+    it('supports sorting by orderDate, orderNumber (natural), division, customer, and totalQty', async () => {
+      const executedSql: string[] = [];
+      (repo as any).manager = {
+        query: jest.fn(async (sql: string) => {
+          executedSql.push(sql);
+          if (sql.includes('COUNT(so.id)')) return [{ total: 1 }];
+          return [{ id: mockOrder.id }];
+        }),
+      };
+      repo.find.mockResolvedValue([mockOrder]);
+
+      for (const [sortBy, expectedFragment] of [
+        ['orderDate', 'so.order_date ASC NULLS LAST'],
+        ['orderNumber', "SUBSTRING(so.order_number FROM '([0-9]+)$')"],
+        ['division', "LOWER(COALESCE(division.name, '')) ASC"],
+        ['customer', "LOWER(COALESCE(customer.company_name, '')) ASC"],
+        ['totalQty', 'SELECT SUM(soi.quantity) FROM erp_sales.sales_order_items soi'],
+      ] as const) {
+        executedSql.length = 0;
+        await service.findAll({ companyId: UUID_COMPANY, page: 2, limit: 20, sortBy, sortOrder: 'ASC' });
+        const pageSql = executedSql.find((s) => s.includes('ORDER BY')) || '';
+        expect(pageSql).toContain(expectedFragment);
+      }
+    });
+  });
 });

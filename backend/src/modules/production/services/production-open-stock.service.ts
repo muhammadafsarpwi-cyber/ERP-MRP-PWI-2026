@@ -1696,17 +1696,19 @@ export class ProductionOpenStockService {
           .replace(/Pending Nipple:\s*([A-Za-z0-9_-]+)\s*\([\d.]+\s*GRS(?:\s*\/\s*[\d.]+\s*PCS)?\)/i, `Pending Nipple: $1 (${remainingGross} GRS / ${remainingPcs} PCS)`)
           .replace(/Weight:\s*[\d.]+\s*KG/i, `Weight: ${remainingWeightKg} KG`);
 
+        const lockedFormulaTargetPcs = Math.round((125 + (Math.max(0, Number(pe.overtime_hours) || 0) * (125 / 8))) * 1440);
+
         await this.dataSource.query(`
           UPDATE public.production_entries
-          SET actual_quantity = $1, target_quantity = $1, remarks = $2, updated_at = NOW()
+          SET actual_quantity = $1, target_quantity = $4, remarks = $2, updated_at = NOW()
           WHERE id = $3
-        `, [remainingPcs, remainingRemarks, pe.id]);
+        `, [remainingPcs, remainingRemarks, pe.id, lockedFormulaTargetPcs]);
 
         await this.dataSource.query(`
           UPDATE public.production_entry_items
-          SET actual_quantity = $1, target_quantity = $1, remarks = $2, updated_at = NOW()
+          SET actual_quantity = $1, target_quantity = $4, remarks = $2, updated_at = NOW()
           WHERE production_entry_id = $3 AND COALESCE(line_number, 1) < 1000
-        `, [remainingPcs, remainingRemarks, pe.id]);
+        `, [remainingPcs, remainingRemarks, pe.id, lockedFormulaTargetPcs]);
 
         // Generate a proper sequential PE-YYYY-XXXXX entry_number so child entries never have NULL entry_number
         const year = new Date().getFullYear();
@@ -1736,8 +1738,8 @@ export class ProductionOpenStockService {
           ) VALUES (
             gen_random_uuid(), $1, $2, $3, $4, $5, $6,
             $7, $8, $9, $10, $11,
-            $12, $13, $14, $14, 0,
-            $15, 0, 0, true, $16, $17, $18, NOW(), NOW()
+            $12, $13, $19, $14, 0,
+            $15, $20, 0, true, $16, $17, $18, NOW(), NOW()
           ) RETURNING id, entry_number
         `, [
           companyId, generatedPeNo, pe.division_id, pe.section_id, pe.department_id, pe.warehouse_id,
@@ -1745,6 +1747,7 @@ export class ProductionOpenStockService {
           pe.operator_name, pe.supervisor_name,
           pe.item_id, pe.uom_id, shiftPcs,
           pe.running_hours ?? 8, peRemarks, preservedMode, userId || null,
+          lockedFormulaTargetPcs, Number(pe.overtime_hours) || 0,
         ]);
 
         const newPeId = newPeInsert[0]?.id;

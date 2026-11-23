@@ -318,6 +318,7 @@ const SalesOrderManagement: React.FC = () => {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  const [sortBy, setSortBy] = useState<'orderDate' | 'orderNumber' | 'division' | 'customer' | 'totalQty' | 'totalAmount'>('orderNumber');
   const [sortOrder, setSortOrder] = useState<'ASC' | 'DESC'>('ASC');
 
   // Chevron Process filter state
@@ -551,14 +552,40 @@ const SalesOrderManagement: React.FC = () => {
     return record.customerId || 'Customer';
   }, [customers]);
 
-  const fetchData = useCallback(async (pageNum: number = 1, currentLimit: number = pageSize, currentSortOrder: 'ASC' | 'DESC' = sortOrder) => {
+  const fetchData = useCallback(async (
+    pageNum: number = 1,
+    currentLimit: number = pageSize,
+    currentSortBy: 'orderDate' | 'orderNumber' | 'division' | 'customer' | 'totalQty' | 'totalAmount' = sortBy,
+    currentSortOrder: 'ASC' | 'DESC' = sortOrder,
+  ) => {
     setLoading(true);
     try {
-      const params: any = { page: pageNum, limit: currentLimit, sortField: 'orderNumber', sortOrder: currentSortOrder };
+      const params: any = {
+        page: pageNum,
+        limit: currentLimit,
+        sortBy: currentSortBy,
+        sortField: currentSortBy,
+        sortOrder: currentSortOrder,
+      };
       if (search) params.search = search;
       if (filterCustomer) params.customerId = filterCustomer;
-      if (filterStatus && filterStatus !== 'All statuses') params.status = filterStatus;
       if (filterDivision) params.divisionId = filterDivision;
+      if (filterCurrency) params.currency = filterCurrency;
+      if (filterDateFrom) params.dateFrom = filterDateFrom;
+      if (filterDateTo) params.dateTo = filterDateTo;
+      if (filterStatus && filterStatus !== 'All statuses') {
+        params.status = filterStatus;
+      } else if (activeChevron !== 'ALL') {
+        const chevronStatusMap: Record<string, string> = {
+          DRAFT: 'Draft',
+          PROCESSING: 'Confirmed,Processing',
+          DELIVERED: 'Shipped,Delivered',
+          CANCELLED: 'Cancelled,Closed',
+        };
+        if (chevronStatusMap[activeChevron]) {
+          params.status = chevronStatusMap[activeChevron];
+        }
+      }
       const response = await apiService.get<{ data: SalesOrder[]; total: number }>('/sales/orders', params);
       setData(response.data || []);
       setTotal(response.total || 0);
@@ -567,11 +594,11 @@ const SalesOrderManagement: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [search, filterCustomer, filterStatus, filterDivision, pageSize, sortOrder, message]);
+  }, [search, filterCustomer, filterStatus, filterDivision, filterCurrency, filterDateFrom, filterDateTo, activeChevron, pageSize, sortBy, sortOrder, message]);
 
   useEffect(() => {
-    fetchData(page, pageSize);
-  }, [page, pageSize, fetchData]);
+    fetchData(page, pageSize, sortBy, sortOrder);
+  }, [page, pageSize, sortBy, sortOrder, fetchData]);
 
   // Global header tab refresh
   useEffect(() => {
@@ -635,9 +662,9 @@ const SalesOrderManagement: React.FC = () => {
     return Array.from(set);
   }, [data]);
 
-  // Client-side filtering & sequence sorting (first/oldest entry at top by default when ASC, newest at bottom)
+  // Preserve authoritative server-side global multi-page sort order (never re-sort locally)
   const displayedOrders = useMemo(() => {
-    const filtered = data.filter(d => {
+    return data.filter(d => {
       const status = (d.status || '').toLowerCase();
       // Chevron filter
       if (activeChevron === 'DRAFT' && status !== 'draft') return false;
@@ -663,23 +690,7 @@ const SalesOrderManagement: React.FC = () => {
 
       return true;
     });
-
-    const getOrderSeq = (orderNum?: string) => {
-      const m = String(orderNum || '').match(/(\d+)$/);
-      return m ? parseInt(m[1], 10) : 0;
-    };
-
-    return [...filtered].sort((a, b) => {
-      const seqA = getOrderSeq(a.orderNumber);
-      const seqB = getOrderSeq(b.orderNumber);
-      if (seqA !== seqB) {
-        return sortOrder === 'ASC' ? seqA - seqB : seqB - seqA;
-      }
-      const dateA = a.orderDate ? dayjs(a.orderDate).valueOf() : 0;
-      const dateB = b.orderDate ? dayjs(b.orderDate).valueOf() : 0;
-      return sortOrder === 'ASC' ? dateA - dateB : dateB - dateA;
-    });
-  }, [data, activeChevron, filterDivision, filterCurrency, filterCustomer, filterStatus, filterDateFrom, filterDateTo, sortOrder]);
+  }, [data, activeChevron, filterDivision, filterCurrency, filterCustomer, filterStatus, filterDateFrom, filterDateTo]);
 
   const activeFilterCount = [filterDivision, filterCurrency, filterCustomer, filterStatus, filterDateFrom, filterDateTo].filter(Boolean).length;
 
@@ -1335,18 +1346,43 @@ const SalesOrderManagement: React.FC = () => {
     }
   };
 
+  const antdSortOrderFor = (field: 'orderDate' | 'orderNumber' | 'division' | 'customer' | 'totalQty' | 'totalAmount') =>
+    sortBy === field ? (sortOrder === 'ASC' ? ('ascend' as const) : ('descend' as const)) : null;
+
+  const handleTableChange = (_pagination: any, _filters: any, sorter: any) => {
+    const activeSorter = Array.isArray(sorter) ? sorter[0] : sorter;
+    const colKey = String(activeSorter?.columnKey || activeSorter?.field || '');
+    const columnSortMap: Record<string, 'orderDate' | 'orderNumber' | 'division' | 'customer' | 'totalQty' | 'totalAmount'> = {
+      dates: 'orderDate',
+      order: 'orderNumber',
+      division: 'division',
+      customer: 'customer',
+      itemsQty: 'totalQty',
+      amounts: 'totalAmount',
+    };
+    const nextSortBy = columnSortMap[colKey];
+    if (!nextSortBy) return;
+
+    const nextSortOrder: 'ASC' | 'DESC' =
+      activeSorter?.order === 'ascend'
+        ? 'ASC'
+        : activeSorter?.order === 'descend'
+          ? 'DESC'
+          : (sortBy === nextSortBy && sortOrder === 'DESC' ? 'ASC' : 'DESC');
+
+    setSortBy(nextSortBy);
+    setSortOrder(nextSortOrder);
+    setPage(1);
+  };
+
   // Pixel-Perfect Multi-line Columns mirroring Invoices Design
   const columns: ColumnsType<SalesOrder> = [
     {
       title: 'Order Date / Dates',
       key: 'dates',
       width: 195,
-      sorter: (a, b) => {
-        const dA = a.orderDate ? dayjs(a.orderDate).valueOf() : 0;
-        const dB = b.orderDate ? dayjs(b.orderDate).valueOf() : 0;
-        if (dA !== dB) return dA - dB;
-        return String(a.orderNumber || '').localeCompare(String(b.orderNumber || ''), undefined, { numeric: true });
-      },
+      sorter: true,
+      sortOrder: antdSortOrderFor('orderDate'),
       render: (_, record) => (
         <div className="inv-dates-cell" style={{ whiteSpace: 'nowrap' }}>
           <div className="inv-date-row" style={{ whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -1374,7 +1410,8 @@ const SalesOrderManagement: React.FC = () => {
       title: 'Sales Order / SOC',
       key: 'order',
       width: 180,
-      sorter: (a, b) => String(a.orderNumber || '').localeCompare(String(b.orderNumber || ''), undefined, { numeric: true }),
+      sorter: true,
+      sortOrder: antdSortOrderFor('orderNumber'),
       render: (_, record) => {
         return (
           <div className="inv-doc-cell" style={{ whiteSpace: 'nowrap' }}>
@@ -1404,6 +1441,8 @@ const SalesOrderManagement: React.FC = () => {
       title: 'Division',
       key: 'division',
       width: 160,
+      sorter: true,
+      sortOrder: antdSortOrderFor('division'),
       render: (_, record) => {
         const div = record.division || divisions.find(d => d.id === record.divisionId);
         if (!div) return <span style={{ color: 'var(--inv-text-muted, #64748b)', fontSize: 12 }}>-</span>;
@@ -1436,18 +1475,8 @@ const SalesOrderManagement: React.FC = () => {
       title: 'Customer',
       key: 'customer',
       width: 260,
-      sorter: (a, b) => {
-        const codeA = a.customer?.customerCode || (a as any).customerCode || '';
-        const codeB = b.customer?.customerCode || (b as any).customerCode || '';
-        const mA = String(codeA).match(/(\d+)$/);
-        const mB = String(codeB).match(/(\d+)$/);
-        const seqA = mA ? parseInt(mA[1], 10) : 999999;
-        const seqB = mB ? parseInt(mB[1], 10) : 999999;
-        if (seqA !== seqB) return seqA - seqB;
-        const nameA = a.customer?.companyName || a.customer?.name || a.companyName || a.customerName || '';
-        const nameB = b.customer?.companyName || b.customer?.name || b.companyName || b.customerName || '';
-        return String(nameA).localeCompare(String(nameB));
-      },
+      sorter: true,
+      sortOrder: antdSortOrderFor('customer'),
       render: (_, record) => {
         const c = record.customer;
         const custCode = c?.customerCode || (record as any).customerCode;
@@ -1503,11 +1532,8 @@ const SalesOrderManagement: React.FC = () => {
       title: 'Items & Qty',
       key: 'itemsQty',
       width: 175,
-      sorter: (a, b) => {
-        const qA = (a.items || []).reduce((sum: number, it: any) => sum + Number(it.quantity || it.orderedQuantity || 0), 0);
-        const qB = (b.items || []).reduce((sum: number, it: any) => sum + Number(it.quantity || it.orderedQuantity || 0), 0);
-        return qA - qB;
-      },
+      sorter: true,
+      sortOrder: antdSortOrderFor('totalQty'),
       render: (_, record) => {
         const items = record.items || [];
         const itemCount = items.length;
@@ -1713,7 +1739,8 @@ const SalesOrderManagement: React.FC = () => {
       title: 'Amounts',
       key: 'amounts',
       width: 215,
-      sorter: (a, b) => Number(a.totalAmount || 0) - Number(b.totalAmount || 0),
+      sorter: true,
+      sortOrder: antdSortOrderFor('totalAmount'),
       render: (_, record) => {
         const curr = record.currency || 'PKR';
         return (
@@ -2086,13 +2113,13 @@ const SalesOrderManagement: React.FC = () => {
               />
             )}
           </Button>
-          <Tooltip title="Toggle Ascending (First Entry ➔ New Entry) or Descending (New Entry ➔ First Entry)">
+          <Tooltip title="Toggle global sort direction across all pages (ASC / DESC)">
             <Button
               icon={sortOrder === 'ASC' ? <UpOutlined /> : <DownOutlined />}
               onClick={() => {
                 const nextOrder = sortOrder === 'ASC' ? 'DESC' : 'ASC';
                 setSortOrder(nextOrder);
-                fetchData(1, pageSize, nextOrder);
+                setPage(1);
               }}
               style={{ fontWeight: 600 }}
             >
@@ -2312,6 +2339,7 @@ const SalesOrderManagement: React.FC = () => {
           rowKey="id"
           loading={loading}
           pagination={false}
+          onChange={handleTableChange}
           className="inv-custom-table"
           scroll={{ x: 1550 }}
         />
