@@ -213,6 +213,11 @@ export class CustomerCreditService {
 
   /**
    * Validates credit policy before Order / Delivery creation or approval.
+   * - When `enforceCreditLimit` is `true` (default, used for Sales Delivery / Dispatch),
+   *   both management `creditHold` and exceeding `creditLimit` require an authorized override.
+   * - When `enforceCreditLimit` is `false` (used for Sales Order / SOC booking & confirmation),
+   *   exceeding `creditLimit` is informational only — ONLY explicit management `creditHold = true`
+   *   blocks without override.
    * Throws BadRequestException with structured `CREDIT_POLICY_VIOLATION` payload
    * unless an explicit `creditOverride` with a non-empty `creditOverrideReason` is provided.
    */
@@ -224,6 +229,7 @@ export class CustomerCreditService {
     creditOverride?: boolean;
     creditOverrideReason?: string;
     userId?: string;
+    enforceCreditLimit?: boolean;
   }): Promise<{ evaluation: CreditPolicyEvaluation; overrideAuditNote: string | null }> {
     const evaluation = await this.evaluatePolicy(
       options.companyId,
@@ -231,19 +237,26 @@ export class CustomerCreditService {
       options.proposedAmount,
     );
 
-    if (evaluation.allowedWithoutOverride) {
+    const enforceLimit = options.enforceCreditLimit !== false;
+    const isBlocked = evaluation.creditHold || (enforceLimit && evaluation.exceedsCreditLimit);
+
+    if (!isBlocked) {
       return { evaluation, overrideAuditNote: null };
     }
+
+    const blockingReason = !enforceLimit && evaluation.creditHold
+      ? `Customer ${evaluation.customerName} is currently on CREDIT HOLD${evaluation.creditHoldReason ? ` (${evaluation.creditHoldReason})` : ''}`
+      : (evaluation.violationReason || 'Credit policy restriction triggered');
 
     const reasonText = String(options.creditOverrideReason || '').trim();
     if (options.creditOverride && reasonText.length >= 3) {
       const ts = new Date().toISOString().slice(0, 16).replace('T', ' ');
-      const auditNote = `[CREDIT OVERRIDE on ${options.documentLabel} @ ${ts} by ${options.userId || 'Authorized User'}]: ${reasonText} (${evaluation.violationReason})`;
+      const auditNote = `[CREDIT OVERRIDE on ${options.documentLabel} @ ${ts} by ${options.userId || 'Authorized User'}]: ${reasonText} (${blockingReason})`;
       return { evaluation, overrideAuditNote: auditNote };
     }
 
     throw new BadRequestException({
-      message: `${evaluation.violationReason}. Supply an Authorized Credit Override reason to proceed.`,
+      message: `${blockingReason}. Supply an Authorized Credit Override reason to proceed.`,
       code: 'CREDIT_POLICY_VIOLATION',
       policy: evaluation,
     });

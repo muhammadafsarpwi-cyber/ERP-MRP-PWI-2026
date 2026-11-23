@@ -461,13 +461,58 @@ describe('CustomerReceipt, Advance Allocation, Credit Control & Running Balance'
       companyId: COMP_ID,
       customerId: CUST_ID,
       proposedAmount: 100000,
-      documentLabel: 'Sales Order SOC-2026-09999',
+      documentLabel: 'Delivery DN-2026-09999',
       creditOverride: true,
       creditOverrideReason: 'Director approved PDC cheque on file',
       userId: USER_ID,
     });
     expect(res.overrideAuditNote).toContain('[CREDIT OVERRIDE');
     expect(res.overrideAuditNote).toContain('Director approved PDC cheque on file');
+
+    // Sales Order / SOC mode (enforceCreditLimit: false): exceeding credit limit is informational only (never blocks)
+    suite.customerRepo.findOne.mockResolvedValue({
+      id: CUST_ID,
+      companyId: COMP_ID,
+      customerCode: 'CUS-XIN-001',
+      name: 'Xinda Control Cable Pakistan (Pvt) Ltd.',
+      creditLimit: 10000000,
+      creditDays: 30,
+      paymentTerms: 'Net 30 Days',
+      creditHold: false,
+    });
+    suite.customerRepo.manager.query.mockImplementation(async () => []);
+
+    const socRes = await creditService.assertAllowedOrOverride({
+      companyId: COMP_ID,
+      customerId: CUST_ID,
+      proposedAmount: 16254500,
+      documentLabel: 'Sales Order SOC-2026-06001',
+      enforceCreditLimit: false,
+    });
+    expect(socRes.evaluation.exceedsCreditLimit).toBe(true);
+    expect(socRes.overrideAuditNote).toBeNull();
+
+    // Sales Order / SOC mode STILL blocks when customer is explicitly marked credit_hold = true
+    suite.customerRepo.findOne.mockResolvedValue({
+      id: CUST_ID,
+      companyId: COMP_ID,
+      customerCode: 'CUS-XIN-001',
+      name: 'Xinda Control Cable Pakistan (Pvt) Ltd.',
+      creditLimit: 10000000,
+      creditDays: 30,
+      paymentTerms: 'Net 30 Days',
+      creditHold: true,
+      creditHoldReason: 'Overdue receivables pending clearance',
+    });
+    await expect(
+      creditService.assertAllowedOrOverride({
+        companyId: COMP_ID,
+        customerId: CUST_ID,
+        proposedAmount: 16254500,
+        documentLabel: 'Sales Order SOC-2026-06001',
+        enforceCreditLimit: false,
+      }),
+    ).rejects.toThrow(BadRequestException);
   });
 
   it('validates seeded PostgreSQL division UUIDs and division name/code inputs without divisionId UUID error', async () => {

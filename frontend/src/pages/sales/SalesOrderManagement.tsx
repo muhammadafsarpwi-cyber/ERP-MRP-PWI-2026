@@ -378,7 +378,8 @@ const SalesOrderManagement: React.FC = () => {
       setCustomerCreditStatus(null);
       return;
     }
-    const orderEstTotal = lineItems.reduce((s, l) => s + (Number((l as any).lineTotal) || Number(l.quantity || 0) * Number((l as any).unitPrice || 0)), 0);
+    const validLines = lineItems.filter((l) => l.itemId && String(l.itemId).trim() !== '');
+    const orderEstTotal = summarizeLinesTaxVerification(validLines, 18).grandTotal;
     apiService
       .get<any>(`/sales/receipts/customer/${selectedCustomerId}/credit-status`, {
         proposedAmount: Math.round(orderEstTotal * 100) / 100,
@@ -3004,6 +3005,74 @@ const SalesOrderManagement: React.FC = () => {
             </Row>
           </div>
 
+          {/* Non-blocking Credit Limit Informational Notice (SOC booking is never blocked by credit limit) */}
+          {(() => {
+            if (!customerCreditStatus) return null;
+            const validLines = lineItems.filter((l) => l.itemId && String(l.itemId).trim() !== '');
+            const liveOrderTotal = summarizeLinesTaxVerification(validLines, 18).grandTotal;
+            const creditLimit = Number(customerCreditStatus.creditLimit || 0);
+            const currentBal = Number(customerCreditStatus.currentBalance || 0);
+            const projectedExposure = Math.round((currentBal + liveOrderTotal) * 100) / 100;
+            const exceedsLimit = creditLimit > 0 && liveOrderTotal > 0 && (liveOrderTotal > creditLimit || projectedExposure > creditLimit);
+            const isOnHold = Boolean(customerCreditStatus.creditHold);
+
+            if (!isOnHold && !exceedsLimit) return null;
+
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
+                {isOnHold && (
+                  <Alert
+                    type="warning"
+                    showIcon
+                    message={
+                      <span>
+                        <strong>Customer Credit Hold Active:</strong> Management credit hold is enabled for this customer
+                        {customerCreditStatus.creditHoldReason ? ` (${customerCreditStatus.creditHoldReason})` : ''}. An authorized override reason will be required to save or confirm.
+                      </span>
+                    }
+                  />
+                )}
+                {exceedsLimit && (
+                  <Alert
+                    type="info"
+                    showIcon
+                    message={
+                      <span>
+                        <strong>Credit Limit Notice:</strong>{' '}
+                        {liveOrderTotal > creditLimit ? (
+                          <>
+                            Order total (
+                            <strong style={{ whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                              Rs {formatSmartCurrency(liveOrderTotal)}
+                            </strong>
+                            ) exceeds customer&apos;s{' '}
+                            <strong style={{ whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                              Rs {formatSmartCurrency(creditLimit)}
+                            </strong>{' '}
+                            credit limit.
+                          </>
+                        ) : (
+                          <>
+                            Projected exposure (
+                            <strong style={{ whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                              Rs {formatSmartCurrency(projectedExposure)}
+                            </strong>
+                            ) exceeds customer&apos;s{' '}
+                            <strong style={{ whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                              Rs {formatSmartCurrency(creditLimit)}
+                            </strong>{' '}
+                            credit limit.
+                          </>
+                        )}{' '}
+                        Deliveries will be checked against live receivable exposure at dispatch.
+                      </span>
+                    }
+                  />
+                )}
+              </div>
+            );
+          })()}
+
           {/* Step 2: Order Line Items inside a Bordered Card */}
           <div
             style={{
@@ -3987,6 +4056,45 @@ const SalesOrderManagement: React.FC = () => {
                 ]}
               />
 
+              {(() => {
+                if (!customerCreditStatus) return null;
+                const creditLimit = Number(customerCreditStatus.creditLimit || 0);
+                const currentBal = Number(customerCreditStatus.currentBalance || 0);
+                const orderTotal = verificationSummary.grandTotal;
+                const projectedExposure = Math.round((currentBal + orderTotal) * 100) / 100;
+                const exceedsLimit = creditLimit > 0 && orderTotal > 0 && (orderTotal > creditLimit || projectedExposure > creditLimit);
+                if (!exceedsLimit) return null;
+
+                return (
+                  <Alert
+                    type="info"
+                    showIcon
+                    message={
+                      <span>
+                        <strong>Credit Limit Notice:</strong> Order total (
+                        <strong style={{ whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                          Rs {formatSmartCurrency(orderTotal)}
+                        </strong>
+                        ) {orderTotal > creditLimit ? 'exceeds' : `plus current receivable brings projected exposure (`}
+                        {orderTotal > creditLimit ? null : (
+                          <>
+                            <strong style={{ whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                              Rs {formatSmartCurrency(projectedExposure)}
+                            </strong>
+                            {') above '}
+                          </>
+                        )}
+                        customer&apos;s{' '}
+                        <strong style={{ whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                          Rs {formatSmartCurrency(creditLimit)}
+                        </strong>{' '}
+                        credit limit. Deliveries will be checked against live receivable exposure at dispatch.
+                      </span>
+                    }
+                  />
+                );
+              })()}
+
               <div
                 style={{
                   padding: '10px 14px',
@@ -4020,10 +4128,15 @@ const SalesOrderManagement: React.FC = () => {
         onClose={() => setSaveResultOpen(false)}
       />
 
-      {/* Credit Policy Override Modal */}
+      {/* Credit Hold Override Modal (Sales Orders only block when management credit_hold = true) */}
       <Modal
-        title="Credit Policy Check — Authorized Override Required"
+        title={
+          creditOverrideModal?.policy?.creditHold
+            ? 'Customer Credit Hold — Authorized Override Required'
+            : 'Credit Policy Check — Authorized Override Required'
+        }
         open={Boolean(creditOverrideModal?.open)}
+        width={680}
         zIndex={2600}
         onCancel={() => setCreditOverrideModal(null)}
         okText="Proceed with Authorized Override"
@@ -4052,14 +4165,30 @@ const SalesOrderManagement: React.FC = () => {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <Alert type="error" showIcon message={creditOverrideModal.message || 'Credit Policy Violation'} />
             {creditOverrideModal.policy && (
-              <Descriptions bordered size="small" column={2}>
+              <Descriptions bordered size="small" column={2} labelStyle={{ whiteSpace: 'nowrap' }}>
                 <Descriptions.Item label="Customer">{creditOverrideModal.policy.customerName}</Descriptions.Item>
-                <Descriptions.Item label="Payment Terms">{creditOverrideModal.policy.paymentTerms}</Descriptions.Item>
-                <Descriptions.Item label="Credit Limit">Rs {formatDecimal(creditOverrideModal.policy.creditLimit || 0)}</Descriptions.Item>
-                <Descriptions.Item label="Current Receivable">Rs {formatDecimal(creditOverrideModal.policy.currentBalance || 0)}</Descriptions.Item>
-                <Descriptions.Item label="Document Amount">Rs {formatDecimal(creditOverrideModal.policy.proposedAmount || 0)}</Descriptions.Item>
+                <Descriptions.Item label="Payment Terms">
+                  <span style={{ whiteSpace: 'nowrap' }}>{creditOverrideModal.policy.paymentTerms}</span>
+                </Descriptions.Item>
+                <Descriptions.Item label="Credit Limit">
+                  <span style={{ whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                    Rs {formatSmartCurrency(creditOverrideModal.policy.creditLimit || 0)}
+                  </span>
+                </Descriptions.Item>
+                <Descriptions.Item label="Current Receivable">
+                  <span style={{ whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                    Rs {formatSmartCurrency(creditOverrideModal.policy.currentBalance || 0)}
+                  </span>
+                </Descriptions.Item>
+                <Descriptions.Item label="Document Amount">
+                  <span style={{ whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                    Rs {formatSmartCurrency(creditOverrideModal.policy.proposedAmount || 0)}
+                  </span>
+                </Descriptions.Item>
                 <Descriptions.Item label="Projected Exposure">
-                  <strong style={{ color: '#dc2626' }}>Rs {formatDecimal(creditOverrideModal.policy.projectedBalance || 0)}</strong>
+                  <strong style={{ color: '#dc2626', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                    Rs {formatSmartCurrency(creditOverrideModal.policy.projectedBalance || 0)}
+                  </strong>
                 </Descriptions.Item>
               </Descriptions>
             )}

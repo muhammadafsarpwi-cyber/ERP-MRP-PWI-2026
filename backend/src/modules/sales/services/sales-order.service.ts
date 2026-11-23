@@ -194,6 +194,7 @@ export class SalesOrderService implements OnModuleInit {
         creditOverride: dto.creditOverride,
         creditOverrideReason: dto.creditOverrideReason,
         userId,
+        enforceCreditLimit: false,
       });
       if (overrideAuditNote) {
         notesWithAudit = notesWithAudit ? `${notesWithAudit}\n${overrideAuditNote}` : overrideAuditNote;
@@ -703,6 +704,7 @@ export class SalesOrderService implements OnModuleInit {
         creditOverride: overrideOptions?.creditOverride,
         creditOverrideReason: overrideOptions?.creditOverrideReason,
         userId,
+        enforceCreditLimit: false,
       });
       if (overrideAuditNote) {
         order.notes = order.notes ? `${order.notes}\n${overrideAuditNote}` : overrideAuditNote;

@@ -15,7 +15,7 @@ import {
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
-import { formatDecimal } from '../../utils/numberFormat';
+import { formatDecimal, formatSmartCurrency } from '../../utils/numberFormat';
 import { ERPLineItems, ERPLine, DraggableResizableModal, PreConfirmVerificationCard } from '../../components/shared';
 import { resolveEffectiveTaxPercent, summarizeLinesTaxVerification } from '../../utils/salesTaxVerification';
 import { TAB_REFRESH_EVENT, triggerTabRefresh } from '../../services/tabSessionCache';
@@ -4537,6 +4537,7 @@ const SalesDeliveryManagement: React.FC = () => {
       <Modal
         title="Credit Policy Override Authorization"
         open={Boolean(creditOverrideModal?.open)}
+        width={680}
         onCancel={() => setCreditOverrideModal(null)}
         okText="Authorize Override & Proceed"
         okButtonProps={{ danger: true }}
@@ -4565,14 +4566,30 @@ const SalesDeliveryManagement: React.FC = () => {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <Alert type="error" showIcon message={creditOverrideModal.message || 'Credit Policy Violation'} />
             {creditOverrideModal.policy && (
-              <Descriptions size="small" bordered column={2}>
+              <Descriptions size="small" bordered column={2} labelStyle={{ whiteSpace: 'nowrap' }}>
                 <Descriptions.Item label="Customer">{creditOverrideModal.policy.customerName}</Descriptions.Item>
-                <Descriptions.Item label="Payment Terms">{creditOverrideModal.policy.paymentTerms}</Descriptions.Item>
-                <Descriptions.Item label="Credit Limit">Rs {formatDecimal(creditOverrideModal.policy.creditLimit || 0)}</Descriptions.Item>
-                <Descriptions.Item label="Current Receivable">Rs {formatDecimal(creditOverrideModal.policy.currentBalance || 0)}</Descriptions.Item>
-                <Descriptions.Item label="Delivery Amount">Rs {formatDecimal(creditOverrideModal.policy.proposedAmount || 0)}</Descriptions.Item>
+                <Descriptions.Item label="Payment Terms">
+                  <span style={{ whiteSpace: 'nowrap' }}>{creditOverrideModal.policy.paymentTerms}</span>
+                </Descriptions.Item>
+                <Descriptions.Item label="Credit Limit">
+                  <span style={{ whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                    Rs {formatSmartCurrency(creditOverrideModal.policy.creditLimit || 0)}
+                  </span>
+                </Descriptions.Item>
+                <Descriptions.Item label="Current Receivable">
+                  <span style={{ whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                    Rs {formatSmartCurrency(creditOverrideModal.policy.currentBalance || 0)}
+                  </span>
+                </Descriptions.Item>
+                <Descriptions.Item label="Delivery Amount">
+                  <span style={{ whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                    Rs {formatSmartCurrency(creditOverrideModal.policy.proposedAmount || 0)}
+                  </span>
+                </Descriptions.Item>
                 <Descriptions.Item label="Projected Balance">
-                  <strong>Rs {formatDecimal(creditOverrideModal.policy.projectedBalance || 0)}</strong>
+                  <strong style={{ color: '#dc2626', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                    Rs {formatSmartCurrency(creditOverrideModal.policy.projectedBalance || 0)}
+                  </strong>
                 </Descriptions.Item>
               </Descriptions>
             )}
