@@ -102,5 +102,36 @@ describe('salesTaxVerification', () => {
       expect(summary.hasTaxFreeLine).toBe(false);
       expect(summary.effectiveTaxLabel).toBe('Tax (18%)');
     });
+
+    it('verifies exact 18% tax math on multi-line large SOC totals (13,800,000 + 2,484,000 = 16,284,000)', () => {
+      const summary = summarizeLinesTaxVerification(
+        [
+          {
+            id: 'l1',
+            itemCode: 'CCD-FGR-001',
+            itemName: '5 MM PVC DS Outer Casing',
+            quantity: 200000,
+            uomCode: 'MTR',
+            unitPrice: 54,
+            taxPercent: 18,
+          },
+          {
+            id: 'l2',
+            itemCode: 'CCD-FGR-011',
+            itemName: '7 MM PVC DS Outer Casing',
+            quantity: 60000,
+            uomCode: 'MTR',
+            unitPrice: 50,
+            taxPercent: 18,
+          },
+        ],
+        18,
+      );
+
+      expect(summary.subtotal).toBe(13800000);
+      expect(summary.taxAmount).toBe(2484000);
+      expect(summary.grandTotal).toBe(16284000);
+      expect(summary.effectiveTaxLabel).toBe('Tax (18%)');
+    });
   });
 });

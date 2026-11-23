@@ -32,7 +32,7 @@ describe('SalesOrderService', () => {
   const mockOrder: SalesOrder = {
     id: UUID_SO, companyId: UUID_COMPANY, customerId: UUID_CUST, orderNumber: 'SO-2026-00001',
     quotationId: null, orderDate: '2026-08-20', deliveryDate: null,
-    customerPo: null,
+    customerPo: null, customerPoDate: null,
     shipToAddress: null, billToAddress: null, currency: 'USD',
     subtotal: 5000, discountAmount: 0, taxAmount: 500, freightAmount: 0,
     totalAmount: 5500, notes: null, status: 'Draft', createdBy: UUID_USER,
@@ -86,13 +86,29 @@ describe('SalesOrderService', () => {
   });
 
   describe('create', () => {
-    it('should create a new order', async () => {
+    it('should create a new order and persist customerPo and customerPoDate', async () => {
       customerRepo.findOne.mockResolvedValue(mockCustomer);
-      repo.create.mockReturnValue(mockOrder);
-      repo.save.mockResolvedValue(mockOrder);
-      repo.findOne.mockResolvedValue(mockOrder);
-      const result = await service.create({ companyId: UUID_COMPANY, customerId: UUID_CUST, items: [] }, UUID_USER);
-      expect(result).toEqual(mockOrder);
+      const orderWithPo: SalesOrder = { ...mockOrder, customerPo: 'PO-2026-0412', customerPoDate: '2026-11-20' };
+      repo.create.mockReturnValue(orderWithPo);
+      repo.save.mockResolvedValue(orderWithPo);
+      repo.findOne.mockResolvedValueOnce(null).mockResolvedValue(orderWithPo);
+      const result = await service.create(
+        {
+          companyId: UUID_COMPANY,
+          customerId: UUID_CUST,
+          customerPo: '  PO-2026-0412  ',
+          customerPoDate: '2026-11-20',
+          items: [],
+        },
+        UUID_USER,
+      );
+      expect(repo.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          customerPo: 'PO-2026-0412',
+          customerPoDate: '2026-11-20',
+        }),
+      );
+      expect(result).toEqual(orderWithPo);
     });
 
     it('should throw if customer not found', async () => {

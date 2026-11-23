@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Table, Tag, Input, Select, Button, Spin, Empty, Tooltip,
-  Progress, Row, Col, Statistic, Card, Tabs, Badge, Modal,
+  Progress, Row, Col, Statistic, Card, Tabs, Badge, Modal, theme,
 } from 'antd';
 import {
   SearchOutlined, ReloadOutlined, AppstoreOutlined, UnorderedListOutlined,
@@ -13,26 +13,51 @@ import {
 import { useNavigate } from 'react-router-dom';
 import apiService from '../../services/api';
 import DraggableResizableModal from '../../components/shared/DraggableResizableModal';
+import {
+  DivisionOptionRecord,
+  ItemMasterUomRecord,
+  SafetyItemDetail,
+  UomConversionRecord,
+  buildItemMasterIndex,
+  buildSafetyBufferDockSummary,
+  buildSafetyItemMetrics,
+  cleanDisplayNumber,
+  convertGrossToExactPcsAndCartons,
+  reconcileCustomerSocContracts,
+  resolveBufferEntryMetrics,
+  resolveExactPcsPerCarton,
+  splitItemDisplayName,
+} from './safetyStockBufferUtils';
 import './CustomerAnalytics.css';
 
 const { Option } = Select;
 
-export interface SafetyItemDetail {
-  itemCode: string;
-  itemName: string;
-  cartons: number;
-  gross: number;
-  pcs: number;
-}
+export type { SafetyItemDetail };
 
 export interface SocItemDetail {
   key: string;
   itemCode: string;
   itemName: string;
   orderedQty: number;
+  orderedPcs: number;
+  orderedCartons: number;
   packedQty: number;
+  packedPcs: number;
+  packedCartons: number;
   dispatchedQty: number;
+  dispatchedPcs: number;
+  dispatchedCartons: number;
+  readyToDispatchQty: number;
+  readyToDispatchPcs: number;
+  readyToDispatchCartons: number;
   remainingPendingQty: number;
+  remainingPendingPcs: number;
+  remainingPendingCartons: number;
+  toPackQty: number;
+  toPackPcs: number;
+  toPackCartons: number;
+  pcsPerCarton: number;
+  grossPerCarton: number;
   fulfillmentPct: number;
   isOrderItem?: boolean;
 }
@@ -43,9 +68,23 @@ export interface SocContractSummary {
   orderDate?: string;
   status: string;
   totalOrderedQty: number;
+  totalOrderedPcs: number;
+  totalOrderedCartons: number;
   totalPackedQty: number;
+  totalPackedPcs: number;
+  totalPackedCartons: number;
   totalDispatchedQty: number;
+  totalDispatchedPcs: number;
+  totalDispatchedCartons: number;
+  totalReadyToDispatchQty: number;
+  totalReadyToDispatchPcs: number;
+  totalReadyToDispatchCartons: number;
   totalPendingQty: number;
+  totalPendingPcs: number;
+  totalPendingCartons: number;
+  totalToPackQty: number;
+  totalToPackPcs: number;
+  totalToPackCartons: number;
   fulfillmentPct: number;
   items: SocItemDetail[];
   isOfficialOrder?: boolean;
@@ -221,29 +260,57 @@ interface PackedEntryInfo {
   cartons: number;
   gross: number;
   pcs: number;
+  baseQty: number;
+  salesQty: number;
+  packagingQty: number;
+  baseUomCode: string;
+  salesUomCode: string;
+  packagingType?: string;
+  packagingUnit?: string;
+  packagingUnitCode: string;
+  packagingSize: number;
+  hasGrossUom: boolean;
+  divisionId?: string;
+  divisionCode?: string;
+  divisionName?: string;
   fgItemName?: string;
   fgItemCode?: string;
   date?: string;
   isSafetyStock: boolean;
 }
 
-function parsePackingEntry(e: any): PackedEntryInfo | null {
+interface BufferMasterContext {
+  itemMasterMap: Map<string, ItemMasterUomRecord>;
+  uomConversions: UomConversionRecord[];
+  divisions: DivisionOptionRecord[];
+}
+
+function parsePackingEntry(e: any, masterCtx?: BufferMasterContext): PackedEntryInfo | null {
   if (!e) return null;
   const rem = String(e.remarks || '');
   const machineNo = String(e.machineNo || e.machine_no || '');
   if (!rem.includes('[HAND PACKING]') && !machineNo.toUpperCase().startsWith('HAND-PACK')) return null;
 
+  // Exclude pending-nipple batches (WITHOUT_NIPPLE): they are NOT ready Finished Goods in FG Dispatch Warehouse
+  const packingMode = String(e.packingMode || e.packing_mode || '').toUpperCase().trim();
+  if (packingMode === 'WITHOUT_NIPPLE' || (!packingMode && rem.toUpperCase().includes('WITHOUT_NIPPLE'))) {
+    return null;
+  }
+
   const custMatch = rem.match(/Customer:\s*([^|—\n]+)/i);
   const socMatch = rem.match(/SOC:\s*([^|—\n]+)/i);
+  const divCodeMatch = rem.match(/DivCode:\s*([^|—\n]+)/i);
+  const divNameMatch = rem.match(/Division:\s*([^|—\n]+)/i);
   const qtyMatch = rem.match(/Cartons:\s*([\d.]+)\s*\(([\d.]+)\s*Gross(?:\s*\/\s*([\d.]+)\s*PCS)?/i) ||
                    rem.match(/Total:\s*([\d.]+)\s*Cartons\s*\(([\d.]+)\s*Gross/i);
   const ctnOnlyMatch = rem.match(/Cartons:\s*([\d.]+)/i) || rem.match(/\[([\d.]+)\s*CTN/i);
   const grossOnlyMatch = rem.match(/\(([\d.]+)\s*Gross/i) || rem.match(/Gross:\s*([\d.]+)/i) || rem.match(/([\d.]+)\s*GRS/i);
 
-  const rawPcs = Number(e.actualQuantity || e.actual_quantity || 0);
-  const cartons = qtyMatch ? parseFloat(qtyMatch[1]) : (ctnOnlyMatch ? parseFloat(ctnOnlyMatch[1]) : (rawPcs > 0 ? Math.round(rawPcs / 1440) : 0));
-  const gross = qtyMatch ? parseFloat(qtyMatch[2]) : (grossOnlyMatch ? parseFloat(grossOnlyMatch[1]) : (cartons * 10 || Math.round(rawPcs / 144)));
-  const pcs = qtyMatch && qtyMatch[3] ? parseFloat(qtyMatch[3]) : (rawPcs > 0 ? rawPcs : cartons * 1440);
+  const rawQty = Number(e.actualQuantity || e.actual_quantity || 0);
+  const fallbackPcs = qtyMatch && qtyMatch[3] ? parseFloat(qtyMatch[3]) : (qtyMatch ? parseFloat(qtyMatch[2]) * 144 : 0);
+  const effectiveRawQty = rawQty > 0 ? rawQty : fallbackPcs;
+  const legacyCartons = qtyMatch ? parseFloat(qtyMatch[1]) : (ctnOnlyMatch ? parseFloat(ctnOnlyMatch[1]) : 0);
+  const legacyGross = qtyMatch ? parseFloat(qtyMatch[2]) : (grossOnlyMatch ? parseFloat(grossOnlyMatch[1]) : 0);
 
   let custName = custMatch ? custMatch[1].trim() : '';
   let socNo = socMatch ? socMatch[1].trim() : '';
@@ -269,27 +336,58 @@ function parsePackingEntry(e: any): PackedEntryInfo | null {
   let rawName = itemObj.name || itemObj.itemName || itemObj.item_name || e.itemName || e.item_name || '';
 
   if (!rawCode) {
-    const codeMatch = rem.match(/SPI-FG-[A-Z0-9-]+/i) || rem.match(/FG-[A-Z0-9-]+/i);
+    const codeMatch = rem.match(/SPI-FG-[A-Z0-9-]+/i) || rem.match(/CCD-FGR-[A-Z0-9-]+/i) || rem.match(/FG-[A-Z0-9-]+/i);
     if (codeMatch) rawCode = codeMatch[0];
   }
 
   const resolved = resolveFgItem(rawCode, rawName);
+  const fgCode = resolved.code || rawCode;
+  const fgName = resolved.name || rawName;
+  const uomFromEntry = e.uom?.code || e.uom?.symbol || e.uomCode || '';
+
+  const metrics = resolveBufferEntryMetrics({
+    itemCode: fgCode,
+    itemName: fgName,
+    rawQuantity: effectiveRawQty,
+    entryUomCode: uomFromEntry,
+    entryDivisionId: e.divisionId || e.division_id || itemObj.divisionId,
+    entryDivisionCode: divCodeMatch ? divCodeMatch[1].trim() : e.division?.divisionCode,
+    entryDivisionName: divNameMatch ? divNameMatch[1].trim() : e.division?.name,
+    legacyCartons,
+    legacyGross,
+    itemMasterMap: masterCtx?.itemMasterMap || new Map(),
+    uomConversions: masterCtx?.uomConversions || [],
+    divisions: masterCtx?.divisions || [],
+  });
 
   return {
     id: String(e.id),
     customerName: custName,
     socNo,
-    cartons,
-    gross,
-    pcs,
-    fgItemName: resolved.name || rawName,
-    fgItemCode: resolved.code || rawCode,
+    cartons: metrics.cartons,
+    gross: metrics.gross,
+    pcs: metrics.pcs,
+    baseQty: metrics.baseQty,
+    salesQty: metrics.salesQty,
+    packagingQty: metrics.packagingQty,
+    baseUomCode: metrics.baseUomCode,
+    salesUomCode: metrics.salesUomCode,
+    packagingType: metrics.packagingType,
+    packagingUnit: metrics.packagingUnit,
+    packagingUnitCode: metrics.packagingUnitCode,
+    packagingSize: metrics.packagingSize,
+    hasGrossUom: metrics.hasGrossUom,
+    divisionId: metrics.divisionId,
+    divisionCode: metrics.divisionCode,
+    divisionName: metrics.divisionName,
+    fgItemName: fgName,
+    fgItemCode: fgCode,
     date: e.entryDate || e.entry_date || e.createdAt,
     isSafetyStock,
   };
 }
 
-function parseOpenStockEntry(os: any): PackedEntryInfo | null {
+function parseOpenStockEntry(os: any, masterCtx?: BufferMasterContext): PackedEntryInfo | null {
   if (!os) return null;
   const notes = String(os.notes || '');
   const custMatch = notes.match(/Customer:\s*([^|\]]+)/i);
@@ -297,10 +395,11 @@ function parseOpenStockEntry(os: any): PackedEntryInfo | null {
   const ctnMatch = notes.match(/Cartons:\s*([\d.]+)/i) || notes.match(/\[([\d.]+)\s*CTN/i);
   const grossMatch = notes.match(/Gross:\s*([\d.]+)/i) || notes.match(/([\d.]+)\s*GRS/i);
 
-  const pcs = Number(os.quantity || 0);
-  if (pcs <= 0) return null;
-  const cartons = ctnMatch ? Number(ctnMatch[1]) : Math.round(pcs / 1440);
-  const gross = grossMatch ? Number(grossMatch[1]) : Math.round(pcs / 144);
+  const rawQty = Number(os.quantity || 0);
+  if (rawQty <= 0) return null;
+  const legacyCartons = ctnMatch ? Number(ctnMatch[1]) : 0;
+  const legacyGross = grossMatch ? Number(grossMatch[1]) : 0;
+
   let custName = custMatch ? custMatch[1].trim() : (os.customerName || 'General Stock');
   let socNo = socMatch ? socMatch[1].trim() : (os.socNo || '—');
 
@@ -323,16 +422,47 @@ function parseOpenStockEntry(os: any): PackedEntryInfo | null {
   const rawCode = os.itemCode || os.item?.itemCode || '';
   const rawName = os.itemName || os.item?.name || '';
   const resolved = resolveFgItem(rawCode, rawName);
+  const fgCode = resolved.code || rawCode;
+  const fgName = resolved.name || rawName;
+  const uomFromEntry = os.uomCode || os.uomSymbol || os.uom?.code || '';
+
+  const metrics = resolveBufferEntryMetrics({
+    itemCode: fgCode,
+    itemName: fgName,
+    rawQuantity: rawQty,
+    entryUomCode: uomFromEntry,
+    entryDivisionId: os.divisionId || os.item?.divisionId,
+    entryDivisionCode: os.divisionCode,
+    entryDivisionName: os.divisionName,
+    legacyCartons,
+    legacyGross,
+    itemMasterMap: masterCtx?.itemMasterMap || new Map(),
+    uomConversions: masterCtx?.uomConversions || [],
+    divisions: masterCtx?.divisions || [],
+  });
 
   return {
     id: String(os.id),
     customerName: custName,
     socNo,
-    cartons,
-    gross,
-    pcs,
-    fgItemName: resolved.name || rawName,
-    fgItemCode: resolved.code || rawCode,
+    cartons: metrics.cartons,
+    gross: metrics.gross,
+    pcs: metrics.pcs,
+    baseQty: metrics.baseQty,
+    salesQty: metrics.salesQty,
+    packagingQty: metrics.packagingQty,
+    baseUomCode: metrics.baseUomCode,
+    salesUomCode: metrics.salesUomCode,
+    packagingType: metrics.packagingType,
+    packagingUnit: metrics.packagingUnit,
+    packagingUnitCode: metrics.packagingUnitCode,
+    packagingSize: metrics.packagingSize,
+    hasGrossUom: metrics.hasGrossUom,
+    divisionId: metrics.divisionId,
+    divisionCode: metrics.divisionCode,
+    divisionName: metrics.divisionName,
+    fgItemName: fgName,
+    fgItemCode: fgCode,
     date: os.transactionDate || os.createdAt,
     isSafetyStock,
   };
@@ -362,6 +492,7 @@ function getCustomerDisplayCode(c: any): string {
 }
 
 const CustomerAnalytics: React.FC = () => {
+  const { token } = theme.useToken();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [viewMode, setViewMode] = useState<'card' | 'table'>('card');
@@ -371,6 +502,9 @@ const CustomerAnalytics: React.FC = () => {
   const [customerPage, setCustomerPage] = useState(1);
   const [customers, setCustomers] = useState<CustomerStat[]>([]);
   const [itemStats, setItemStats] = useState<ItemStat[]>([]);
+  const [safetyDivisions, setSafetyDivisions] = useState<DivisionOptionRecord[]>([]);
+  const [safetyBatchesMeta, setSafetyBatchesMeta] = useState<Array<{ divisionId?: string; divisionCode?: string }>>([]);
+  const [selectedSafetyDivision, setSelectedSafetyDivision] = useState<string>('ALL');
   const [activeTab, setActiveTab] = useState<'pending' | 'done' | 'all' | 'items'>('all');
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
   const [selectedSocNumber, setSelectedSocNumber] = useState<string | null>(null);
@@ -412,7 +546,7 @@ const CustomerAnalytics: React.FC = () => {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      // Load sales orders, deliveries, registered customers, hand packing entries, and FGR stock matrix in parallel
+      // Load sales orders, deliveries, customers, packing entries, FGR matrix, item master UOMs, divisions, and UOM conversions in parallel
       const [
         ordersRes,
         deliveriesRes,
@@ -422,6 +556,8 @@ const CustomerAnalytics: React.FC = () => {
         openStockRes,
         matrixRes,
         prodItemsRes,
+        divisionsRes,
+        uomConvRes,
       ] = await Promise.allSettled([
         apiService.get('/sales/orders?limit=500&status=all'),
         apiService.get('/sales/deliveries?limit=500&status=all'),
@@ -431,7 +567,15 @@ const CustomerAnalytics: React.FC = () => {
         apiService.get('/production/open-stock/history?limit=200'),
         apiService.get('/production/open-stock/matrix'),
         apiService.get('/production/open-stock/items'),
+        apiService.get('/divisions?limit=200&status=ACTIVE'),
+        apiService.get('/master-data/uom-conversions?limit=500'),
       ]);
+
+      const unwrapList = (res: PromiseSettledResult<any>): any[] => {
+        if (res.status !== 'fulfilled') return [];
+        const payload = (res.value as any)?.data?.data ?? (res.value as any)?.data ?? res.value;
+        return Array.isArray(payload) ? payload : [];
+      };
 
       const rawOrders: any[] = ordersRes.status === 'fulfilled'
         ? ((ordersRes.value as any)?.data?.data || (ordersRes.value as any)?.data || [])
@@ -457,21 +601,19 @@ const CustomerAnalytics: React.FC = () => {
       const salesCustList: any[] = salesCustRes.status === 'fulfilled'
         ? ((salesCustRes.value as any)?.data?.data || (salesCustRes.value as any)?.data || [])
         : [];
-      const masterCustList: any[] = masterCustRes.status === 'fulfilled'
-        ? ((masterCustRes.value as any)?.data?.data || (masterCustRes.value as any)?.data || [])
-        : [];
-      const prodEntries: any[] = prodRes.status === 'fulfilled'
-        ? ((prodRes.value as any)?.data?.data || (prodRes.value as any)?.data || [])
-        : [];
-      const openStockEntries: any[] = openStockRes.status === 'fulfilled'
-        ? ((openStockRes.value as any)?.data?.data || (openStockRes.value as any)?.data || [])
-        : [];
-      const matrixRows: any[] = matrixRes.status === 'fulfilled'
-        ? ((matrixRes.value as any)?.data?.data || (matrixRes.value as any)?.data || [])
-        : [];
-      const prodItemsList: any[] = prodItemsRes.status === 'fulfilled'
-        ? ((prodItemsRes.value as any)?.data?.data || (prodItemsRes.value as any)?.data || [])
-        : [];
+      const masterCustList: any[] = unwrapList(masterCustRes);
+      const prodEntries: any[] = unwrapList(prodRes);
+      const openStockEntries: any[] = unwrapList(openStockRes);
+      const matrixRows: any[] = unwrapList(matrixRes);
+      const prodItemsList: any[] = unwrapList(prodItemsRes);
+      const divisionsRaw: DivisionOptionRecord[] = unwrapList(divisionsRes);
+      const uomConversionsList: UomConversionRecord[] = unwrapList(uomConvRes);
+      const itemMasterMap = buildItemMasterIndex(prodItemsList, divisionsRaw);
+      const bufferMasterCtx: BufferMasterContext = {
+        itemMasterMap,
+        uomConversions: uomConversionsList,
+        divisions: divisionsRaw,
+      };
 
       // Build customer directory mapping ID and code to real genuine names
       const customerDirectory = new Map<string, { id: string; name: string; code: string; type: string }>();
@@ -510,8 +652,29 @@ const CustomerAnalytics: React.FC = () => {
       const custMap = new Map<string, CustomerStat>();
       const custSocMap = new Map<string, SocContractSummary[]>();
 
-      const findOrCreateSocItem = (soc: SocContractSummary, code: string, name: string): SocItemDetail => {
+      const resolveItemPackSpec = (code: string, name: string, hintPkgSize?: number) => {
         const resolved = resolveFgItem(code, name);
+        const master =
+          itemMasterMap.get(normKey(resolved.code)) ||
+          itemMasterMap.get(normKey(code)) ||
+          itemMasterMap.get(normKey(resolved.name)) ||
+          itemMasterMap.get(normKey(name));
+        const grossPerCarton =
+          (Number(hintPkgSize) > 0 ? Number(hintPkgSize) : 0) ||
+          (master?.packagingSize && master.packagingSize > 0 ? master.packagingSize : 0) ||
+          resolved.packagingSize ||
+          10;
+        const pcsPerCarton = resolveExactPcsPerCarton(grossPerCarton, resolved.code, resolved.name);
+        return { resolved, grossPerCarton, pcsPerCarton };
+      };
+
+      const findOrCreateSocItem = (
+        soc: SocContractSummary,
+        code: string,
+        name: string,
+        hintPkgSize?: number,
+      ): SocItemDetail => {
+        const { resolved, grossPerCarton, pcsPerCarton } = resolveItemPackSpec(code, name, hintPkgSize);
         const nResolvedCode = normKey(resolved.code);
         let found = soc.items.find((it) => {
           const itRes = resolveFgItem(it.itemCode, it.itemName);
@@ -523,12 +686,31 @@ const CustomerAnalytics: React.FC = () => {
             itemCode: resolved.code || 'FG-ITEM',
             itemName: resolved.name || resolved.code || 'Finished Goods Item',
             orderedQty: 0,
+            orderedPcs: 0,
+            orderedCartons: 0,
             packedQty: 0,
+            packedPcs: 0,
+            packedCartons: 0,
             dispatchedQty: 0,
+            dispatchedPcs: 0,
+            dispatchedCartons: 0,
+            readyToDispatchQty: 0,
+            readyToDispatchPcs: 0,
+            readyToDispatchCartons: 0,
             remainingPendingQty: 0,
+            remainingPendingPcs: 0,
+            remainingPendingCartons: 0,
+            toPackQty: 0,
+            toPackPcs: 0,
+            toPackCartons: 0,
+            pcsPerCarton,
+            grossPerCarton,
             fulfillmentPct: 0,
           };
           soc.items.push(found);
+        } else if (hintPkgSize && hintPkgSize > 0 && found.grossPerCarton !== hintPkgSize) {
+          found.grossPerCarton = grossPerCarton;
+          found.pcsPerCarton = pcsPerCarton;
         }
         return found;
       };
@@ -597,9 +779,23 @@ const CustomerAnalytics: React.FC = () => {
             orderDate,
             status: String(order.status || 'ACTIVE').toUpperCase(),
             totalOrderedQty: 0,
+            totalOrderedPcs: 0,
+            totalOrderedCartons: 0,
             totalPackedQty: 0,
+            totalPackedPcs: 0,
+            totalPackedCartons: 0,
             totalDispatchedQty: 0,
+            totalDispatchedPcs: 0,
+            totalDispatchedCartons: 0,
+            totalReadyToDispatchQty: 0,
+            totalReadyToDispatchPcs: 0,
+            totalReadyToDispatchCartons: 0,
             totalPendingQty: 0,
+            totalPendingPcs: 0,
+            totalPendingCartons: 0,
+            totalToPackQty: 0,
+            totalToPackPcs: 0,
+            totalToPackCartons: 0,
             fulfillmentPct: 0,
             items: [],
             isOfficialOrder: true,
@@ -614,17 +810,21 @@ const CustomerAnalytics: React.FC = () => {
           const code = itemObj.itemCode || item.itemCode || item.item_code || '';
           const name = itemObj.name || item.description || item.itemName || item.item_name || code || 'Item';
           const qty = Number(item.quantity || item.qty || 0);
+          const hintPkgSize = Number(itemObj.packagingSize || item.packageQuantity || item.packagingSize || 0);
           const lineTotal = Number(item.lineTotal || item.line_total || (qty * Number(item.unitPrice || item.unit_price || 0)));
 
-          stat.totalOrderedGross += qty;
+          const socItem = findOrCreateSocItem(socEntry, code, name, hintPkgSize);
+          const exactOrd = convertGrossToExactPcsAndCartons(qty, socItem.grossPerCarton, socItem.itemCode, socItem.itemName);
+
+          stat.totalOrderedGross += exactOrd.exactGross;
           stat.totalOrderValue += lineTotal;
 
           if (!stat.topItem && name) {
             stat.topItem = name;
           }
 
-          const socItem = findOrCreateSocItem(socEntry, code, name);
-          socItem.orderedQty += qty;
+          socItem.orderedQty += exactOrd.exactGross;
+          socItem.orderedPcs += exactOrd.pcs;
           socItem.isOrderItem = true;
         }
       }
@@ -686,16 +886,18 @@ const CustomerAnalytics: React.FC = () => {
           const code = lineItemObj.itemCode || line.itemCode || line.item_code || '';
           const name = lineItemObj.name || line.description || line.itemName || line.item_name || code || 'Item';
           const qty = Number(line.quantity || line.qty || 0);
-          const pkgSize = Number(lineItemObj.packagingSize || line.packageQuantity || line.packagingSize || 10);
-          stat.totalDispatchedGross += qty;
-          stat.totalDispatchedCartons += qty > 0 && pkgSize > 0 ? Math.round(qty / pkgSize) : 0;
+          const hintPkgSize = Number(lineItemObj.packagingSize || line.packageQuantity || line.packagingSize || 0);
+          const { resolved, grossPerCarton } = resolveItemPackSpec(code, name, hintPkgSize);
+          const exactDel = convertGrossToExactPcsAndCartons(qty, grossPerCarton, resolved.code, resolved.name);
+
+          stat.totalDispatchedGross += exactDel.exactGross;
+          stat.totalDispatchedCartons += exactDel.cartons;
           if (!stat.topItem) {
             stat.topItem = name;
           }
 
           if (qty <= 0) continue;
 
-          const resolved = resolveFgItem(code, name);
           const nResolvedCode = normKey(resolved.code);
 
           // Check line-level SOC first: e.g. [SOC: SOC-2026-05814] or line.socNumber / line.salesOrderNumber
@@ -784,24 +986,28 @@ const CustomerAnalytics: React.FC = () => {
             }
 
             if (socItem) {
-              socItem.dispatchedQty += qty;
+              socItem.dispatchedQty += exactDel.exactGross;
+              socItem.dispatchedPcs += exactDel.pcs;
             } else if (targetSoc.isOfficialOrder) {
               // Item was not ordered in targetSoc, check other customer SOCs that ordered this item
               const altSoc = custSocs.find((s) => s.items.some((it) => it.isOrderItem && normKey(resolveFgItem(it.itemCode, it.itemName).code) === nResolvedCode));
               if (altSoc) {
-                const altItem = findOrCreateSocItem(altSoc, resolved.code, resolved.name);
-                altItem.dispatchedQty += qty;
+                const altItem = findOrCreateSocItem(altSoc, resolved.code, resolved.name, grossPerCarton);
+                altItem.dispatchedQty += exactDel.exactGross;
+                altItem.dispatchedPcs += exactDel.pcs;
               } else {
-                const created = findOrCreateSocItem(targetSoc, resolved.code, resolved.name);
-                created.dispatchedQty += qty;
+                const created = findOrCreateSocItem(targetSoc, resolved.code, resolved.name, grossPerCarton);
+                created.dispatchedQty += exactDel.exactGross;
+                created.dispatchedPcs += exactDel.pcs;
               }
             } else {
-              const created = findOrCreateSocItem(targetSoc, resolved.code, resolved.name);
-              created.dispatchedQty += qty;
+              const created = findOrCreateSocItem(targetSoc, resolved.code, resolved.name, grossPerCarton);
+              created.dispatchedQty += exactDel.exactGross;
+              created.dispatchedPcs += exactDel.pcs;
             }
           } else if (custSocs.length > 0) {
-            // Allocate FIFO strictly across customer's SOCs that ALREADY have this ordered item
-            let remainingToAllocate = qty;
+            // Allocate FIFO strictly across customer's SOCs that ALREADY have this ordered item (using exact PCS)
+            let remainingPcsToAllocate = exactDel.pcs;
             const matchingItems: SocItemDetail[] = [];
 
             for (const s of custSocs) {
@@ -815,15 +1021,18 @@ const CustomerAnalytics: React.FC = () => {
 
             if (matchingItems.length > 0) {
               for (const it of matchingItems) {
-                const room = Math.max(0, it.orderedQty - it.dispatchedQty);
-                if (room > 0 && remainingToAllocate > 0) {
-                  const alloc = Math.min(room, remainingToAllocate);
-                  it.dispatchedQty += alloc;
-                  remainingToAllocate -= alloc;
+                const roomPcs = Math.max(0, it.orderedPcs - it.dispatchedPcs);
+                if (roomPcs > 0 && remainingPcsToAllocate > 0) {
+                  const allocPcs = Math.min(roomPcs, remainingPcsToAllocate);
+                  it.dispatchedPcs += allocPcs;
+                  it.dispatchedQty += Math.round((allocPcs / 144) * 100) / 100;
+                  remainingPcsToAllocate -= allocPcs;
                 }
               }
-              if (remainingToAllocate > 0) {
-                matchingItems[matchingItems.length - 1].dispatchedQty += remainingToAllocate;
+              if (remainingPcsToAllocate > 0) {
+                const last = matchingItems[matchingItems.length - 1];
+                last.dispatchedPcs += remainingPcsToAllocate;
+                last.dispatchedQty += Math.round((remainingPcsToAllocate / 144) * 100) / 100;
               }
             }
             // If no matching item exists across existing orders, do NOT inject ghost items
@@ -836,16 +1045,31 @@ const CustomerAnalytics: React.FC = () => {
               orderDate: delivery.deliveryDate || delivery.created_at,
               status: 'DISPATCHED',
               totalOrderedQty: 0,
+              totalOrderedPcs: 0,
+              totalOrderedCartons: 0,
               totalPackedQty: 0,
+              totalPackedPcs: 0,
+              totalPackedCartons: 0,
               totalDispatchedQty: 0,
+              totalDispatchedPcs: 0,
+              totalDispatchedCartons: 0,
+              totalReadyToDispatchQty: 0,
+              totalReadyToDispatchPcs: 0,
+              totalReadyToDispatchCartons: 0,
               totalPendingQty: 0,
+              totalPendingPcs: 0,
+              totalPendingCartons: 0,
+              totalToPackQty: 0,
+              totalToPackPcs: 0,
+              totalToPackCartons: 0,
               fulfillmentPct: 100,
               items: [],
             };
             custSocs.push(newSoc);
             targetSoc = newSoc;
-            const socItem = findOrCreateSocItem(newSoc, code, name);
-            socItem.dispatchedQty += qty;
+            const socItem = findOrCreateSocItem(newSoc, code, name, grossPerCarton);
+            socItem.dispatchedQty += exactDel.exactGross;
+            socItem.dispatchedPcs += exactDel.pcs;
           }
         }
       }
@@ -855,17 +1079,17 @@ const CustomerAnalytics: React.FC = () => {
       const seenEntryKeys = new Set<string>();
 
       prodEntries.forEach((e) => {
-        const p = parsePackingEntry(e);
+        const p = parsePackingEntry(e, bufferMasterCtx);
         if (p) {
-          const key = `${normKey(p.fgItemCode || '')}_${normKey(p.socNo || '')}_${normKey(p.customerName || '')}_${p.cartons}_${p.gross}`;
+          const key = `${normKey(p.fgItemCode || '')}_${normKey(p.socNo || '')}_${normKey(p.customerName || '')}_${p.cartons}_${p.gross}_${Math.round(p.baseQty || p.pcs || 0)}`;
           seenEntryKeys.add(key);
           allPackedEntries.push(p);
         }
       });
       openStockEntries.forEach((os) => {
-        const p = parseOpenStockEntry(os);
+        const p = parseOpenStockEntry(os, bufferMasterCtx);
         if (p) {
-          const key = `${normKey(p.fgItemCode || '')}_${normKey(p.socNo || '')}_${normKey(p.customerName || '')}_${p.cartons}_${p.gross}`;
+          const key = `${normKey(p.fgItemCode || '')}_${normKey(p.socNo || '')}_${normKey(p.customerName || '')}_${p.cartons}_${p.gross}_${Math.round(p.baseQty || p.pcs || 0)}`;
           if (!seenEntryKeys.has(key)) {
             seenEntryKeys.add(key);
             allPackedEntries.push(p);
@@ -959,8 +1183,13 @@ const CustomerAnalytics: React.FC = () => {
 
           const pCode = entry.fgItemCode || '';
           const pName = entry.fgItemName || '';
-          const resolved = resolveFgItem(pCode, pName);
+          const { resolved, grossPerCarton } = resolveItemPackSpec(pCode, pName, entry.packagingSize);
           const nResolvedCode = normKey(resolved.code);
+          const entryPcs =
+            entry.pcs > 0
+              ? Math.round(entry.pcs)
+              : convertGrossToExactPcsAndCartons(entry.gross, grossPerCarton, resolved.code, resolved.name).pcs;
+          const entryExactGross = Math.round((entryPcs / 144) * 100) / 100;
 
           if (matchedSoc) {
             let socItem = matchedSoc.items.find((it) => {
@@ -969,14 +1198,16 @@ const CustomerAnalytics: React.FC = () => {
             }) || (matchedSoc.items.length === 1 ? matchedSoc.items[0] : null);
 
             if (socItem) {
-              socItem.packedQty += entry.gross;
+              socItem.packedQty += entryExactGross;
+              socItem.packedPcs += entryPcs;
             } else if (!matchedSoc.isOfficialOrder) {
-              const created = findOrCreateSocItem(matchedSoc, resolved.code, resolved.name);
-              created.packedQty += entry.gross;
+              const created = findOrCreateSocItem(matchedSoc, resolved.code, resolved.name, grossPerCarton);
+              created.packedQty += entryExactGross;
+              created.packedPcs += entryPcs;
             }
           } else if (custSocs.length > 0) {
-            // Match by item across customer's SOCs in FIFO order
-            let remPacked = entry.gross;
+            // Match by item across customer's SOCs in FIFO order using exact PCS
+            let remPackedPcs = entryPcs;
             const candidateItems: SocItemDetail[] = [];
 
             for (const s of custSocs) {
@@ -990,15 +1221,18 @@ const CustomerAnalytics: React.FC = () => {
 
             if (candidateItems.length > 0) {
               for (const it of candidateItems) {
-                const room = Math.max(0, it.orderedQty - it.packedQty);
-                if (room > 0 && remPacked > 0) {
-                  const alloc = Math.min(room, remPacked);
-                  it.packedQty += alloc;
-                  remPacked -= alloc;
+                const roomPcs = Math.max(0, it.orderedPcs - it.packedPcs);
+                if (roomPcs > 0 && remPackedPcs > 0) {
+                  const allocPcs = Math.min(roomPcs, remPackedPcs);
+                  it.packedPcs += allocPcs;
+                  it.packedQty += Math.round((allocPcs / 144) * 100) / 100;
+                  remPackedPcs -= allocPcs;
                 }
               }
-              if (remPacked > 0) {
-                candidateItems[candidateItems.length - 1].packedQty += remPacked;
+              if (remPackedPcs > 0) {
+                const last = candidateItems[candidateItems.length - 1];
+                last.packedPcs += remPackedPcs;
+                last.packedQty += Math.round((remPackedPcs / 144) * 100) / 100;
               }
             }
             // If no matching item exists across existing orders, do NOT inject ghost items
@@ -1010,15 +1244,30 @@ const CustomerAnalytics: React.FC = () => {
               orderDate: entry.date,
               status: 'PACKED',
               totalOrderedQty: 0,
+              totalOrderedPcs: 0,
+              totalOrderedCartons: 0,
               totalPackedQty: 0,
+              totalPackedPcs: 0,
+              totalPackedCartons: 0,
               totalDispatchedQty: 0,
+              totalDispatchedPcs: 0,
+              totalDispatchedCartons: 0,
+              totalReadyToDispatchQty: 0,
+              totalReadyToDispatchPcs: 0,
+              totalReadyToDispatchCartons: 0,
               totalPendingQty: 0,
+              totalPendingPcs: 0,
+              totalPendingCartons: 0,
+              totalToPackQty: 0,
+              totalToPackPcs: 0,
+              totalToPackCartons: 0,
               fulfillmentPct: 0,
               items: [],
             };
             custSocs.push(newSoc);
-            const socItem = findOrCreateSocItem(newSoc, pCode, pName);
-            socItem.packedQty += entry.gross;
+            const socItem = findOrCreateSocItem(newSoc, pCode, pName, grossPerCarton);
+            socItem.packedQty += entryExactGross;
+            socItem.packedPcs += entryPcs;
           }
         }
       }
@@ -1030,6 +1279,7 @@ const CustomerAnalytics: React.FC = () => {
           weightPerPiece: number;
           packagingSize: number;
           matrixFgrGross: number;
+          matrixFgrPieces: number;
           matrixFgrCartons: number;
           matrixFgrKgs: number;
         }
@@ -1041,6 +1291,7 @@ const CustomerAnalytics: React.FC = () => {
         wpp: number,
         pkg: number,
         fgrGross = 0,
+        fgrPieces = 0,
         fgrCartons = 0,
         fgrKgs = 0
       ) => {
@@ -1050,6 +1301,7 @@ const CustomerAnalytics: React.FC = () => {
             weightPerPiece: 0,
             packagingSize: 0,
             matrixFgrGross: 0,
+            matrixFgrPieces: 0,
             matrixFgrCartons: 0,
             matrixFgrKgs: 0,
           };
@@ -1057,6 +1309,7 @@ const CustomerAnalytics: React.FC = () => {
             weightPerPiece: wpp > 0 ? wpp : prev.weightPerPiece,
             packagingSize: pkg > 0 ? pkg : prev.packagingSize,
             matrixFgrGross: prev.matrixFgrGross + fgrGross,
+            matrixFgrPieces: prev.matrixFgrPieces + fgrPieces,
             matrixFgrCartons: prev.matrixFgrCartons + fgrCartons,
             matrixFgrKgs: prev.matrixFgrKgs + fgrKgs,
           });
@@ -1086,12 +1339,13 @@ const CustomerAnalytics: React.FC = () => {
           const wpp = Number(mIt.weightPerPiece) || 0;
           const pkg = Number(mIt.packagingSize || mIt.grossPerCarton) || 0;
           const isFgItem = isFgrWh || mIt.itemType === 'FINISHED_GOOD';
+          const fgrPcs = isFgItem ? Math.round(Number(mIt.convertedPieces || 0)) : 0;
           const fgrGrs = isFgItem
-            ? Number(mIt.convertedGross || (Number(mIt.convertedPieces) > 0 ? Number(mIt.convertedPieces) / 144 : 0))
+            ? Number(mIt.convertedGross || (fgrPcs > 0 ? fgrPcs / 144 : 0))
             : 0;
           const fgrCtn = isFgItem ? Number(mIt.convertedCartons || 0) : 0;
           const fgrKg = isFgItem ? Number(mIt.convertedWeightKg || 0) : 0;
-          registerItemMeta(mIt.itemCode || '', mIt.itemName || '', wpp, pkg, fgrGrs, fgrCtn, fgrKg);
+          registerItemMeta(mIt.itemCode || '', mIt.itemName || '', wpp, pkg, fgrGrs, fgrPcs, fgrCtn, fgrKg);
         }
       }
 
@@ -1100,87 +1354,40 @@ const CustomerAnalytics: React.FC = () => {
         const packed = custPackedMap.get(c.id) || { gross: 0, cartons: 0, topItem: '' };
 
         const rawSocs = custSocMap.get(c.id) || [];
-        const finalizedSocs: SocContractSummary[] = rawSocs.map((soc) => {
-          const isDelivered = String(soc.status).toUpperCase() === 'DELIVERED' || String(soc.status).toUpperCase() === 'CLOSED';
+        const finalizedSocs: SocContractSummary[] = reconcileCustomerSocContracts(rawSocs);
 
-          // Strictly filter out ghost items: For official contracts, only include items that were actually ordered
-          const itemsToProcess = soc.isOfficialOrder
-            ? soc.items.filter((it) => it.isOrderItem || it.orderedQty > 0)
-            : soc.items.filter((it) => it.orderedQty > 0 || it.dispatchedQty > 0 || it.packedQty > 0);
-
-          const finalizedItems: SocItemDetail[] = itemsToProcess.map((it) => {
-            const orderedQty = Math.round(it.orderedQty * 100) / 100;
-            let dispatchedQty = Math.round(it.dispatchedQty * 100) / 100;
-            let packedQty = Math.round(it.packedQty * 100) / 100;
-            if (isDelivered) {
-              dispatchedQty = Math.max(dispatchedQty, orderedQty);
-              packedQty = Math.max(packedQty, orderedQty);
-            } else if (packedQty < dispatchedQty) {
-              // Physically dispatched goods must have been packed first
-              packedQty = dispatchedQty;
-            }
-            const remainingPendingQty = isDelivered ? 0 : Math.max(0, Math.round((orderedQty - dispatchedQty) * 100) / 100);
-
-            const itemPct =
-              orderedQty > 0
-                ? Math.min(100, Math.round((dispatchedQty / orderedQty) * 100))
-                : (dispatchedQty > 0 ? 100 : 0);
-            return {
-              ...it,
-              orderedQty,
-              packedQty,
-              dispatchedQty,
-              remainingPendingQty,
-              fulfillmentPct: isDelivered ? 100 : itemPct,
-            };
-          });
-
-          const totalOrderedQty = Math.round(finalizedItems.reduce((s, i) => s + i.orderedQty, 0) * 100) / 100;
-          const totalPackedQty = Math.round(finalizedItems.reduce((s, i) => s + i.packedQty, 0) * 100) / 100;
-          const totalDispatchedQty = Math.round(finalizedItems.reduce((s, i) => s + i.dispatchedQty, 0) * 100) / 100;
-          const totalPendingQty = isDelivered ? 0 : Math.max(0, Math.round((totalOrderedQty - totalDispatchedQty) * 100) / 100);
-
-          const socPct =
-            isDelivered
-              ? 100
-              : (totalOrderedQty > 0
-                ? Math.min(100, Math.round((totalDispatchedQty / totalOrderedQty) * 100))
-                : (totalDispatchedQty > 0 ? 100 : 0));
-
-          return {
-            ...soc,
-            totalOrderedQty,
-            totalPackedQty,
-            totalDispatchedQty,
-            totalPendingQty,
-            fulfillmentPct: socPct,
-            items: finalizedItems,
-          };
-        });
-
-        // Sort SOCs so contracts with pending quantities appear first
-        finalizedSocs.sort((a, b) => b.totalPendingQty - a.totalPendingQty);
-
-        // System-wide strict sync: Customer Card figures MUST match actual genuine deliveries & packing
+        // System-wide strict sync: Customer Card figures MUST match actual reconciled deliveries & packing
         const totalOrderedGross = finalizedSocs.length > 0
           ? Math.round(finalizedSocs.reduce((s, x) => s + x.totalOrderedQty, 0) * 100) / 100
           : Math.round(c.totalOrderedGross * 100) / 100;
-        const totalDispatchedGross = Math.round(c.totalDispatchedGross * 100) / 100;
+        const totalDispatchedGross = finalizedSocs.length > 0
+          ? Math.round(finalizedSocs.reduce((s, x) => s + x.totalDispatchedQty, 0) * 100) / 100
+          : Math.round(c.totalDispatchedGross * 100) / 100;
+        const totalDispatchedCartons = finalizedSocs.length > 0
+          ? Math.round(finalizedSocs.reduce((s, x) => s + x.totalDispatchedCartons, 0) * 10) / 10
+          : Math.round(c.totalDispatchedCartons);
         const totalPackedGross = finalizedSocs.length > 0
           ? Math.round(finalizedSocs.reduce((s, x) => s + x.totalPackedQty, 0) * 100) / 100
           : Math.round(packed.gross * 100) / 100;
-        const totalPackedCartons = packed.gross > 0 && packed.cartons > 0
+        const totalPackedCartons = finalizedSocs.length > 0
+          ? Math.round(finalizedSocs.reduce((s, x) => s + x.totalPackedCartons, 0) * 10) / 10
+          : packed.gross > 0 && packed.cartons > 0
           ? Math.round((totalPackedGross / packed.gross) * packed.cartons)
           : Math.round(totalPackedGross / 10);
-        const pendingGross = Math.max(0, Math.round((totalOrderedGross - totalDispatchedGross) * 100) / 100);
+        const pendingGross = finalizedSocs.length > 0
+          ? Math.round(finalizedSocs.reduce((s, x) => s + x.totalPendingQty, 0) * 100) / 100
+          : Math.max(0, Math.round((totalOrderedGross - totalDispatchedGross) * 100) / 100);
         const totalOrders = finalizedSocs.length > 0 ? finalizedSocs.length : c.totalOrders;
 
-        // Ready to dispatch = Packed - Dispatched
-        const readyToDispatchGross = Math.max(0, Math.round((totalPackedGross - totalDispatchedGross) * 100) / 100);
-        const readyToDispatchCartons =
-          totalPackedGross > 0 && packed.cartons > 0
-            ? Math.round((readyToDispatchGross / totalPackedGross) * packed.cartons)
-            : Math.round(readyToDispatchGross / 10);
+        // Ready to dispatch = exact sum of undispatched packed FG across open SOCs
+        const readyToDispatchGross = finalizedSocs.length > 0
+          ? Math.round(finalizedSocs.reduce((s, x) => s + x.totalReadyToDispatchQty, 0) * 100) / 100
+          : Math.max(0, Math.round((totalPackedGross - totalDispatchedGross) * 100) / 100);
+        const readyToDispatchCartons = finalizedSocs.length > 0
+          ? Math.round(finalizedSocs.reduce((s, x) => s + x.totalReadyToDispatchCartons, 0) * 10) / 10
+          : totalPackedGross > 0 && packed.cartons > 0
+          ? Math.round((readyToDispatchGross / totalPackedGross) * packed.cartons)
+          : Math.round(readyToDispatchGross / 10);
 
         const custFulfillmentPct =
           totalOrderedGross > 0
@@ -1192,6 +1399,7 @@ const CustomerAnalytics: React.FC = () => {
           totalOrders,
           totalOrderedGross,
           totalDispatchedGross,
+          totalDispatchedCartons,
           totalPackedGross,
           totalPackedCartons,
           pendingGross,
@@ -1204,24 +1412,106 @@ const CustomerAnalytics: React.FC = () => {
         };
       });
 
-      // Aggregate Safety Stock items by item code and item name
+      // Aggregate Safety Stock items dynamically using Item Master UOMs & Packaging Metadata
       const safetyItemsMap = new Map<string, SafetyItemDetail>();
       for (const b of safetyBatches) {
         const itemCode = b.fgItemCode || 'SPI-FG-SPK-006';
-        const itemName = b.fgItemName || '300X17 S9 Spoke & Nipple (Safety Stock Buffer)';
+        const itemName = b.fgItemName || 'Finished Goods (Safety Stock Buffer)';
         const key = itemCode;
-        const prev = safetyItemsMap.get(key) || { itemCode, itemName, cartons: 0, gross: 0, pcs: 0 };
+        const prev = safetyItemsMap.get(key) || {
+          itemCode,
+          itemName,
+          divisionId: b.divisionId,
+          divisionCode: b.divisionCode,
+          divisionName: b.divisionName,
+          baseUomCode: b.baseUomCode || 'PCS',
+          salesUomCode: b.salesUomCode || b.baseUomCode || 'PCS',
+          packagingType: b.packagingType,
+          packagingUnit: b.packagingUnit,
+          packagingUnitCode: b.packagingUnitCode,
+          packagingSize: b.packagingSize,
+          baseQty: 0,
+          salesQty: 0,
+          packagingQty: 0,
+          cartons: 0,
+          gross: 0,
+          pcs: 0,
+          hasGrossUom: Boolean(b.hasGrossUom),
+          metrics: [],
+        };
+        const nextBaseQty = Math.round((prev.baseQty + (b.baseQty || 0)) * 10000) / 10000;
+        const nextSalesQty = Math.round((prev.salesQty + (b.salesQty || 0)) * 10000) / 10000;
+        const nextPackagingQty = Math.round((prev.packagingQty + (b.packagingQty || 0)) * 10000) / 10000;
+        const nextCartons = Math.round((prev.cartons + (b.cartons || 0)) * 100) / 100;
+        const nextGross = Math.round((prev.gross + (b.gross || 0)) * 100) / 100;
+        const nextPcs = Math.round(prev.pcs + (b.pcs || 0));
+        const hasGrossUom = prev.hasGrossUom || Boolean(b.hasGrossUom);
+        const baseUomCode = prev.baseUomCode || b.baseUomCode || 'PCS';
+        const salesUomCode = prev.salesUomCode || b.salesUomCode || baseUomCode;
+        const packagingUnitCode = prev.packagingUnitCode || b.packagingUnitCode || '';
+
         safetyItemsMap.set(key, {
+          ...prev,
           itemCode,
           itemName: prev.itemName && prev.itemName !== 'Item' ? prev.itemName : itemName,
-          cartons: Math.round((prev.cartons + b.cartons) * 100) / 100,
-          gross: Math.round((prev.gross + b.gross) * 100) / 100,
-          pcs: Math.round(prev.pcs + b.pcs),
+          divisionId: prev.divisionId || b.divisionId,
+          divisionCode: prev.divisionCode || b.divisionCode,
+          divisionName: prev.divisionName || b.divisionName,
+          baseUomCode,
+          salesUomCode,
+          packagingType: prev.packagingType || b.packagingType,
+          packagingUnit: prev.packagingUnit || b.packagingUnit,
+          packagingUnitCode,
+          packagingSize: prev.packagingSize || b.packagingSize,
+          baseQty: nextBaseQty,
+          salesQty: nextSalesQty,
+          packagingQty: nextPackagingQty,
+          cartons: nextCartons,
+          gross: nextGross,
+          pcs: nextPcs,
+          hasGrossUom,
+          metrics: buildSafetyItemMetrics({
+            baseUomCode,
+            salesUomCode,
+            packagingUnitCode,
+            baseQty: nextBaseQty,
+            salesQty: nextSalesQty,
+            packagingQty: nextPackagingQty,
+            hasGrossUom,
+          }),
         });
       }
       const safetyItems = Array.from(safetyItemsMap.values())
-        .filter((it) => it.cartons > 0)
-        .sort((a, b) => b.cartons - a.cartons);
+        .filter((it) => it.baseQty > 0 || it.cartons > 0)
+        .sort((a, b) => (b.packagingQty - a.packagingQty) || (b.baseQty - a.baseQty));
+
+      // Build Division options for Safety Stock Buffer Warehouse filter
+      const safetyDivOptionMap = new Map<string, DivisionOptionRecord>();
+      for (const d of divisionsRaw) {
+        const divCodeUpper = String(d.divisionCode || '').toUpperCase();
+        const isActiveOperational =
+          d.isActive !== false &&
+          String(d.status || 'ACTIVE').toUpperCase() === 'ACTIVE' &&
+          !divCodeUpper.includes('444');
+        if (d.id && isActiveOperational) {
+          safetyDivOptionMap.set(d.id, d);
+        }
+      }
+      for (const it of safetyItems) {
+        const divKey = it.divisionId || it.divisionCode;
+        if (divKey && !safetyDivOptionMap.has(divKey)) {
+          safetyDivOptionMap.set(divKey, {
+            id: divKey,
+            divisionCode: it.divisionCode,
+            name: it.divisionName || it.divisionCode || 'Production Division',
+          });
+        }
+      }
+      const sortedSafetyDivisions = Array.from(safetyDivOptionMap.values()).sort((a, b) =>
+        (a.divisionCode || a.name).localeCompare(b.divisionCode || b.name),
+      );
+      setSafetyDivisions(sortedSafetyDivisions);
+      setSafetyBatchesMeta(safetyBatches.map((b) => ({ divisionId: b.divisionId, divisionCode: b.divisionCode })));
 
       // Add dedicated SAFETY STOCK customer card
       const totalSafetyGross = Math.round(safetyBatches.reduce((s, b) => s + b.gross, 0));
@@ -1377,8 +1667,10 @@ const CustomerAnalytics: React.FC = () => {
           const s = itemMap.get(key)!;
           if (rawWpp > 0) s.weightPerPiece = rawWpp;
           if (rawPkgSize > 0) s.grossPerCarton = grossPerCarton;
-          s.totalGross += qty;
-          s.totalCartons += qty > 0 && s.grossPerCarton > 0 ? qty / s.grossPerCarton : 0;
+          const exactOrdItem = convertGrossToExactPcsAndCartons(qty, s.grossPerCarton, s.itemCode, s.itemName);
+          s.totalGross += exactOrdItem.exactGross;
+          s.totalPieces += exactOrdItem.pcs;
+          s.totalCartons += exactOrdItem.cartons;
           if (custName && !s.customerNames.includes(custName)) {
             s.customerNames.push(custName);
             s.customerCount += 1;
@@ -1407,9 +1699,9 @@ const CustomerAnalytics: React.FC = () => {
           const resolved = resolveFgItem(rawCode, rawName);
           const s = itemMap.get(resolved.code);
           if (s) {
-            s.totalDispatchedGross = (s.totalDispatchedGross || 0) + qty;
-            s.totalDispatchedCartons =
-              (s.totalDispatchedCartons || 0) + (qty > 0 && s.grossPerCarton > 0 ? qty / s.grossPerCarton : 0);
+            const exactDelItem = convertGrossToExactPcsAndCartons(qty, s.grossPerCarton, s.itemCode, s.itemName);
+            s.totalDispatchedGross = (s.totalDispatchedGross || 0) + exactDelItem.exactGross;
+            s.totalDispatchedCartons = (s.totalDispatchedCartons || 0) + exactDelItem.cartons;
           }
         }
       }
@@ -1429,7 +1721,7 @@ const CustomerAnalytics: React.FC = () => {
         }
         for (const soc of cust.socContracts || []) {
           for (const socIt of soc.items) {
-            const netReadyGross = Math.max(0, socIt.packedQty - socIt.dispatchedQty);
+            const netReadyGross = Math.max(0, socIt.readyToDispatchQty);
             if (netReadyGross > 0) {
               const resolved = resolveFgItem(socIt.itemCode, socIt.itemName);
               const kCode = normKey(resolved.code);
@@ -1446,43 +1738,46 @@ const CustomerAnalytics: React.FC = () => {
           const nCode = normKey(it.itemCode);
           const nName = normKey(it.itemName);
           const meta = itemMetaMap.get(nCode) || itemMetaMap.get(nName);
-          const packedReadyGross = itemPackedReadyMap.get(nCode) ?? itemPackedReadyMap.get(nName) ?? 0;
-          const matrixFgrGross = meta?.matrixFgrGross || 0;
-
-          const totalGross = Math.round(it.totalGross * 100) / 100;
-          const totalPieces = Math.round(totalGross * 144);
-          const totalDispatchedGross = Math.round((it.totalDispatchedGross || 0) * 100) / 100;
-          // FGR Ready Stock is strictly the physical inventory on hand in Finished Goods Warehouse (SPI-FGDW-001)
-          const readyFgrGross = Math.round((meta?.matrixFgrGross || 0) * 100) / 100;
-          const readyFgrPieces = Math.round(readyFgrGross * 144);
           const grossPerCarton = it.grossPerCarton > 0 ? it.grossPerCarton : 10;
+          const pcsPerCarton = resolveExactPcsPerCarton(grossPerCarton, it.itemCode, it.itemName);
           const weightPerPiece = it.weightPerPiece > 0 ? it.weightPerPiece : inferDefaultWeightPerPiece(it.itemCode, it.itemName);
 
-          const totalCartons = Math.round((totalGross / grossPerCarton) * 10) / 10;
-          const totalOrderedKgs = Math.round(totalGross * 144 * weightPerPiece * 10) / 10;
+          const totalPieces = Math.round(it.totalPieces || it.totalGross * 144);
+          const totalGross = Math.round((totalPieces / 144) * 100) / 100;
+          const totalCartons = Math.round((totalPieces / pcsPerCarton) * 10) / 10;
+          const totalOrderedKgs = Math.round(totalPieces * weightPerPiece * 10) / 10;
 
+          const totalDispatchedCartons = Math.round((it.totalDispatchedCartons || 0) * 10) / 10;
+          const totalDispatchedPieces = Math.round(totalDispatchedCartons * pcsPerCarton);
+          const totalDispatchedGross = Math.round((totalDispatchedPieces / 144) * 100) / 100;
+
+          // FGR Ready Stock is strictly the physical inventory on hand in Finished Goods Warehouse (SPI-FGDW-007)
+          const readyFgrPieces =
+            meta && meta.matrixFgrPieces > 0
+              ? Math.round(meta.matrixFgrPieces)
+              : Math.round((meta?.matrixFgrGross || 0) * 144);
+          const readyFgrGross = Math.round((readyFgrPieces / 144) * 100) / 100;
           const readyFgrCartons =
-            meta?.matrixFgrCartons !== undefined && meta.matrixFgrCartons >= 0 && readyFgrGross > 0
-              ? Math.round(meta.matrixFgrCartons * 10) / 10
-              : Math.round((readyFgrGross / grossPerCarton) * 10) / 10;
-
+            readyFgrPieces > 0
+              ? Math.round((readyFgrPieces / pcsPerCarton) * 10) / 10
+              : 0;
           const readyFgrKgs =
             meta?.matrixFgrKgs !== undefined && meta.matrixFgrKgs >= 0 && readyFgrGross > 0
               ? Math.round(meta.matrixFgrKgs * 10) / 10
-              : Math.round(readyFgrGross * 144 * weightPerPiece * 10) / 10;
+              : Math.round(readyFgrPieces * weightPerPiece * 10) / 10;
 
           // B. Pending Dispatch (To Ship): Total Ordered (A) - Total Dispatched
-          const undispatchedGross = Math.max(0, Math.round((totalGross - totalDispatchedGross) * 100) / 100);
-          const undispatchedPieces = Math.round(undispatchedGross * 144);
-          const undispatchedCartons = Math.max(0, Math.round((undispatchedGross / grossPerCarton) * 10) / 10);
-          const undispatchedKgs = Math.max(0, Math.round(undispatchedGross * 144 * weightPerPiece * 10) / 10);
+          const undispatchedPieces = Math.max(0, totalPieces - totalDispatchedPieces);
+          const undispatchedGross = Math.round((undispatchedPieces / 144) * 100) / 100;
+          const undispatchedCartons = Math.max(0, Math.round((undispatchedPieces / pcsPerCarton) * 10) / 10);
+          const undispatchedKgs = Math.max(0, Math.round(undispatchedPieces * weightPerPiece * 10) / 10);
 
           // D. Pending Production (To Produce): Core business formula: D = B - C
           // Pending Dispatch (B) - Ready in Stock FGR (C) = Net remaining quantity to produce
-          const balancePendingGross = Math.max(0, Math.round((undispatchedGross - readyFgrGross) * 100) / 100);
-          const balancePendingPieces = Math.round(balancePendingGross * 144);
-          const balancePendingCartons = Math.max(0, Math.round((balancePendingGross / grossPerCarton) * 10) / 10);
-          const balancePendingKgs = Math.max(0, Math.round(balancePendingGross * 144 * weightPerPiece * 10) / 10);
+          const balancePendingPieces = Math.max(0, undispatchedPieces - readyFgrPieces);
+          const balancePendingGross = Math.round((balancePendingPieces / 144) * 100) / 100;
+          const balancePendingCartons = Math.max(0, Math.round((balancePendingPieces / pcsPerCarton) * 10) / 10);
+          const balancePendingKgs = Math.max(0, Math.round(balancePendingPieces * weightPerPiece * 10) / 10);
 
           return {
             ...it,
@@ -1503,7 +1798,7 @@ const CustomerAnalytics: React.FC = () => {
             undispatchedPieces,
             undispatchedCartons,
             undispatchedKgs,
-            totalDispatchedCartons: Math.round((totalDispatchedGross / grossPerCarton) * 10) / 10,
+            totalDispatchedCartons,
             weightPerPiece,
             grossPerCarton,
           };
@@ -1588,6 +1883,22 @@ const CustomerAnalytics: React.FC = () => {
   }, [activeTab, pendingCustomers, doneCustomers, filteredCustomers]);
 
   const safetyStockStat = useMemo(() => customers.find((c) => c.isSafetyStock), [customers]);
+  const safetyBufferSummary = useMemo(
+    () =>
+      buildSafetyBufferDockSummary(
+        safetyStockStat?.safetyItems || [],
+        safetyBatchesMeta,
+        selectedSafetyDivision,
+      ),
+    [safetyStockStat, safetyBatchesMeta, selectedSafetyDivision],
+  );
+  const selectedSafetyDivisionName = useMemo(() => {
+    if (selectedSafetyDivision === 'ALL') return 'All Divisions';
+    return (
+      safetyDivisions.find((d) => d.id === selectedSafetyDivision || d.divisionCode === selectedSafetyDivision)
+        ?.name || selectedSafetyDivision
+    );
+  }, [selectedSafetyDivision, safetyDivisions]);
   const totalCustomerPages = Math.max(1, Math.ceil(onlyCustomers.length / CARDS_PER_ROW));
 
   const selectedCustomerModal = useMemo(
@@ -2594,42 +2905,150 @@ const CustomerAnalytics: React.FC = () => {
                             </Tag>
                           </div>
                           <div className="ca-safety-dock-desc">
-                            Finished goods held in safety buffer inventory — ready to allocate or dispatch
+                            Finished goods held in safety buffer inventory — dynamically calculated from Item Master UOM conversions
                           </div>
                         </div>
                       </div>
-                      <div className="ca-safety-dock-kpis">
-                        <div className="ca-dock-kpi">
-                          <span className="ca-dock-kpi-label">Buffer Volume</span>
-                          <span className="ca-dock-kpi-val">{fmtNum(safetyStockStat.readyToDispatchGross, 0)} GRS</span>
+                      <div className="ca-safety-dock-controls">
+                        <div className="ca-safety-dock-filter">
+                          <span className="ca-dock-filter-label" style={{ color: token.colorTextSecondary }}>
+                            Division
+                          </span>
+                          <Select
+                            aria-label="Filter safety stock buffer by division"
+                            value={selectedSafetyDivision}
+                            onChange={setSelectedSafetyDivision}
+                            style={{ minWidth: 215 }}
+                            optionLabelProp="label"
+                            popupMatchSelectWidth={false}
+                          >
+                            <Option value="ALL" label="All Divisions">
+                              <span>All Divisions</span>
+                            </Option>
+                            {safetyDivisions.map((div) => (
+                              <Option key={div.id} value={div.id} label={div.name}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                                  <span>{div.name}</span>
+                                  {div.divisionCode && (
+                                    <Tag style={{ margin: 0, fontSize: 10, fontWeight: 600 }}>
+                                      {div.divisionCode}
+                                    </Tag>
+                                  )}
+                                </div>
+                              </Option>
+                            ))}
+                          </Select>
                         </div>
-                        <div className="ca-dock-kpi">
-                          <span className="ca-dock-kpi-label">Cartons</span>
-                          <span className="ca-dock-kpi-val">{fmtNum(safetyStockStat.readyToDispatchCartons, 0)} CTN</span>
-                        </div>
-                        <div className="ca-dock-kpi">
-                          <span className="ca-dock-kpi-label">Batches</span>
-                          <span className="ca-dock-kpi-val">{safetyStockStat.totalOrders} Batches</span>
+
+                        <div className="ca-safety-dock-kpis">
+                          <div className="ca-dock-kpi">
+                            <span className="ca-dock-kpi-label">{safetyBufferSummary.volumeLabel}</span>
+                            <span className="ca-dock-kpi-val">
+                              {safetyBufferSummary.volumeTotals.length > 0 ? (
+                                <span className="ca-dock-kpi-multi">
+                                  {safetyBufferSummary.volumeTotals.map((t, idx) => (
+                                    <React.Fragment key={t.unitCode}>
+                                      {idx > 0 && <span className="ca-dock-kpi-sep">·</span>}
+                                      <span>
+                                        {fmtNum(t.value, t.decimals)} {t.unitCode}
+                                      </span>
+                                    </React.Fragment>
+                                  ))}
+                                </span>
+                              ) : (
+                                '0'
+                              )}
+                            </span>
+                          </div>
+                          <div className="ca-dock-kpi">
+                            <span className="ca-dock-kpi-label">{safetyBufferSummary.packageLabel}</span>
+                            <span className="ca-dock-kpi-val">
+                              {safetyBufferSummary.packageTotals.length > 0 ? (
+                                <span className="ca-dock-kpi-multi">
+                                  {safetyBufferSummary.packageTotals.map((t, idx) => (
+                                    <React.Fragment key={t.unitCode}>
+                                      {idx > 0 && <span className="ca-dock-kpi-sep">·</span>}
+                                      <span>
+                                        {fmtNum(t.value, t.decimals)} {t.unitCode}
+                                      </span>
+                                    </React.Fragment>
+                                  ))}
+                                </span>
+                              ) : (
+                                '0'
+                              )}
+                            </span>
+                          </div>
+                          <div className="ca-dock-kpi">
+                            <span className="ca-dock-kpi-label">Batches</span>
+                            <span className="ca-dock-kpi-val">{safetyBufferSummary.batchCount} Batches</span>
+                          </div>
                         </div>
                       </div>
                     </div>
 
-                    {safetyStockStat.safetyItems && safetyStockStat.safetyItems.length > 0 && (
+                    {safetyBufferSummary.items.length > 0 ? (
                       <div className="ca-safety-dock-items">
-                        {safetyStockStat.safetyItems.map((it) => (
-                          <div key={it.itemCode} className="ca-dock-item-card">
-                            <div className="ca-dock-item-top">
-                              <span className="ca-dock-item-code">{it.itemCode}</span>
-                              <Tag color="green" style={{ margin: 0, fontSize: 10, fontWeight: 700 }}>Available</Tag>
+                        {safetyBufferSummary.items.map((it) => {
+                          const specFormula = [
+                            `Base UOM: ${it.baseUomCode}`,
+                            it.salesUomCode && it.salesUomCode !== it.baseUomCode ? `Sales UOM: ${it.salesUomCode}` : null,
+                            it.packagingSize && it.packagingSize > 0
+                              ? `Packaging: ${it.packagingSize} ${it.salesUomCode || it.baseUomCode} / ${it.packagingUnit || it.packagingUnitCode || 'PKG'}`
+                              : null,
+                          ]
+                            .filter(Boolean)
+                            .join(' | ');
+                          return (
+                            <div key={it.itemCode} className="ca-dock-item-card">
+                              <div className="ca-dock-item-top">
+                                <span className="ca-dock-item-code">{it.itemCode}</span>
+                                <div className="ca-dock-item-badges">
+                                  {it.divisionName && (
+                                    <Tag color="blue" style={{ margin: 0, fontSize: 10, fontWeight: 600 }}>
+                                      {it.divisionCode || it.divisionName}
+                                    </Tag>
+                                  )}
+                                  <Tag color="green" style={{ margin: 0, fontSize: 10, fontWeight: 700 }}>
+                                    Available
+                                  </Tag>
+                                </div>
+                              </div>
+                              <div className="ca-dock-item-name" title={it.itemName}>
+                                {it.itemName}
+                              </div>
+                              <Tooltip title={specFormula || undefined}>
+                                <div className="ca-dock-item-bottom">
+                                  {it.metrics.map((m) => (
+                                    <div
+                                      key={m.code}
+                                      className={
+                                        m.role === 'packaging'
+                                          ? 'ca-dock-item-ctn'
+                                          : m.role === 'sales'
+                                          ? 'ca-dock-item-grs'
+                                          : 'ca-dock-item-pcs'
+                                      }
+                                    >
+                                      {fmtNum(m.value, m.decimals)} {m.code}
+                                    </div>
+                                  ))}
+                                </div>
+                              </Tooltip>
                             </div>
-                            <div className="ca-dock-item-name" title={it.itemName}>{it.itemName}</div>
-                            <div className="ca-dock-item-bottom">
-                              <div className="ca-dock-item-ctn">{fmtNum(it.cartons, 0)} CTN</div>
-                              <div className="ca-dock-item-grs">{fmtNum(it.gross, 0)} GRS</div>
-                              <div className="ca-dock-item-pcs">{fmtNum(it.pcs, 0)} PCS</div>
-                            </div>
-                          </div>
-                        ))}
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div style={{ padding: '18px 8px' }}>
+                        <Empty
+                          image={Empty.PRESENTED_IMAGE_SIMPLE}
+                          description={
+                            <span style={{ color: token.colorTextSecondary }}>
+                              No safety stock buffer inventory found for {selectedSafetyDivisionName}.
+                            </span>
+                          }
+                        />
                       </div>
                     )}
                   </div>
@@ -2992,8 +3411,8 @@ const CustomerAnalytics: React.FC = () => {
         open={Boolean(selectedCustomerModal)}
         onCancel={closeCustomerSocModal}
         footer={null}
-        width={1040}
-        height={680}
+        width={1180}
+        height={700}
         centered
         destroyOnClose
         className="ca-soc-modal"
@@ -3038,13 +3457,18 @@ const CustomerAnalytics: React.FC = () => {
           ) : null
         }
       >
-        {selectedCustomerModal && (
+        {selectedCustomerModal && (() => {
+          const fmtCleanCtn = (ctn: number) => {
+            const clean = cleanDisplayNumber(ctn);
+            return fmtNum(clean.value, clean.decimals);
+          };
+          return (
           <div className="ca-soc-modal-body">
             {/* Customer Summary Strip */}
             <div className="ca-soc-kpi-strip">
               <div className="ca-soc-kpi-box">
                 <span className="ca-soc-kpi-label">Total SOC Contracts</span>
-                <span className="ca-soc-kpi-val" style={{ color: '#6366f1' }}>
+                <span className="ca-soc-kpi-val" style={{ color: token.colorPrimary }}>
                   {selectedCustomerModal.socContracts?.length || selectedCustomerModal.totalOrders || 0}
                 </span>
               </div>
@@ -3062,8 +3486,14 @@ const CustomerAnalytics: React.FC = () => {
               </div>
               <div className="ca-soc-kpi-box">
                 <span className="ca-soc-kpi-label">Dispatched Qty</span>
-                <span className="ca-soc-kpi-val" style={{ color: '#10b981' }}>
+                <span className="ca-soc-kpi-val" style={{ color: '#0284c7' }}>
                   {fmtNum(selectedCustomerModal.totalDispatchedGross, 0)} GRS
+                </span>
+              </div>
+              <div className="ca-soc-kpi-box">
+                <span className="ca-soc-kpi-label">Ready to Dispatch</span>
+                <span className="ca-soc-kpi-val" style={{ color: '#10b981' }}>
+                  {fmtNum(selectedCustomerModal.readyToDispatchGross, 0)} GRS
                 </span>
               </div>
               <div className="ca-soc-kpi-box">
@@ -3084,7 +3514,7 @@ const CustomerAnalytics: React.FC = () => {
               <div className="ca-soc-list-section">
                 <div className="ca-soc-section-heading">
                   <span>
-                    <FileTextOutlined style={{ marginRight: 6, color: '#6366f1' }} />
+                    <FileTextOutlined style={{ marginRight: 6, color: token.colorPrimary }} />
                     Sales Order Contracts (SOC) — Select an SOC Number to view item-wise breakdown
                   </span>
                   <span className="ca-soc-count-badge">
@@ -3144,23 +3574,29 @@ const CustomerAnalytics: React.FC = () => {
                               <span className="ca-soc-metric-val">{soc.items.length}</span>
                             </div>
                             <div className="ca-soc-metric">
-                              <span className="ca-soc-metric-lbl">Ordered Qty</span>
+                              <span className="ca-soc-metric-lbl">Ordered</span>
                               <span className="ca-soc-metric-val">{fmtNum(soc.totalOrderedQty, 0)} GRS</span>
                             </div>
                             <div className="ca-soc-metric">
-                              <span className="ca-soc-metric-lbl" style={{ color: '#0d9488' }}>Packed Qty</span>
+                              <span className="ca-soc-metric-lbl" style={{ color: '#0d9488' }}>Packed</span>
                               <span className="ca-soc-metric-val" style={{ color: '#0d9488' }}>
                                 {fmtNum(soc.totalPackedQty, 0)} GRS
                               </span>
                             </div>
                             <div className="ca-soc-metric">
-                              <span className="ca-soc-metric-lbl" style={{ color: '#10b981' }}>Dispatched Qty</span>
-                              <span className="ca-soc-metric-val" style={{ color: '#10b981' }}>
+                              <span className="ca-soc-metric-lbl" style={{ color: '#0284c7' }}>Dispatched</span>
+                              <span className="ca-soc-metric-val" style={{ color: '#0284c7' }}>
                                 {fmtNum(soc.totalDispatchedQty, 0)} GRS
                               </span>
                             </div>
                             <div className="ca-soc-metric">
-                              <span className="ca-soc-metric-lbl">Pending Qty</span>
+                              <span className="ca-soc-metric-lbl" style={{ color: '#10b981' }}>Ready FG</span>
+                              <span className="ca-soc-metric-val" style={{ color: '#10b981' }}>
+                                {fmtNum(soc.totalReadyToDispatchQty, 0)} GRS
+                              </span>
+                            </div>
+                            <div className="ca-soc-metric">
+                              <span className="ca-soc-metric-lbl">Balance</span>
                               <span
                                 className="ca-soc-metric-val"
                                 style={{ color: soc.totalPendingQty > 0 ? '#f59e0b' : '#10b981' }}
@@ -3241,12 +3677,20 @@ const CustomerAnalytics: React.FC = () => {
                       Packed: <strong>{fmtNum(selectedSocContract.totalPackedQty, 0)} GRS</strong>
                     </span>
                     <span>•</span>
-                    <span style={{ color: '#10b981' }}>
+                    <span style={{ color: '#0284c7' }}>
                       Dispatched: <strong>{fmtNum(selectedSocContract.totalDispatchedQty, 0)} GRS</strong>
                     </span>
                     <span>•</span>
+                    <span className="ca-soc-ready-banner-chip">
+                      Ready to Dispatch:{' '}
+                      <strong>
+                        {fmtNum(selectedSocContract.totalReadyToDispatchQty, 0)} GRS (
+                        {fmtCleanCtn(selectedSocContract.totalReadyToDispatchCartons)} CTN)
+                      </strong>
+                    </span>
+                    <span>•</span>
                     <span style={{ color: selectedSocContract.totalPendingQty > 0 ? '#f59e0b' : '#10b981' }}>
-                      Remaining Pending: <strong>{fmtNum(selectedSocContract.totalPendingQty, 0)} GRS</strong>
+                      Remaining Balance: <strong>{fmtNum(selectedSocContract.totalPendingQty, 0)} GRS</strong>
                     </span>
                   </div>
                 </div>
@@ -3255,15 +3699,16 @@ const CustomerAnalytics: React.FC = () => {
                   size="small"
                   rowKey="key"
                   pagination={false}
+                  scroll={{ x: 960 }}
                   dataSource={selectedSocContract.items}
                   className="ca-table ca-soc-item-table"
                   columns={[
                     {
                       title: '#',
                       key: 'idx',
-                      width: 46,
+                      width: 44,
                       render: (_: any, __: SocItemDetail, idx: number) => (
-                        <span style={{ fontWeight: 700, color: 'var(--theme-text-muted, #64748b)' }}>
+                        <span style={{ fontWeight: 700, color: token.colorTextSecondary }}>
                           {idx + 1}
                         </span>
                       ),
@@ -3271,31 +3716,36 @@ const CustomerAnalytics: React.FC = () => {
                     {
                       title: 'ITEM NAME',
                       key: 'itemName',
-                      render: (_: any, item: SocItemDetail) => (
-                        <div>
-                          <div style={{ fontWeight: 700, color: 'var(--theme-heading, #f8fafc)', fontSize: 13 }}>
-                            {item.itemName}
+                      width: 280,
+                      render: (_: any, item: SocItemDetail) => {
+                        const splitName = splitItemDisplayName(item.itemName);
+                        return (
+                          <div>
+                            {item.itemCode && (
+                              <div>
+                                <span className="ca-soc-item-code-pill">{item.itemCode}</span>
+                              </div>
+                            )}
+                            <div className="ca-soc-item-name-main">{splitName.primary}</div>
+                            {splitName.secondary && (
+                              <div className="ca-soc-item-name-sub">{splitName.secondary}</div>
+                            )}
                           </div>
-                          {item.itemCode && (
-                            <div style={{ fontSize: 11, color: 'var(--theme-accent, #6366f1)', fontWeight: 600 }}>
-                              {item.itemCode}
-                            </div>
-                          )}
-                        </div>
-                      ),
+                        );
+                      },
                     },
                     {
                       title: 'ORDERED QTY',
                       key: 'orderedQty',
                       align: 'right' as const,
-                      width: 135,
+                      width: 145,
                       render: (_: any, item: SocItemDetail) => (
                         <div>
-                          <div style={{ fontWeight: 700, color: 'var(--theme-text, #e2e8f0)', fontSize: 13 }}>
+                          <div style={{ fontWeight: 700, color: token.colorText, fontSize: 13 }}>
                             {fmtNum(item.orderedQty, 0)} GRS
                           </div>
-                          <div style={{ fontSize: 10.5, color: 'var(--theme-text-muted, #64748b)' }}>
-                            {fmtNum(Math.round(item.orderedQty * 144), 0)} PCS
+                          <div style={{ fontSize: 10.5, color: token.colorTextSecondary }}>
+                            {fmtCleanCtn(item.orderedCartons)} CTN • {fmtNum(item.orderedPcs, 0)} PCS
                           </div>
                         </div>
                       ),
@@ -3304,14 +3754,14 @@ const CustomerAnalytics: React.FC = () => {
                       title: 'PACKED QTY',
                       key: 'packedQty',
                       align: 'right' as const,
-                      width: 135,
+                      width: 145,
                       render: (_: any, item: SocItemDetail) => (
                         <div>
                           <div style={{ fontWeight: 700, color: '#0d9488', fontSize: 13 }}>
                             {fmtNum(item.packedQty, 0)} GRS
                           </div>
-                          <div style={{ fontSize: 10.5, color: 'var(--theme-text-muted, #64748b)' }}>
-                            {fmtNum(Math.round(item.packedQty * 144), 0)} PCS
+                          <div style={{ fontSize: 10.5, color: token.colorTextSecondary }}>
+                            {fmtCleanCtn(item.packedCartons)} CTN • {fmtNum(item.packedPcs, 0)} PCS
                           </div>
                         </div>
                       ),
@@ -3323,20 +3773,46 @@ const CustomerAnalytics: React.FC = () => {
                       width: 145,
                       render: (_: any, item: SocItemDetail) => (
                         <div>
-                          <div style={{ fontWeight: 700, color: '#10b981', fontSize: 13 }}>
+                          <div style={{ fontWeight: 700, color: '#0284c7', fontSize: 13 }}>
                             {fmtNum(item.dispatchedQty, 0)} GRS
                           </div>
-                          <div style={{ fontSize: 10.5, color: 'var(--theme-text-muted, #64748b)' }}>
-                            {fmtNum(Math.round(item.dispatchedQty * 144), 0)} PCS
+                          <div style={{ fontSize: 10.5, color: token.colorTextSecondary }}>
+                            {fmtCleanCtn(item.dispatchedCartons)} CTN • {fmtNum(item.dispatchedPcs, 0)} PCS
                           </div>
                         </div>
                       ),
                     },
                     {
-                      title: 'REMAINING PENDING QTY',
+                      title: (
+                        <span style={{ color: '#10b981', fontWeight: 800 }}>
+                          READY TO DISPATCH
+                        </span>
+                      ),
+                      key: 'readyToDispatchQty',
+                      align: 'right' as const,
+                      width: 170,
+                      render: (_: any, item: SocItemDetail) => (
+                        <div className={item.readyToDispatchPcs > 0 ? 'ca-soc-ready-pill' : undefined}>
+                          <div
+                            style={{
+                              fontWeight: 800,
+                              color: item.readyToDispatchPcs > 0 ? '#10b981' : token.colorTextSecondary,
+                              fontSize: 13,
+                            }}
+                          >
+                            {fmtNum(item.readyToDispatchQty, 0)} GRS
+                          </div>
+                          <div style={{ fontSize: 10.5, color: token.colorTextSecondary, whiteSpace: 'nowrap' }}>
+                            {fmtCleanCtn(item.readyToDispatchCartons)} CTN • {fmtNum(item.readyToDispatchPcs, 0)} PCS
+                          </div>
+                        </div>
+                      ),
+                    },
+                    {
+                      title: 'REMAINING ORDER BALANCE',
                       key: 'remainingPendingQty',
                       align: 'right' as const,
-                      width: 175,
+                      width: 195,
                       render: (_: any, item: SocItemDetail) => (
                         <div>
                           <div
@@ -3350,9 +3826,16 @@ const CustomerAnalytics: React.FC = () => {
                               ? `${fmtNum(item.remainingPendingQty, 0)} GRS`
                               : '0 GRS (Done)'}
                           </div>
-                          <div style={{ fontSize: 10.5, color: 'var(--theme-text-muted, #64748b)' }}>
-                            {fmtNum(Math.round(item.remainingPendingQty * 144), 0)} PCS • {item.fulfillmentPct}%
+                          <div style={{ fontSize: 10.5, color: token.colorTextSecondary }}>
+                            {fmtCleanCtn(item.remainingPendingCartons)} CTN • {fmtNum(item.remainingPendingPcs, 0)} PCS • {item.fulfillmentPct}%
                           </div>
+                          {item.remainingPendingPcs > 0 && (
+                            <div className="ca-soc-topack-sub">
+                              {item.toPackPcs > 0
+                                ? `To Pack: ${fmtNum(item.toPackQty, 0)} GRS (${fmtCleanCtn(item.toPackCartons)} CTN)`
+                                : 'Fully Packed • Ready to Ship'}
+                            </div>
+                          )}
                         </div>
                       ),
                     },
@@ -3364,26 +3847,61 @@ const CustomerAnalytics: React.FC = () => {
                           <strong>Contract Total ({selectedSocContract.items.length} Items)</strong>
                         </Table.Summary.Cell>
                         <Table.Summary.Cell index={2} align="right">
-                          <strong>{fmtNum(selectedSocContract.totalOrderedQty, 0)} GRS</strong>
+                          <div>
+                            <strong>{fmtNum(selectedSocContract.totalOrderedQty, 0)} GRS</strong>
+                          </div>
+                          <div style={{ fontSize: 10.5, color: token.colorTextSecondary }}>
+                            {fmtCleanCtn(selectedSocContract.totalOrderedCartons)} CTN • {fmtNum(selectedSocContract.totalOrderedPcs, 0)} PCS
+                          </div>
                         </Table.Summary.Cell>
                         <Table.Summary.Cell index={3} align="right">
-                          <strong style={{ color: '#0d9488' }}>
-                            {fmtNum(selectedSocContract.totalPackedQty, 0)} GRS
-                          </strong>
+                          <div>
+                            <strong style={{ color: '#0d9488' }}>
+                              {fmtNum(selectedSocContract.totalPackedQty, 0)} GRS
+                            </strong>
+                          </div>
+                          <div style={{ fontSize: 10.5, color: token.colorTextSecondary }}>
+                            {fmtCleanCtn(selectedSocContract.totalPackedCartons)} CTN • {fmtNum(selectedSocContract.totalPackedPcs, 0)} PCS
+                          </div>
                         </Table.Summary.Cell>
                         <Table.Summary.Cell index={4} align="right">
-                          <strong style={{ color: '#10b981' }}>
-                            {fmtNum(selectedSocContract.totalDispatchedQty, 0)} GRS
-                          </strong>
+                          <div>
+                            <strong style={{ color: '#0284c7' }}>
+                              {fmtNum(selectedSocContract.totalDispatchedQty, 0)} GRS
+                            </strong>
+                          </div>
+                          <div style={{ fontSize: 10.5, color: token.colorTextSecondary }}>
+                            {fmtCleanCtn(selectedSocContract.totalDispatchedCartons)} CTN • {fmtNum(selectedSocContract.totalDispatchedPcs, 0)} PCS
+                          </div>
                         </Table.Summary.Cell>
                         <Table.Summary.Cell index={5} align="right">
-                          <strong
-                            style={{
-                              color: selectedSocContract.totalPendingQty > 0 ? '#f59e0b' : '#10b981',
-                            }}
-                          >
-                            {fmtNum(selectedSocContract.totalPendingQty, 0)} GRS
-                          </strong>
+                          <div>
+                            <strong style={{ color: '#10b981' }}>
+                              {fmtNum(selectedSocContract.totalReadyToDispatchQty, 0)} GRS
+                            </strong>
+                          </div>
+                          <div style={{ fontSize: 10.5, color: token.colorTextSecondary }}>
+                            {fmtCleanCtn(selectedSocContract.totalReadyToDispatchCartons)} CTN • {fmtNum(selectedSocContract.totalReadyToDispatchPcs, 0)} PCS
+                          </div>
+                        </Table.Summary.Cell>
+                        <Table.Summary.Cell index={6} align="right">
+                          <div>
+                            <strong
+                              style={{
+                                color: selectedSocContract.totalPendingQty > 0 ? '#f59e0b' : '#10b981',
+                              }}
+                            >
+                              {fmtNum(selectedSocContract.totalPendingQty, 0)} GRS
+                            </strong>
+                          </div>
+                          <div style={{ fontSize: 10.5, color: token.colorTextSecondary }}>
+                            {fmtCleanCtn(selectedSocContract.totalPendingCartons)} CTN • {fmtNum(selectedSocContract.totalPendingPcs, 0)} PCS
+                          </div>
+                          {selectedSocContract.totalToPackPcs > 0 && (
+                            <div className="ca-soc-topack-sub">
+                              To Pack: {fmtNum(selectedSocContract.totalToPackQty, 0)} GRS ({fmtCleanCtn(selectedSocContract.totalToPackCartons)} CTN)
+                            </div>
+                          )}
                         </Table.Summary.Cell>
                       </Table.Summary.Row>
                     </Table.Summary>
@@ -3392,7 +3910,8 @@ const CustomerAnalytics: React.FC = () => {
               </div>
             )}
           </div>
-        )}
+          );
+        })()}
       </DraggableResizableModal>
     </div>
   );

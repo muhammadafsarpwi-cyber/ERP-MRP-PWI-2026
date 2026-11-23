@@ -2719,6 +2719,7 @@ addToDept(org, {
     userId?: string,
   ): Promise<void> {
     // ── 1. What the entry posts NOW ───────────────────────────────────────
+    const deferFgReceipt = this.isHandPackingRef(entry) && this.isWithoutNippleEntry(entry);
     const newReceipts: MovementBucket = new Map();
     const newScraps: MovementBucket = new Map();
     const newUoms = new Map<string, string | null>();
@@ -2726,7 +2727,7 @@ addToDept(org, {
       const actual = Number(output.actualQuantity) || 0;
       const scrap = Number(output.scrapQuantity) || 0;
       const key = movementKey(output.itemId, receiptWarehouseId);
-      if (actual > 0) {
+      if (actual > 0 && !deferFgReceipt) {
         bumpBucket(newReceipts, key, actual);
         newUoms.set(key, output.uomId);
       }
@@ -3600,6 +3601,8 @@ addToDept(org, {
 
     const consumedInputs: Array<{ itemId: string; uomId: string | null; required: number; warehouseId: string; scrap?: number }> = [];
 
+    const deferFgReceiptForMissingNipples = this.isHandPackingRef(entry) && this.isWithoutNippleEntry(entry);
+
     for (const output of outputs) {
       if (Number(output.actualQuantity) <= 0 && Number(output.scrapQuantity || 0) <= 0) {
         // Zero production / 100% downtime: no raw material consumption or inventory receipt needed
@@ -3614,6 +3617,12 @@ addToDept(org, {
         false, componentRejections,
       );
       consumedInputs.push(...consumed);
+
+      // Business Rule: WITHOUT_NIPPLE batches deduct Inner & Outer spokes immediately,
+      // but NEVER enter SPI FG Dispatch Warehouse until "+ Add Nipple" completes them into FULL_SET.
+      if (deferFgReceiptForMissingNipples) {
+        continue;
+      }
 
       const receipt = await this.stockLedgerService.create({
         companyId,
@@ -4353,6 +4362,19 @@ addToDept(org, {
     return (valid.length ? valid : boms)[0];
   }
 
+  /** True when the entry represents an incomplete Hand Packing batch awaiting nipples (WITHOUT_NIPPLE). */
+  private isWithoutNippleEntry(entryRef: any): boolean {
+    if (!entryRef) return false;
+    const mode = String(entryRef?.packingMode ?? entryRef?.packing_mode ?? '').toUpperCase().trim();
+    if (mode === 'WITHOUT_NIPPLE') return true;
+    if (mode === 'FULL_SET') return false;
+    const rem = String(entryRef?.remarks ?? '').toUpperCase();
+    if (rem.includes('STATUS: COMPLETED') || rem.includes('SPOKEPACKINGMODE: FULL_SET')) {
+      return false;
+    }
+    return rem.includes('WITHOUT_NIPPLE') || rem.includes('WITHOUT NIPPLE');
+  }
+
   /** True when the production entry is a manual Hand Packing entry (no machine). */
   private isHandPackingRef(entryRef: any): boolean {
     if (!entryRef) return false;
@@ -4665,6 +4687,11 @@ addToDept(org, {
     if (!entry) {
       throw new NotFoundException(`Production entry ${entryId} not found`);
     }
+    if (!this.isWithoutNippleEntry(entry)) {
+      throw new BadRequestException(
+        `Batch ${entry.entryNumber || entryId} is already completed (${entry.packingMode || 'FULL_SET'}) and cannot receive additional nipples.`,
+      );
+    }
 
     const remarks = entry.remarks || '';
     const match =
@@ -4871,75 +4898,23 @@ addToDept(org, {
         await this.entryItemRepo.save(childOutputLine);
       }
 
-      // Atomically transfer or post FG stock_ledger & inventory_balances for the completed FULL_SET child entry.
-      // Note prefix MUST match REVERSAL_ORIGIN_PATTERN (/^Reversal of ([A-Z_]+)\b/) so delta reconciliation
-      // classifies the parent reduction as a PRODUCTION_RECEIPT reversal and never double-reverses it on edit.
+      // Business Rule: A WITHOUT_NIPPLE batch was never credited to SPI FG Dispatch Warehouse.
+      // Completing nipples credits ONLY the completed quantity (+IN) once—never post PRODUCTION_REVERSAL (OUT).
       const fgWhId = entry.warehouseId || completedEntry.warehouseId;
       const fgUomId = entry.uomId || fgItem?.baseUomId;
       if (entry.itemId && fgWhId && fgUomId && deductedPcs > 0) {
-        const parentReceipts: Array<{ net_pcs: string | number }> = await this.entryRepo.manager.query(
-          `SELECT COALESCE(SUM(CASE WHEN transaction_type = 'PRODUCTION_RECEIPT' THEN quantity
-                                    WHEN transaction_type = 'PRODUCTION_REVERSAL' THEN -quantity
-                                    ELSE 0 END), 0) AS net_pcs
-             FROM public.stock_ledger
-            WHERE company_id = $1
-              AND item_id = $2
-              AND (reference_id = $3 OR reference_number = $4)
-              AND transaction_type IN ('PRODUCTION_RECEIPT', 'PRODUCTION_REVERSAL')`,
-          [companyId, entry.itemId, entry.id, entry.entryNumber || ''],
+        await this.inventoryBalanceService.updateBalance(
+          companyId,
+          entry.itemId,
+          fgWhId,
+          null,
+          null,
+          fgUomId,
+          deductedPcs,
+          'IN',
         );
-        const parentNetPcs = Number(parentReceipts?.[0]?.net_pcs || 0);
 
-        if (parentNetPcs >= deductedPcs) {
-          await this.stockLedgerService.create({
-            companyId,
-            transactionType: 'PRODUCTION_REVERSAL',
-            transactionDate: new Date(completionDateStr),
-            itemId: entry.itemId,
-            warehouseId: fgWhId,
-            quantity: deductedPcs,
-            uomId: fgUomId,
-            direction: 'OUT',
-            referenceType: 'PRODUCTION_ENTRY',
-            referenceId: entry.id,
-            referenceNumber: entry.entryNumber ?? undefined,
-            notes: `Reversal of PRODUCTION_RECEIPT for partial nipple completion to ${completedEntry.entryNumber} (${completedCartons} of ${totalCartons} CTN / ${deductedGross} GRS)`,
-            createdBy: userId,
-          });
-        } else {
-          const missingFromBalancePcs = Math.max(0, deductedPcs - Math.max(0, parentNetPcs));
-          if (parentNetPcs > 0) {
-            await this.stockLedgerService.create({
-              companyId,
-              transactionType: 'PRODUCTION_REVERSAL',
-              transactionDate: new Date(completionDateStr),
-              itemId: entry.itemId,
-              warehouseId: fgWhId,
-              quantity: parentNetPcs,
-              uomId: fgUomId,
-              direction: 'OUT',
-              referenceType: 'PRODUCTION_ENTRY',
-              referenceId: entry.id,
-              referenceNumber: entry.entryNumber ?? undefined,
-              notes: `Reversal of PRODUCTION_RECEIPT for partial nipple completion to ${completedEntry.entryNumber}`,
-              createdBy: userId,
-            });
-          }
-          if (missingFromBalancePcs > 0) {
-            await this.inventoryBalanceService.updateBalance(
-              companyId,
-              entry.itemId,
-              fgWhId,
-              null,
-              null,
-              fgUomId,
-              missingFromBalancePcs,
-              'IN',
-            );
-          }
-        }
-
-        await this.stockLedgerService.create({
+        const fgReceipt = await this.stockLedgerService.create({
           companyId,
           transactionType: 'PRODUCTION_RECEIPT',
           transactionDate: new Date(completionDateStr),
@@ -4951,9 +4926,13 @@ addToDept(org, {
           referenceType: 'PRODUCTION_ENTRY',
           referenceId: completedEntry.id,
           referenceNumber: completedEntry.entryNumber ?? undefined,
-          notes: `Daily production receipt transferred from partial completion of ${entry.entryNumber} (${completedCartons} CTN / ${deductedGross} GRS)`,
+          notes: `Daily production receipt on nipple completion (${completedCartons} CTN / ${deductedGross} GRS, from ${entry.entryNumber})`,
           createdBy: userId,
         });
+        if (fgReceipt?.id) {
+          await this.entryRepo.update(completedEntry.id, { inventoryReferenceId: fgReceipt.id });
+          completedEntry.inventoryReferenceId = fgReceipt.id;
+        }
       }
 
       await this.recordPackingActivityLog({
@@ -5042,7 +5021,7 @@ addToDept(org, {
             missingPcs,
             'IN',
           );
-          await this.stockLedgerService.create({
+          const fgReceiptFull = await this.stockLedgerService.create({
             companyId,
             transactionType: 'PRODUCTION_RECEIPT',
             transactionDate: new Date(completionDateStr),
@@ -5057,6 +5036,10 @@ addToDept(org, {
             notes: `Daily production receipt on nipple completion (${totalCartons} CTN / ${deductedGross} GRS)`,
             createdBy: userId,
           });
+          if (fgReceiptFull?.id) {
+            await this.entryRepo.update(entry.id, { inventoryReferenceId: fgReceiptFull.id });
+            entry.inventoryReferenceId = fgReceiptFull.id;
+          }
         }
       }
 

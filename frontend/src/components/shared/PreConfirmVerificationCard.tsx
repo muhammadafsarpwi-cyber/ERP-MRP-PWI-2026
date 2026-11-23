@@ -5,7 +5,7 @@ import {
   ExclamationCircleFilled,
   PercentageOutlined,
 } from '@ant-design/icons';
-import { formatDecimal } from '../../utils/numberFormat';
+import { formatDecimal, formatSmartCurrency } from '../../utils/numberFormat';
 import type { DocumentTaxVerificationSummary } from '../../utils/salesTaxVerification';
 
 export interface VerificationHeaderItem {
@@ -265,11 +265,11 @@ const PreConfirmVerificationCard: React.FC<PreConfirmVerificationCardProps> = ({
                             fontSize: 12,
                           }}
                         >
-                          {currency} 0.00
+                          {currency} 0
                         </span>
                       ) : (
                         <span style={{ fontWeight: 600, color: token.colorText, fontVariantNumeric: 'tabular-nums' }}>
-                          {currency} {formatDecimal(line.unitPrice, 2)}
+                          {currency} {formatSmartCurrency(line.unitPrice)}
                         </span>
                       )}
                     </td>
@@ -294,7 +294,7 @@ const PreConfirmVerificationCard: React.FC<PreConfirmVerificationCardProps> = ({
                     </td>
 
                     <td style={{ padding: '9px 12px', textAlign: 'right', whiteSpace: 'nowrap', verticalAlign: 'middle', fontWeight: 700, color: token.colorText, fontVariantNumeric: 'tabular-nums' }}>
-                      {currency} {formatDecimal(line.lineTotal, 2)}
+                      {currency} {formatSmartCurrency(line.lineTotal)}
                     </td>
                   </tr>
                 ))
@@ -386,8 +386,8 @@ const PreConfirmVerificationCard: React.FC<PreConfirmVerificationCardProps> = ({
           <div style={{ fontSize: 11, fontWeight: 600, color: token.colorTextTertiary, textTransform: 'uppercase' }}>
             Subtotal
           </div>
-          <div style={{ fontSize: 14, fontWeight: 700, color: token.colorText, fontVariantNumeric: 'tabular-nums' }}>
-            {currency} {formatDecimal(summary.subtotal, 2)}
+          <div style={{ fontSize: 14, fontWeight: 700, color: token.colorText, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+            {currency} {formatSmartCurrency(summary.subtotal)}
           </div>
         </div>
 
@@ -401,9 +401,10 @@ const PreConfirmVerificationCard: React.FC<PreConfirmVerificationCardProps> = ({
               fontWeight: 700,
               color: summary.taxAmount > 0 ? '#059669' : '#d97706',
               fontVariantNumeric: 'tabular-nums',
+              whiteSpace: 'nowrap',
             }}
           >
-            {currency} {formatDecimal(summary.taxAmount, 2)}
+            {currency} {formatSmartCurrency(summary.taxAmount)}
           </div>
         </div>
 
@@ -411,8 +412,8 @@ const PreConfirmVerificationCard: React.FC<PreConfirmVerificationCardProps> = ({
           <div style={{ fontSize: 11, fontWeight: 700, color: token.colorTextTertiary, textTransform: 'uppercase' }}>
             Grand Total
           </div>
-          <div style={{ fontSize: 16.5, fontWeight: 800, color: '#10b981', fontVariantNumeric: 'tabular-nums' }}>
-            {currency} {formatDecimal(summary.grandTotal, 2)}
+          <div style={{ fontSize: 16.5, fontWeight: 800, color: '#10b981', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+            {currency} {formatSmartCurrency(summary.grandTotal)}
           </div>
         </div>
       </div>

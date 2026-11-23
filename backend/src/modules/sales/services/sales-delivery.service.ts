@@ -162,11 +162,25 @@ export class SalesDeliveryService implements OnModuleInit {
 
     const safeUserId = isUuid(userId) ? userId : null;
     const deliveryNumber = await this.generateDeliveryNumber(dto.companyId);
+    let resolvedCustomerPo: string | null = dto.customerPo ? String(dto.customerPo).trim() || null : null;
+    if (!resolvedCustomerPo && isUuid(dto.salesOrderId)) {
+      try {
+        const soRows = await this.repo.manager.query(
+          `SELECT customer_po FROM erp_sales.sales_orders WHERE id = $1 LIMIT 1`,
+          [dto.salesOrderId],
+        );
+        if (soRows?.[0]?.customer_po) {
+          resolvedCustomerPo = String(soRows[0].customer_po).trim() || null;
+        }
+      } catch {
+        // Non-fatal fallback
+      }
+    }
 
     const delivery = this.repo.create({
       companyId: dto.companyId,
       salesOrderId: isUuid(dto.salesOrderId) ? dto.salesOrderId : null,
-      customerPo: dto.customerPo || null,
+      customerPo: resolvedCustomerPo,
       customerId: dto.customerId,
       deliveryNumber,
       deliveryDate: dto.deliveryDate || new Date().toISOString().split('T')[0],
@@ -908,19 +922,38 @@ export class SalesDeliveryService implements OnModuleInit {
         const baseUomId = item?.baseUomId || line.uomId;
         const baseUomCode = (item?.baseUom?.code || lineUomCode || 'PCS').toUpperCase();
 
-        // Convert quantity to base UOM if line UOM differs (e.g. GRS -> 144 PCS, CTN -> cartons * grossPerCarton * 144)
+        // Convert quantity to base UOM if line UOM differs (e.g. GRS -> 144 PCS, CTN -> cartons * exactPcsPerCarton)
+        // For (CS) items where packagingSize is a 3-decimal GRS approximation (e.g. 10.556 GRS = 1,520 PCS/CTN),
+        // snap whole-carton GRS/CTN dispatches to exact integer PCS/CTN to avoid 10.556 * 144 = 1,520.064 drift.
         let baseQty = rawQty;
         if (line.uomId !== baseUomId && lineUomCode !== baseUomCode) {
+          const itemPkgSize = Number(item?.packagingSize) || 0;
+          const isCS =
+            (item?.itemCode || '').toUpperCase().includes('SPK-011') ||
+            (item?.itemCode || '').toUpperCase().includes('SPK-012') ||
+            (item?.itemCode || '').toUpperCase().includes('SPK-013') ||
+            (item?.name || '').toUpperCase().includes('(CS)');
+          const effectiveGrossPerCarton = itemPkgSize > 0 ? itemPkgSize : (isCS ? 10.555556 : 10);
+          const rawPcsPerCarton = effectiveGrossPerCarton * 144;
+          const exactPcsPerCarton =
+            Math.abs(rawPcsPerCarton - Math.round(rawPcsPerCarton)) <= 0.15
+              ? Math.round(rawPcsPerCarton)
+              : rawPcsPerCarton;
+
           if (lineUomCode === 'GRS' && baseUomCode === 'PCS') {
-            baseQty = rawQty * 144;
+            if (itemPkgSize > 0 && rawQty > 0) {
+              const approxCartons = rawQty / itemPkgSize;
+              const nearestCartons = Math.round(approxCartons);
+              if (nearestCartons > 0 && Math.abs(approxCartons - nearestCartons) < 0.01) {
+                baseQty = nearestCartons * exactPcsPerCarton;
+              } else {
+                baseQty = Math.round(rawQty * 144);
+              }
+            } else {
+              baseQty = rawQty * 144;
+            }
           } else if (lineUomCode === 'CTN' && baseUomCode === 'PCS') {
-            const itemPkgSize = Number(item?.packagingSize) || 0;
-            const isCS =
-              (item?.itemCode || '').toUpperCase().includes('011') ||
-              (item?.itemCode || '').toUpperCase().includes('012') ||
-              (item?.name || '').toUpperCase().includes('CS');
-            const grossPerCarton = itemPkgSize > 0 ? itemPkgSize : (isCS ? 10.555556 : 10);
-            baseQty = Math.round(rawQty * grossPerCarton * 144);
+            baseQty = Math.round(rawQty * exactPcsPerCarton);
           } else if (lineUomCode === 'PCS' && baseUomCode === 'GRS') {
             baseQty = rawQty / 144;
           } else {
@@ -1189,6 +1222,61 @@ export class SalesDeliveryService implements OnModuleInit {
     if (delivery.status === 'CANCELLED' || delivery.status === 'CONFIRMED') {
       throw new BadRequestException('Cannot cancel a delivery that is already cancelled or confirmed');
     }
+
+    // Reverse any previously posted SALES_DELIVERY stock ledger movements so a cancelled delivery never retains phantom stock deductions
+    const existingLedgers = await this.ledgerService?.findAll?.({
+      companyId: delivery.companyId,
+      referenceType: 'SALES_DELIVERY',
+      referenceId: delivery.id,
+    });
+    const postedRows = existingLedgers?.data || [];
+    if (postedRows.length > 0) {
+      const grouped = new Map<string, { itemId: string; warehouseId: string; uomId: string; netOut: number }>();
+      for (const row of postedRows) {
+        const qty = Number(row.quantity || 0);
+        if (qty <= 0 || !row.itemId || !row.warehouseId || !row.uomId) continue;
+        const key = `${row.itemId}|${row.warehouseId}|${row.uomId}`;
+        const prev = grouped.get(key) || {
+          itemId: row.itemId,
+          warehouseId: row.warehouseId,
+          uomId: row.uomId,
+          netOut: 0,
+        };
+        prev.netOut += String(row.direction).toUpperCase() === 'OUT' ? qty : -qty;
+        grouped.set(key, prev);
+      }
+
+      const safeUserIdForLedger = isUuid(userId) ? userId : undefined;
+      for (const entry of grouped.values()) {
+        if (entry.netOut <= 0.0001) continue;
+        await this.ledgerService.create({
+          companyId: delivery.companyId,
+          transactionType: 'RETURN_IN',
+          transactionDate: new Date(),
+          itemId: entry.itemId,
+          warehouseId: entry.warehouseId,
+          quantity: entry.netOut,
+          uomId: entry.uomId,
+          direction: 'IN',
+          referenceType: 'SALES_DELIVERY',
+          referenceId: delivery.id,
+          referenceNumber: delivery.deliveryNumber,
+          notes: `Stock reversal for cancelled sales delivery ${delivery.deliveryNumber}`,
+          createdBy: safeUserIdForLedger,
+        });
+        await this.balanceService.updateBalance(
+          delivery.companyId,
+          entry.itemId,
+          entry.warehouseId,
+          null,
+          null,
+          entry.uomId,
+          entry.netOut,
+          'IN',
+        );
+      }
+    }
+
     delivery.status = 'CANCELLED';
     delivery.updatedBy = isUuid(userId) ? userId : null;
     return this.repo.save(delivery);

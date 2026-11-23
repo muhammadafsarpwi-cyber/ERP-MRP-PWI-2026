@@ -793,7 +793,7 @@ html[data-theme='dark'] .ca-carousel-page-btn {
 
 /* ── Dedicated Permanent Safety Stock Buffer Warehouse Dock ── */
 .ca-safety-dock {
-  background: linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(16, 185, 129, 0.02) 100%), var(--theme-surface, #ffffff);
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(16, 185, 129, 0.02) 100%), var(--theme-surface, transparent);
   border: 1.5px solid rgba(16, 185, 129, 0.35);
   border-radius: 12px;
   padding: 18px 22px;
@@ -822,40 +822,70 @@ html[data-theme='dark'] .ca-carousel-page-btn {
 .ca-safety-dock-title {
   font-size: 15px;
   font-weight: 800;
-  color: #065f46;
+  color: var(--theme-heading, #059669);
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 .ca-safety-dock-desc {
   font-size: 11px;
-  color: var(--theme-text-muted, #64748b);
+  color: var(--theme-text-muted);
   margin-top: 2px;
+}
+.ca-safety-dock-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+.ca-safety-dock-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.ca-dock-filter-label {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
 }
 .ca-safety-dock-kpis {
   display: flex;
   align-items: center;
-  gap: 14px;
+  flex-wrap: wrap;
+  gap: 12px;
 }
 .ca-dock-kpi {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  background: rgba(16, 185, 129, 0.06);
+  background: rgba(16, 185, 129, 0.08);
   padding: 6px 14px;
   border-radius: 8px;
-  border: 1px solid rgba(16, 185, 129, 0.2);
+  border: 1px solid rgba(16, 185, 129, 0.24);
 }
 .ca-dock-kpi-label {
   font-size: 9px;
   font-weight: 700;
   text-transform: uppercase;
-  color: #047857;
+  color: #059669;
   letter-spacing: 0.3px;
 }
 .ca-dock-kpi-val {
   font-size: 14px;
   font-weight: 800;
-  color: #065f46;
+  color: var(--theme-heading, #059669);
+}
+.ca-dock-kpi-multi {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ca-dock-kpi-sep {
+  opacity: 0.55;
+  font-weight: 600;
 }
 
 .ca-safety-dock-items {
@@ -864,7 +894,7 @@ html[data-theme='dark'] .ca-carousel-page-btn {
   gap: 12px;
 }
 .ca-dock-item-card {
-  background: var(--theme-surface, #ffffff);
+  background: var(--theme-surface, var(--theme-surface-alt));
   border: 1px solid rgba(16, 185, 129, 0.25);
   border-radius: 8px;
   padding: 12px 14px;
@@ -879,17 +909,24 @@ html[data-theme='dark'] .ca-carousel-page-btn {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   margin-bottom: 6px;
+}
+.ca-dock-item-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
 }
 .ca-dock-item-code {
   font-weight: 800;
-  color: #047857;
+  color: #10b981;
   font-size: 12px;
 }
 .ca-dock-item-name {
   font-size: 11px;
   font-weight: 600;
-  color: var(--theme-heading, #1e293b);
+  color: var(--theme-heading);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -899,22 +936,24 @@ html[data-theme='dark'] .ca-carousel-page-btn {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  border-top: 1px solid rgba(16, 185, 129, 0.15);
+  gap: 8px;
+  flex-wrap: wrap;
+  border-top: 1px solid rgba(16, 185, 129, 0.18);
   padding-top: 8px;
 }
 .ca-dock-item-ctn {
   font-size: 13px;
   font-weight: 800;
-  color: #065f46;
+  color: var(--theme-heading, #059669);
 }
 .ca-dock-item-grs {
   font-size: 11px;
-  color: var(--theme-text-muted, #64748b);
+  color: var(--theme-text-muted);
   font-weight: 600;
 }
 .ca-dock-item-pcs {
   font-size: 10.5px;
-  color: #059669;
+  color: #10b981;
   font-weight: 700;
 }
 
@@ -1320,7 +1359,7 @@ html[data-glass='on'] .ca-safety-dock {
 
 .ca-soc-kpi-strip {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 10px;
   background: var(--theme-surface-alt, #f8fafc);
   border: 1px solid var(--theme-border, #e2e8f0);
@@ -1450,11 +1489,93 @@ html[data-glass='on'] .ca-safety-dock {
 
 .ca-soc-card-metrics {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 6px;
   background: var(--theme-surface-alt, #f8fafc);
   border-radius: 8px;
   padding: 8px 10px;
+}
+
+@media (max-width: 900px) {
+  .ca-soc-card-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.ca-soc-item-code-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  color: #ea580c;
+  background: rgba(249, 115, 22, 0.14);
+  border: 1px solid rgba(249, 115, 22, 0.36);
+  margin-bottom: 4px;
+}
+
+[data-theme='dark'] .ca-soc-item-code-pill,
+html[data-theme='dark'] .ca-soc-item-code-pill {
+  color: #fb923c;
+  background: rgba(249, 115, 22, 0.18);
+  border-color: rgba(251, 146, 60, 0.45);
+}
+
+.ca-soc-item-name-main {
+  font-weight: 700;
+  font-size: 13px;
+  line-height: 1.3;
+  color: var(--theme-heading);
+}
+
+.ca-soc-item-name-sub {
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--theme-text-muted);
+  margin-top: 2px;
+}
+
+.ca-soc-ready-pill {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  padding: 4px 8px;
+  border-radius: 7px;
+  background: rgba(16, 185, 129, 0.11);
+  border: 1px solid rgba(16, 185, 129, 0.28);
+}
+
+.ca-soc-ready-banner-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: rgba(16, 185, 129, 0.14);
+  border: 1px solid rgba(16, 185, 129, 0.34);
+  color: #059669;
+  font-weight: 700;
+}
+
+[data-theme='dark'] .ca-soc-ready-banner-chip,
+html[data-theme='dark'] .ca-soc-ready-banner-chip {
+  color: #34d399;
+}
+
+.ca-soc-topack-sub {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #d97706;
+  margin-top: 2px;
+}
+
+[data-theme='dark'] .ca-soc-topack-sub,
+html[data-theme='dark'] .ca-soc-topack-sub {
+  color: #fbbf24;
 }
 
 .ca-soc-metric {

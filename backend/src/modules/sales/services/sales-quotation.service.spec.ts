@@ -248,6 +248,7 @@ describe('SalesQuotationService', () => {
       orderDate: '2026-08-21',
       deliveryDate: null,
       customerPo: null,
+      customerPoDate: null,
       shipToAddress: null,
       billToAddress: null,
       currency: 'USD',

@@ -1,4 +1,12 @@
-import { formatNumber, formatDecimal, formatDimension, toNum } from './numberFormat';
+import {
+  formatNumber,
+  formatDecimal,
+  formatDimension,
+  formatSmartCurrency,
+  formatNumberInputWithCommas,
+  parseNumberInputWithCommas,
+  toNum,
+} from './numberFormat';
 
 describe('formatNumber — trailing-zero stripping (display only)', () => {
   it('strips unnecessary trailing zeros and decimal points', () => {
@@ -82,5 +90,32 @@ describe('TASK #34C — field-aware number formatting', () => {
     expect(qty).toBe('1.2');
     expect(dim).toBe('1.20');
     expect(qty).not.toBe(dim);
+  });
+});
+
+describe('formatSmartCurrency — hide .00 on whole numbers, keep 2 decimals for fractional paisa', () => {
+  it('hides .00 for whole numbers', () => {
+    expect(formatSmartCurrency(16284000)).toBe('16,284,000');
+    expect(formatSmartCurrency(13800000.0)).toBe('13,800,000');
+    expect(formatSmartCurrency('2484000.00')).toBe('2,484,000');
+    expect(formatSmartCurrency(0)).toBe('0');
+    expect(formatSmartCurrency(-0)).toBe('0');
+  });
+
+  it('shows exactly 2 decimal places when non-zero fractional cents exist', () => {
+    expect(formatSmartCurrency(1250.5)).toBe('1,250.50');
+    expect(formatSmartCurrency(1250.75)).toBe('1,250.75');
+    expect(formatSmartCurrency('99.1')).toBe('99.10');
+  });
+});
+
+describe('InputNumber comma formatting helpers', () => {
+  it('formats and parses thousand-separated numbers cleanly', () => {
+    expect(formatNumberInputWithCommas(200000)).toBe('200,000');
+    expect(formatNumberInputWithCommas(60000)).toBe('60,000');
+    expect(formatNumberInputWithCommas('1250.5')).toBe('1,250.5');
+    expect(parseNumberInputWithCommas('200,000')).toBe(200000);
+    expect(parseNumberInputWithCommas('1,250.5')).toBe(1250.5);
+    expect(parseNumberInputWithCommas('')).toBe(0);
   });
 });

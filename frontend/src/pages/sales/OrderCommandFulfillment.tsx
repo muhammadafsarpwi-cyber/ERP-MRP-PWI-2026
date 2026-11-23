@@ -66,6 +66,7 @@ export interface OrderCommandItem {
   dispatched: number;
   pending: number;
   readyPacked: number;
+  pendingNippleQty?: number;
   readySinceDate: string | null;
   readyAgeDays: number | null;
   remainingToPack: number;
@@ -109,6 +110,7 @@ export interface OrderCommandOrder {
   dispatchedQty: number;
   pendingQty: number;
   readyPackedQty: number;
+  pendingNippleQty?: number;
   readySinceDate: string | null;
   readyAgeDays: number | null;
   remainingToPackQty: number;
@@ -2011,6 +2013,13 @@ const OrderCommandFulfillment: React.FC = () => {
                                     <Tooltip title={`Undispatched packed stock waiting ${it.readyAgeDays} day(s) for customer pickup`}>
                                       <div style={{ fontSize: 10, fontWeight: 700, color: aging.color }}>
                                         Ready {it.readyAgeDays}d
+                                      </div>
+                                    </Tooltip>
+                                  )}
+                                  {(it.pendingNippleQty || 0) > 0 && (
+                                    <Tooltip title={`${formatDecimal(it.pendingNippleQty || 0, 0)} ${it.uomCode} allocated to this SOC in WITHOUT_NIPPLE status — complete via + Add Nipple to move into Ready Packed FG`}>
+                                      <div style={{ fontSize: 10, fontWeight: 700, color: '#d97706' }}>
+                                        +{formatDecimal(it.pendingNippleQty || 0, 0)} Pending Nipples
                                       </div>
                                     </Tooltip>
                                   )}

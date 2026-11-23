@@ -7,7 +7,12 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 import { getLookupsSnapshot } from '../../services/lookupsCache';
-import { formatDecimal } from '../../utils/numberFormat';
+import {
+  formatDecimal,
+  formatSmartCurrency,
+  formatNumberInputWithCommas,
+  parseNumberInputWithCommas,
+} from '../../utils/numberFormat';
 import BarcodeScanner from './BarcodeScanner';
 
 export interface ERPLine {
@@ -553,7 +558,7 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
       if (uomStr && !acc.baseUom) acc.baseUom = uomStr;
 
       acc.quantity += qty;
-      acc.baseAmount += base;
+      acc.baseAmount += afterDiscount;
       acc.taxAmount += lineTax;
       acc.totalAmount += afterTax;
       return acc;
@@ -854,12 +859,14 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
               value={currentPkgQty === 0 || currentPkgQty === undefined ? null : currentPkgQty}
               disabled={disabled}
               placeholder="0"
+              formatter={formatNumberInputWithCommas}
+              parser={parseNumberInputWithCommas}
               status={isPkgExcess ? 'error' : undefined}
               onFocus={(e) => (e.target as HTMLInputElement)?.select?.()}
               addonAfter={<span style={{ fontSize: 11, fontWeight: 600 }}>{pUnit || 'Coil'}</span>}
               style={{
                 width: '100%',
-                minWidth: 125,
+                minWidth: 135,
                 borderColor: isPkgExcess ? '#ef4444' : undefined,
               }}
               onChange={(val) => {
@@ -905,7 +912,7 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
     {
       title: 'Qty',
       key: 'qty',
-      width: 180,
+      width: 195,
       render: (_, record) => {
         const opt = itemOptions.find((o) => o.id === record.itemId);
         const pSize = record.packagingSize ?? (opt?.packagingSize ? Number(opt.packagingSize) : undefined);
@@ -932,12 +939,14 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
               value={record.quantity === 0 || record.quantity === undefined ? null : Math.round(Number(record.quantity) * 100) / 100}
               disabled={disabled}
               placeholder="0"
+              formatter={formatNumberInputWithCommas}
+              parser={parseNumberInputWithCommas}
               status={isExcess ? 'error' : undefined}
               onFocus={(e) => (e.target as HTMLInputElement)?.select?.()}
               addonAfter={<span style={{ fontSize: 11, fontWeight: 600 }}>{effectiveUom}</span>}
               style={{
                 width: '100%',
-                minWidth: 130,
+                minWidth: 145,
                 borderColor: isExcess ? '#ef4444' : undefined,
                 boxShadow: isExcess ? '0 0 0 2px rgba(239, 68, 68, 0.2)' : undefined,
               }}
@@ -1037,9 +1046,11 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
           min={0}
           value={record.rate === 0 || record.rate === undefined ? null : record.rate}
           disabled={disabled}
+          formatter={formatNumberInputWithCommas}
+          parser={parseNumberInputWithCommas}
           onFocus={(e) => (e.target as HTMLInputElement)?.select?.()}
           onChange={(v) => updateLine(record.id, { rate: Number(v || 0) })}
-          style={{ width: '100%', minWidth: 100 }}
+          style={{ width: '100%', minWidth: 105 }}
           placeholder="0"
         />
       ),
@@ -1084,14 +1095,14 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
     {
       title: `Amount (${currency})`,
       key: 'lineTotal',
-      width: 140,
+      width: 155,
       align: 'right' as const,
       render: (_, record) => {
         const lineTotal = record.lineTotal != null ? record.lineTotal : ((record.quantity || 0) * (record.rate || (record as any).unitPrice || 0));
         const val = Number(lineTotal || 0);
         return (
-          <span style={{ fontWeight: 700, color: '#10b981' }}>
-            {val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          <span style={{ fontWeight: 700, color: '#10b981', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+            {formatSmartCurrency(val)}
           </span>
         );
       },
@@ -1254,15 +1265,15 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
           </Button>
         </div>
 
-        {/* Right Side: Financial Summary Box matching Reference Image 2 */}
+        {/* Right Side: Financial Summary Box */}
         <div
           style={{
-            minWidth: 280,
-            maxWidth: 380,
-            background: 'var(--inv-filter-card-bg, #ffffff)',
-            border: '1px solid var(--inv-card-border, #e2e8f0)',
-            borderRadius: 6,
-            padding: '12px 18px',
+            minWidth: 360,
+            maxWidth: 460,
+            background: 'var(--theme-surface-alt, var(--inv-filter-card-bg))',
+            border: '1px solid var(--theme-border, var(--inv-card-border))',
+            borderRadius: 8,
+            padding: '14px 20px',
             fontSize: 13,
             display: 'flex',
             flexDirection: 'column',
@@ -1270,55 +1281,55 @@ const ERPLineItems: React.FC<ERPLineItemsProps> = ({
             marginLeft: 'auto',
           }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Typography.Text type="secondary" style={{ fontSize: 13 }}>Subtotal</Typography.Text>
-            <Typography.Text strong style={{ fontSize: 13 }}>
-              {currency} {totals.baseAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
+            <Typography.Text type="secondary" style={{ fontSize: 13, whiteSpace: 'nowrap' }}>Subtotal</Typography.Text>
+            <Typography.Text strong style={{ fontSize: 13, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+              {currency} {formatSmartCurrency(totals.baseAmount)}
             </Typography.Text>
           </div>
 
           {showTax && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Typography.Text type="secondary" style={{ fontSize: 13 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
+              <Typography.Text type="secondary" style={{ fontSize: 13, whiteSpace: 'nowrap' }}>
                 Tax ({totals.baseAmount > 0 ? `${Math.round((totals.taxAmount / totals.baseAmount) * 1000) / 10}%` : '18%'})
               </Typography.Text>
-              <Typography.Text strong style={{ fontSize: 13, color: totals.taxAmount > 0 ? '#059669' : '#d97706' }}>
-                {currency} {totals.taxAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              <Typography.Text strong style={{ fontSize: 13, color: totals.taxAmount > 0 ? '#059669' : '#d97706', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                {currency} {formatSmartCurrency(totals.taxAmount)}
               </Typography.Text>
             </div>
           )}
 
           {totals.packageCount > 0 && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Typography.Text type="secondary" style={{ fontSize: 13 }}>Total Coils / Pkg</Typography.Text>
-              <Typography.Text strong style={{ fontSize: 13, color: '#10b981' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
+              <Typography.Text type="secondary" style={{ fontSize: 13, whiteSpace: 'nowrap' }}>Total Coils / Pkg</Typography.Text>
+              <Typography.Text strong style={{ fontSize: 13, color: '#10b981', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
                 {totals.packageCount.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} {totals.packagingUnit || 'Coils'}
               </Typography.Text>
             </div>
           )}
 
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Typography.Text type="secondary" style={{ fontSize: 13 }}>Total Qty ({totals.baseUom || 'Units'})</Typography.Text>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
+            <Typography.Text type="secondary" style={{ fontSize: 13, whiteSpace: 'nowrap' }}>Total Qty ({totals.baseUom || 'Units'})</Typography.Text>
             <div style={{ textAlign: 'right' }}>
-              <Typography.Text strong style={{ fontSize: 13 }}>
+              <Typography.Text strong style={{ fontSize: 13, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
                 {totals.quantity.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} {totals.baseUom || ''}
               </Typography.Text>
               {totals.baseUom && totals.baseUom.toUpperCase().includes('GR') && (
-                <div style={{ fontSize: 11, color: '#10b981', fontWeight: 700 }}>
+                <div style={{ fontSize: 11, color: '#10b981', fontWeight: 700, whiteSpace: 'nowrap' }}>
                   (= {Math.round(totals.quantity * 144).toLocaleString()} PCS)
                 </div>
               )}
             </div>
           </div>
 
-          <div style={{ borderTop: '1px solid var(--inv-card-border, #cbd5e1)', margin: '4px 0' }} />
+          <div style={{ borderTop: '1px solid var(--theme-border, var(--inv-card-border))', margin: '4px 0' }} />
 
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Typography.Text strong style={{ fontSize: 14, textTransform: 'uppercase', letterSpacing: '0.3px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 20 }}>
+            <Typography.Text strong style={{ fontSize: 14, textTransform: 'uppercase', letterSpacing: '0.3px', whiteSpace: 'nowrap', flexShrink: 0 }}>
               Grand Total
             </Typography.Text>
-            <Typography.Text strong style={{ fontSize: 16, color: '#10b981' }}>
-              {currency} {totals.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            <Typography.Text strong style={{ fontSize: 16, color: '#10b981', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+              {currency} {formatSmartCurrency(totals.totalAmount)}
             </Typography.Text>
           </div>
         </div>

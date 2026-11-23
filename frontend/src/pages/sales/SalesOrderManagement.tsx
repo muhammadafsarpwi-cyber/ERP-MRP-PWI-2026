@@ -15,7 +15,7 @@ import {
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
-import { formatDecimal, formatNumber } from '../../utils/numberFormat';
+import { formatDecimal, formatNumber, formatSmartCurrency } from '../../utils/numberFormat';
 import { ERPLineItems, ERPLine, DraggableResizableModal, SaveResultDialog, PreConfirmVerificationCard } from '../../components/shared';
 import type { SaveResultData, SaveResultPhase } from '../../components/shared/SaveResultDialog';
 import { resolveEffectiveTaxPercent, summarizeLinesTaxVerification } from '../../utils/salesTaxVerification';
@@ -35,6 +35,8 @@ interface SalesOrder {
   id: string;
   orderNumber: string;
   customerId: string;
+  customerPo?: string | null;
+  customerPoDate?: string | null;
   customerName?: string;
   companyName?: string;
   customer?: {
@@ -184,6 +186,14 @@ export function buildSalesOrderPayload(values: any, lineItems: ERPLine[], editin
     const d = String(payload.orderDate || '').trim();
     if (!d) delete payload.orderDate;
   }
+  if (payload.customerPo !== undefined) {
+    const po = String(payload.customerPo || '').trim();
+    payload.customerPo = po ? po : null;
+  }
+  if (payload.customerPoDate !== undefined) {
+    const poDate = String(payload.customerPoDate || '').trim();
+    payload.customerPoDate = poDate ? poDate : null;
+  }
   if (payload.shipToAddress !== undefined && typeof payload.shipToAddress === 'string') {
     payload.shipToAddress = payload.shipToAddress.trim() || null;
   }
@@ -220,6 +230,13 @@ export function computeOrderChanges(
   const newSoc = rawNewSoc ? (rawNewSoc.toUpperCase().startsWith('SOC-') ? rawNewSoc : `SOC-${rawNewSoc}`) : oldSoc;
   if (oldSoc !== newSoc && rawNewSoc) {
     diffs.push({ field: 'SOC Number', oldVal: oldSoc, newVal: newSoc, color: '#2563eb' });
+  }
+
+  // 1b. Customer PO #
+  const oldPo = (original.customerPo || '').trim() || '-';
+  const newPo = (values.customerPo ? String(values.customerPo).trim() : '') || '-';
+  if (oldPo !== newPo) {
+    diffs.push({ field: 'Customer PO #', oldVal: oldPo, newVal: newPo, color: '#0284c7' });
   }
 
   // 2. Customer
@@ -748,6 +765,8 @@ const SalesOrderManagement: React.FC = () => {
 
     form.setFieldsValue({
       socNumber: nextNum,
+      customerPo: undefined,
+      customerPoDate: undefined,
       currency: 'PKR',
       subtotal: 0,
       discountAmount: 0,
@@ -853,6 +872,8 @@ const SalesOrderManagement: React.FC = () => {
       divisionId: fullOrder.divisionId || undefined,
       sectionId: fullOrder.sectionId || undefined,
       customerId: fullOrder.customerId,
+      customerPo: fullOrder.customerPo || undefined,
+      customerPoDate: fullOrder.customerPoDate ? dayjs(fullOrder.customerPoDate).format('YYYY-MM-DD') : undefined,
       orderDate: fullOrder.orderDate ? dayjs(fullOrder.orderDate).format('YYYY-MM-DD') : undefined,
       deliveryDate: fullOrder.deliveryDate ? dayjs(fullOrder.deliveryDate).format('YYYY-MM-DD') : undefined,
       currency: fullOrder.currency || 'PKR',
@@ -2191,7 +2212,7 @@ const SalesOrderManagement: React.FC = () => {
                     .filter(c => !filterDivision || c.divisionId === filterDivision)
                     .map(c => (
                       <Select.Option key={c.id} value={c.id}>
-                        {c.customerCode ? `[${c.customerCode}] ` : ''}{c.companyName || c.name}
+                        {c.companyName || c.name}{c.customerCode ? ` (${c.customerCode})` : ''}
                       </Select.Option>
                     ))}
                 </Select>
@@ -2473,7 +2494,7 @@ const SalesOrderManagement: React.FC = () => {
                     lineItems.reduce((s, l) => s + Number(l.packageQuantity || 0), 0),
                     2,
                   )}{' '}
-                  Carton/Pkg
+                  {lineItems.find((l) => l.packagingUnit)?.packagingUnit || 'Pkg'}
                 </strong>
               </span>
               <span
@@ -2493,7 +2514,7 @@ const SalesOrderManagement: React.FC = () => {
                     lineItems.reduce((s, l) => s + Number(l.quantity || 0), 0),
                     2,
                   )}{' '}
-                  GRS
+                  {lineItems.find((l) => l.uomCode)?.uomCode || 'Units'}
                 </strong>
               </span>
             </div>
@@ -2743,7 +2764,7 @@ const SalesOrderManagement: React.FC = () => {
                           })
                           .map((c) => ({
                             value: c.id,
-                            label: `${c.customerCode ? `[${c.customerCode}] ` : ''}${c.companyName || c.name}`,
+                            label: `${c.companyName || c.name}${c.customerCode ? ` (${c.customerCode})` : ''}`,
                           }))}
                       />
                     </Form.Item>
@@ -2781,16 +2802,16 @@ const SalesOrderManagement: React.FC = () => {
                         const custObj = customers.find((c) => c.id === selectedCustomerId);
                         return (
                           <div style={{ marginTop: 2 }}>
-                            {custObj?.customerCode && (
-                              <div style={{ fontSize: 11.5, fontWeight: 800, color: token.colorTextSecondary, fontFamily: 'monospace' }}>
-                                <BarcodeOutlined style={{ marginRight: 4, color: '#ea580c' }} />
-                                {custObj.customerCode}
-                              </div>
-                            )}
                             <div style={{ fontSize: 13.5, fontWeight: 800, color: '#ea580c' }}>
                               <UserOutlined style={{ marginRight: 5 }} />
                               {custObj?.companyName || custObj?.name || 'Customer Selected'}
                             </div>
+                            {custObj?.customerCode && (
+                              <div style={{ fontSize: 11.5, fontWeight: 800, color: token.colorTextSecondary, fontFamily: 'monospace', marginTop: 2 }}>
+                                <BarcodeOutlined style={{ marginRight: 4, color: '#ea580c' }} />
+                                {custObj.customerCode}
+                              </div>
+                            )}
                             {customerCreditStatus && (
                               <div style={{ marginTop: 6, fontSize: 11, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                                 <Tag color={customerCreditStatus.creditHold ? 'red' : customerCreditStatus.exceedsCreditLimit ? 'orange' : 'blue'} style={{ margin: 0 }}>
@@ -2926,6 +2947,40 @@ const SalesOrderManagement: React.FC = () => {
                         +30 Days
                       </Button>
                     </div>
+
+                    <Row gutter={10} style={{ marginTop: 10 }}>
+                      <Col span={13}>
+                        <Form.Item
+                          name="customerPo"
+                          style={{ marginBottom: 0 }}
+                          label={
+                            <span style={{ fontSize: 12, fontWeight: 700, color: token.colorTextSecondary }}>
+                              Customer PO #
+                            </span>
+                          }
+                        >
+                          <Input
+                            placeholder="e.g. PO-2026-0412"
+                            maxLength={100}
+                            allowClear
+                            style={{ fontWeight: 700 }}
+                          />
+                        </Form.Item>
+                      </Col>
+                      <Col span={11}>
+                        <Form.Item
+                          name="customerPoDate"
+                          style={{ marginBottom: 0 }}
+                          label={
+                            <span style={{ fontSize: 12, fontWeight: 700, color: token.colorTextSecondary }}>
+                              PO Date <span style={{ fontWeight: 500, opacity: 0.7 }}>(Opt.)</span>
+                            </span>
+                          }
+                        >
+                          <Input type="date" style={{ fontWeight: 600 }} />
+                        </Form.Item>
+                      </Col>
+                    </Row>
                   </div>
 
                   <div
@@ -3103,7 +3158,7 @@ const SalesOrderManagement: React.FC = () => {
                     <div className="doc-step-label" style={{ color: '#38bdf8' }}>2. SALES ORDER CONFIRMATION (SOC)</div>
                     <div className="doc-step-val" style={{ color: '#60a5fa' }}>{detailItem.orderNumber}</div>
                     <div className="doc-step-sub" style={{ color: '#38bdf8' }}>
-                      {detailItem.currency || 'PKR'} {formatDecimal(detailItem.totalAmount || 0)}
+                      {detailItem.currency || 'PKR'} {formatSmartCurrency(detailItem.totalAmount || 0)}
                     </div>
                   </div>
                 </Col>
@@ -3182,6 +3237,13 @@ const SalesOrderManagement: React.FC = () => {
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
                   <span style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>Delivery Date:</span>
                   <span style={{ fontWeight: 600, color: '#f59e0b' }}>{detailItem.deliveryDate ? dayjs(detailItem.deliveryDate).format('MMM DD, YYYY') : '-'}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                  <span style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>Customer PO #:</span>
+                  <span style={{ fontWeight: 700, color: detailItem.customerPo ? '#0284c7' : 'var(--theme-text-muted, #94a3b8)' }}>
+                    {detailItem.customerPo || '—'}
+                    {detailItem.customerPoDate ? ` (${dayjs(detailItem.customerPoDate).format('DD-MMM-YY')})` : ''}
+                  </span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
                   <span style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>Currency:</span>
@@ -3908,6 +3970,13 @@ const SalesOrderManagement: React.FC = () => {
                     label: 'Division & SOC #',
                     value: `SOC-${String(pendingOrderValues?.socNumber || watchedSocNumber || '').replace(/^SOC-/i, '')}`,
                     subtext: selDivision ? `${selDivision.divisionCode} — ${selDivision.name}` : undefined,
+                  },
+                  {
+                    label: 'Customer PO #',
+                    value: pendingOrderValues?.customerPo?.trim() || 'Not Provided',
+                    subtext: pendingOrderValues?.customerPoDate
+                      ? `PO Date: ${dayjs(pendingOrderValues.customerPoDate).format('DD-MMM-YYYY')}`
+                      : undefined,
                   },
                   {
                     label: 'Delivery Schedule',

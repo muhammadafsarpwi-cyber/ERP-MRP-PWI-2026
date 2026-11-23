@@ -332,6 +332,7 @@ export class SalesInvoiceService implements OnModuleInit {
       const deliveryNumber = inv.deliveryNumber || inv.salesDelivery?.deliveryNumber || null;
       const gatePassNumber = inv.gatePassNumber || inv.salesDelivery?.gatePassNumber || null;
       const socNumber = inv.salesOrder?.orderNumber || null;
+      const customerPo = inv.salesOrder?.customerPo || inv.salesDelivery?.customerPo || null;
       const paymentTerms = formatCreditTermsLabel(
         inv.paymentTerms || master?.paymentTerms,
         master?.creditDays ?? inv.customer?.creditDays,
@@ -349,6 +350,7 @@ export class SalesInvoiceService implements OnModuleInit {
         deliveryNumber,
         gatePassNumber,
         socNumber,
+        customerPo,
         paymentTerms,
         documentType: inv.documentType || 'Tax Invoice',
         relatedDelivery:
@@ -518,6 +520,7 @@ export class SalesInvoiceService implements OnModuleInit {
     const deliveryNumber = invoice.deliveryNumber || relatedDelivery?.deliveryNumber || null;
     const gatePassNumber = invoice.gatePassNumber || relatedDelivery?.gatePassNumber || null;
     const divisionName = invoice.division?.name || invoice.salesOrder?.division?.name || null;
+    const customerPo = invoice.salesOrder?.customerPo || relatedDelivery?.customerPo || null;
     const paymentTerms = formatCreditTermsLabel(
       invoice.paymentTerms || masterCustomer?.paymentTerms,
       masterCustomer?.creditDays ?? invoice.customer?.creditDays,
@@ -536,6 +539,7 @@ export class SalesInvoiceService implements OnModuleInit {
       deliveryNumber,
       gatePassNumber,
       socNumber,
+      customerPo,
       paymentTerms,
       documentType: invoice.documentType || 'Tax Invoice',
       socTracking,

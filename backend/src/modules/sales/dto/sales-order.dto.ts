@@ -85,6 +85,18 @@ export class CreateSalesOrderDto {
   @IsNotEmpty()
   customerId: string;
 
+  @ApiPropertyOptional({ description: 'Customer Purchase Order (PO) number' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(100)
+  customerPo?: string;
+
+  @ApiPropertyOptional({ description: 'Customer Purchase Order (PO) date' })
+  @ValidateIf((o) => Boolean(o.customerPoDate && String(o.customerPoDate).trim()))
+  @IsDateString()
+  @IsOptional()
+  customerPoDate?: string;
+
   @ApiPropertyOptional({ description: 'Quotation ID' })
   @IsUUID()
   @IsOptional()

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, ConflictException, Logger, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ConflictException, Logger, Inject, forwardRef, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import {
@@ -28,7 +28,7 @@ import { CreditOverrideDto } from '../dto/customer-receipt.dto';
 import { Optional } from '@nestjs/common';
 
 @Injectable()
-export class SalesOrderService {
+export class SalesOrderService implements OnModuleInit {
   private readonly logger = new Logger(SalesOrderService.name);
 
   constructor(
@@ -55,6 +55,16 @@ export class SalesOrderService {
     @Optional()
     private readonly customerCreditService?: CustomerCreditService,
   ) {}
+
+  async onModuleInit() {
+    try {
+      await this.repo.manager.query(
+        `ALTER TABLE erp_sales.sales_orders ADD COLUMN IF NOT EXISTS customer_po_date DATE`,
+      );
+    } catch (err: any) {
+      this.logger.warn(`Unable to verify erp_sales.sales_orders.customer_po_date column: ${err?.message || err}`);
+    }
+  }
 
   /**
    * PROMPT #27 — a client-supplied `divisionId` on create must land inside the
@@ -194,6 +204,7 @@ export class SalesOrderService {
       companyId: dto.companyId,
       customerId: dto.customerId,
       customerPo: sanitizeText(dto.customerPo),
+      customerPoDate: sanitizeDate(dto.customerPoDate),
       quotationId: sanitizeUuid(dto.quotationId),
       orderNumber,
       orderDate: sanitizeDate(dto.orderDate) || new Date().toISOString().split('T')[0],
@@ -564,6 +575,7 @@ export class SalesOrderService {
       customerId: dto.customerId !== undefined ? sanitizeUuid(dto.customerId) : order.customerId,
       quotationId: dto.quotationId !== undefined ? sanitizeUuid(dto.quotationId) : order.quotationId,
       customerPo: dto.customerPo !== undefined ? sanitizeText(dto.customerPo) : order.customerPo,
+      customerPoDate: dto.customerPoDate !== undefined ? sanitizeDate(dto.customerPoDate) : order.customerPoDate,
       orderDate: dto.orderDate !== undefined ? (sanitizeDate(dto.orderDate) ?? order.orderDate) : order.orderDate,
       deliveryDate: dto.deliveryDate !== undefined ? sanitizeDate(dto.deliveryDate) : order.deliveryDate,
       shipToAddress: dto.shipToAddress !== undefined ? sanitizeText(dto.shipToAddress) : order.shipToAddress,
@@ -868,6 +880,7 @@ export class SalesOrderService {
       companyId: order.companyId,
       salesOrderId: order.id,
       customerId: order.customerId,
+      customerPo: (dto as any)?.customerPo ? String((dto as any).customerPo).trim() : (order.customerPo || null),
       deliveryNumber,
       deliveryDate: dto?.deliveryDate || new Date().toISOString().split('T')[0],
       warehouseId: dto?.warehouseId || null,
@@ -1232,7 +1245,6 @@ export class SalesOrderService {
          WHERE pe.deleted_at IS NULL
            ${companyCond('pe')}
            AND pe.is_active = true
-           AND COALESCE(pe.packing_mode, 'FULL_SET') <> 'WITHOUT_NIPPLE'
            AND pe.remarks ~* 'SOC-[A-Za-z0-9-]+'
          ORDER BY pe.entry_date ASC, pe.created_at ASC`,
         companyOnlyParams,
@@ -1241,9 +1253,12 @@ export class SalesOrderService {
         .query(
           `SELECT
              pal.production_entry_id,
+             pal.source_entry_id,
+             pal.entry_number,
              pal.soc_no,
              pal.item_id,
              pal.activity_type,
+             pal.status,
              TO_CHAR(pal.activity_date, 'YYYY-MM-DD') AS activity_date,
              TO_CHAR(pal.original_packed_date, 'YYYY-MM-DD') AS original_packed_date,
              COALESCE(pal.gross, 0)::float AS gross,

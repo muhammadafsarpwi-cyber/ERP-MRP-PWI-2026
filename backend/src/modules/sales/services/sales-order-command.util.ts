@@ -71,9 +71,12 @@ export interface OrderCommandRawPackingRow {
 
 export interface OrderCommandRawPackingLogRow {
   production_entry_id: string | null;
+  source_entry_id?: string | null;
+  entry_number?: string | null;
   soc_no: string | null;
   item_id: string | null;
   activity_type: string | null;
+  status?: string | null;
   activity_date: string | null;
   original_packed_date: string | null;
   gross: number;
@@ -100,6 +103,7 @@ export interface OrderCommandItem {
   dispatched: number;
   pending: number;
   readyPacked: number;
+  pendingNippleQty: number;
   readySinceDate: string | null;
   readyAgeDays: number | null;
   remainingToPack: number;
@@ -143,6 +147,7 @@ export interface OrderCommandOrder {
   dispatchedQty: number;
   pendingQty: number;
   readyPackedQty: number;
+  pendingNippleQty: number;
   readySinceDate: string | null;
   readyAgeDays: number | null;
   remainingToPackQty: number;
@@ -229,7 +234,12 @@ export function convertBaseToOrderUom(
   if (base === 'PCS' && target === 'GRS') return qty / 144;
   if (base === 'PCS' && target === 'CTN') {
     const grsPerCtn = Number(packagingSize) > 0 ? Number(packagingSize) : 10;
-    return qty / (grsPerCtn * 144);
+    const rawPcsPerCtn = grsPerCtn * 144;
+    const exactPcsPerCtn =
+      Math.abs(rawPcsPerCtn - Math.round(rawPcsPerCtn)) <= 0.15
+        ? Math.round(rawPcsPerCtn)
+        : rawPcsPerCtn;
+    return qty / exactPcsPerCtn;
   }
   if (base === 'GRS' && target === 'PCS') return qty * 144;
   if (base === 'GRS' && target === 'CTN') {
@@ -399,36 +409,47 @@ export function buildOrderCommandOverview(params: {
 
   // 3. Index latest packing activity date (SHIFTED_TO_SOC / NIPPLE_COMPLETED) by production_entry_id
   const activityDateByEntryId = new Map<string, string>();
-  const orphanActivityBatches: Array<{ socUpper: string; itemId: string; date: string; qtyBase: number; gross: number }> = [];
+  const activityDateByEntryNumber = new Map<string, string>();
 
   for (const log of params.packingLogRows) {
     const actDate = toIsoDate(log.activity_date);
-    if (log.production_entry_id && actDate) {
+    if (!actDate) continue;
+    if (log.production_entry_id) {
       const prev = activityDateByEntryId.get(log.production_entry_id);
       if (!prev || actDate > prev) {
         activityDateByEntryId.set(log.production_entry_id, actDate);
       }
-    } else if (!log.production_entry_id && log.soc_no && log.item_id && actDate) {
-      orphanActivityBatches.push({
-        socUpper: String(log.soc_no).trim().toUpperCase(),
-        itemId: log.item_id,
-        date: actDate,
-        qtyBase: Number(log.pcs) || 0,
-        gross: Number(log.gross) || 0,
-      });
+    }
+    if (log.entry_number) {
+      const numKey = String(log.entry_number).trim().toUpperCase();
+      const prev = activityDateByEntryNumber.get(numKey);
+      if (!prev || actDate > prev) {
+        activityDateByEntryNumber.set(numKey, actDate);
+      }
     }
   }
 
-  // Build chronological packed batches per (SOC, Item)
+  // Build chronological packed batches per (SOC, Item) + separate pending-nipple (WITHOUT_NIPPLE) pool
   interface PackedBatch {
     date: string;
     qtySalesUom: number;
   }
   const packedBatchesBySocItem = new Map<string, PackedBatch[]>();
+  const pendingNippleBySocItem = new Map<string, number>();
+  const includedProductionEntryIds = new Set<string>();
+  const includedProductionEntryNumbers = new Set<string>();
+  const pendingNippleEntryIds = new Set<string>();
+  const pendingNippleEntryNumbers = new Set<string>();
+
+  const isPackingRowWithoutNipple = (pe: OrderCommandRawPackingRow): boolean => {
+    const mode = String(pe.effective_packing_mode || '').toUpperCase().trim();
+    if (mode === 'WITHOUT_NIPPLE') return true;
+    if (mode === 'FULL_SET' || mode === 'COMPLETE_SET') return false;
+    return isUncompletedWithoutNippleText(pe.remarks);
+  };
 
   for (const pe of params.packingRows) {
     if (!pe.item_id) continue;
-    if (isUncompletedWithoutNippleText(pe.remarks)) continue;
     const rawQty = Number(pe.actual_quantity) || 0;
     if (rawQty <= 0) continue;
     const tokens = extractSocTokens(pe.remarks);
@@ -442,17 +463,34 @@ export function buildOrderCommandOverview(params: {
       meta?.uomCode || 'GRS',
       meta?.packagingSize,
     );
+    const key = `${targetSoc}__${pe.item_id}`;
+    const entryNumUpper = pe.entry_number ? String(pe.entry_number).trim().toUpperCase() : '';
+
+    if (isPackingRowWithoutNipple(pe)) {
+      if (pe.id) pendingNippleEntryIds.add(pe.id);
+      if (entryNumUpper) pendingNippleEntryNumbers.add(entryNumUpper);
+      pendingNippleBySocItem.set(key, (pendingNippleBySocItem.get(key) || 0) + qtySales);
+      continue;
+    }
+
+    if (pe.id) includedProductionEntryIds.add(pe.id);
+    if (entryNumUpper) includedProductionEntryNumbers.add(entryNumUpper);
+
     const shiftedDate = extractShiftedDateFromText(pe.remarks);
     const packDate =
-      activityDateByEntryId.get(pe.id) || shiftedDate || toIsoDate(pe.entry_date) || todayIso;
+      activityDateByEntryId.get(pe.id) ||
+      (entryNumUpper ? activityDateByEntryNumber.get(entryNumUpper) : undefined) ||
+      shiftedDate ||
+      toIsoDate(pe.entry_date) ||
+      todayIso;
 
-    const key = `${targetSoc}__${pe.item_id}`;
     const list = packedBatchesBySocItem.get(key) || [];
     list.push({ date: packDate, qtySalesUom: qtySales });
     packedBatchesBySocItem.set(key, list);
   }
 
   // Include Safety-Stock-shifted & customer-dedicated opening stock ledger entries (PRODUCTION_ITEM_OPEN_STOCK)
+  const includedOpeningRefs = new Set<string>();
   for (const osl of params.openingStockRows || []) {
     if (!osl.item_id) continue;
     if (isUncompletedWithoutNippleText(osl.notes)) continue;
@@ -476,23 +514,61 @@ export function buildOrderCommandOverview(params: {
     const list = packedBatchesBySocItem.get(key) || [];
     list.push({ date: readyDate, qtySalesUom: qtySales });
     packedBatchesBySocItem.set(key, list);
+    if (osl.reference_number) {
+      includedOpeningRefs.add(String(osl.reference_number).trim().toUpperCase());
+    }
   }
 
-  for (const ob of orphanActivityBatches) {
-    const meta = itemMetaBySocAndItem.get(`${ob.socUpper}__${ob.itemId}`);
+  // Capture any SHIFTED_TO_SOC / NIPPLE_COMPLETED activity log batches whose underlying production_entry
+  // was NOT already accounted for in packingRows (e.g., remarks missing SOC token or unlinked legacy log),
+  // deduplicating by entry ID / entry number so a single batch with multiple events is never double-counted.
+  const seenUnlinkedActivityKeys = new Set<string>();
+  for (const log of params.packingLogRows) {
+    const actDate = toIsoDate(log.activity_date);
+    if (!actDate || !log.soc_no || !log.item_id) continue;
+    const actType = String(log.activity_type || '').toUpperCase().trim();
+    if (actType && actType !== 'SHIFTED_TO_SOC' && actType !== 'NIPPLE_COMPLETED') continue;
+    const statusUpper = String(log.status || '').toUpperCase().trim();
+    if (statusUpper === 'WITHOUT_NIPPLE' || statusUpper === 'PENDING_NIPPLE') continue;
+
+    const entryId = log.production_entry_id ? String(log.production_entry_id).trim() : '';
+    const entryNumUpper = log.entry_number ? String(log.entry_number).trim().toUpperCase() : '';
+
+    // Skip if already counted as FULL_SET or tracked as WITHOUT_NIPPLE from production_entries / opening_stock
+    if (entryId && (includedProductionEntryIds.has(entryId) || pendingNippleEntryIds.has(entryId))) continue;
+    if (entryNumUpper && (includedProductionEntryNumbers.has(entryNumUpper) || pendingNippleEntryNumbers.has(entryNumUpper) || includedOpeningRefs.has(entryNumUpper))) continue;
+
+    const socTokens = extractSocTokens(log.soc_no);
+    const targetSoc = resolveCanonicalSocKey(
+      socTokens.length > 0 ? socTokens : [String(log.soc_no).trim().toUpperCase()],
+      log.item_id,
+      itemMetaBySocAndItem,
+      orderIdBySocUpper,
+    );
+    if (!targetSoc || targetSoc === 'SAFETY_STOCK') continue;
+
+    const dedupKey = entryId
+      ? `pe:${entryId}`
+      : entryNumUpper
+      ? `num:${entryNumUpper}:${targetSoc}:${log.item_id}`
+      : `anon:${targetSoc}:${log.item_id}:${actDate}:${Number(log.pcs) || 0}:${Number(log.gross) || 0}`;
+    if (seenUnlinkedActivityKeys.has(dedupKey)) continue;
+    seenUnlinkedActivityKeys.add(dedupKey);
+
+    const meta = itemMetaBySocAndItem.get(`${targetSoc}__${log.item_id}`);
     const qtySales =
-      ob.gross > 0 && (!meta?.uomCode || meta.uomCode.toUpperCase() === 'GRS')
-        ? ob.gross
+      Number(log.gross) > 0 && (!meta?.uomCode || meta.uomCode.toUpperCase() === 'GRS')
+        ? Number(log.gross)
         : convertBaseToOrderUom(
-            ob.qtyBase,
+            Number(log.pcs) || 0,
             meta?.baseUomCode || 'PCS',
             meta?.uomCode || 'GRS',
             meta?.packagingSize,
           );
     if (qtySales <= 0) continue;
-    const key = `${ob.socUpper}__${ob.itemId}`;
+    const key = `${targetSoc}__${log.item_id}`;
     const list = packedBatchesBySocItem.get(key) || [];
-    list.push({ date: ob.date, qtySalesUom: qtySales });
+    list.push({ date: actDate, qtySalesUom: qtySales });
     packedBatchesBySocItem.set(key, list);
   }
 
@@ -516,6 +592,7 @@ export function buildOrderCommandOverview(params: {
     let orderDispatchedQty = 0;
     let orderPendingQty = 0;
     let orderReadyPackedQty = 0;
+    let orderPendingNippleQty = 0;
     let orderRemainingToPackQty = 0;
     let orderOldestReadyDate: string | null = null;
     let orderMaxReadyAgeDays: number | null = null;
@@ -532,10 +609,14 @@ export function buildOrderCommandOverview(params: {
       const dispatched = isExplicitlyCompleted ? Math.max(ordered, rawDispatched) : rawDispatched;
       const pending = isCancelled || isExplicitlyCompleted ? 0 : Math.max(0, round2(ordered - dispatched));
 
-      // FIFO un-dispatched Ready Packed calculation
+      // FIFO un-dispatched Ready Packed calculation (strictly FULL_SET)
       let readyPacked = 0;
       let readySinceDate: string | null = null;
       let readyAgeDays: number | null = null;
+      const pendingNippleQty =
+        pending > 0 && itemId && !isCancelled
+          ? round2(pendingNippleBySocItem.get(`${socUpper}__${itemId}`) || 0)
+          : 0;
 
       if (pending > 0 && itemId && !isCancelled) {
         const batches = packedBatchesBySocItem.get(`${socUpper}__${itemId}`) || [];
@@ -577,6 +658,7 @@ export function buildOrderCommandOverview(params: {
       orderDispatchedQty += Math.min(ordered, dispatched);
       orderPendingQty += pending;
       orderReadyPackedQty += readyPacked;
+      orderPendingNippleQty += pendingNippleQty;
       orderRemainingToPackQty += remainingToPack;
       orderSubtotal += netBase;
       orderTaxSum += taxAmount;
@@ -597,6 +679,7 @@ export function buildOrderCommandOverview(params: {
         dispatched: round2(dispatched),
         pending,
         readyPacked,
+        pendingNippleQty,
         readySinceDate,
         readyAgeDays,
         remainingToPack,
@@ -612,6 +695,7 @@ export function buildOrderCommandOverview(params: {
     const totalPendingRound = round2(orderPendingQty);
     const totalDispatchedRound = round2(orderDispatchedQty);
     const totalReadyRound = round2(orderReadyPackedQty);
+    const totalPendingNippleRound = round2(orderPendingNippleQty);
     const totalToPackRound = round2(orderRemainingToPackQty);
 
     let category: 'PENDING' | 'COMPLETED' | 'CANCELLED' = 'PENDING';
@@ -664,6 +748,7 @@ export function buildOrderCommandOverview(params: {
       dispatchedQty: totalDispatchedRound,
       pendingQty: totalPendingRound,
       readyPackedQty: totalReadyRound,
+      pendingNippleQty: totalPendingNippleRound,
       readySinceDate: orderOldestReadyDate,
       readyAgeDays: orderMaxReadyAgeDays,
       remainingToPackQty: totalToPackRound,

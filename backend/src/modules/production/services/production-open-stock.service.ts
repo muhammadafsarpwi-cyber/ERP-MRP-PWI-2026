@@ -163,6 +163,7 @@ export class ProductionOpenStockService {
         salesUomCode: item.salesUom?.code || item.salesUom?.symbol || null,
         salesUom: item.salesUom ? { id: item.salesUom.id, code: item.salesUom.code, symbol: item.salesUom.symbol } : null,
         divisionId: item.divisionId,
+        divisionCode: item.division?.divisionCode || null,
         divisionName: item.division?.name || null,
         departmentId: item.departmentId,
         departmentName: item.department?.name || null,
@@ -605,7 +606,7 @@ export class ProductionOpenStockService {
     },
   ) {
     const page = Math.max(1, Number(filter.page) || 1);
-    const limit = Math.min(100, Math.max(1, Number(filter.limit) || 20));
+    const limit = Math.min(500, Math.max(1, Number(filter.limit) || 20));
 
     const qb = this.ledgerRepo
       .createQueryBuilder('sl')
@@ -670,10 +671,13 @@ export class ProductionOpenStockService {
           totalCost: parsedRate * (Number(d.quantity) || 0),
           balanceAfter: Number(d.quantity) || 0,
           uomSymbol: d.uom?.symbol || d.uom?.code || 'PCS',
+          uomCode: d.uom?.code || d.uom?.symbol || null,
           warehouseId: d.warehouseId,
           warehouseName: d.warehouse?.name || d.warehouse?.warehouseCode || '—',
           warehouseCode: d.warehouse?.warehouseCode || '—',
           departmentName: d.department?.name || '—',
+          divisionId: d.divisionId || d.item?.divisionId || null,
+          divisionCode: d.division?.divisionCode || null,
           divisionName: d.division?.name || '—',
           notes: d.notes,
           createdAt: d.createdAt,
@@ -683,6 +687,7 @@ export class ProductionOpenStockService {
             name: d.item?.name || '—',
             itemName: d.item?.name || '—',
             itemType: d.item?.itemType || '—',
+            divisionId: d.item?.divisionId || null,
           },
           warehouse: {
             id: d.warehouse?.id || d.warehouseId,
@@ -860,6 +865,7 @@ export class ProductionOpenStockService {
       .createQueryBuilder('b')
       .innerJoinAndSelect('b.item', 'item')
       .leftJoinAndSelect('item.baseUom', 'baseUom')
+      .leftJoinAndSelect('item.salesUom', 'salesUom')
       .leftJoinAndSelect('item.division', 'division')
       .innerJoinAndSelect('b.warehouse', 'wh')
       .where('b.companyId = :companyId', { companyId })
@@ -990,54 +996,84 @@ export class ProductionOpenStockService {
         const items = balList.map((b) => {
           const it = b.item;
           const uomCode = (it.baseUom?.code || (it as any).uomCode || 'PCS').toUpperCase();
+          const salesUomCode = (it.salesUom?.code || uomCode).toUpperCase();
           const isKg = uomCode === 'KG';
+          const isLinearLength = ['M', 'MTR', 'METER', 'FT', 'CM', 'MM'].includes(uomCode);
+          const itemCodeUpper = (it.itemCode || '').toUpperCase();
+          const isCcdItem =
+            inferredDivision === 'CCD' ||
+            it.divisionId === 'd1000000-0000-0000-0000-000000000002' ||
+            itemCodeUpper.startsWith('CCD-');
           const qty = Number(b.onHand) || 0;
           const weightPerPiece = it.weightPerPiece ? Number(it.weightPerPiece) : 0;
 
-          // KG <-> PCS Bidirectional Conversion
+          // KG <-> PCS Bidirectional Conversion (only treat non-KG items as piece-based when not linear meter/length)
           let convertedWeightKg = 0;
           let convertedPieces = 0;
 
           if (isKg) {
             convertedWeightKg = qty;
             convertedPieces = weightPerPiece > 0 ? Math.round(qty / weightPerPiece) : 0;
+          } else if (isLinearLength) {
+            convertedPieces = 0;
+            const weightPerMeter = it.finishedWeightPerMeter
+              ? Number(it.finishedWeightPerMeter)
+              : it.weightPerMeter
+                ? Number(it.weightPerMeter)
+                : 0;
+            convertedWeightKg = weightPerMeter > 0 ? Number((qty * weightPerMeter).toFixed(4)) : 0;
           } else {
             convertedPieces = qty;
             convertedWeightKg = weightPerPiece > 0 ? Number((qty * weightPerPiece).toFixed(4)) : 0;
           }
 
-          // Gross Calculation (144 Pieces = 1 Gross for Spoke / Nipple / Finished Goods)
+          // Gross Calculation (144 Pieces = 1 Gross ONLY when item uses GRS or Spoke/Nipple PCS items, never for CCD/M items)
+          const usesGrossExplicit = salesUomCode === 'GRS' || uomCode === 'GRS';
           const isSpokeOrNippleOrFg =
-            inferredDivision === 'SPI' ||
-            isNippleWarehouse ||
-            isFgWarehouse ||
-            it.itemType === 'FINISHED_GOOD' ||
-            (it.itemCode || '').toUpperCase().includes('NP') ||
-            (it.itemCode || '').toUpperCase().includes('SPK') ||
-            (it.name || '').toLowerCase().includes('nipple') ||
-            (it.name || '').toLowerCase().includes('spoke');
+            usesGrossExplicit ||
+            (!isCcdItem &&
+              !isLinearLength &&
+              (inferredDivision === 'SPI' ||
+                isNippleWarehouse ||
+                itemCodeUpper.includes('NP') ||
+                itemCodeUpper.includes('SPK') ||
+                (it.name || '').toLowerCase().includes('nipple') ||
+                (it.name || '').toLowerCase().includes('spoke')));
 
           const convertedGross =
-            isSpokeOrNippleOrFg && convertedPieces > 0
+            isSpokeOrNippleOrFg && !isCcdItem && !isLinearLength && convertedPieces > 0
               ? Number((convertedPieces / 144).toFixed(2))
               : 0;
 
-          // Carton Calculation (CTN) - 1 Carton = 10 GRS (1,440 PCS) standard or 10.556 GRS (1,520 PCS) for CS
+          // Packaging Count (CTN / COIL) driven by Item Master packagingSize
           const itemPkgSize = Number(it.packagingSize) || 0;
-          const isCS =
-            (it.itemCode || '').toUpperCase().includes('011') ||
-            (it.itemCode || '').toUpperCase().includes('012') ||
-            (it.name || '').toUpperCase().includes('(CS)') ||
-            (it.name || '').toUpperCase().includes('CS');
-          const grossPerCarton = itemPkgSize > 0 ? itemPkgSize : isCS ? 10.555556 : 10;
+          const isSpokeCS =
+            itemCodeUpper.includes('SPK-011') ||
+            itemCodeUpper.includes('SPK-012') ||
+            itemCodeUpper.includes('SPK-013') ||
+            (it.name || '').toUpperCase().includes('(CS)');
 
           let convertedCartons = 0;
-          if (
-            (isFgWarehouse || it.itemType === 'FINISHED_GOOD' || itemPkgSize > 0) &&
-            convertedGross > 0 &&
-            grossPerCarton > 0
-          ) {
-            convertedCartons = Number((convertedGross / grossPerCarton).toFixed(2));
+          let grossPerCarton = 0;
+          if (isCcdItem || isLinearLength) {
+            convertedCartons = itemPkgSize > 0 ? Number((qty / itemPkgSize).toFixed(2)) : 0;
+          } else {
+            grossPerCarton = itemPkgSize > 0 ? itemPkgSize : isSpokeCS ? 10.555556 : 10;
+            if (
+              (isFgWarehouse || it.itemType === 'FINISHED_GOOD' || itemPkgSize > 0) &&
+              convertedGross > 0 &&
+              grossPerCarton > 0
+            ) {
+              const rawPcsPerCarton = grossPerCarton * 144;
+              const exactPcsPerCarton =
+                Math.abs(rawPcsPerCarton - Math.round(rawPcsPerCarton)) <= 0.15
+                  ? Math.round(rawPcsPerCarton)
+                  : rawPcsPerCarton;
+              convertedCartons =
+                convertedPieces > 0 && exactPcsPerCarton > 0
+                  ? Number((convertedPieces / exactPcsPerCarton).toFixed(2))
+                  : Number((convertedGross / grossPerCarton).toFixed(2));
+            }
           }
 
           const unitCost = Number((it as any).unitCost ?? it.costPrice ?? 0);
@@ -1056,6 +1092,7 @@ export class ProductionOpenStockService {
             itemType: it.itemType,
             uomId: it.baseUomId,
             uomCode,
+            salesUomCode,
             baseUomSymbol: it.baseUom?.symbol || uomCode,
             primaryStock: qty,
             isKg,
@@ -1066,7 +1103,7 @@ export class ProductionOpenStockService {
             convertedCartons,
             grossPerCarton,
             packagingSize: itemPkgSize,
-            packagingUnit: it.packagingUnit || 'Carton',
+            packagingUnit: it.packagingUnit || (isCcdItem || isLinearLength ? 'Coil' : 'Carton'),
             unitCost,
             totalValuation: Math.round(lineValuation * 100) / 100,
           };

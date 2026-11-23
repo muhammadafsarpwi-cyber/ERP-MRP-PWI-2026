@@ -29,6 +29,9 @@ export class SalesOrder {
   @Column({ name: 'customer_po', type: 'varchar', length: 100, nullable: true })
   customerPo: string | null;
 
+  @Column({ name: 'customer_po_date', type: 'date', nullable: true })
+  customerPoDate: string | null;
+
   @ManyToOne(() => SalesCustomer)
   @JoinColumn({ name: 'customer_id' })
   customer: SalesCustomer;

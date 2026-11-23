@@ -1729,6 +1729,148 @@ describe('ProductionEntryService — TASK #37 real production inventory posting'
   });
 });
 
+describe('ProductionEntryService — WITHOUT_NIPPLE deferred receipt & completeNipple', () => {
+  it('defers Finished Goods PRODUCTION_RECEIPT when packing WITHOUT_NIPPLE', async () => {
+    makeOrgMocks();
+    itemRepo.findOne.mockImplementation(async ({ where }: any) => {
+      const id = Array.isArray(where) ? where[0]?.id : where?.id;
+      const code = Array.isArray(where) ? where[0]?.itemCode : where?.itemCode;
+      if (id === 'fg-spk-11' || code === 'SPI-FG-SPK-011') {
+        return { id: 'fg-spk-11', companyId: COMPANY, itemCode: 'SPI-FG-SPK-011', name: 'Spoke 011', status: 'ACTIVE', baseUomId: 'uom-pcs', baseUom: { code: 'PCS' } };
+      }
+      if (id === 'comp-inn') {
+        return { id: 'comp-inn', companyId: COMPANY, itemCode: 'WIP-SPL-013', name: 'Inner', status: 'ACTIVE', baseUomId: 'uom-pcs', baseUom: { code: 'PCS' } };
+      }
+      if (id === 'comp-out') {
+        return { id: 'comp-out', companyId: COMPANY, itemCode: 'WIP-SPL-014', name: 'Outer', status: 'ACTIVE', baseUomId: 'uom-pcs', baseUom: { code: 'PCS' } };
+      }
+      if (id === 'comp-np') {
+        return { id: 'comp-np', companyId: COMPANY, itemCode: 'FG-NP-005', name: 'Nipple', status: 'ACTIVE', baseUomId: 'uom-pcs', baseUom: { code: 'PCS' } };
+      }
+      return { id: id || 'fg-spk-11', status: 'ACTIVE', baseUomId: 'uom-pcs', baseUom: { code: 'PCS' } };
+    });
+    bomRepo.find.mockResolvedValue([{ id: 'bom-1', finishedGoodId: 'fg-spk-11', baseQuantity: 1, status: 'ACTIVE' }]);
+    bomLineRepo.find.mockResolvedValue([
+      { itemId: 'comp-inn', uomId: 'uom-pcs', quantity: 760, lineNumber: 1 },
+      { itemId: 'comp-out', uomId: 'uom-pcs', quantity: 760, lineNumber: 2 },
+      { itemId: 'comp-np', uomId: 'uom-pcs', quantity: 1520, lineNumber: 3 },
+    ]);
+    warehouseRepo.findOne.mockImplementation(async ({ where }: any) => ({
+      id: where?.id || 'wh-plating',
+      warehouseCode: where?.id === 'wh-fg' ? 'SPI-FGDW-007' : 'SPI-PL-004',
+      status: 'ACTIVE',
+    }));
+    balanceService.getAvailableStock.mockResolvedValue(500000);
+    uomRepo.findOne.mockResolvedValue({ id: 'uom-pcs', code: 'PCS' });
+
+    const saved = await service.create({
+      ...validDto(),
+      machineNo: 'HAND-PACK-PKG-TEST-1',
+      itemId: 'fg-spk-11',
+      uomId: 'uom-pcs',
+      actualQuantity: 7600,
+      targetQuantity: 7600,
+      scrapQuantity: 0,
+      packingMode: 'WITHOUT_NIPPLE',
+      postToInventory: true,
+      warehouseId: 'wh-fg',
+      rawMaterialWarehouseId: 'wh-plating',
+      remarks: '[HAND PACKING] Batch: PKG-TEST-1 | SOC: SOC-2026-05806 | Cartons: 5 (52.78 Gross / 7600 PCS) | SpokePackingMode: WITHOUT_NIPPLE | NippleCode: FG-NP-005',
+    } as any, COMPANY);
+
+    expect(saved.inventoryReferenceId ?? null).toBeNull();
+    const receiptCalls = stockLedgerService.create.mock.calls.filter(
+      (c: any) => c[0].transactionType === 'PRODUCTION_RECEIPT',
+    );
+    const consumptionCalls = stockLedgerService.create.mock.calls.filter(
+      (c: any) => c[0].transactionType === 'PRODUCTION_CONSUMPTION',
+    );
+    expect(receiptCalls).toHaveLength(0);
+    expect(consumptionCalls).toHaveLength(2);
+    expect(balanceService.updateBalance).not.toHaveBeenCalledWith(
+      COMPANY, 'fg-spk-11', 'wh-fg', null, null, 'uom-pcs', 7600, 'IN', expect.anything(),
+    );
+  });
+
+  it('completeNipple (partial) posts ONLY +IN PRODUCTION_RECEIPT and NEVER posts PRODUCTION_REVERSAL', async () => {
+    const parentEntry: any = {
+      id: 'entry-wo-nip',
+      companyId: COMPANY,
+      entryNumber: 'PE-2026-01957',
+      entryDate: '2026-11-05',
+      itemId: 'fg-spk-11',
+      uomId: 'uom-pcs',
+      warehouseId: 'wh-fg',
+      rawMaterialWarehouseId: 'wh-plating',
+      actualQuantity: 71440,
+      targetQuantity: 71440,
+      packingMode: 'WITHOUT_NIPPLE',
+      divisionId: 'div-1',
+      sectionId: 'sec-1',
+      departmentId: 'dept-1',
+      shiftId: 'shift-1',
+      machineNo: 'HAND-PACK-PKG-2026-0956',
+      operatorName: 'Ali',
+      remarks:
+        '[HAND PACKING] Batch: PKG-2026-0956 | SOC: SOC-2026-05806 | Customer: ALI SHAH AUTOS | Cartons: 47 (496.11 Gross / 71440 PCS) | Weight: 1144.9 KG | SpokePackingMode: WITHOUT_NIPPLE | NippleCode: FG-NP-005 | Pending Nipple: FG-NP-005 (496.11 GRS / 71440 PCS)',
+    };
+    entryRepo.findOne.mockResolvedValue(parentEntry);
+    itemRepo.findOne.mockImplementation(async ({ where }: any) => {
+      const id = Array.isArray(where) ? where[0]?.id : where?.id;
+      const code = Array.isArray(where) ? where[0]?.itemCode : where?.itemCode;
+      if (code === 'FG-NP-005') {
+        return { id: 'item-np-5', itemCode: 'FG-NP-005', baseUomId: 'uom-pcs', weightPerPiece: 0.0035 };
+      }
+      if (id === 'fg-spk-11') {
+        return { id: 'fg-spk-11', itemCode: 'SPI-FG-SPK-011', name: 'Spoke 011', baseUomId: 'uom-pcs' };
+      }
+      return null;
+    });
+    stockLedgerService.create.mockImplementation(async (x: any) => ({ id: `ledger-${x.transactionType}-${x.itemId}`, ...x }));
+    (entryItemRepo as any).createQueryBuilder = jest.fn(() => ({
+      update: jest.fn().mockReturnThis(),
+      set: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      execute: jest.fn().mockResolvedValue({ affected: 1 }),
+    }));
+
+    const result = await service.completePendingNippleBatch(
+      'entry-wo-nip',
+      { warehouseId: 'wh-np', completionDate: '2026-11-19', completedCartons: 42 },
+      COMPANY,
+      'user-1',
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.isPartial).toBe(true);
+    expect(result.deductedPcs).toBe(63840);
+
+    const reversalCalls = stockLedgerService.create.mock.calls.filter(
+      (c: any) => c[0].transactionType === 'PRODUCTION_REVERSAL',
+    );
+    const receiptCalls = stockLedgerService.create.mock.calls.filter(
+      (c: any) => c[0].transactionType === 'PRODUCTION_RECEIPT',
+    );
+    const nippleOutCalls = stockLedgerService.create.mock.calls.filter(
+      (c: any) => c[0].transactionType === 'PRODUCTION_CONSUMPTION',
+    );
+
+    expect(reversalCalls).toHaveLength(0);
+    expect(nippleOutCalls).toHaveLength(1);
+    expect(nippleOutCalls[0][0]).toMatchObject({ itemId: 'item-np-5', direction: 'OUT', quantity: 63840 });
+    expect(receiptCalls).toHaveLength(1);
+    expect(receiptCalls[0][0]).toMatchObject({
+      itemId: 'fg-spk-11',
+      warehouseId: 'wh-fg',
+      direction: 'IN',
+      quantity: 63840,
+    });
+    expect(balanceService.updateBalance).toHaveBeenCalledWith(
+      COMPANY, 'fg-spk-11', 'wh-fg', null, null, 'uom-pcs', 63840, 'IN',
+    );
+  });
+});
+
 describe('Production report weight calculations (Actual KG + Scrap % on Actual KG)', () => {
   it('PCS: Actual KG = Actual PCS × weight_per_piece (50000 × 0.01261 = 630.5)', () => {
     expect(calcActualKg('PCS', 50000, 0.01261, null)).toBe(630.5);

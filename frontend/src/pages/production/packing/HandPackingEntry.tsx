@@ -832,6 +832,7 @@ export function summarizePackingLedger(rows: RecentPackingLog[]) {
     totalEvents: rows.length,
     freshPackedCartons: Math.round(freshPackedCartons * 100) / 100,
     freshPackedGross: Math.round(freshPackedGross * 100) / 100,
+    readyFullSetCartons: Math.max(0, Math.round((freshPackedCartons - pendingNippleCartons) * 100) / 100),
     nippleCompletedCartons: Math.round(nippleCompletedCartons * 100) / 100,
     shiftedToSocCartons: Math.round(shiftedToSocCartons * 100) / 100,
     pendingNippleCartons: Math.round(pendingNippleCartons * 100) / 100,
@@ -9446,9 +9447,16 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
                 </Tag>
               </Space>
               <Space size={6} wrap>
-                <Tag color="green" style={{ margin: 0, fontWeight: 700 }}>
-                  Fresh Packed: {formatNumber(ledgerSummary.freshPackedCartons, 0)} CTN
-                </Tag>
+                <Tooltip title="Total physical cartons currently allocated to the filtered rows (includes shifted batches & pending-nipple batches)">
+                  <Tag color="default" style={{ margin: 0, fontWeight: 700 }}>
+                    Total Allocated: {formatNumber(ledgerSummary.freshPackedCartons, 0)} CTN
+                  </Tag>
+                </Tooltip>
+                <Tooltip title="Completed FULL_SET cartons ready for dispatch (Total Allocated − Pending Nipple)">
+                  <Tag color="green" style={{ margin: 0, fontWeight: 700 }}>
+                    Ready FG: {formatNumber(ledgerSummary.readyFullSetCartons, 0)} CTN
+                  </Tag>
+                </Tooltip>
                 <Tag color="cyan" style={{ margin: 0, fontWeight: 700 }}>
                   Nipples Completed: {formatNumber(ledgerSummary.nippleCompletedCartons, 0)} CTN
                 </Tag>

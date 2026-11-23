@@ -76,6 +76,46 @@ export function formatDimension(value: unknown): string {
 }
 
 /**
+ * Smart currency formatter:
+ * - Whole numbers hide unnecessary ".00" (e.g. 16284000 → "16,284,000").
+ * - Values with non-zero fractional cents/paisa always show 2 decimals (e.g. 1250.5 → "1,250.50").
+ * Safe for string, number, null, and undefined inputs.
+ */
+export function formatSmartCurrency(value: unknown, locale: string = 'en-US'): string {
+  const n = toNum(value);
+  const rounded = Math.round(n * 100) / 100;
+  if (Object.is(rounded, -0) || rounded === 0) return '0';
+  const isWhole = Math.abs(rounded - Math.trunc(rounded)) < 1e-9;
+  const formatted = rounded.toLocaleString(locale, {
+    minimumFractionDigits: isWhole ? 0 : 2,
+    maximumFractionDigits: isWhole ? 0 : 2,
+  });
+  return formatted === '-0' ? '0' : formatted;
+}
+
+/**
+ * Format an Ant Design InputNumber value with thousand-separator commas
+ * while preserving fractional typing (e.g. 200000 → "200,000", "1250.5" → "1,250.5").
+ */
+export function formatNumberInputWithCommas(value: string | number | undefined): string {
+  if (value === undefined || value === null || value === '') return '';
+  const str = String(value);
+  const [intPart, decPart] = str.split('.');
+  const formattedInt = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return decPart !== undefined ? `${formattedInt}.${decPart}` : formattedInt;
+}
+
+/**
+ * Parse a comma-formatted InputNumber display string back into a clean numeric string/number.
+ */
+export function parseNumberInputWithCommas(value: string | undefined): number {
+  if (!value) return 0;
+  const cleaned = value.replace(/,/g, '').trim();
+  const parsed = Number(cleaned);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+/**
  * Format a quantity value for display / printing.
  * Whole numbers show no decimal point or zeros (e.g. 40000.0000 -> "40000").
  * Fractional quantities show up to `decimals` places with trailing zeros stripped (e.g. 40.5000 -> "40.5").

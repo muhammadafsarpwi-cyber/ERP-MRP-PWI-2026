@@ -229,6 +229,46 @@ describe('SalesDeliveryService', () => {
       repo.findOne.mockResolvedValue({ ...mockDelivery, status: 'CANCELLED' });
       await expect(service.cancel(UUID_DN)).rejects.toThrow(BadRequestException);
     });
+
+    it('reverses any active SALES_DELIVERY ledger entries when cancelling', async () => {
+      repo.findOne.mockResolvedValue({ ...mockDelivery, status: 'SHIPPED' });
+      repo.save.mockResolvedValue({ ...mockDelivery, status: 'CANCELLED' });
+      (ledgerService as any).findAll = jest.fn().mockResolvedValue({
+        data: [
+          {
+            itemId: UUID_ITEM,
+            warehouseId: UUID_WH,
+            uomId: UUID_UOM,
+            quantity: 76003.2,
+            direction: 'OUT',
+            transactionType: 'SALES_DELIVERY',
+          },
+        ],
+        total: 1,
+      });
+
+      const result = await service.cancel(UUID_DN, UUID_USER);
+      expect(result.status).toBe('CANCELLED');
+      expect(ledgerService.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          transactionType: 'RETURN_IN',
+          direction: 'IN',
+          quantity: 76003.2,
+          referenceType: 'SALES_DELIVERY',
+          referenceId: UUID_DN,
+        }),
+      );
+      expect(balanceService.updateBalance).toHaveBeenCalledWith(
+        UUID_COMPANY,
+        UUID_ITEM,
+        UUID_WH,
+        null,
+        null,
+        UUID_UOM,
+        76003.2,
+        'IN',
+      );
+    });
   });
 
   describe('remove (Recycle Bin)', () => {
