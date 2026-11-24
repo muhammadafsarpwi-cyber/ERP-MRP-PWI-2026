@@ -77,7 +77,7 @@ const aggregateRow = (over: any = {}) => ({
 
 const balanceRow = (over: any = {}) => ({ itemId: ITEM_ID, onHand: '5', reserved: '2', available: '3', ...over });
 
-const serviceWith = (opts: { items?: Item[]; aggregate?: any[]; balance?: any[]; produced?: any[]; required?: any[]; masterItems?: any[]; item?: Item | null; ledgerRows?: any[]; openingRow?: any; aggRow?: any; company?: { timezone: string } | null }) => {
+const serviceWith = (opts: { items?: Item[]; aggregate?: any[]; balance?: any[]; produced?: any[]; required?: any[]; masterItems?: any[]; item?: Item | null; ledgerRows?: any[]; openingRow?: any; aggRow?: any; company?: { timezone: string } | null; queryImpl?: jest.Mock }) => {
   const itemQb = makeQb({ getMany: opts.items ?? ONE_ITEM });
   const masterQb = makeQb({ getMany: opts.masterItems ?? [] });
   // itemRepo serves only the item scope (1st call) and the flow-chain master
@@ -106,7 +106,10 @@ const serviceWith = (opts: { items?: Item[]; aggregate?: any[]; balance?: any[];
   // entry repo's EntityManager (no constructor/DI change).
   const requiredQb = makeQb({ getRawMany: opts.required ?? [{ itemId: ITEM_ID, required: '15', entryCount: 2 }] });
   const entryRepo = repoWithQbs([producedQb]);
-  (entryRepo as any).manager = { createQueryBuilder: jest.fn(() => requiredQb) };
+  (entryRepo as any).manager = {
+    createQueryBuilder: jest.fn(() => requiredQb),
+    query: opts.queryImpl ?? jest.fn().mockResolvedValue([]),
+  };
 
   const companyRepo = { findOne: jest.fn().mockResolvedValue(opts.company === undefined ? { timezone: 'Asia/Karachi' } : opts.company) };
 
@@ -622,5 +625,207 @@ describe('ProductionInventoryReportService — child-level Produced isolation (i
     const service = serviceWith({ produced: [{ itemId: ITEM_ID, produced: '83500', entryCount: 1 }] });
     const report = await service.getReport(COMPANY_ID);
     expect(report.items[0].produced).toBe(83500);
+  });
+});
+
+describe('ProductionInventoryReportService — Single Source of Truth (stock_ledger) Parity', () => {
+  it('derives WIP closingBalance strictly from stock_ledger opening + rangeIn - rangeOut and excludes activeEntryCond filters', async () => {
+    const swagingItem = makeItem({
+      id: ITEM_ID,
+      itemCode: 'WIP-SW-001',
+      name: 'CD-250*17 Butted',
+      itemType: ItemType.WORK_IN_PROGRESS,
+      department: { id: 'dept-sw', name: 'Swaging' } as any,
+    });
+    const platingItem = makeItem({
+      id: OTHER_ITEM_ID,
+      itemCode: 'WIP-SPL-001',
+      name: 'CD-250*17 Inner Plating',
+      itemType: ItemType.SEMI_FINISHED,
+      department: { id: 'dept-pl', name: 'Plating' } as any,
+    });
+
+    const service = serviceWith({
+      items: [swagingItem, platingItem],
+      aggregate: [
+        // Even if producedQty (e.g. 52000) or downstream differs, stock_ledger rangeIn/rangeOut governs totalIn/totalOut/closing.
+        { itemId: ITEM_ID, openingIn: '33350', openingOut: '25364.9337', rangeIn: '50513', rangeOut: '27029', movIn: '50513', movOut: '27029', consumed: '27029', scrapOut: '95.3018', lastMovementDate: '2026-11-23T07:00:00.000Z' },
+        { itemId: OTHER_ITEM_ID, openingIn: '80000', openingOut: '7722', rangeIn: '0', rangeOut: '10800', movIn: '0', movOut: '10800', consumed: '10800', scrapOut: '130468', lastMovementDate: '2026-11-23T07:00:00.000Z' },
+      ],
+      balance: [
+        { itemId: ITEM_ID, onHand: '31469.0663', reserved: '0', available: '31469.0663' },
+        { itemId: OTHER_ITEM_ID, onHand: '61478', reserved: '0', available: '61478' },
+      ],
+      produced: [
+        { itemId: ITEM_ID, produced: '51000', entryCount: 4 },
+      ],
+      required: [],
+    });
+
+    const report = await service.getReport(COMPANY_ID, { dateFrom: '2026-11-23', dateTo: '2026-11-23' });
+    const sw = report.items.find((r: any) => r.itemCode === 'WIP-SW-001')!;
+    const pl = report.items.find((r: any) => r.itemCode === 'WIP-SPL-001')!;
+
+    // WIP-SW-001 uses stock_ledger rangeIn (50513), NOT produced (51000), and excludes scrapOut (95.3018)
+    expect(sw.openingBalance).toBeCloseTo(7985.0663, 4);
+    expect(sw.totalIn).toBe(50513);
+    expect(sw.totalOut).toBe(27029);
+    expect(sw.closingBalance).toBeCloseTo(31469.0663, 4);
+    expect(sw.scrapOut).toBeCloseTo(95.3018, 4);
+    expect(sw.reconciled).toBe(true);
+
+    // WIP-SPL-001 uses stock_ledger rangeOut (10800), NOT consumed + scrapOut (10800 + 130468)
+    expect(pl.openingBalance).toBe(72278);
+    expect(pl.totalOut).toBe(10800);
+    expect(pl.closingBalance).toBe(61478);
+    expect(pl.reconciled).toBe(true);
+
+    // Ensure legacy activeEntryCond filter (pe_chk / pe_rel) is not dropping stock_ledger rows
+    const aggQb = (service.__qbs.ledgerRepo.createQueryBuilder as jest.Mock).mock.results[0].value;
+    const andWheres = aggQb.__andWhere.map((c: any) => String(c.sql)).join(' ');
+    expect(andWheres).not.toContain('pe_chk');
+    expect(andWheres).not.toContain('pe_rel');
+  });
+});
+
+describe('ProductionInventoryReportService — getBulkLedger Single-Pass SQL', () => {
+  it('returns empty payload cleanly when division access is deny-all', async () => {
+    const queryImpl = jest.fn();
+    const service = serviceWith({ queryImpl });
+    const res = await service.getBulkLedger(COMPANY_ID, {
+      cutoffDate: '2026-11-23',
+      allowedDivisionIds: [],
+    });
+    expect(res.items).toEqual([]);
+    expect(res.monthScrapByCode).toEqual({});
+    expect(queryImpl).not.toHaveBeenCalled();
+  });
+
+  it('aggregates bulk stock_ledger, month scrap, produced, and packing splits accurately', async () => {
+    const fgId = 'f1000000-0000-4000-8000-000000000001';
+    const plId = 'p1000000-0000-4000-8000-000000000002';
+    const queryImpl = jest.fn(async (sql: string) => {
+      if (sql.includes('sl_agg')) {
+        return [
+          {
+            itemId: fgId,
+            itemCode: 'SPI-FG-SPK-001',
+            itemName: 'Spoke 001',
+            itemType: 'FINISHED_GOOD',
+            uomCode: 'PCS',
+            wireSizeMm: null,
+            thicknessMm: null,
+            widthMm: null,
+            weightPerMeter: null,
+            finishedWeightPerMeter: null,
+            weightPerPiece: '0.00929',
+            divisionId: 'div-1',
+            divisionName: 'Spoke Division',
+            sectionName: 'Hand Packing',
+            departmentId: 'dept-pk',
+            departmentName: 'Packing',
+            productionInItemId: plId,
+            openingIn: '20000',
+            openingOut: '5000',
+            openingDispatched: '5000',
+            rangeIn: '1440',
+            rangeOut: '720',
+            consumed: '0',
+            scrapOut: '0',
+            monthScrapLedger: '12',
+            lastMovementDate: '2026-11-23T09:00:00.000Z',
+          },
+          {
+            itemId: plId,
+            itemCode: 'WIP-SPL-001',
+            itemName: 'Plating Inner',
+            itemType: 'SEMI_FINISHED',
+            uomCode: 'PCS',
+            wireSizeMm: null,
+            thicknessMm: null,
+            widthMm: null,
+            weightPerMeter: null,
+            finishedWeightPerMeter: null,
+            weightPerPiece: '0.00929',
+            divisionId: 'div-1',
+            divisionName: 'Spoke Division',
+            sectionName: 'Plating',
+            departmentId: 'dept-pl',
+            departmentName: 'Plating',
+            productionInItemId: null,
+            openingIn: '10000',
+            openingOut: '2000',
+            openingDispatched: '0',
+            rangeIn: '3000',
+            rangeOut: '1440',
+            consumed: '1440',
+            scrapOut: '10',
+            monthScrapLedger: '45',
+            lastMovementDate: '2026-11-23T09:00:00.000Z',
+          },
+        ];
+      }
+      if (sql.includes('child_scrap')) {
+        return [
+          { itemId: plId, scrapQty: '60' }, // > ledger monthScrap (45), expects 60
+          { itemId: fgId, scrapQty: '5' },  // < ledger monthScrap (12), expects 12
+        ];
+      }
+      // period entries
+      return [
+        {
+          entryId: 'e-1',
+          parentItemId: fgId,
+          parentQty: '1440',
+          parentScrap: '0',
+          parentPackingMode: 'INNER_ONLY',
+          parentRemarks: 'SpokePackingMode: INNER_ONLY',
+          childId: 'c-1',
+          childItemId: fgId,
+          childKind: 'OUTPUT',
+          childQty: '1440',
+          childScrap: '2',
+          remarks: null,
+          childRemarks: null,
+        },
+        {
+          entryId: 'e-2',
+          parentItemId: plId,
+          parentQty: '3000',
+          parentScrap: '0',
+          parentPackingMode: null,
+          parentRemarks: null,
+          childId: null,
+        },
+      ];
+    });
+
+    const service = serviceWith({ queryImpl });
+    const res = await service.getBulkLedger(COMPANY_ID, { cutoffDate: '2026-11-23' });
+
+    expect(queryImpl).toHaveBeenCalledTimes(3);
+    expect(res.cutoffDate).toBe('2026-11-23');
+    expect(res.dateFrom).toBe('2026-11-23');
+    expect(res.scrapFrom).toBe('2026-10-01');
+
+    const fg = res.items.find((r: any) => r.itemCode === 'SPI-FG-SPK-001')!;
+    const pl = res.items.find((r: any) => r.itemCode === 'WIP-SPL-001')!;
+
+    expect(fg.openingBalance).toBe(15000);
+    expect(fg.openingDispatched).toBe(5000);
+    expect(fg.totalIn).toBe(1440);
+    expect(fg.totalOut).toBe(720);
+    expect(fg.closingBalance).toBe(15720);
+    expect(fg.produced).toBe(1440);
+    expect(fg.scrapOut).toBe(2);
+    expect(fg.innerPacked).toBe(1440);
+    expect(fg.outerPacked).toBe(0);
+    expect(fg.hasExplicitSplit).toBe(true);
+    expect(fg.packingModeSummary).toBe('Inner Only');
+
+    expect(pl.produced).toBe(3000);
+    expect(pl.consumed).toBe(1440);
+    expect(res.monthScrapByCode['WIP-SPL-001']).toBe(60);
+    expect(res.monthScrapByCode['SPI-FG-SPK-001']).toBe(12);
   });
 });

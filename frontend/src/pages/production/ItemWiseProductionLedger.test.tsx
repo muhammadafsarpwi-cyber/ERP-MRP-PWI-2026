@@ -1,3 +1,4 @@
+import dayjs from 'dayjs';
 import {
   buildXlsx,
   CHAIN_REGISTRY,
@@ -7,6 +8,8 @@ import {
   bucketDailyPartRejection,
   mergeChainsByGroups,
   DEFAULT_MERGED_FG_GROUPS,
+  resolveLedgerWindow,
+  clearBulkLedgerClientCache,
   crc32,
   fmtKg,
   fmtQty,
@@ -61,16 +64,16 @@ describe('ItemWiseProductionLedger — smart decimal formatting (§1)', () => {
   });
 });
 
-describe('ItemWiseProductionLedger — butted chain pipeline (§2, §3)', () => {
+describe('ItemWiseProductionLedger — butted chain pipeline (stock_ledger unified)', () => {
   const rows = [
-    reportRow('RM-WIRE-009', 'KG', 1000, 0),
-    reportRow('WIP-ST-001', 'PCS', 0, 40000),
-    reportRow('WIP-SW-001', 'PCS', 0, 40000),
-    reportRow('WIP-SP-001', 'PCS', 0, 16560),
-    reportRow('WIP-SP-002', 'PCS', 0, 16560),
-    reportRow('WIP-SPL-001', 'PCS', 20626, 16560),
-    reportRow('WIP-SPL-002', 'PCS', 12497, 16560),
-    reportRow('SPI-FG-SPK-002', 'GRS', 0, 16560),
+    reportRow('RM-WIRE-009', 'KG', 1000, 0, 386.8),
+    reportRow('WIP-ST-001', 'PCS', 0, 40000, 40000),
+    reportRow('WIP-SW-001', 'PCS', 0, 40000, 33120),
+    reportRow('WIP-SP-001', 'PCS', 0, 16560, 16560),
+    reportRow('WIP-SP-002', 'PCS', 0, 16560, 16560),
+    reportRow('WIP-SPL-001', 'PCS', 20626, 16560, 8280),
+    reportRow('WIP-SPL-002', 'PCS', 12497, 16560, 8280),
+    reportRow('SPI-FG-SPK-002', 'GRS', 0, 16560, 0),
   ];
   const weights: Record<string, number | null> = {
     'WIP-ST-001': 0.00967,
@@ -86,7 +89,7 @@ describe('ItemWiseProductionLedger — butted chain pipeline (§2, §3)', () => 
     expect(grid.summary.missingCodes).toEqual(['SPI-FG-SPK-002-DISP']);
   });
 
-  it('forces FG ÷ 2 into BOTH PL rows and depletes their closing', () => {
+  it('derives both PL rows issuance & closing directly from stock_ledger OUT without synthetic splits', () => {
     expect(at('SPI-FG-SPK-002').production).toBe(16560);
     expect(at('WIP-SPL-001').issuance).toBe(8280);
     expect(at('WIP-SPL-002').issuance).toBe(8280);
@@ -95,27 +98,27 @@ describe('ItemWiseProductionLedger — butted chain pipeline (§2, §3)', () => 
     expect(at('WIP-SPL-001').totalWeight).toBeCloseTo((20626 + 16560 - 8280) * 0.00929, 4);
   });
 
-  it('drives every non-terminal stage from its successor', () => {
-    expect(at('WIP-SP-001').issuance).toBe(16560); // = PL Inner production
+  it('derives every non-terminal stage strictly from its stock_ledger IN/OUT', () => {
+    expect(at('WIP-SP-001').issuance).toBe(16560);
     expect(at('WIP-SP-002').issuance).toBe(16560);
-    expect(at('WIP-SW-001').issuance).toBe(33120); // = SP Inner + SP Outer
-    expect(at('WIP-ST-001').issuance).toBe(40000); // = SW production
-    expect(at('RM-WIRE-009').issuance).toBeCloseTo(40000 * 0.00967, 4); // KG conversion
+    expect(at('WIP-SW-001').issuance).toBe(33120);
+    expect(at('WIP-ST-001').issuance).toBe(40000);
+    expect(at('RM-WIRE-009').issuance).toBeCloseTo(386.8, 4);
     expect(grid.summary.undriven).toEqual([]);
     expect(grid.summary.balanced).toBe(true);
   });
 });
 
-describe('ItemWiseProductionLedger — SW bypass on straight-spoke chains (§6)', () => {
+describe('ItemWiseProductionLedger — straight-spoke chains (stock_ledger unified)', () => {
   const rows = [
-    reportRow('RM-WIRE-012', 'KG', 500, 0),
-    reportRow('WIP-ST-003', 'PCS', 0, 20000),
-    reportRow('WIP-ST-004', 'PCS', 0, 20000),
-    reportRow('WIP-SP-013', 'PCS', 0, 9000),
-    reportRow('WIP-SP-014', 'PCS', 0, 9000),
-    reportRow('WIP-SPL-013', 'PCS', 0, 9000),
-    reportRow('WIP-SPL-014', 'PCS', 0, 9000),
-    reportRow('SPI-FG-SPK-006', 'PCS', 0, 18000),
+    reportRow('RM-WIRE-012', 'KG', 500, 0, 502.2),
+    reportRow('WIP-ST-003', 'PCS', 0, 20000, 9000),
+    reportRow('WIP-ST-004', 'PCS', 0, 20000, 9000),
+    reportRow('WIP-SP-013', 'PCS', 0, 9000, 9000),
+    reportRow('WIP-SP-014', 'PCS', 0, 9000, 9000),
+    reportRow('WIP-SPL-013', 'PCS', 0, 9000, 9000),
+    reportRow('WIP-SPL-014', 'PCS', 0, 9000, 9000),
+    reportRow('SPI-FG-SPK-006', 'PCS', 0, 18000, 0),
   ];
   const weights: Record<string, number | null> = {
     'WIP-ST-003': 0.01261,
@@ -131,13 +134,13 @@ describe('ItemWiseProductionLedger — SW bypass on straight-spoke chains (§6)'
     expect(grid.summary.balanced).toBe(true);
   });
 
-  it('routes ST straight through to SP', () => {
-    expect(at('WIP-ST-003').issuance).toBe(9000); // SP Inner production
-    expect(at('WIP-ST-004').issuance).toBe(9000); // SP Outer production
-    expect(at('WIP-SP-013').issuance).toBe(9000); // PL Inner production
-    expect(at('WIP-SPL-013').issuance).toBe(9000); // FG ÷ 2
+  it('preserves recorded stock_ledger OUT across every stage of the straight chain', () => {
+    expect(at('WIP-ST-003').issuance).toBe(9000);
+    expect(at('WIP-ST-004').issuance).toBe(9000);
+    expect(at('WIP-SP-013').issuance).toBe(9000);
+    expect(at('WIP-SPL-013').issuance).toBe(9000);
     expect(at('WIP-SPL-014').issuance).toBe(9000);
-    expect(at('RM-WIRE-012').issuance).toBeCloseTo(20000 * 0.01261 + 20000 * 0.0125, 4);
+    expect(at('RM-WIRE-012').issuance).toBeCloseTo(502.2, 4);
   });
 });
 
@@ -151,95 +154,76 @@ const consumedRow = (
   consumed: number,
 ) => ({ ...reportRow(itemCode, uomCode, openingBalance, totalIn, totalOut), consumed });
 
-/**
- * §GHOST — live report, 2026-10-01..2026-10-09. PL Outer carried a legacy
- * stock-ledger OUT of 102,691 KG (119,251 out − 16,560 automated
- * consumption) while the Hand Packing / Dispatch rows downstream of it held
- * no material at all. That number was painted into the ISSUANCE tray with a
- * red "Return Out" tag even though nothing had been received downstream.
- */
-describe('ItemWiseProductionLedger — ghost issuance suppression (§GHOST)', () => {
+describe('ItemWiseProductionLedger — Direct Stock Ledger Consistency (No Downstream Override)', () => {
   const weights: Record<string, number | null> = {
     'WIP-ST-001': 0.00967,
     'WIP-SPL-001': 0.00929,
     'WIP-SPL-002': 0.00925,
   };
 
-  it('withholds both PL issuances when the successor stage holds no material', () => {
+  it('does not override stock_ledger OUT when downstream stage has 0 movement', () => {
     const grid = buildChainGrid(
       butted,
       [
-        reportRow('RM-WIRE-009', 'KG', 1000, 0),
-        reportRow('WIP-ST-001', 'PCS', 0, 40000),
-        reportRow('WIP-SW-001', 'PCS', 0, 40000),
-        reportRow('WIP-SP-001', 'PCS', 0, 16560),
-        reportRow('WIP-SP-002', 'PCS', 0, 16560),
-        consumedRow('WIP-SPL-001', 'PCS', 20626, 16560, 189271, 16560), // 172,711 non-production OUT
-        consumedRow('WIP-SPL-002', 'PCS', 12497, 16560, 119251, 16560), // 102,691 non-production OUT
-        reportRow('SPI-FG-SPK-002', 'GRS', 0, 0), // FG / Hand Packing — completely inert
+        reportRow('RM-WIRE-009', 'KG', 1000, 0, 0),
+        reportRow('WIP-ST-001', 'PCS', 0, 40000, 40000),
+        reportRow('WIP-SW-001', 'PCS', 0, 40000, 33120),
+        reportRow('WIP-SP-001', 'PCS', 0, 16560, 16560),
+        reportRow('WIP-SP-002', 'PCS', 0, 16560, 16560),
+        consumedRow('WIP-SPL-001', 'PCS', 20626, 16560, 8280, 8280),
+        consumedRow('WIP-SPL-002', 'PCS', 12497, 16560, 0, 0),
+        reportRow('SPI-FG-SPK-002', 'GRS', 0, 0, 0),
       ] as any,
       {},
       weights,
     );
     const at = (code: string) => grid.rows.find((r) => r.itemCode === code)!;
 
-    for (const code of ['WIP-SPL-001', 'WIP-SPL-002']) {
-      const pl = at(code);
-      expect(pl.suppressed).toBe(true);
-      expect(pl.issuance).toBe(0);
-      expect(pl.prodValue).toBe(0);
-      expect(pl.returnOutValue).toBe(0); // no "Return Out" tag either
-      expect(pl.remarks).toBe('—');
-      expect(pl.issuanceRule).toContain('holds no material');
-    }
-
-    // Withholding the ghost keeps the row's own balance intact.
-    expect(at('WIP-SPL-001').closingPieces).toBe(20626 + 16560);
+    expect(at('WIP-SPL-001').issuance).toBe(8280);
+    expect(at('WIP-SPL-001').closingPieces).toBe(20626 + 16560 - 8280);
+    expect(at('WIP-SPL-002').issuance).toBe(0);
     expect(at('WIP-SPL-002').closingPieces).toBe(12497 + 16560);
     expect(grid.summary.balanced).toBe(true);
-    // A deliberate suppression is not a "driver unavailable" condition.
     expect(grid.summary.undriven).toEqual([]);
   });
 
-  it('stops the "driver unavailable" fallback from publishing the raw OUT figure', () => {
-    // Same chain, but the FG item is absent from the report altogether —
-    // the path that used to fall back to `recordedOut` (189,271).
+  it('uses stock_ledger OUT reliably even when a downstream FG item is absent from the payload', () => {
     const grid = buildChainGrid(
       butted,
       [
-        reportRow('RM-WIRE-009', 'KG', 1000, 0),
-        reportRow('WIP-ST-001', 'PCS', 0, 40000),
-        reportRow('WIP-SW-001', 'PCS', 0, 40000),
-        reportRow('WIP-SP-001', 'PCS', 0, 16560),
-        reportRow('WIP-SP-002', 'PCS', 0, 16560),
-        consumedRow('WIP-SPL-001', 'PCS', 20626, 16560, 189271, 16560),
-        consumedRow('WIP-SPL-002', 'PCS', 12497, 16560, 119251, 16560),
+        reportRow('RM-WIRE-009', 'KG', 1000, 0, 0),
+        reportRow('WIP-ST-001', 'PCS', 0, 40000, 0),
+        reportRow('WIP-SW-001', 'PCS', 0, 40000, 0),
+        reportRow('WIP-SP-001', 'PCS', 0, 16560, 0),
+        reportRow('WIP-SP-002', 'PCS', 0, 16560, 0),
+        consumedRow('WIP-SPL-001', 'PCS', 20626, 16560, 12000, 12000),
+        consumedRow('WIP-SPL-002', 'PCS', 12497, 16560, 5000, 5000),
       ] as any,
       {},
       weights,
     );
     const at = (code: string) => grid.rows.find((r) => r.itemCode === code)!;
 
-    expect(at('WIP-SPL-001').suppressed).toBe(true);
-    expect(at('WIP-SPL-001').issuance).toBe(0); // was 189271
-    expect(at('WIP-SPL-002').suppressed).toBe(true);
-    expect(at('WIP-SPL-002').issuance).toBe(0); // was 119251
+    expect(at('WIP-SPL-001').issuance).toBe(12000);
+    expect(at('WIP-SPL-001').closingPieces).toBe(20626 + 16560 - 12000);
+    expect(at('WIP-SPL-002').issuance).toBe(5000);
+    expect(at('WIP-SPL-002').closingPieces).toBe(12497 + 16560 - 5000);
     expect(grid.summary.missingCodes).toContain('SPI-FG-SPK-002');
     expect(grid.summary.balanced).toBe(true);
   });
 
-  it('still surfaces a real outflow when the successor stage is live', () => {
+  it('splits production consumption vs non-production return out in Remarks when totalOut exceeds consumed', () => {
     const grid = buildChainGrid(
       butted,
       [
-        reportRow('RM-WIRE-009', 'KG', 1000, 0),
-        reportRow('WIP-ST-001', 'PCS', 0, 40000),
-        reportRow('WIP-SW-001', 'PCS', 0, 40000),
-        reportRow('WIP-SP-001', 'PCS', 0, 16560),
-        reportRow('WIP-SP-002', 'PCS', 0, 16560),
-        consumedRow('WIP-SPL-001', 'PCS', 20626, 16560, 25000, 16560), // 8,440 outflow
+        reportRow('RM-WIRE-009', 'KG', 1000, 0, 0),
+        reportRow('WIP-ST-001', 'PCS', 0, 40000, 0),
+        reportRow('WIP-SW-001', 'PCS', 0, 40000, 0),
+        reportRow('WIP-SP-001', 'PCS', 0, 16560, 0),
+        reportRow('WIP-SP-002', 'PCS', 0, 16560, 0),
+        consumedRow('WIP-SPL-001', 'PCS', 20626, 16560, 25000, 16560), // 16,560 prod cons + 8,440 other OUT
         consumedRow('WIP-SPL-002', 'PCS', 12497, 16560, 0, 0),
-        reportRow('SPI-FG-SPK-002', 'GRS', 0, 16560), // live downstream
+        reportRow('SPI-FG-SPK-002', 'GRS', 0, 16560, 0),
       ] as any,
       {},
       weights,
@@ -247,37 +231,37 @@ describe('ItemWiseProductionLedger — ghost issuance suppression (§GHOST)', ()
     const at = (code: string) => grid.rows.find((r) => r.itemCode === code)!;
 
     const inner = at('WIP-SPL-001');
-    expect(inner.suppressed).toBe(false);
-    expect(inner.prodValue).toBe(8280); // FG ÷ 2
-    expect(inner.returnOutValue).toBe(8440);
-    expect(inner.issuance).toBe(8280 + 8440);
+    expect(inner.prodValue).toBe(16560);
+    expect(inner.returnOutValue).toBe(25000 - 16560);
+    expect(inner.issuance).toBe(25000);
+    expect(inner.closingPieces).toBe(20626 + 16560 - 25000);
     expect(inner.remarks).not.toBe('—');
-    expect(at('WIP-SPL-002').issuance).toBe(8280);
+    expect(at('WIP-SPL-002').issuance).toBe(0);
     expect(grid.summary.balanced).toBe(true);
   });
 
-  it('judges each split side against its OWN successor row', () => {
+  it('keeps independent closing balances on split sides strictly tied to each item stock_ledger rows', () => {
     const grid = buildChainGrid(
       butted,
       [
-        reportRow('RM-WIRE-009', 'KG', 1000, 0),
-        reportRow('WIP-ST-001', 'PCS', 0, 40000),
-        reportRow('WIP-SW-001', 'PCS', 0, 40000),
-        reportRow('WIP-SP-001', 'PCS', 0, 5000),
-        reportRow('WIP-SP-002', 'PCS', 0, 5000),
-        reportRow('WIP-SPL-001', 'PCS', 0, 0), // PL Inner — inert
-        reportRow('WIP-SPL-002', 'PCS', 0, 9000), // PL Outer — live
-        reportRow('SPI-FG-SPK-002', 'GRS', 0, 18000),
+        reportRow('RM-WIRE-009', 'KG', 1000, 0, 0),
+        reportRow('WIP-ST-001', 'PCS', 0, 40000, 0),
+        reportRow('WIP-SW-001', 'PCS', 0, 40000, 0),
+        reportRow('WIP-SP-001', 'PCS', 5000, 0, 0),
+        reportRow('WIP-SP-002', 'PCS', 5000, 0, 9000),
+        reportRow('WIP-SPL-001', 'PCS', 0, 0, 0),
+        reportRow('WIP-SPL-002', 'PCS', 0, 9000, 0),
+        reportRow('SPI-FG-SPK-002', 'GRS', 0, 18000, 0),
       ] as any,
       {},
       weights,
     );
     const at = (code: string) => grid.rows.find((r) => r.itemCode === code)!;
 
-    expect(at('WIP-SP-001').suppressed).toBe(true); // feeds PL Inner, which is inert
     expect(at('WIP-SP-001').issuance).toBe(0);
-    expect(at('WIP-SP-002').suppressed).toBe(false); // feeds PL Outer, which is live
+    expect(at('WIP-SP-001').closingPieces).toBe(5000);
     expect(at('WIP-SP-002').issuance).toBe(9000);
+    expect(at('WIP-SP-002').closingPieces).toBe(-4000);
     expect(grid.summary.balanced).toBe(true);
   });
 });
@@ -473,7 +457,7 @@ describe('ItemWiseProductionLedger — Inner-Only / Outer-Only Packing Split & M
     'SPI-FG-SPK-002': 0.0118,
   };
 
-  it('deducts 100% from PL Inner (and 0 from PL Outer) when INNER_ONLY is packed', () => {
+  it('uses stock_ledger totalOut directly for PL Inner & PL Outer and keeps packing mode in Remarks when INNER_ONLY is packed', () => {
     const splitMap = bucketDailyPackingSplit([
       {
         isActive: true,
@@ -492,15 +476,15 @@ describe('ItemWiseProductionLedger — Inner-Only / Outer-Only Packing Split & M
     const grid = buildChainGrid(
       butted,
       [
-        reportRow('RM-WIRE-009', 'KG', 1000, 0),
-        reportRow('WIP-ST-001', 'PCS', 10000, 0),
-        reportRow('WIP-SW-001', 'PCS', 10000, 0),
-        reportRow('WIP-SP-001', 'PCS', 10000, 0),
-        reportRow('WIP-SP-002', 'PCS', 10000, 0),
-        reportRow('WIP-SPL-001', 'PCS', 20000, 0),
-        reportRow('WIP-SPL-002', 'PCS', 15000, 0),
+        reportRow('RM-WIRE-009', 'KG', 1000, 0, 0),
+        reportRow('WIP-ST-001', 'PCS', 10000, 0, 0),
+        reportRow('WIP-SW-001', 'PCS', 10000, 0, 0),
+        reportRow('WIP-SP-001', 'PCS', 10000, 0, 0),
+        reportRow('WIP-SP-002', 'PCS', 10000, 0, 0),
+        reportRow('WIP-SPL-001', 'PCS', 20000, 0, 3000),
+        reportRow('WIP-SPL-002', 'PCS', 15000, 0, 0),
         {
-          ...reportRow('SPI-FG-SPK-002', 'PCS', 0, 3000),
+          ...reportRow('SPI-FG-SPK-002', 'PCS', 0, 3000, 0),
           innerPacked: split!.innerPacked,
           outerPacked: split!.outerPacked,
           hasExplicitSplit: split!.hasExplicitSplit,
@@ -516,10 +500,11 @@ describe('ItemWiseProductionLedger — Inner-Only / Outer-Only Packing Split & M
     expect(at('WIP-SPL-001').closingPieces).toBe(20000 - 3000);
     expect(at('WIP-SPL-002').issuance).toBe(0);
     expect(at('WIP-SPL-002').closingPieces).toBe(15000);
+    expect(at('SPI-FG-SPK-002').remarks).toContain('Inner Only');
     expect(grid.summary.balanced).toBe(true);
   });
 
-  it('deducts 100% from PL Outer (and 0 from PL Inner) when OUTER_ONLY is packed', () => {
+  it('uses stock_ledger totalOut directly for PL Outer and keeps packing mode in Remarks when OUTER_ONLY is packed', () => {
     const splitMap = bucketDailyPackingSplit([
       {
         isActive: true,
@@ -536,15 +521,15 @@ describe('ItemWiseProductionLedger — Inner-Only / Outer-Only Packing Split & M
     const grid = buildChainGrid(
       butted,
       [
-        reportRow('RM-WIRE-009', 'KG', 1000, 0),
-        reportRow('WIP-ST-001', 'PCS', 10000, 0),
-        reportRow('WIP-SW-001', 'PCS', 10000, 0),
-        reportRow('WIP-SP-001', 'PCS', 10000, 0),
-        reportRow('WIP-SP-002', 'PCS', 10000, 0),
-        reportRow('WIP-SPL-001', 'PCS', 20000, 0),
-        reportRow('WIP-SPL-002', 'PCS', 15000, 0),
+        reportRow('RM-WIRE-009', 'KG', 1000, 0, 0),
+        reportRow('WIP-ST-001', 'PCS', 10000, 0, 0),
+        reportRow('WIP-SW-001', 'PCS', 10000, 0, 0),
+        reportRow('WIP-SP-001', 'PCS', 10000, 0, 0),
+        reportRow('WIP-SP-002', 'PCS', 10000, 0, 0),
+        reportRow('WIP-SPL-001', 'PCS', 20000, 0, 0),
+        reportRow('WIP-SPL-002', 'PCS', 15000, 0, 3000),
         {
-          ...reportRow('SPI-FG-SPK-002', 'PCS', 0, 3000),
+          ...reportRow('SPI-FG-SPK-002', 'PCS', 0, 3000, 0),
           innerPacked: split.innerPacked,
           outerPacked: split.outerPacked,
           hasExplicitSplit: split.hasExplicitSplit,
@@ -560,10 +545,11 @@ describe('ItemWiseProductionLedger — Inner-Only / Outer-Only Packing Split & M
     expect(at('WIP-SPL-001').closingPieces).toBe(20000);
     expect(at('WIP-SPL-002').issuance).toBe(3000);
     expect(at('WIP-SPL-002').closingPieces).toBe(15000 - 3000);
+    expect(at('SPI-FG-SPK-002').remarks).toContain('Outer Only');
     expect(grid.summary.balanced).toBe(true);
   });
 
-  it('merges SPI-FG-SPK-001 and SPI-FG-SPK-002 into one unified ledger where PL deducts both FGs and each DP row stays separate', () => {
+  it('merges SPI-FG-SPK-001 and SPI-FG-SPK-002 into one unified ledger anchored on stock_ledger while each DP row stays separate', () => {
     const mergedList = mergeChainsByGroups(CHAIN_REGISTRY, DEFAULT_MERGED_FG_GROUPS);
     const mergedChain = mergedList.find((c) => c.key === 'SPI-FG-SPK-001')!;
     expect(mergedChain).toBeDefined();
@@ -574,21 +560,21 @@ describe('ItemWiseProductionLedger — Inner-Only / Outer-Only Packing Split & M
     const grid = buildChainGrid(
       mergedChain,
       [
-        reportRow('RM-WIRE-009', 'KG', 16645.62, 0),
-        reportRow('WIP-ST-001', 'PCS', 39004, 50000),
-        reportRow('WIP-SW-001', 'PCS', 99584, 34874),
-        reportRow('WIP-SP-001', 'PCS', 203245, 28000),
-        reportRow('WIP-SP-002', 'PCS', 110582, 0),
-        reportRow('WIP-SPL-001', 'PCS', 189862, 0),
-        reportRow('WIP-SPL-002', 'PCS', 163053, 0),
-        // FG 001 packs 4,000 Full Set (2,000 Inner + 2,000 Outer) and dispatches 10,000
+        reportRow('RM-WIRE-009', 'KG', 16645.62, 0, 0),
+        reportRow('WIP-ST-001', 'PCS', 39004, 50000, 34874),
+        reportRow('WIP-SW-001', 'PCS', 99584, 34874, 28000),
+        reportRow('WIP-SP-001', 'PCS', 203245, 28000, 0),
+        reportRow('WIP-SP-002', 'PCS', 110582, 0, 0),
+        reportRow('WIP-SPL-001', 'PCS', 189862, 0, 5000),
+        reportRow('WIP-SPL-002', 'PCS', 163053, 0, 2000),
+        // FG 001 packs 4,000 Full Set and dispatches 10,000
         {
           ...reportRow('SPI-FG-SPK-001', 'PCS', 86400, 4000, 10000),
           innerPacked: 2000,
           outerPacked: 2000,
           hasExplicitSplit: true,
         },
-        // FG 002 packs 3,000 Inner Only (3,000 Inner + 0 Outer) and dispatches 5,000
+        // FG 002 packs 3,000 Inner Only and dispatches 5,000
         {
           ...reportRow('SPI-FG-SPK-002', 'PCS', 31680, 3000, 5000),
           innerPacked: 3000,
@@ -603,10 +589,9 @@ describe('ItemWiseProductionLedger — Inner-Only / Outer-Only Packing Split & M
     );
 
     const at = (code: string) => grid.rows.find((r) => r.itemCode === code)!;
-    // PL Inner deducts 2,000 (from 001) + 3,000 (from 002) = 5,000
+    // PL Inner & Outer reflect actual stock_ledger OUT
     expect(at('WIP-SPL-001').issuance).toBe(5000);
     expect(at('WIP-SPL-001').closingPieces).toBe(189862 - 5000);
-    // PL Outer deducts 2,000 (from 001) + 0 (from 002) = 2,000
     expect(at('WIP-SPL-002').issuance).toBe(2000);
     expect(at('WIP-SPL-002').closingPieces).toBe(163053 - 2000);
 
@@ -808,21 +793,20 @@ describe('ItemWiseProductionLedger — Inner-Only / Outer-Only Packing Split & M
       expect(sp2.scrapMonthKg).toBeCloseTo(2.6733, 4);
     });
 
-    it('deducts downstream (Production + Rejection) from upstream stage issuance across the entire chain', () => {
-      // Replicating real shop floor data on 2026-11-10:
-      // ST: 52,062 PCS Prod + 19 PCS Rejection -> RM consumed: (52062 + 19) * 0.00967 = 503.62 KG
-      // SW: 54,623 PCS Prod + 18 PCS Rejection -> ST issuance: (54623 + 18) = 54,641 PCS
-      // SP Outer: 40,200 PCS Prod + 45 PCS Rejection -> SW issuance: (40200 + 45) = 40,245 PCS
+    it('derives every stage issuance strictly from stock_ledger OUT and prevents phantom downstream drift on WIP-SW-001', () => {
+      // Even when downstream WIP-SP-002 produced 40,200 + 45 scrap while WIP-SW-001's actual
+      // stock_ledger consumption (e.g. from multi-source / alternate stage) was 27,029 PCS,
+      // WIP-SW-001 MUST deduct exact stock_ledger totalOut (27,029) so Closing matches Stock Movement History 100%.
       const rows = [
-        reportRow('RM-WIRE-009', 'KG', 2932.03, 0),
-        { ...reportRow('WIP-ST-001', 'PCS', 16023, 52062), scrapOut: 19 },
-        { ...reportRow('WIP-SW-001', 'PCS', 119255, 54623), scrapOut: 18 },
-        reportRow('WIP-SP-001', 'PCS', 125914, 0),
-        { ...reportRow('WIP-SP-002', 'PCS', 118402, 40200), scrapOut: 45 },
-        reportRow('WIP-SPL-001', 'PCS', 49693, 0),
-        reportRow('WIP-SPL-002', 'PCS', 49693, 0),
-        reportRow('SPI-FG-SPK-001', 'PCS', 0, 0),
-        reportRow('SPI-FG-SPK-002', 'PCS', 0, 0),
+        reportRow('RM-WIRE-009', 'KG', 2932.03, 0, 503.62),
+        { ...reportRow('WIP-ST-001', 'PCS', 16023, 52062, 54641), scrapOut: 19 },
+        { ...reportRow('WIP-SW-001', 'PCS', 7985, 50513, 27029), scrapOut: 18 },
+        reportRow('WIP-SP-001', 'PCS', 125914, 0, 0),
+        { ...reportRow('WIP-SP-002', 'PCS', 118402, 40200, 0), scrapOut: 45 },
+        reportRow('WIP-SPL-001', 'PCS', 49693, 0, 0),
+        reportRow('WIP-SPL-002', 'PCS', 49693, 0, 0),
+        reportRow('SPI-FG-SPK-001', 'PCS', 0, 0, 0),
+        reportRow('SPI-FG-SPK-002', 'PCS', 0, 0, 0),
       ];
 
       const weights = {
@@ -836,17 +820,17 @@ describe('ItemWiseProductionLedger — Inner-Only / Outer-Only Packing Split & M
       const grid = buildChainGrid(butted, rows, {}, weights);
       const at = (code: string) => grid.rows.find((r) => r.itemCode === code)!;
 
-      // 1. RM Issuance = (52,062 + 19) * 0.00967 = 503.62 KG
+      // 1. RM Issuance = recorded stock_ledger OUT = 503.62 KG
       expect(at('RM-WIRE-009').issuance).toBeCloseTo(503.62, 2);
       expect(at('RM-WIRE-009').closingPieces).toBeCloseTo(2932.03 - 503.62, 2);
 
-      // 2. ST Issuance = SW Prod (54,623) + SW Rejection (18) = 54,641 PCS
+      // 2. ST Issuance = recorded stock_ledger OUT = 54,641 PCS
       expect(at('WIP-ST-001').issuance).toBe(54641);
       expect(at('WIP-ST-001').closingPieces).toBe(16023 + 52062 - 54641);
 
-      // 3. SW Issuance = SP Outer Prod (40,200) + SP Outer Rejection (45) = 40,245 PCS
-      expect(at('WIP-SW-001').issuance).toBe(40245);
-      expect(at('WIP-SW-001').closingPieces).toBe(119255 + 54623 - 40245);
+      // 3. SW Issuance = recorded stock_ledger OUT = 27,029 PCS (matches Stock Movement History 31,469!)
+      expect(at('WIP-SW-001').issuance).toBe(27029);
+      expect(at('WIP-SW-001').closingPieces).toBe(7985 + 50513 - 27029);
 
       // 4. Reconciliation check: every row is mathematically balanced
       expect(grid.summary.balanced).toBe(true);
@@ -854,7 +838,7 @@ describe('ItemWiseProductionLedger — Inner-Only / Outer-Only Packing Split & M
   });
 
   describe('Control Cable Division (Meter UOM & kg/m conversion)', () => {
-    it('resolves kg/m for M items, converts FL (KG) issuance from SP Meters, and preserves RM -> FL 1:1 KG', () => {
+    it('resolves kg/m for M items, uses stock_ledger KG OUT for FL stage, and preserves 100% weight calculation', () => {
       const ccdChain = {
         key: 'CCD-FGR-001',
         label: '5 MM PVC 2P Outer Casing — CCD-FGR-001',
@@ -869,11 +853,11 @@ describe('ItemWiseProductionLedger — Inner-Only / Outer-Only Packing Split & M
       };
 
       const rows = [
-        reportRow('RM-WIRE-001', 'KG', 1000, 0),
-        reportRow('FLAT-STRIP-001', 'KG', 429, 0),
-        { ...reportRow('WIP-CS-001', 'M', 30171 - 800.37, 800.37), scrapOut: 0 },
-        reportRow('WIP-PVC-001', 'M', 5000, 0),
-        reportRow('CCD-FGR-001', 'M', 0, 0),
+        reportRow('RM-WIRE-001', 'KG', 1000, 0, 0),
+        reportRow('FLAT-STRIP-001', 'KG', 429, 0, 26.4122),
+        { ...reportRow('WIP-CS-001', 'M', 30171 - 800.37, 800.37, 0), scrapOut: 0 },
+        reportRow('WIP-PVC-001', 'M', 5000, 0, 0),
+        reportRow('CCD-FGR-001', 'M', 0, 0, 0),
       ];
 
       const weights = {
@@ -885,7 +869,7 @@ describe('ItemWiseProductionLedger — Inner-Only / Outer-Only Packing Split & M
       const grid = buildChainGrid(ccdChain, rows as any, {}, weights);
       const at = (code: string) => grid.rows.find((r) => r.itemCode === code)!;
 
-      // 1. FL (KG) deducts SP (800.37 M * 0.033 kg/m = 26.4122 KG), NOT raw 800.37!
+      // 1. FL (KG) uses exact stock_ledger consumption (26.4122 KG)
       expect(at('FLAT-STRIP-001').issuance).toBeCloseTo(26.4122, 4);
       expect(at('FLAT-STRIP-001').closingPieces).toBeCloseTo(429 - 26.4122, 4);
 
@@ -895,6 +879,39 @@ describe('ItemWiseProductionLedger — Inner-Only / Outer-Only Packing Split & M
       expect(at('WIP-CS-001').totalWeight).toBeCloseTo(30171 * 0.033, 2);
       expect(grid.summary.packedUom).toBe('M');
       expect(grid.summary.balanced).toBe(true);
+    });
+  });
+
+  describe('resolveLedgerWindow & client-side cache key resolution', () => {
+    it('anchors daily cutoff scrapFrom to 2026-10-01 without putting chainKey in the cache key', () => {
+      clearBulkLedgerClientCache();
+      const d = dayjs('2026-11-23');
+      const win = resolveLedgerWindow('daily', d, d);
+      expect(win).toEqual({
+        isRange: false,
+        periodFrom: '2026-11-23',
+        endDate: '2026-11-23',
+        scrapFrom: '2026-10-01',
+        cacheKey: '2026-11-23__2026-11-23__2026-10-01',
+      });
+
+      const early = dayjs('2026-09-18');
+      const earlyWin = resolveLedgerWindow('daily', early, early);
+      expect(earlyWin.scrapFrom).toBe('2026-09-01');
+      expect(earlyWin.cacheKey).toBe('2026-09-18__2026-09-18__2026-09-01');
+    });
+
+    it('uses the full selected period in range mode', () => {
+      const s = dayjs('2026-11-10');
+      const e = dayjs('2026-11-23');
+      const win = resolveLedgerWindow('range', s, e);
+      expect(win).toEqual({
+        isRange: true,
+        periodFrom: '2026-11-10',
+        endDate: '2026-11-23',
+        scrapFrom: '2026-11-10',
+        cacheKey: '2026-11-10__2026-11-23__2026-11-10',
+      });
     });
   });
 });

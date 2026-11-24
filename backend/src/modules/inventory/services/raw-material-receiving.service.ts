@@ -2065,17 +2065,21 @@ export class RawMaterialReceivingService implements OnModuleInit {
     let totalOut = 0;
     let totalDispatched = 0;
 
+    // PRODUCTION_SCRAP is an audit-only trail (never alters physical stock balance).
     const movements = records.map((r) => {
       const qty = Number(r.quantity || 0);
       const isIncoming = r.direction === 'IN';
-      if (isIncoming) {
-        runningBalance += qty;
-        totalIn += qty;
-      } else {
-        runningBalance -= qty;
-        totalOut += qty;
-        if (r.referenceType === 'SALES_DELIVERY' || r.transactionType === 'SALES_DELIVERY') {
-          totalDispatched += qty;
+      const isAuditOnly = r.transactionType === 'PRODUCTION_SCRAP';
+      if (!isAuditOnly) {
+        if (isIncoming) {
+          runningBalance += qty;
+          totalIn += qty;
+        } else {
+          runningBalance -= qty;
+          totalOut += qty;
+          if (r.referenceType === 'SALES_DELIVERY' || r.transactionType === 'SALES_DELIVERY') {
+            totalDispatched += qty;
+          }
         }
       }
 
@@ -2190,7 +2194,7 @@ export class RawMaterialReceivingService implements OnModuleInit {
         'usedInProduction',
       )
       .addSelect(
-        `COALESCE(SUM(CASE WHEN sl.direction = 'IN' THEN sl.quantity ELSE -sl.quantity END), 0)`,
+        `COALESCE(SUM(CASE WHEN sl.transactionType <> 'PRODUCTION_SCRAP' THEN (CASE WHEN sl.direction = 'IN' THEN sl.quantity ELSE -sl.quantity END) ELSE 0 END), 0)`,
         'ledgerNetBalance',
       )
       .where('sl.companyId = :companyId', { companyId });

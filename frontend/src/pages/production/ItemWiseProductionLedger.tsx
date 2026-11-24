@@ -1379,7 +1379,12 @@ export const buildChainGrid = (
     const dpParentFgSrc = isDp ? (rowByCode.get(dpParentFgCode) ?? fgSrc) : undefined;
     const rowDpDispatched = isDp ? round4(num(dpParentFgSrc?.totalOut)) : dpDispatched;
     const dpRowSource = isDp ? rowByCode.get(rowDef.itemCode) : undefined;
-    const src = isDp ? dpParentFgSrc : rowByCode.get(rowDef.itemCode);
+    const src = isDp
+      ? dpParentFgSrc
+      : rowByCode.get(rowDef.itemCode) ??
+        (rowDef.itemCode.startsWith('WIP-SP-')
+          ? rowByCode.get(rowDef.itemCode.replace('WIP-SP-', 'WIP-SPK-'))
+          : undefined);
     const effectiveUom = src?.uomCode ?? (isDp ? dpParentFgSrc?.uomCode : undefined);
     const isFgOrDp = rowDef.stage === 'FG' || isDp;
     const srcMeterWeight = isFgOrDp
@@ -1397,38 +1402,23 @@ export const buildChainGrid = (
             isDp ? dpParentFgCode : rowDef.itemCode,
           );
 
-    // Chain-isolated override ensures shared items (e.g. WIP-ST-001) in multiple chains never clobber each other
-    const chainOrderOverride = openingBalanceOverrides?.get(`${def.key}__${rowDef.order}__${rowDef.itemCode}`);
-    const chainKeyOverride = openingBalanceOverrides?.get(`${def.key}__${rowDef.itemCode}`);
-    const genericOverride = openingBalanceOverrides?.get(rowDef.itemCode);
-    const resolvedOp = chainOrderOverride !== undefined
-      ? chainOrderOverride
-      : chainKeyOverride !== undefined
-        ? chainKeyOverride
-        : genericOverride !== undefined
-          ? genericOverride
-          : isDp
-            ? round4(num(dpRowSource?.openingBalance ?? dpParentFgSrc?.openingDispatched ?? 0))
-            : round4(num(src?.openingBalance));
+    // Derive Opening Balance strictly from `stock_ledger` (< dateFrom) so Closing Qty
+    // matches Stock Movement History & Item Ledger 100% (no synthetic rolling overrides).
+    const resolvedOp = isDp
+      ? round4(num(dpRowSource?.openingBalance ?? dpParentFgSrc?.openingDispatched ?? 0))
+      : round4(num(src?.openingBalance));
 
     const rawScrapToday = round4(num(src?.scrapOut));
     const isKgStage = rowDef.stage === 'RM' || (src?.uomCode ?? '').toUpperCase() === 'KG';
     const scrapTodayPcs = isKgStage ? 0 : rawScrapToday;
     const scrapTodayKg = isKgStage ? rawScrapToday : round4(rawScrapToday * (multiplier ?? 0));
 
+    // Derive Production (+ IN) strictly from `stock_ledger` inflows (`totalIn`) for all real stages.
     return {
       def: rowDef,
       src,
       opBalance: round4(num(resolvedOp)),
-      production: isDp
-        ? rowDpDispatched
-        : round4(
-            rowDef.stage === 'RM'
-              ? num(src?.totalIn)
-              : rowDef.stage === 'FG' || rowDef.stage === 'NP'
-                ? (num(src?.produced) > 0 ? num(src?.produced) : num(src?.totalIn))
-                : (src?.produced !== undefined ? num(src?.produced) : num(src?.totalIn)),
-          ),
+      production: isDp ? rowDpDispatched : round4(num(src?.totalIn)),
       scrapTodayPcs,
       scrapTodayKg,
       multiplier,
@@ -1439,42 +1429,26 @@ export const buildChainGrid = (
   const byStage = (stage: string) => pass1.filter((p) => p.def.stage === stage);
 
   /**
-   * ── PASS 2 — Issuance = actual recorded stock ledger issues, or successor stage Production. ──
-   * When actual consumption is recorded in the stock ledger (e.g. SPK consuming ST), that real
-   * outward flow is used so that Today's Closing strictly equals Tomorrow's Opening with 100% precision.
+   * ── PASS 2 — Issuance = Single Source of Truth (`stock_ledger` OUT). ──
+   * Every stage's Issuance (- OUT) comes strictly from `stock_ledger` (`totalOut`)
+   * so Op Balance + Production (+ IN) - Issuance (- OUT) === Closing Qty ===
+   * Stock Movement History & Item Ledger 100%. Downstream/packing split info
+   * is retained as audit context in Remarks without altering stock math.
    */
   const resolveIssuance = (p: StagePass): IssuanceResolution => {
     const stage = p.def.stage;
     const recordedOut = round4(num(p.src?.totalOut));
     const recordedConsumed = p.src?.consumed !== undefined ? round4(num(p.src?.consumed)) : 0;
-    const actualOut = round4(Math.max(recordedOut, recordedConsumed));
-    // Outflows from vendor returns or non-production store transfers
     const nonProdOut = p.src?.consumed !== undefined
       ? Math.max(0, round4(recordedOut - recordedConsumed))
       : 0;
-
-    const ledger = (rule: string): IssuanceResolution => {
-      const val = stage === 'RM' ? recordedOut : actualOut;
-      let remarks = '—';
-      if (val > 0) {
-        remarks = stage === 'RM' ? `Return Out: ${fmtQty(val, 'KG')} KG` : `Issued: ${fmtQty(val, p.src?.uomCode)}`;
-      }
-      return {
-        value: val,
-        rule,
-        driven: false,
-        remarks,
-        prodValue: 0,
-        returnOutValue: val,
-      };
-    };
 
     if (stage === 'DP') {
       const val = p.production;
       return {
         value: 0,
         rule: 'Terminal Dispatch Stage — Dispatched Quantity in Closing',
-        driven: false,
+        driven: true,
         remarks: val > 0 ? `Dispatched (${fmtQty(val, p.src?.uomCode ?? 'PCS')})` : '—',
         prodValue: 0,
         returnOutValue: 0,
@@ -1482,240 +1456,58 @@ export const buildChainGrid = (
     }
 
     if (stage === 'FG' || stage === 'NP') {
-      const val = recordedOut;
       const inhouseProd = round4(num(p.src?.produced));
       const inwardImport = Math.max(0, round4(num(p.src?.totalIn) - inhouseProd));
-      let remarks = '—';
       const parts: string[] = [];
       if (inhouseProd > 0 && inwardImport > 0) {
         parts.push(`Prod: ${fmtDisplayQty(inhouseProd, p.src?.uomCode)} | Inward: +${fmtDisplayQty(inwardImport, p.src?.uomCode)}`);
       } else if (inwardImport > 0) {
         parts.push(`Inward / Import: +${fmtDisplayQty(inwardImport, p.src?.uomCode)}`);
       }
-      if (val > 0) {
-        parts.push(stage === 'FG' ? `Issued to DP (${fmtDisplayQty(val, p.src?.uomCode ?? 'PCS')})` : `Issued (${fmtDisplayQty(val, p.src?.uomCode ?? 'PCS')})`);
+      if (p.src?.packingModeSummary) {
+        parts.push(p.src.packingModeSummary);
       }
-      if (parts.length > 0) {
-        remarks = parts.join(' | ');
+      if (recordedOut > 0) {
+        parts.push(stage === 'FG' ? `Issued to DP (${fmtDisplayQty(recordedOut, p.src?.uomCode ?? 'PCS')})` : `Issued (${fmtDisplayQty(recordedOut, p.src?.uomCode ?? 'PCS')})`);
       }
       return {
-        value: val,
-        rule: 'Recorded issues (OUT) — Issued to DP',
-        driven: false,
-        remarks,
+        value: recordedOut,
+        rule: 'Stock Ledger (OUT) — Dispatched / Issued',
+        driven: true,
+        remarks: parts.length > 0 ? parts.join(' | ') : '—',
         prodValue: 0,
-        returnOutValue: val,
+        returnOutValue: recordedOut,
       };
     }
 
     const nextStage = successorOf(stage);
-    if (!nextStage) return ledger('Recorded issues (OUT) — no successor stage');
-
-    const consumers = byStage(nextStage);
-
-    // Same branch (Inner→Inner, Outer→Outer) when both sides declare one.
-    const matched =
-      p.def.splitSide !== undefined
-        ? consumers.filter((c) => c.def.splitSide === p.def.splitSide)
-        : consumers.filter((c) => c.def.splitSide === undefined);
-
-    const downstreamRows = matched.length > 0 ? matched : consumers;
-    const downstreamLive = downstreamRows.some(
-      (c) => Math.abs(c.opBalance) > 1e-9 || Math.abs(c.production) > 1e-9 || Math.abs(c.scrapTodayPcs) > 1e-9,
-    );
-    if (!downstreamLive) {
-      return {
-        value: 0,
-        rule: `${nextStage} holds no material — issuance suppressed (no downstream receipt)`,
-        driven: false,
-        suppressed: true,
-        remarks: '—',
-        prodValue: 0,
-        returnOutValue: 0,
-      };
-    }
-
-    // Any KG-tracked stage (e.g. RM Wire, FL Flat Strip) converts non-KG successor quantities
-    // (PCS or M) + part rejection into KG using that successor's exact kg/pc or kg/m weight.
-    // When both this stage and its successor are in KG (e.g. RM -> FL), consumption stays 1:1 in KG.
-    const stageUomUpper = (p.src?.uomCode ?? '').trim().toUpperCase();
-    const isThisKg = stage === 'RM' || stageUomUpper === 'KG';
-    const convert = (c: StagePass): number | null => {
-      const succUomUpper = (c.src?.uomCode ?? '').trim().toUpperCase();
-      const isSuccKg = c.def.stage === 'RM' || succUomUpper === 'KG';
-      const grossDemand = round4(c.production + (isSuccKg ? c.scrapTodayKg : c.scrapTodayPcs));
-      if (!isThisKg || isSuccKg) return grossDemand;
-      const w = c.multiplier ?? STANDARD_ITEM_WEIGHTS[c.def.itemCode] ?? null;
-      if (w === null) return null;
-      return round4(grossDemand * w);
-    };
-
-    if (matched.length > 0) {
-      if (!matched.every((c) => c.found)) {
-        return ledger(`Recorded issues (OUT) — ${nextStage} driver unavailable`);
-      }
-      const parts = matched.map(convert);
-      const prodValue = parts.some((v) => v === null) ? 0 : round4(parts.reduce<number>((s, v) => s + (v ?? 0), 0));
-      const label = matched.map((c) => c.def.itemCode).join(' + ');
-      const totalValue = round4(prodValue + nonProdOut);
-
-      let remarks = '—';
-      if (isThisKg) {
-        const nextRow = matched[0] ?? consumers[0];
-        const nextUom = (nextRow?.src?.uomCode ?? (nextRow?.def.stage === 'RM' ? 'KG' : 'PCS')).trim().toUpperCase();
-        const isNextKg = nextRow?.def.stage === 'RM' || nextUom === 'KG';
-        const nextProdQty = round4(matched.reduce((s, c) => s + c.production, 0));
-        const nextRejQty = round4(matched.reduce((s, c) => s + (isNextKg ? c.scrapTodayKg : c.scrapTodayPcs), 0));
-        const nextTotalQty = round4(nextProdQty + nextRejQty);
-        const rejSuffix = nextRejQty > 0 ? ` (incl. ${fmtDisplayQty(nextRejQty, nextUom)} Rej)` : '';
-        if (prodValue > 0 && nonProdOut > 0) {
-          remarks = `Prod: ${fmtDisplayKg(prodValue)} KG (Next: ${fmtDisplayQty(nextTotalQty, nextUom)} ${nextUom}${rejSuffix}) | Return: ${fmtDisplayKg(nonProdOut)} KG`;
+    const targetDept = nextStage ? (DEPARTMENT_NAME[nextStage] || nextStage) : '';
+    const isThisKg = stage === 'RM' || (p.src?.uomCode ?? '').trim().toUpperCase() === 'KG';
+    let remarks = '—';
+    if (recordedOut > 0) {
+      if (stage === 'RM') {
+        if (recordedConsumed > 0 && nonProdOut > 0) {
+          remarks = `Prod: ${fmtDisplayKg(recordedConsumed)} KG | Return Out: -${fmtDisplayKg(nonProdOut)} KG`;
         } else if (nonProdOut > 0) {
           remarks = `Return Out: ${fmtDisplayKg(nonProdOut)} KG`;
-        } else if (totalValue > 0) {
-          remarks = `Prod Consumed: ${fmtDisplayKg(totalValue)} KG (Next Stage Prod: ${fmtDisplayQty(nextTotalQty, nextUom)} ${nextUom}${rejSuffix})`;
-        }
-      } else {
-        const targetDept = DEPARTMENT_NAME[nextStage] || nextStage;
-        const nextProdQty = round4(matched.reduce((s, c) => s + c.production, 0));
-        const nextRejQty = round4(matched.reduce((s, c) => s + c.scrapTodayPcs, 0));
-        const rejSuffix = nextRejQty > 0 ? ` (incl. ${fmtDisplayQty(nextRejQty, p.src?.uomCode)} Rej)` : '';
-        if (prodValue > 0 && nonProdOut > 0) {
-          remarks = `Issued to ${targetDept} (Next Stage Prod: ${fmtDisplayQty(prodValue, p.src?.uomCode)}${rejSuffix}) | Return Out: ${fmtDisplayQty(nonProdOut, p.src?.uomCode)}`;
-        } else if (nonProdOut > 0) {
-          remarks = `Return Out: ${fmtDisplayQty(nonProdOut, p.src?.uomCode)}`;
-        } else if (prodValue > 0) {
-          remarks = `Issued to ${targetDept} (Next Stage Prod: ${fmtDisplayQty(prodValue, p.src?.uomCode)}${rejSuffix})`;
-        } else if (totalValue > 0) {
-          remarks = `Issued to ${targetDept} (${fmtDisplayQty(totalValue, p.src?.uomCode)})`;
-        } else if (nextStage === 'FG') {
-          remarks = 'No Hand Packing / FG (Next Stage Prod: 0)';
         } else {
-          remarks = `No ${targetDept} Production (0)`;
+          remarks = `Prod Consumed: ${fmtDisplayKg(recordedOut)} KG`;
         }
-      }
-
-      return {
-        value: totalValue,
-        rule:
-          isThisKg && matched.some((c) => c.def.stage !== 'RM' && (c.src?.uomCode ?? '').trim().toUpperCase() !== 'KG')
-            ? `${label} (Production + Rejection) × weight (KG)`
-            : `= ${label} (Production + Rejection)`,
-        driven: true,
-        remarks,
-        prodValue,
-        returnOutValue: nonProdOut,
-      };
-    }
-
-    // ── PLATING (PL Inner / PL Outer) → HAND PACKING (FG) EXACT SPLIT RESOLUTION ──
-    // Respects Inner-Only (100% PL Inner, 0% PL Outer), Outer-Only (0% PL Inner, 100% PL Outer),
-    // and Full Set (50% PL Inner, 50% PL Outer), summed across all merged FG items in this chain.
-    const hasFoundConsumer = consumers.length > 1 ? consumers.some((c) => c.found) : consumers.every((c) => c.found);
-    if (!hasFoundConsumer) {
-      return ledger(`Recorded issues (OUT) — ${nextStage} driver unavailable`);
-    }
-
-    const shareCount = byStage(stage).length || 1;
-    let prodValue = 0;
-    let rule = `${nextStage} Production ${shareCount > 1 ? `÷ ${shareCount}` : ''} (shared)`;
-    const fgBreakdowns: string[] = [];
-    let anyExplicitSplit = false;
-
-    if (stage === 'PL' && nextStage === 'FG' && (p.def.splitSide === 'INNER' || p.def.splitSide === 'OUTER')) {
-      const side = p.def.splitSide;
-      const contribList: number[] = [];
-
-      consumers.forEach((c) => {
-        const fgProd = round4(c.production + c.scrapTodayPcs);
-        let sideQty = round4(fgProd / shareCount);
-
-        if (c.src && (c.src.innerPacked !== undefined || c.src.outerPacked !== undefined)) {
-          const inn = round4(num(c.src.innerPacked));
-          const out = round4(num(c.src.outerPacked));
-          const splitSum = round4(inn + out);
-          if (c.src.hasExplicitSplit) {
-            anyExplicitSplit = true;
-          }
-          if (Math.abs(splitSum - fgProd) <= 0.01) {
-            sideQty = side === 'INNER' ? inn : out;
-          } else if (fgProd > splitSum) {
-            const remainder = round4(fgProd - splitSum);
-            sideQty = round4((side === 'INNER' ? inn : out) + remainder / shareCount);
-          } else if (splitSum > 0) {
-            const ratio = fgProd / splitSum;
-            sideQty = round4((side === 'INNER' ? inn : out) * ratio);
-          }
-        }
-
-        contribList.push(sideQty);
-        if (sideQty > 0) {
-          const modeTag = c.src?.hasExplicitSplit && c.src?.packingModeSummary
-            ? ` [${c.src.packingModeSummary}]`
-            : '';
-          fgBreakdowns.push(`${c.def.itemCode}: ${fmtDisplayQty(sideQty, p.src?.uomCode)}${modeTag}`);
-        }
-      });
-
-      prodValue = round4(contribList.reduce((s, v) => s + v, 0));
-      const fgLabel = consumers.map((c) => c.def.itemCode).join(' + ');
-      rule = anyExplicitSplit
-        ? `${fgLabel} Packing (${side === 'INNER' ? 'Inner' : 'Outer'} Split)`
-        : `${fgLabel} (Production + Rejection) ${shareCount > 1 ? `÷ ${shareCount}` : ''} (shared)`;
-    } else {
-      const parts = consumers.map(convert);
-      const pool = parts.some((v) => v === null) ? 0 : round4(parts.reduce<number>((s, v) => s + (v ?? 0), 0));
-      prodValue = round4(pool / shareCount);
-    }
-
-    const totalValue = round4(prodValue + nonProdOut);
-    const totalFgProd = round4(consumers.reduce((s, c) => s + c.production + c.scrapTodayPcs, 0));
-
-    let remarks = '—';
-    if (isThisKg) {
-      const nextUom = (consumers[0]?.src?.uomCode ?? (consumers[0]?.def.stage === 'RM' ? 'KG' : 'PCS')).trim().toUpperCase();
-      const nextProdQty = consumers[0]?.production ?? 0;
-      if (prodValue > 0 && nonProdOut > 0) {
-        remarks = `Prod: ${fmtDisplayKg(prodValue)} KG (Next: ${fmtDisplayQty(nextProdQty, nextUom)} ${nextUom}) | Return: ${fmtDisplayKg(nonProdOut)} KG`;
-      } else if (nonProdOut > 0) {
-        remarks = `Return Out: ${fmtDisplayKg(nonProdOut)} KG`;
-      } else if (totalValue > 0) {
-        remarks = `Prod Consumed: ${fmtDisplayKg(totalValue)} KG (Next Stage Prod: ${fmtDisplayQty(nextProdQty, nextUom)} ${nextUom})`;
-      }
-    } else {
-      const targetDept = DEPARTMENT_NAME[nextStage] || nextStage;
-      const breakdownSuffix =
-        stage === 'PL' && nextStage === 'FG' && (consumers.length > 1 || anyExplicitSplit) && fgBreakdowns.length > 0
-          ? ` (${fgBreakdowns.join(' + ')}${fgBreakdowns.length > 1 ? ` = ${fmtDisplayQty(prodValue, p.src?.uomCode)}` : ''})`
-          : ` (Next Stage Prod: ${fmtDisplayQty(prodValue, p.src?.uomCode)})`;
-
-      if (prodValue > 0 && nonProdOut > 0) {
-        remarks = `Issued to ${targetDept}${breakdownSuffix} | Return Out: ${fmtDisplayQty(nonProdOut, p.src?.uomCode)}`;
-      } else if (nonProdOut > 0) {
-        remarks = `Return Out: ${fmtDisplayQty(nonProdOut, p.src?.uomCode)}`;
-      } else if (prodValue > 0) {
-        remarks = `Issued to ${targetDept}${breakdownSuffix}`;
-      } else if (totalValue > 0) {
-        remarks = `Issued to ${targetDept} (${fmtDisplayQty(totalValue, p.src?.uomCode)})`;
-      } else if (nextStage === 'FG') {
-        if (totalFgProd > 0 && (p.def.splitSide === 'INNER' || p.def.splitSide === 'OUTER')) {
-          const thisSideLabel = p.def.splitSide === 'INNER' ? 'Inner' : 'Outer';
-          const otherSideLabel = p.def.splitSide === 'INNER' ? 'Outer Only' : 'Inner Only';
-          remarks = `No ${thisSideLabel} Packed (${otherSideLabel} Packed: ${fmtDisplayQty(totalFgProd, p.src?.uomCode)})`;
-        } else {
-          remarks = 'No Hand Packing / FG (Next Stage Prod: 0)';
-        }
+      } else if (isThisKg) {
+        remarks = `Issued to ${targetDept || 'Production'}: ${fmtDisplayKg(recordedOut)} KG`;
       } else {
-        remarks = `No ${targetDept} Production (0)`;
+        remarks = targetDept
+          ? `Issued to ${targetDept}: ${fmtDisplayQty(recordedOut, p.src?.uomCode)}`
+          : `Issued: ${fmtDisplayQty(recordedOut, p.src?.uomCode)}`;
       }
     }
 
     return {
-      value: totalValue,
-      rule,
+      value: recordedOut,
+      rule: 'Stock Ledger (OUT)',
       driven: true,
       remarks,
-      prodValue,
+      prodValue: recordedConsumed > 0 ? recordedConsumed : (stage === 'RM' ? 0 : recordedOut),
       returnOutValue: nonProdOut,
     };
   };
@@ -2196,6 +1988,41 @@ let cachedWeightMapData: Record<string, number | null> = { ...STANDARD_ITEM_WEIG
 let cachedItemNamesData: Record<string, string> = {};
 let cachedRawChainsList: ChainDef[] | null = null;
 let cachedAllChainsList: ChainDef[] | null = null;
+let loadWeightsInFlight: Promise<void> | null = null;
+
+export const LEDGER_SYSTEM_BASELINE_DATE = '2026-10-01';
+const MAX_LEDGER_CACHE_DATES = 60;
+
+export interface BulkLedgerWindow {
+  isRange: boolean;
+  periodFrom: string;
+  endDate: string;
+  scrapFrom: string;
+  cacheKey: string;
+}
+
+export const resolveLedgerWindow = (
+  viewMode: 'daily' | 'range',
+  rangeStart: Dayjs,
+  rangeEnd: Dayjs,
+): BulkLedgerWindow => {
+  const endDate = rangeEnd.format('YYYY-MM-DD');
+  const startStr = rangeStart.format('YYYY-MM-DD');
+  const isRange = viewMode === 'range' && !rangeStart.isSame(rangeEnd, 'day');
+  const periodFrom = isRange ? (startStr <= endDate ? startStr : endDate) : endDate;
+  const scrapFrom = isRange
+    ? periodFrom
+    : endDate >= LEDGER_SYSTEM_BASELINE_DATE
+    ? LEDGER_SYSTEM_BASELINE_DATE
+    : rangeEnd.startOf('month').format('YYYY-MM-DD');
+  return {
+    isRange,
+    periodFrom,
+    endDate,
+    scrapFrom,
+    cacheKey: `${periodFrom}__${endDate}__${scrapFrom}`,
+  };
+};
 
 interface CachedLedgerReport {
   dayItems: ReportRow[];
@@ -2204,7 +2031,99 @@ interface CachedLedgerReport {
   chainOpeningOverrides?: Map<string, number>;
 }
 const ledgerReportCache = new Map<string, CachedLedgerReport>();
+const inFlightBulkLedgerCache = new Map<string, Promise<CachedLedgerReport>>();
 const rawDayItemsReportCache = new Map<string, ReportRow[]>();
+
+export const clearBulkLedgerClientCache = (): void => {
+  ledgerReportCache.clear();
+  inFlightBulkLedgerCache.clear();
+  rawDayItemsReportCache.clear();
+};
+
+const touchLedgerCache = (key: string, value: CachedLedgerReport): void => {
+  if (ledgerReportCache.has(key)) {
+    ledgerReportCache.delete(key);
+  } else if (ledgerReportCache.size >= MAX_LEDGER_CACHE_DATES) {
+    const oldestKey = ledgerReportCache.keys().next().value;
+    if (oldestKey !== undefined) {
+      ledgerReportCache.delete(oldestKey);
+    }
+  }
+  ledgerReportCache.set(key, value);
+};
+
+const materializeBulkLedgerItems = (
+  rawItems: ReportRow[],
+  chainsSnapshot: ChainDef[],
+  namesSnapshot: Record<string, string>,
+): ReportRow[] => {
+  const masterByCode = new Map<string, any>(
+    (cachedMasterItems ?? []).map((m: any) => [m?.itemCode, m]),
+  );
+  const items: ReportRow[] = rawItems.map((r) => ({ ...r }));
+  const presentCodes = new Set(items.map((r) => r.itemCode));
+
+  chainsSnapshot.forEach((c) => {
+    c.rows.forEach((rDef) => {
+      if (rDef.stage === 'DP') return;
+      if (!presentCodes.has(rDef.itemCode)) {
+        presentCodes.add(rDef.itemCode);
+        const m = masterByCode.get(rDef.itemCode);
+        items.push({
+          itemId: m?.id ?? rDef.itemCode,
+          itemCode: rDef.itemCode,
+          itemName: m?.name ?? namesSnapshot[rDef.itemCode] ?? rDef.itemLabel ?? rDef.itemCode,
+          itemType: m?.itemType ?? (rDef.stage === 'RM' ? 'RAW_MATERIAL' : rDef.stage === 'FG' ? 'FINISHED_GOOD' : 'WIP'),
+          uomCode: m?.baseUom?.code ?? m?.uom?.code ?? m?.uomCode ?? (rDef.stage === 'RM' || rDef.stage === 'FL' ? 'KG' : 'PCS'),
+          openingBalance: 0,
+          openingDispatched: 0,
+          totalIn: 0,
+          totalOut: 0,
+          scrapOut: 0,
+          consumed: 0,
+          produced: 0,
+          closingBalance: 0,
+          onHand: 0,
+          flow: { source: null, consumers: [], flowStatus: 'CHAIN' },
+        });
+      }
+    });
+  });
+
+  const byCode = new Map(items.map((it) => [it.itemCode, it]));
+
+  // Seed DP Dispatch Outward pseudo rows from their parent FG opening & period dispatch
+  chainsSnapshot.forEach((c) => {
+    c.rows.filter((r) => r.stage === 'DP').forEach((dpR) => {
+      if (!byCode.has(dpR.itemCode)) {
+        const parentCode = dpR.itemCode.replace(/-DISP$/, '') || c.fgItemCode;
+        const parentRow = byCode.get(parentCode);
+        const op = round4(num(parentRow?.openingDispatched ?? 0));
+        const out = round4(num(parentRow?.totalOut ?? 0));
+        const dpRow: ReportRow = {
+          itemId: dpR.itemCode,
+          itemCode: dpR.itemCode,
+          itemName: dpR.itemLabel || `${dpR.itemCode} Outward Stage`,
+          itemType: 'FINISHED_GOOD',
+          uomCode: parentRow?.uomCode ?? 'PCS',
+          openingBalance: op,
+          totalIn: out,
+          totalOut: 0,
+          scrapOut: 0,
+          consumed: 0,
+          produced: out,
+          closingBalance: round4(op + out),
+          onHand: round4(op + out),
+          flow: { source: null, consumers: [], flowStatus: 'CHAIN' },
+        };
+        byCode.set(dpR.itemCode, dpRow);
+        items.push(dpRow);
+      }
+    });
+  });
+
+  return items;
+};
 
 
 /* ── Component ────────────────────────────────────────────────────────── */
@@ -2346,44 +2265,13 @@ const ItemWiseProductionLedger: React.FC = () => {
   const [excludedChains, setExcludedChains] = useState<Record<string, boolean>>({});
   const [tick, setTick] = useState(0);
 
-  /** The End Date IS "today" for the ledger — it drives every cutoff. */
-  const endDate = range[1].format('YYYY-MM-DD');
-
-  /**
-   * Sequential Daily Chain:
-   * "Today's Closing is Tomorrow's Opening".
-   * Rolling forward from the 1st of the month ensures that for every single day
-   * after the 1st (e.g. 2026-10-02, 2026-10-03, etc.), yesterday's closing balance
-   * seamlessly becomes today's opening balance.
-   */
-  /**
-   * Universal Production Pipeline Baseline Anchor:
-   * In PWI ERP, production opening stock balances were initialized on 2026-10-01.
-   * To guarantee the fundamental mathematical law:
-   *   "Closing(Day D - 1) ≡ Opening(Day D)"
-   * holds across month boundaries (e.g. Oct 31 -> Nov 01), the chronological roll MUST anchor
-   * to 2026-10-01 (or the month boundary if viewing earlier historical data).
-   */
-  const LEDGER_SYSTEM_BASELINE_DATE = '2026-10-01';
-
-  const monthFrom = useMemo(() => {
-    const isSingleDay = viewMode === 'daily' || range[0].isSame(range[1], 'day');
-    if (!isSingleDay) {
-      return range[0].isAfter(range[1])
-        ? range[1].startOf('month').format('YYYY-MM-DD')
-        : range[0].format('YYYY-MM-DD');
-    }
-    const endStr = range[1].format('YYYY-MM-DD');
-    // If viewing date on or after 2026-10-01, anchor the rolling window to 2026-10-01!
-    if (endStr >= LEDGER_SYSTEM_BASELINE_DATE) {
-      return LEDGER_SYSTEM_BASELINE_DATE;
-    }
-    const monthStart = range[1].startOf('month').format('YYYY-MM-DD');
-    if (endStr > monthStart) {
-      return monthStart;
-    }
-    return endStr;
-  }, [range, viewMode]);
+  const activeWindow = useMemo(
+    () => resolveLedgerWindow(viewMode, range[0], range[1]),
+    [viewMode, range],
+  );
+  const endDate = activeWindow.endDate;
+  const monthFrom = activeWindow.scrapFrom;
+  const prefetchTimerRef = useRef<number | null>(null);
 
   const chainDef = useMemo(
     () => filteredChains.find((c) => c.key === chainKey) ?? filteredChains[0] ?? null,
@@ -2407,17 +2295,19 @@ const ItemWiseProductionLedger: React.FC = () => {
     return found?.name || 'Selected Division';
   }, [selectedDivisionId, divisionsList]);
 
-  /** ±1 day: Shifts the active production date by delta days. */
+  /** ±1 day: Shifts the active production date by delta days cleanly (0ms if prefetched/cached). */
   const shiftEndDay = useCallback((delta: number) => {
-    setRows([]);
-    setLoading(true);
-    setLoadStatus('loading');
     setRange(([start, end]) => {
-      if (viewMode === 'daily' || start.isSame(end, 'day')) {
-        const next = end.add(delta, 'day');
-        return [next, next];
+      const nextRange: [Dayjs, Dayjs] =
+        viewMode === 'daily' || start.isSame(end, 'day')
+          ? [end.add(delta, 'day'), end.add(delta, 'day')]
+          : [start, end.add(delta, 'day')];
+      const nextWin = resolveLedgerWindow(viewMode, nextRange[0], nextRange[1]);
+      if (!ledgerReportCache.has(nextWin.cacheKey)) {
+        setLoading(true);
+        setLoadStatus('loading');
       }
-      return [start, end.add(delta, 'day')];
+      return nextRange;
     });
   }, [viewMode]);
 
@@ -2435,7 +2325,9 @@ const ItemWiseProductionLedger: React.FC = () => {
    * ZERO dependency infinite loop risk — uses stable refs and in-memory caches.
    */
   const loadWeights = useCallback(async (force = false) => {
-    if (!force && cachedRawChainsList && Object.keys(cachedWeightMapData).length > 0) {
+    if (force) {
+      loadWeightsInFlight = null;
+    } else if (cachedRawChainsList && Object.keys(cachedWeightMapData).length > 0) {
       const merged = mergeChainsByGroups(cachedRawChainsList, mergedFgGroupsRef.current);
       cachedAllChainsList = merged;
       allChainsRef.current = merged;
@@ -2446,16 +2338,31 @@ const ItemWiseProductionLedger: React.FC = () => {
       setItemNames(cachedItemNamesData);
       setWeightMap(cachedWeightMapData);
       return;
+    } else if (loadWeightsInFlight) {
+      await loadWeightsInFlight;
+      if (cachedRawChainsList) {
+        const merged = mergeChainsByGroups(cachedRawChainsList, mergedFgGroupsRef.current);
+        cachedAllChainsList = merged;
+        allChainsRef.current = merged;
+        itemNamesRef.current = cachedItemNamesData;
+        weightMapRef.current = cachedWeightMapData;
+        setRawChains(cachedRawChainsList);
+        setAllChains(merged);
+        setItemNames(cachedItemNamesData);
+        setWeightMap(cachedWeightMapData);
+      }
+      return;
     }
 
-    const currentChains = allChainsRef.current.length > 0 ? allChainsRef.current : CHAIN_REGISTRY;
-    const wanted = Array.from(
-      new Set(currentChains.flatMap((c) => c.rows.map((r) => r.itemCode.trim())).filter(Boolean)),
-    );
-    if (wanted.length === 0) return;
-    const found: Record<string, number | null> = {};
-    const toWeight = (raw: unknown): number | null =>
-      raw === null || raw === undefined || raw === '' ? null : num(raw);
+    const runLoadWeights = async () => {
+      const currentChains = allChainsRef.current.length > 0 ? allChainsRef.current : CHAIN_REGISTRY;
+      const wanted = Array.from(
+        new Set(currentChains.flatMap((c) => c.rows.map((r) => r.itemCode.trim())).filter(Boolean)),
+      );
+      if (wanted.length === 0) return;
+      const found: Record<string, number | null> = {};
+      const toWeight = (raw: unknown): number | null =>
+        raw === null || raw === undefined || raw === '' ? null : num(raw);
 
     // 1) Bulk request for Item Master + Production Routings
     try {
@@ -2720,529 +2627,201 @@ const ItemWiseProductionLedger: React.FC = () => {
       /* fall through */
     }
 
-    wanted.forEach((code) => {
-      if (!(code in found) && STANDARD_ITEM_WEIGHTS[code] != null) {
-        found[code] = STANDARD_ITEM_WEIGHTS[code];
-      }
+      wanted.forEach((code) => {
+        if (!(code in found) && STANDARD_ITEM_WEIGHTS[code] != null) {
+          found[code] = STANDARD_ITEM_WEIGHTS[code];
+        }
+      });
+      cachedWeightMapData = { ...STANDARD_ITEM_WEIGHTS, ...cachedWeightMapData, ...found };
+      weightMapRef.current = cachedWeightMapData;
+      setWeightMap(cachedWeightMapData);
+    };
+
+    loadWeightsInFlight = runLoadWeights().finally(() => {
+      loadWeightsInFlight = null;
     });
-    cachedWeightMapData = { ...STANDARD_ITEM_WEIGHTS, ...cachedWeightMapData, ...found };
-    weightMapRef.current = cachedWeightMapData;
-    setWeightMap(cachedWeightMapData);
+    await loadWeightsInFlight;
   }, []);
 
-  const load = useCallback(async (forceRefresh = false) => {
-    const requestId = ++activeRequestIdRef.current;
-    const cacheKey = `${endDate}__${monthFrom}`;
-
-    if (forceRefresh) {
-      rawDayItemsReportCache.clear();
-      ledgerReportCache.clear();
-    }
-
-    // §1 Prevent data bleeding: clear old rows and enter loading state immediately
-    setRows([]);
-    setLoading(true);
-    setLoadStatus('loading');
-    setError(null);
-
-    try {
-      // 1) Day window ⇒ inventory report for the selected endDate
-      const dayReq = apiService.get<{
-        data: {
-          items?: ReportRow[];
-          dailyBreakdown?: Record<
-            string,
-            Record<string, { totalIn: number; totalOut: number; consumed: number; scrapOut: number; produced: number }>
-          >;
-        };
-      }>('/production/inventory-report', { dateFrom: endDate, dateTo: endDate });
-      // 2) Month window ⇒ baseline opening at monthFrom, cumulative scrap, and per-day breakdown across [monthFrom, endDate]
-      const monthReq =
-        monthFrom === endDate
-          ? Promise.resolve(null)
-          : apiService.get<{
-              data: {
-                items?: ReportRow[];
-                dailyBreakdown?: Record<
-                  string,
-                  Record<string, { totalIn: number; totalOut: number; consumed: number; scrapOut: number; produced: number }>
-                >;
-              };
-            }>('/production/inventory-report', { dateFrom: monthFrom, dateTo: endDate });
-      // 3) All Daily Production Entries across [monthFrom, endDate] (with 10,000 limit so full month is never truncated)
-      // Buffer dateFrom by 1 day earlier to avoid UTC/PKT timezone offset dropping 19:00 UTC entries!
-      const queryDateFrom = dayjs(monthFrom).subtract(1, 'day').format('YYYY-MM-DD');
-      const queryDateTo = dayjs(endDate).add(1, 'day').format('YYYY-MM-DD');
-      const entriesReq = apiService.get<{ data?: any[] }>(
-        '/production/entries',
-        { dateFrom: queryDateFrom, dateTo: queryDateTo, limit: 10000 },
-      );
-
-      const [dayRes, monthRes, entriesRes] = await Promise.all([
-        dayReq,
-        monthReq,
-        entriesReq,
-        loadWeights(forceRefresh),
-      ]);
-
-      // If another date was selected while in-flight, discard stale response
-      if (activeRequestIdRef.current !== requestId) {
-        return;
+  const fetchOrReuseBulkLedger = useCallback(
+    async (win: BulkLedgerWindow, forceRefresh = false): Promise<CachedLedgerReport> => {
+      if (!forceRefresh) {
+        const existingCache = ledgerReportCache.get(win.cacheKey);
+        if (existingCache) {
+          touchLedgerCache(win.cacheKey, existingCache);
+          return existingCache;
+        }
+        const existingFlight = inFlightBulkLedgerCache.get(win.cacheKey);
+        if (existingFlight) {
+          return existingFlight;
+        }
       }
 
-      const dayItems: ReportRow[] = (dayRes?.data?.items ?? []).map((r) => ({ ...r }));
-      const monthItems = (monthRes?.data?.items ?? dayItems).map((r) => ({ ...r }));
-      const dailyBreakdown = monthRes?.data?.dailyBreakdown ?? dayRes?.data?.dailyBreakdown ?? null;
-      const entriesList = Array.isArray(entriesRes?.data) ? entriesRes.data : [];
-
-      const weights = { ...STANDARD_ITEM_WEIGHTS, ...weightMapRef.current };
-      const currentChains = allChainsRef.current.length > 0 ? allChainsRef.current : CHAIN_REGISTRY;
-      const currentNames = itemNamesRef.current;
-      const isRange = viewMode === 'range' && range[0].format('YYYY-MM-DD') !== range[1].format('YYYY-MM-DD');
-
-      // Ensure every chain item has a baseline template row so no item is missing on Day 1 vs Day 2+
-      const masterByCode = new Map<string, any>(
-        (cachedMasterItems ?? []).map((m: any) => [m?.itemCode, m]),
-      );
-      const baselineByCode = new Map<string, ReportRow>();
-      monthItems.forEach((r) => baselineByCode.set(r.itemCode, { ...r }));
-      dayItems.forEach((r) => {
-        if (!baselineByCode.has(r.itemCode)) {
-          baselineByCode.set(r.itemCode, {
-            ...r,
-            openingBalance: 0,
-            totalIn: 0,
-            totalOut: 0,
-            scrapOut: 0,
-            consumed: 0,
-            produced: 0,
-            closingBalance: 0,
-            onHand: 0,
-          });
-        }
-      });
-      currentChains.forEach((c) => {
-        c.rows.forEach((rDef) => {
-          if (rDef.stage === 'DP') return;
-          if (!baselineByCode.has(rDef.itemCode)) {
-            const m = masterByCode.get(rDef.itemCode);
-            baselineByCode.set(rDef.itemCode, {
-              itemId: m?.id ?? rDef.itemCode,
-              itemCode: rDef.itemCode,
-              itemName: m?.name ?? currentNames[rDef.itemCode] ?? rDef.itemLabel ?? rDef.itemCode,
-              itemType: m?.itemType ?? (rDef.stage === 'RM' ? 'RAW_MATERIAL' : rDef.stage === 'FG' ? 'FINISHED_GOOD' : 'WIP'),
-              uomCode: m?.baseUom?.code ?? m?.uom?.code ?? m?.uomCode ?? (rDef.stage === 'RM' || rDef.stage === 'FL' ? 'KG' : 'PCS'),
-              openingBalance: 0,
-              totalIn: 0,
-              totalOut: 0,
-              scrapOut: 0,
-              consumed: 0,
-              produced: 0,
-              closingBalance: 0,
-              onHand: 0,
-              flow: { source: null, consumers: [], flowStatus: 'CHAIN' },
-            });
-          }
-        });
-      });
-
-      const ensureAllBaselineItems = (targetList: ReportRow[], useMonthBaselineOpening: boolean): ReportRow[] => {
-        const present = new Set(targetList.map((r) => r.itemCode));
-        const copy = targetList.map((r) => ({ ...r }));
-        baselineByCode.forEach((baseRow, code) => {
-          if (!present.has(code)) {
-            const op = useMonthBaselineOpening ? round4(num(baseRow.openingBalance)) : 0;
-            copy.push({
-              ...baseRow,
-              openingBalance: op,
-              totalIn: 0,
-              totalOut: 0,
-              scrapOut: 0,
-              consumed: 0,
-              produced: 0,
-              closingBalance: op,
-              onHand: op,
-            });
-          }
-        });
-        return copy;
-      };
-
-      // Group entries by PKT YYYY-MM-DD -> itemCode -> pieces, split across
-      // each document's OUTPUT children so multi-item logs stay item-isolated.
-      const dailyProdMap = bucketDailyProduction(entriesList);
-      // Group Hand Packing entries by PKT YYYY-MM-DD -> itemCode -> { innerPacked, outerPacked }
-      // so Inner Only, Outer Only, and Full Set packing deduct from the exact PL Inner / PL Outer row.
-      const dailySplitMap = bucketDailyPackingSplit(entriesList);
-      // Group Part Rejections by PKT YYYY-MM-DD -> itemCode -> pieces
-      const dailyPartRejectionMap = bucketDailyPartRejection(entriesList);
-
-      // Aggregate month-to-date Part Rejections from entriesList [monthFrom, endDate]
-      const rejectionTotalsByCode = new Map<string, number>();
-      dailyPartRejectionMap.forEach((dayMap, day) => {
-        if (day >= monthFrom && day <= endDate) {
-          dayMap.forEach((qty, code) => {
-            rejectionTotalsByCode.set(code, round4((rejectionTotalsByCode.get(code) ?? 0) + qty));
-          });
-        }
-      });
-
-      // Aggregate range-wide packing splits for Date Range view
-      const rangeSplitByCode = new Map<string, DailyPackingSplit>();
-      dailySplitMap.forEach((dayBucket, d) => {
-        if (d < monthFrom || d > endDate) return;
-        dayBucket.forEach((split, code) => {
-          const curSplit = rangeSplitByCode.get(code) ?? {
-            innerPacked: 0,
-            outerPacked: 0,
-            hasExplicitSplit: false,
-            modeLabels: [],
+      const promise = (async () => {
+        const res = await apiService.get<{
+          data?: {
+            items?: ReportRow[];
+            monthScrapByCode?: Record<string, number>;
           };
-          curSplit.innerPacked = round4(curSplit.innerPacked + split.innerPacked);
-          curSplit.outerPacked = round4(curSplit.outerPacked + split.outerPacked);
-          if (split.hasExplicitSplit) curSplit.hasExplicitSplit = true;
-          split.modeLabels.forEach((lbl) => {
-            if (!curSplit.modeLabels.includes(lbl)) curSplit.modeLabels.push(lbl);
-          });
-          rangeSplitByCode.set(code, curSplit);
+        }>('/production/inventory-report/bulk-ledger', {
+          cutoffDate: win.endDate,
+          dateFrom: win.periodFrom,
+          scrapFrom: win.scrapFrom,
+          ...(forceRefresh ? { nocache: '1' } : {}),
         });
-      });
-      monthItems.forEach((targetRow) => {
-        const split = rangeSplitByCode.get(targetRow.itemCode);
-        if (split) {
-          targetRow.innerPacked = split.innerPacked;
-          targetRow.outerPacked = split.outerPacked;
-          targetRow.hasExplicitSplit = split.hasExplicitSplit;
-          targetRow.packingModeSummary = split.modeLabels.join(', ');
+
+        const currentChains = allChainsRef.current.length > 0 ? allChainsRef.current : CHAIN_REGISTRY;
+        const currentNames = itemNamesRef.current;
+        const rawItems = Array.isArray(res?.data?.items) ? res.data.items : [];
+        const displayRows = materializeBulkLedgerItems(rawItems, currentChains, currentNames);
+        const computedMonthScrap = res?.data?.monthScrapByCode ?? {};
+        const snapshot: CachedLedgerReport = {
+          dayItems: displayRows,
+          monthItems: displayRows,
+          monthScrap: computedMonthScrap,
+          chainOpeningOverrides: new Map<string, number>(),
+        };
+
+        touchLedgerCache(win.cacheKey, snapshot);
+        if (!win.isRange) {
+          rawDayItemsReportCache.set(
+            win.endDate,
+            displayRows.map((r) => ({ ...r })),
+          );
         }
+        return snapshot;
+      })().finally(() => {
+        inFlightBulkLedgerCache.delete(win.cacheKey);
       });
 
-      if (isRange) {
-        const rangeStart = range[0].format('YYYY-MM-DD');
-        const rangeEnd = range[1].format('YYYY-MM-DD');
-        const rangeScrapMap = new Map<string, number>();
-        dailyPartRejectionMap.forEach((dayMap, day) => {
-          if (day >= rangeStart && day <= rangeEnd) {
-            dayMap.forEach((qty, code) => {
-              rangeScrapMap.set(code, round4((rangeScrapMap.get(code) ?? 0) + qty));
-            });
-          }
-        });
-        monthItems.forEach((targetRow) => {
-          const rangeScrap = rangeScrapMap.get(targetRow.itemCode);
-          if (rangeScrap !== undefined) {
-            targetRow.scrapOut = rangeScrap;
-          }
-        });
+      inFlightBulkLedgerCache.set(win.cacheKey, promise);
+      return promise;
+    },
+    [],
+  );
+
+  const scheduleAdjacentPrefetch = useCallback(
+    (rangeStart: Dayjs, rangeEnd: Dayjs, mode: 'daily' | 'range') => {
+      if (prefetchTimerRef.current !== null) {
+        window.clearTimeout(prefetchTimerRef.current);
+        prefetchTimerRef.current = null;
       }
+      prefetchTimerRef.current = window.setTimeout(() => {
+        prefetchTimerRef.current = null;
+        const maxFuture = dayjs().add(1, 'day');
+        const candidates: Array<[Dayjs, Dayjs]> = [];
 
-      const computedMonthScrap = Object.fromEntries(
-        monthItems.map((r) => {
-          const fromEntries = rejectionTotalsByCode.get(r.itemCode) ?? 0;
-          const fromReport = round4(num(r.scrapOut));
-          return [r.itemCode, Math.max(fromEntries, fromReport)];
-        }),
-      );
-
-      let displayRows: ReportRow[] = monthItems;
-      let finalOverrides = new Map<string, number>();
-
-      if (!isRange) {
-        const seededDayItems = ensureAllBaselineItems(dayItems, endDate === monthFrom);
-        // Cache today's raw API snapshot
-        rawDayItemsReportCache.set(
-          endDate,
-          seededDayItems.map((r) => ({ ...r })),
-        );
-
-        if (endDate === monthFrom) {
-          // Day 1 of the month: baseline opening balances from monthItems are directly valid
-          const prodForEndDay = dailyProdMap.get(endDate) ?? new Map<string, number>();
-          const splitForEndDay = dailySplitMap.get(endDate) ?? new Map<string, DailyPackingSplit>();
-          const scrapForEndDay = dailyPartRejectionMap.get(endDate) ?? new Map<string, number>();
-          seededDayItems.forEach((targetRow) => {
-            const dayProd = prodForEndDay.get(targetRow.itemCode);
-            targetRow.produced = dayProd !== undefined ? dayProd : round4(num(targetRow.produced ?? 0));
-            const dayScrap = scrapForEndDay.get(targetRow.itemCode);
-            if (dayScrap !== undefined) {
-              targetRow.scrapOut = dayScrap;
-            }
-            const daySplit = splitForEndDay.get(targetRow.itemCode);
-            if (daySplit) {
-              targetRow.innerPacked = daySplit.innerPacked;
-              targetRow.outerPacked = daySplit.outerPacked;
-              targetRow.hasExplicitSplit = daySplit.hasExplicitSplit;
-              targetRow.packingModeSummary = daySplit.modeLabels.join(', ');
-            } else {
-              targetRow.innerPacked = undefined;
-              targetRow.outerPacked = undefined;
-              targetRow.hasExplicitSplit = false;
-              targetRow.packingModeSummary = undefined;
-            }
-          });
-          // Ensure DP Dispatch Outward pseudo rows are seeded with baseline dispatched balances
-          currentChains.forEach((c) => {
-            c.rows.filter((r) => r.stage === 'DP').forEach((dpR) => {
-              if (!seededDayItems.some((it) => it.itemCode === dpR.itemCode)) {
-                const parentCode = dpR.itemCode.replace(/-DISP$/, '') || c.fgItemCode;
-                const parentRow = seededDayItems.find((it) => it.itemCode === parentCode);
-                const op = round4(num(parentRow?.openingDispatched ?? 0));
-                const out = round4(num(parentRow?.totalOut ?? 0));
-                seededDayItems.push({
-                  itemId: dpR.itemCode,
-                  itemCode: dpR.itemCode,
-                  itemName: dpR.itemLabel || `${dpR.itemCode} Outward Stage`,
-                  itemType: 'FINISHED_GOOD',
-                  uomCode: parentRow?.uomCode ?? 'PCS',
-                  openingBalance: op,
-                  totalIn: out,
-                  totalOut: 0,
-                  scrapOut: 0,
-                  consumed: 0,
-                  produced: out,
-                  closingBalance: round4(op + out),
-                  onHand: round4(op + out),
-                  flow: { source: null, consumers: [], flowStatus: 'CHAIN' },
-                });
-              }
-            });
-          });
-          displayRows = seededDayItems;
+        if (mode === 'daily' || rangeStart.isSame(rangeEnd, 'day')) {
+          candidates.push([rangeEnd.subtract(1, 'day'), rangeEnd.subtract(1, 'day')]);
+          const nextD = rangeEnd.add(1, 'day');
+          if (!nextD.isAfter(maxFuture, 'day')) {
+            candidates.push([nextD, nextD]);
+          }
         } else {
-          // ── SEQUENTIAL DAILY ROLLING CHAIN ──
-          // Universal Mathematical Standard:
-          // Opening Balance (Day D) ≡ Closing Pieces (Day D - 1)
-          // Build chronological list of days from monthFrom to endDate
-          const dates: string[] = [];
-          let cur = dayjs(monthFrom);
-          const endDay = dayjs(endDate);
-          while (!cur.isAfter(endDay, 'day')) {
-            dates.push(cur.format('YYYY-MM-DD'));
-            cur = cur.add(1, 'day');
+          const prevEnd = rangeEnd.subtract(1, 'day');
+          if (!prevEnd.isBefore(rangeStart, 'day')) {
+            candidates.push([rangeStart, prevEnd]);
           }
-
-          // If backend returned dailyBreakdown in the single monthRes query, populate rawDayItemsReportCache
-          // deterministically without firing 29 parallel HTTP requests!
-          if (dailyBreakdown) {
-            dates.forEach((d, idx) => {
-              if (d === endDate) return;
-              const dayMetricsByCode = dailyBreakdown[d] ?? {};
-              const constructed: ReportRow[] = [];
-              baselineByCode.forEach((baseRow, code) => {
-                const m = dayMetricsByCode[code];
-                const op = idx === 0 ? round4(num(baseRow.openingBalance)) : 0;
-                const totalIn = round4(num(m?.totalIn ?? 0));
-                const totalOut = round4(num(m?.totalOut ?? 0));
-                const consumed = round4(num(m?.consumed ?? 0));
-                const scrapOut = round4(num(m?.scrapOut ?? 0));
-                const produced = round4(num(m?.produced ?? 0));
-                const close = round4(op + totalIn - totalOut);
-                constructed.push({
-                  ...baseRow,
-                  openingBalance: op,
-                  totalIn,
-                  totalOut,
-                  consumed,
-                  scrapOut,
-                  produced,
-                  closingBalance: close,
-                  onHand: close,
-                });
-              });
-              rawDayItemsReportCache.set(d, constructed);
-            });
-          } else {
-            // Fallback: fetch any missing intermediate days in small batches of 5 to avoid DB connection pool exhaustion
-            const missingDates = dates.filter((d) => d !== endDate && !rawDayItemsReportCache.has(d));
-            const batchSize = 5;
-            for (let b = 0; b < missingDates.length; b += batchSize) {
-              const batch = missingDates.slice(b, b + batchSize);
-              const fetched = await Promise.all(
-                batch.map((d) =>
-                  apiService
-                    .get<{ data: { items?: ReportRow[] } }>('/production/inventory-report', {
-                      dateFrom: d,
-                      dateTo: d,
-                    })
-                    .catch(() => null),
-                ),
-              );
-              if (activeRequestIdRef.current !== requestId) return;
-              batch.forEach((d, idx) => {
-                const res = fetched[idx];
-                if (res?.data?.items) {
-                  rawDayItemsReportCache.set(
-                    d,
-                    ensureAllBaselineItems(res.data.items, d === monthFrom),
-                  );
-                }
-              });
-            }
+          const nextEnd = rangeEnd.add(1, 'day');
+          if (!nextEnd.isAfter(maxFuture, 'day')) {
+            candidates.push([rangeStart, nextEnd]);
           }
+        }
 
-          // Sequential roll from monthFrom up to endDate
-          let previousDayClosings = new Map<string, number>();
-          let finalDayRows: ReportRow[] = seededDayItems;
-          finalOverrides = new Map<string, number>();
-
-          for (let i = 0; i < dates.length; i++) {
-            const d = dates[i];
-            const isTargetDay = d === endDate;
-            const daySource = isTargetDay
-              ? seededDayItems
-              : (rawDayItemsReportCache.get(d) ?? ensureAllBaselineItems([], i === 0));
-            const itemsForDay: ReportRow[] = daySource.map((r) => ({ ...r }));
-
-            // On Day 0 of rolling window, seed DP Outward stages from baseline openingDispatched
-            if (i === 0) {
-              currentChains.forEach((c) => {
-                c.rows.filter((r) => r.stage === 'DP').forEach((dpR) => {
-                  if (!itemsForDay.some((it) => it.itemCode === dpR.itemCode)) {
-                    const parentCode = dpR.itemCode.replace(/-DISP$/, '') || c.fgItemCode;
-                    const parentRow = itemsForDay.find((it) => it.itemCode === parentCode);
-                    const op = round4(num(parentRow?.openingDispatched ?? 0));
-                    const out = round4(num(parentRow?.totalOut ?? 0));
-                    itemsForDay.push({
-                      itemId: dpR.itemCode,
-                      itemCode: dpR.itemCode,
-                      itemName: dpR.itemLabel || `${dpR.itemCode} Outward Stage`,
-                      itemType: 'FINISHED_GOOD',
-                      uomCode: parentRow?.uomCode ?? 'PCS',
-                      openingBalance: op,
-                      totalIn: out,
-                      totalOut: 0,
-                      scrapOut: 0,
-                      consumed: 0,
-                      produced: out,
-                      closingBalance: round4(op + out),
-                      onHand: round4(op + out),
-                      flow: { source: null, consumers: [], flowStatus: 'CHAIN' },
-                    });
-                  }
-                });
-              });
-            }
-
-            const prodForDay = dailyProdMap.get(d) ?? new Map<string, number>();
-            const splitForDay = dailySplitMap.get(d) ?? new Map<string, DailyPackingSplit>();
-            const scrapForDay = dailyPartRejectionMap.get(d) ?? new Map<string, number>();
-            itemsForDay.forEach((targetRow) => {
-              const dayProd = prodForDay.get(targetRow.itemCode);
-              targetRow.produced = dayProd !== undefined ? dayProd : round4(num(targetRow.produced ?? 0));
-              const dayScrap = scrapForDay.get(targetRow.itemCode);
-              if (dayScrap !== undefined) {
-                targetRow.scrapOut = dayScrap;
-              }
-              const daySplit = splitForDay.get(targetRow.itemCode);
-              if (daySplit) {
-                targetRow.innerPacked = daySplit.innerPacked;
-                targetRow.outerPacked = daySplit.outerPacked;
-                targetRow.hasExplicitSplit = daySplit.hasExplicitSplit;
-                targetRow.packingModeSummary = daySplit.modeLabels.join(', ');
-              } else {
-                targetRow.innerPacked = undefined;
-                targetRow.outerPacked = undefined;
-                targetRow.hasExplicitSplit = false;
-                targetRow.packingModeSummary = undefined;
-              }
-            });
-
-            // ── UNIVERSAL MATHEMATICAL INVARIANT: Day (D) Opening === Day (D - 1) Closing ──
-            if (i > 0 && previousDayClosings.size > 0) {
-              itemsForDay.forEach((targetRow) => {
-                const prevClose =
-                  previousDayClosings.get(`${chainKey}__${targetRow.itemCode}`) ??
-                  previousDayClosings.get(targetRow.itemCode);
-                if (prevClose !== undefined) {
-                  targetRow.openingBalance = prevClose;
-                }
-              });
-
-              // Carry forward DP Dispatch Outward pseudo stages so DP opening rolls seamlessly
-              previousDayClosings.forEach((prevClose, code) => {
-                if (code.includes('__')) return;
-                if (code.endsWith('-DISP')) {
-                  const existing = itemsForDay.find((r) => r.itemCode === code);
-                  if (existing) {
-                    existing.openingBalance = prevClose;
-                  } else {
-                    itemsForDay.push({
-                      itemId: code,
-                      itemCode: code,
-                      itemName: `${code} Outward Stage`,
-                      itemType: 'FINISHED_GOOD',
-                      uomCode: 'PCS',
-                      openingBalance: prevClose,
-                      totalIn: 0,
-                      totalOut: 0,
-                      scrapOut: 0,
-                      consumed: 0,
-                      produced: 0,
-                      closingBalance: prevClose,
-                      onHand: prevClose,
-                      flow: { source: null, consumers: [], flowStatus: 'CHAIN' },
-                    });
-                  }
-                }
-              });
-            }
-
-            if (isTargetDay) {
-              finalDayRows = itemsForDay;
-              finalOverrides = previousDayClosings;
-              break;
-            }
-
-            // Derive closing pieces for intermediate day d across all chains
-            const nextClosings = new Map<string, number>();
-            currentChains.forEach((c) => {
-              const grid = buildChainGrid(c, itemsForDay, computedMonthScrap, weights, currentNames, previousDayClosings);
-              grid.rows.forEach((gr) => {
-                // Key by chain key + order + item code AND chain key + item code so shared items NEVER collide!
-                nextClosings.set(`${c.key}__${gr.order}__${gr.itemCode}`, gr.closingPieces);
-                nextClosings.set(`${c.key}__${gr.itemCode}`, gr.closingPieces);
-                // Active chain takes precedence in the generic fallback
-                if (!nextClosings.has(gr.itemCode) || c.key === chainKey) {
-                  nextClosings.set(gr.itemCode, gr.closingPieces);
-                }
-              });
-            });
-            previousDayClosings = nextClosings;
+        for (const [sDay, eDay] of candidates) {
+          const win = resolveLedgerWindow(mode, sDay, eDay);
+          if (!ledgerReportCache.has(win.cacheKey) && !inFlightBulkLedgerCache.has(win.cacheKey)) {
+            void fetchOrReuseBulkLedger(win, false).catch(() => {});
           }
+        }
+      }, 80);
+    },
+    [fetchOrReuseBulkLedger],
+  );
 
-          displayRows = finalDayRows;
+  useEffect(() => {
+    return () => {
+      if (prefetchTimerRef.current !== null) {
+        window.clearTimeout(prefetchTimerRef.current);
+        prefetchTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  const load = useCallback(
+    async (forceRefresh = false) => {
+      const requestId = ++activeRequestIdRef.current;
+
+      if (forceRefresh) {
+        clearBulkLedgerClientCache();
+      } else {
+        const cached = ledgerReportCache.get(activeWindow.cacheKey);
+        if (cached) {
+          touchLedgerCache(activeWindow.cacheKey, cached);
+          setRows(cached.dayItems);
+          setChainOpeningOverrides(cached.chainOpeningOverrides ?? new Map());
+          setMonthScrap(cached.monthScrap);
+          setError(null);
+          setLoading(false);
+          setLoadStatus('success');
+          scheduleAdjacentPrefetch(range[0], range[1], viewMode);
+          return;
         }
       }
 
-      // Check race condition once more after loop
-      if (activeRequestIdRef.current !== requestId) {
-        return;
-      }
+      // Only show loading spinner when fetching an uncached date/range
+      setLoading(true);
+      setLoadStatus('loading');
+      setError(null);
 
-      // In-Memory persistent cache to keep tab solid on switch
-      ledgerReportCache.set(cacheKey, {
-        dayItems: displayRows,
-        monthItems,
-        monthScrap: computedMonthScrap,
-        chainOpeningOverrides: finalOverrides,
-      });
+      try {
+        const needsWeights = forceRefresh || !cachedRawChainsList;
+        const [snapshot] = await Promise.all([
+          fetchOrReuseBulkLedger(activeWindow, forceRefresh),
+          needsWeights ? loadWeights(forceRefresh) : Promise.resolve(),
+        ]);
 
-      setRows(displayRows);
-      setChainOpeningOverrides(finalOverrides);
-      setMonthScrap(computedMonthScrap);
-      setLoadStatus('success');
-    } catch (e: any) {
-      if (activeRequestIdRef.current !== requestId) return;
-      setRows([]);
-      setMonthScrap({});
-      setLoadStatus('error');
-      setError(e?.response?.data?.message || 'Failed to load the Item-Wise Production Ledger');
-    } finally {
-      if (activeRequestIdRef.current === requestId) {
-        setLoading(false);
+        if (activeRequestIdRef.current !== requestId) {
+          return;
+        }
+
+        // If loadWeights finished alongside bulk-ledger on initial mount, ensure baseline rows reflect dynamic chains
+        const currentChains = allChainsRef.current.length > 0 ? allChainsRef.current : CHAIN_REGISTRY;
+        const finalizedRows = needsWeights
+          ? materializeBulkLedgerItems(snapshot.dayItems, currentChains, itemNamesRef.current)
+          : snapshot.dayItems;
+
+        if (needsWeights) {
+          snapshot.dayItems = finalizedRows;
+          snapshot.monthItems = finalizedRows;
+          touchLedgerCache(activeWindow.cacheKey, snapshot);
+          if (!activeWindow.isRange) {
+            rawDayItemsReportCache.set(
+              activeWindow.endDate,
+              finalizedRows.map((r) => ({ ...r })),
+            );
+          }
+        }
+
+        setRows(finalizedRows);
+        setChainOpeningOverrides(snapshot.chainOpeningOverrides ?? new Map());
+        setMonthScrap(snapshot.monthScrap);
+        setLoadStatus('success');
+        scheduleAdjacentPrefetch(range[0], range[1], viewMode);
+      } catch (e: any) {
+        if (activeRequestIdRef.current !== requestId) return;
+        setRows([]);
+        setMonthScrap({});
+        setLoadStatus('error');
+        setError(e?.response?.data?.message || 'Failed to load the Item-Wise Production Ledger');
+      } finally {
+        if (activeRequestIdRef.current === requestId) {
+          setLoading(false);
+        }
       }
-    }
-  }, [endDate, monthFrom, range, chainKey, viewMode, loadWeights]);
+    },
+    [activeWindow, range, viewMode, loadWeights, fetchOrReuseBulkLedger, scheduleAdjacentPrefetch],
+  );
 
   useEffect(() => {
     void loadWeights();
@@ -3830,8 +3409,7 @@ const ItemWiseProductionLedger: React.FC = () => {
     cachedAllChainsList = merged;
     allChainsRef.current = merged;
     setAllChains(merged);
-    rawDayItemsReportCache.clear();
-    ledgerReportCache.clear();
+    clearBulkLedgerClientCache();
     setTick((t) => t + 1);
   }, [rawChains]);
 
@@ -3929,9 +3507,11 @@ const ItemWiseProductionLedger: React.FC = () => {
       !draftRange[0].isSame(range[0], 'day') ||
       !draftRange[1].isSame(range[1], 'day');
     if (dateOrModeChanged) {
-      setRows([]);
-      setLoading(true);
-      setLoadStatus('loading');
+      const nextWin = resolveLedgerWindow(draftViewMode, draftRange[0], draftRange[1]);
+      if (!ledgerReportCache.has(nextWin.cacheKey)) {
+        setLoading(true);
+        setLoadStatus('loading');
+      }
     }
     setSelectedDivisionId(draftDivisionId);
     setChainKey(draftChainKey);
@@ -3948,9 +3528,11 @@ const ItemWiseProductionLedger: React.FC = () => {
       !range[0].isSame(yest, 'day') ||
       !range[1].isSame(yest, 'day');
     if (dateOrModeChanged) {
-      setRows([]);
-      setLoading(true);
-      setLoadStatus('loading');
+      const nextWin = resolveLedgerWindow('daily', yest, yest);
+      if (!ledgerReportCache.has(nextWin.cacheKey)) {
+        setLoading(true);
+        setLoadStatus('loading');
+      }
     }
     setSelectedDivisionId('ALL');
     setDraftDivisionId('ALL');
@@ -3976,18 +3558,22 @@ const ItemWiseProductionLedger: React.FC = () => {
         setDraftChainKey(filteredChains[0].key);
       }
     } else if (chipKey === 'mode') {
-      setRows([]);
-      setLoading(true);
-      setLoadStatus('loading');
+      const nextWin = resolveLedgerWindow('daily', range[1], range[1]);
+      if (!ledgerReportCache.has(nextWin.cacheKey)) {
+        setLoading(true);
+        setLoadStatus('loading');
+      }
       setViewMode('daily');
       setDraftViewMode('daily');
       setRange([range[1], range[1]]);
       setDraftRange([range[1], range[1]]);
     } else if (chipKey === 'date') {
       const yest = dayjs().subtract(1, 'day');
-      setRows([]);
-      setLoading(true);
-      setLoadStatus('loading');
+      const nextWin = resolveLedgerWindow(viewMode, yest, yest);
+      if (!ledgerReportCache.has(nextWin.cacheKey)) {
+        setLoading(true);
+        setLoadStatus('loading');
+      }
       setRange([yest, yest]);
       setDraftRange([yest, yest]);
     }
@@ -4238,11 +3824,10 @@ const ItemWiseProductionLedger: React.FC = () => {
                 icon={<ReloadOutlined />}
                 loading={loading}
                 onClick={() => {
-                  const cacheKey = `${endDate}__${monthFrom}`;
-                  ledgerReportCache.delete(cacheKey);
+                  clearBulkLedgerClientCache();
                   cachedAllChainsList = null;
                   cachedWeightMapData = { ...STANDARD_ITEM_WEIGHTS };
-                  loadWeights(true);
+                  void loadWeights(true);
                   setTick((t) => t + 1);
                 }}
                 style={{

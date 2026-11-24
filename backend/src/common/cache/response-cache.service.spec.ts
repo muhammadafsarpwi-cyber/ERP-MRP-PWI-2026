@@ -72,6 +72,7 @@ describe('ResponseCacheService & ResponseCacheInterceptor', () => {
       '/api/v1/dashboard/summary',
       '/api/v1/dashboard/schedule',
       '/api/v1/dashboard/divisions',
+      '/api/v1/production/inventory-report/bulk-ledger',
     ];
     for (const p of paths) {
       const rule = cache.matchRule(cache.normalizeApiPath(p));
@@ -223,5 +224,48 @@ describe('ResponseCacheService & ResponseCacheInterceptor', () => {
     await lastValueFrom(interceptor.intercept(custAfter.ctx, { handle: () => of(custFn()) }));
     expect(custAfter.resHeaders['X-Cache']).toBe('MISS');
     expect(custFn).toHaveBeenCalledTimes(2);
+  });
+
+  it('caches /production/inventory-report/bulk-ledger per cutoffDate and invalidates on production/sales/inventory mutations', async () => {
+    const ledgerFn = jest.fn(() => ({ success: true, data: { cutoffDate: '2026-11-23', items: [] } }));
+
+    const r1 = makeHttpContext({ url: '/api/v1/production/inventory-report/bulk-ledger?cutoffDate=2026-11-23', query: { cutoffDate: '2026-11-23' } });
+    await lastValueFrom(interceptor.intercept(r1.ctx, { handle: () => of(ledgerFn()) }));
+    expect(r1.resHeaders['X-Cache']).toBe('MISS');
+    expect(ledgerFn).toHaveBeenCalledTimes(1);
+
+    const r2 = makeHttpContext({ url: '/api/v1/production/inventory-report/bulk-ledger?cutoffDate=2026-11-23', query: { cutoffDate: '2026-11-23' } });
+    await lastValueFrom(interceptor.intercept(r2.ctx, { handle: () => of(ledgerFn()) }));
+    expect(r2.resHeaders['X-Cache']).toBe('HIT');
+    expect(ledgerFn).toHaveBeenCalledTimes(1);
+
+    const rPrev = makeHttpContext({ url: '/api/v1/production/inventory-report/bulk-ledger?cutoffDate=2026-11-22', query: { cutoffDate: '2026-11-22' } });
+    await lastValueFrom(interceptor.intercept(rPrev.ctx, { handle: () => of(ledgerFn()) }));
+    expect(rPrev.resHeaders['X-Cache']).toBe('MISS');
+    expect(ledgerFn).toHaveBeenCalledTimes(2);
+
+    // Production entry mutation invalidates cached bulk-ledger snapshots
+    await lastValueFrom(
+      interceptor.intercept(
+        makeHttpContext({ method: 'POST', url: '/api/v1/production/entries' }).ctx,
+        { handle: () => of({ ok: true }) },
+      ),
+    );
+    const rAfterProd = makeHttpContext({ url: '/api/v1/production/inventory-report/bulk-ledger?cutoffDate=2026-11-23', query: { cutoffDate: '2026-11-23' } });
+    await lastValueFrom(interceptor.intercept(rAfterProd.ctx, { handle: () => of(ledgerFn()) }));
+    expect(rAfterProd.resHeaders['X-Cache']).toBe('MISS');
+    expect(ledgerFn).toHaveBeenCalledTimes(3);
+
+    // Sales delivery mutation also invalidates cached bulk-ledger snapshots
+    await lastValueFrom(
+      interceptor.intercept(
+        makeHttpContext({ method: 'POST', url: '/api/v1/sales/deliveries' }).ctx,
+        { handle: () => of({ ok: true }) },
+      ),
+    );
+    const rAfterSales = makeHttpContext({ url: '/api/v1/production/inventory-report/bulk-ledger?cutoffDate=2026-11-23', query: { cutoffDate: '2026-11-23' } });
+    await lastValueFrom(interceptor.intercept(rAfterSales.ctx, { handle: () => of(ledgerFn()) }));
+    expect(rAfterSales.resHeaders['X-Cache']).toBe('MISS');
+    expect(ledgerFn).toHaveBeenCalledTimes(4);
   });
 });

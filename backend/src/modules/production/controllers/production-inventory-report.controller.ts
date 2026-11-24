@@ -67,6 +67,29 @@ export class ProductionInventoryReportController {
     return { success: true, data: PRODUCTION_MOVEMENT_TYPES };
   }
 
+  @Get('inventory-report/bulk-ledger')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.production.entries.report')
+  @ApiOperation({
+    summary: 'Single-query bulk ledger summary (OP/IN/OUT/Closing, produced, period & month scrap, packing split) for Item-Wise Production Ledger',
+  })
+  @ApiQuery({ name: 'cutoffDate', required: false })
+  @ApiQuery({ name: 'dateFrom', required: false })
+  @ApiQuery({ name: 'scrapFrom', required: false })
+  @ApiQuery({ name: 'divisionId', required: false })
+  async bulkLedger(@Req() req: any, @Query() query: any) {
+    const companyId = this.getCompanyId(req);
+    const data = await this.reportService.getBulkLedger(companyId, {
+      cutoffDate: query.cutoffDate || query.dateTo,
+      dateFrom: query.dateFrom,
+      scrapFrom: query.scrapFrom,
+      divisionId: query.divisionId,
+      allowedDivisionIds: this.divisions(req),
+    });
+    return { success: true, data };
+  }
+
   @Get('inventory-report/:itemId/ledger')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()

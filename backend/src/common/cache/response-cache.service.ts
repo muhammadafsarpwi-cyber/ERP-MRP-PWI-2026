@@ -137,21 +137,28 @@ const DEFAULT_CACHE_RULES: CacheRule[] = [
     tags: ['sales-command', 'sales-orders'],
     perUser: true,
   },
+  {
+    id: 'production:bulk-ledger',
+    pattern: /^\/production\/inventory-report\/bulk-ledger$/,
+    ttlMs: 60_000,
+    tags: ['production:bulk-ledger'],
+    perUser: false,
+  },
 ];
 
 const INVALIDATION_RULES: Array<{ pattern: RegExp; tags: string[] | 'ALL' }> = [
-  { pattern: /^\/(master-data\/)?items(\/|$)/, tags: ['items', 'routings', 'nipple-alerts', 'masters', 'dashboard'] },
+  { pattern: /^\/(master-data\/)?items(\/|$)/, tags: ['items', 'routings', 'nipple-alerts', 'masters', 'dashboard', 'production:bulk-ledger'] },
   { pattern: /^\/(production\/)?machines(\/|$)/, tags: ['machines', 'routings', 'machine-tooling', 'dashboard'] },
   { pattern: /^\/(organization\/)?departments(\/|$)/, tags: ['departments', 'divisions', 'machines', 'routings', 'masters', 'dashboard'] },
   { pattern: /^\/divisions(\/|$)/, tags: ['divisions', 'departments', 'warehouses', 'items', 'routings', 'masters', 'dashboard'] },
   { pattern: /^\/((organization\/)?warehouses|store\/stores)(\/|$)/, tags: ['warehouses', 'routings', 'dashboard'] },
-  { pattern: /^\/(uoms|master-data\/uoms?|master-data\/uom-conversions)(\/|$)/, tags: ['uoms', 'items', 'routings', 'masters', 'dashboard'] },
+  { pattern: /^\/(uoms|master-data\/uoms?|master-data\/uom-conversions)(\/|$)/, tags: ['uoms', 'items', 'routings', 'masters', 'dashboard', 'production:bulk-ledger'] },
   { pattern: /^\/production\/routings(\/|$)/, tags: ['routings', 'dashboard'] },
   { pattern: /^\/machine-tooling(\/|$)/, tags: ['machine-tooling', 'machines', 'dashboard'] },
   { pattern: /^\/team-chat(\/|$)/, tags: ['team-chat:users', 'team-chat:conversations'] },
   { pattern: /^\/(sections|master-data\/(operations|categories|item-types|route-types))(\/|$)/, tags: ['masters', 'items', 'routings', 'dashboard'] },
   { pattern: /^\/customer(\/|$)/, tags: ['customers', 'dashboard'] },
-  { pattern: /^\/(sales|procurement|inventory|production|store|bom)(\/|$)/, tags: ['nipple-alerts', 'routings', 'dashboard', 'sales-command', 'sales-orders'] },
+  { pattern: /^\/(sales|procurement|inventory|production|store|bom|raw-material-receiving)(\/|$)/, tags: ['nipple-alerts', 'routings', 'dashboard', 'sales-command', 'sales-orders', 'production:bulk-ledger'] },
   { pattern: /^\/(notifications|communication)(\/|$)/, tags: ['comm-summary'] },
   { pattern: /^\/admin\/(users|roles|permissions|recycle-bin)(\/|$)/, tags: 'ALL' },
 ];

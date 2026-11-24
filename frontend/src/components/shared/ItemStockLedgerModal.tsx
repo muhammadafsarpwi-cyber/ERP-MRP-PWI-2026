@@ -342,9 +342,12 @@ export const ItemStockLedgerModal: React.FC<ItemStockLedgerModalProps> = ({
     ];
 
     const rows = data.movements.map((m) => {
-      const flow = m.direction === 'IN'
-        ? `Received from ${m.department?.name || m.referenceNumber || 'Vendor/Receipt'}`
-        : `Issued to ${m.department?.name || m.referenceNumber || 'Production/Issue'}`;
+      const isScrapAudit = m.transactionType === 'PRODUCTION_SCRAP';
+      const flow = isScrapAudit
+        ? `Audit Trail Only (No balance impact — ${m.referenceNumber || 'Production'})`
+        : m.direction === 'IN'
+          ? `Received from ${m.department?.name || m.referenceNumber || 'Vendor/Receipt'}`
+          : `Issued to ${m.department?.name || m.referenceNumber || 'Production/Issue'}`;
       const qtyConv = formatUnitBreakdown(m.quantity);
       return [
         dayjs(m.date).format('YYYY-MM-DD HH:mm:ss'),
@@ -357,8 +360,8 @@ export const ItemStockLedgerModal: React.FC<ItemStockLedgerModalProps> = ({
           qtyConv ? qtyConv.cartons : '',
           qtyConv ? qtyConv.pcs : '',
         ] : []),
-        m.inQuantity > 0 ? m.inQuantity : '',
-        m.outQuantity > 0 ? m.outQuantity : '',
+        !isScrapAudit && m.inQuantity > 0 ? m.inQuantity : '',
+        !isScrapAudit && m.outQuantity > 0 ? m.outQuantity : '',
         m.runningBalance,
         data.item.uomCode,
         m.warehouse?.name || warehouseName || '',
@@ -384,7 +387,12 @@ export const ItemStockLedgerModal: React.FC<ItemStockLedgerModalProps> = ({
     let bg = isDark ? 'rgba(56, 189, 248, 0.12)' : 'rgba(2, 132, 199, 0.08)';
     let border = isDark ? 'rgba(56, 189, 248, 0.3)' : 'rgba(2, 132, 199, 0.25)';
 
-    if (type === 'SALES_DELIVERY' || type.includes('DELIVERY') || type.includes('DISPATCH')) {
+    if (type === 'PRODUCTION_SCRAP') {
+      label = 'SCRAP / REJECTION (AUDIT)';
+      color = isDark ? '#fbbf24' : '#b45309';
+      bg = isDark ? 'rgba(251, 191, 36, 0.14)' : 'rgba(245, 158, 11, 0.10)';
+      border = isDark ? 'rgba(251, 191, 36, 0.35)' : 'rgba(245, 158, 11, 0.30)';
+    } else if (type === 'SALES_DELIVERY' || type.includes('DELIVERY') || type.includes('DISPATCH')) {
       label = 'SALES DISPATCH (OUT)';
       color = isDark ? '#f87171' : '#dc2626';
       bg = isDark ? 'rgba(248, 113, 113, 0.15)' : 'rgba(239, 68, 68, 0.08)';
@@ -545,13 +553,25 @@ export const ItemStockLedgerModal: React.FC<ItemStockLedgerModalProps> = ({
       key: 'flow',
       width: 250,
       render: (_, r: StockLedgerMovement) => {
+        const isScrapAudit = r.transactionType === 'PRODUCTION_SCRAP';
         const isSalesDelivery = r.referenceType === 'SALES_DELIVERY' || r.transactionType === 'SALES_DELIVERY';
         const isIncoming = r.direction === 'IN';
         const custName = r.customerName || (r.notes?.match(/to\s+([^(]+)/i)?.[1]?.trim());
 
         return (
           <div style={{ fontSize: 12, lineHeight: 1.45 }}>
-            {isSalesDelivery ? (
+            {isScrapAudit ? (
+              <div>
+                <span style={{ color: isDark ? '#fbbf24' : '#b45309', fontWeight: 700 }}>
+                  Audit Trail Only (No stock balance impact)
+                </span>
+                {r.referenceNumber && (
+                  <span style={{ color: themeColors.flowSubTextColor, marginLeft: 6 }}>
+                    Ref: {r.referenceNumber}
+                  </span>
+                )}
+              </div>
+            ) : isSalesDelivery ? (
               <div>
                 <span style={{ color: isDark ? '#f87171' : '#dc2626', fontWeight: 800 }}>
                   🚚 Sales Delivery / Dispatch (OUT)
@@ -638,7 +658,10 @@ export const ItemStockLedgerModal: React.FC<ItemStockLedgerModalProps> = ({
       key: 'inQuantity',
       width: 145,
       align: 'right',
-      render: (v: number) => {
+      render: (v: number, r: StockLedgerMovement) => {
+        if (r.transactionType === 'PRODUCTION_SCRAP') {
+          return <span style={{ color: isDark ? '#475569' : '#94a3b8' }}>—</span>;
+        }
         if (!v || v <= 0) return <span style={{ color: isDark ? '#475569' : '#94a3b8' }}>—</span>;
         const conv = formatUnitBreakdown(v);
         if (conv) {
@@ -674,7 +697,16 @@ export const ItemStockLedgerModal: React.FC<ItemStockLedgerModalProps> = ({
       key: 'outQuantity',
       width: 145,
       align: 'right',
-      render: (v: number) => {
+      render: (v: number, r: StockLedgerMovement) => {
+        if (r.transactionType === 'PRODUCTION_SCRAP') {
+          return (
+            <Tooltip title="Recorded for rejection/scrap traceability only — does not deduct stock balance">
+              <span style={{ color: isDark ? '#fbbf24' : '#b45309', fontWeight: 600, fontSize: 11.5, fontVariantNumeric: 'tabular-nums' }}>
+                Audit: {formatNumber(r.quantity || v || 0, 2)} (0 bal.)
+              </span>
+            </Tooltip>
+          );
+        }
         if (!v || v <= 0) return <span style={{ color: isDark ? '#475569' : '#94a3b8' }}>—</span>;
         const conv = formatUnitBreakdown(v);
         if (conv) {

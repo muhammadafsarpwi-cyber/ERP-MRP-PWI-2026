@@ -332,15 +332,18 @@ export function exportItemLedgerPdf(data: ItemStockLedgerData, warehouseName?: s
       const outConv = formatItemUnitBreakdown(m.outQuantity, uom, itemCode);
       const balConv = formatItemUnitBreakdown(m.runningBalance, uom, itemCode);
 
+      const isScrapAudit = m.transactionType === 'PRODUCTION_SCRAP';
       let inVal = '—';
-      if (m.inQuantity > 0) {
+      if (!isScrapAudit && m.inQuantity > 0) {
         inVal = inConv
           ? `+${inConv.fmtCtn}\n+${inConv.fmtGrs} • +${inConv.fmtPcs}`
           : `+${formatNumber(m.inQuantity, 0)} ${uom}`;
       }
 
       let outVal = '—';
-      if (m.outQuantity > 0) {
+      if (isScrapAudit) {
+        outVal = `Audit: ${formatNumber(m.quantity || m.outQuantity || 0, 2)} (0 bal.)`;
+      } else if (m.outQuantity > 0) {
         outVal = outConv
           ? `-${outConv.fmtCtn}\n-${outConv.fmtGrs} • -${outConv.fmtPcs}`
           : `-${formatNumber(m.outQuantity, 0)} ${uom}`;
@@ -456,8 +459,9 @@ export function printItemLedger(data: ItemStockLedgerData, warehouseName?: strin
     const outConv = formatItemUnitBreakdown(m.outQuantity, uom, itemCode);
     const balConv = formatItemUnitBreakdown(m.runningBalance, uom, itemCode);
 
+    const isScrapAudit = m.transactionType === 'PRODUCTION_SCRAP';
     let inHtml = '<span style="color:#94a3b8;">—</span>';
-    if (m.inQuantity > 0) {
+    if (!isScrapAudit && m.inQuantity > 0) {
       inHtml = inConv
         ? `<div style="color:#16a34a;font-weight:800;font-size:9.5px;">+${inConv.fmtCtn}</div>
            <div style="color:#15803d;font-size:8px;font-weight:600;margin-top:1px;">+${inConv.fmtGrs} • +${inConv.fmtPcs}</div>`
@@ -465,7 +469,9 @@ export function printItemLedger(data: ItemStockLedgerData, warehouseName?: strin
     }
 
     let outHtml = '<span style="color:#94a3b8;">—</span>';
-    if (m.outQuantity > 0) {
+    if (isScrapAudit) {
+      outHtml = `<div style="color:#b45309;font-weight:600;font-size:8.5px;">Audit: ${formatNumber(m.quantity || m.outQuantity || 0, 2)} (0 bal.)</div>`;
+    } else if (m.outQuantity > 0) {
       outHtml = outConv
         ? `<div style="color:#dc2626;font-weight:800;font-size:9.5px;">-${outConv.fmtCtn}</div>
            <div style="color:#b91c1c;font-size:8px;font-weight:600;margin-top:1px;">-${outConv.fmtGrs} • -${outConv.fmtPcs}</div>`

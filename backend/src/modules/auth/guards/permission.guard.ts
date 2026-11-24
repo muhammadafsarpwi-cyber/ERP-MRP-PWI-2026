@@ -30,7 +30,12 @@ export class PermissionGuard implements CanActivate {
       throw new ForbiddenException('Authentication required');
     }
 
-    const user = await this.userService.findByAuthUserId(authUserId);
+    // Reuse active ErpUser already resolved on this HTTP request by OrgScopeGuard
+    const cachedUser = request.erpUser;
+    const user =
+      cachedUser && cachedUser.authUserId === authUserId
+        ? cachedUser
+        : await this.userService.findByAuthUserId(authUserId);
     if (!user || user.status !== 'ACTIVE') {
       throw new ForbiddenException('User account is inactive');
     }
