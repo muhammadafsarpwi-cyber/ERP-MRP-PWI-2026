@@ -149,6 +149,16 @@ async function bootstrap() {
     }
   }
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { bodyParser: false });
+  // Prevent Nest ExpressAdapter from re-sending/removing headers when a controller
+  // or ETag interceptor already sent 304 Not Modified via `res.status(304).end()`.
+  const httpAdapter = app.getHttpAdapter();
+  const originalReply = httpAdapter.reply.bind(httpAdapter);
+  httpAdapter.reply = (response: any, body: any, statusCode?: number) => {
+    if (response?.headersSent) {
+      return response;
+    }
+    return originalReply(response, body, statusCode);
+  };
   app.use(compression({ threshold: 1024 }));
 
   // Increase payload limit for base64 audio/voice queries and bulk uploads to prevent 413 Payload Too Large

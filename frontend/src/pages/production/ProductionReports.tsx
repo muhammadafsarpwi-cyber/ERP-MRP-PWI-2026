@@ -19,7 +19,7 @@ import dashboardService, { FilterOption } from '../../services/dashboardService'
 import { PageHeader, PageToolbar, ERPTable, TabKeepAlive, GlobalLoading } from '../../components/shared';
 import { ITEM_TYPES } from '../master-data/items/itemTypes';
 import { calcActualKg, perUnitWeightLabel, COUNT_UOMS } from '../../utils/productionWeight';
-import { tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
+import { matchesTabRefresh, tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import './productionReports.css';
 
 /* Shared Per Unit Weight / Actual KG helpers live in utils/productionWeight.ts
@@ -407,7 +407,7 @@ const ProductionReports: React.FC = () => {
   const [search, setSearch] = useState<string>(() => cachedTab?.search ?? '');
   const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState<Filters>(() => cachedTab?.filters ?? {});
-  const [dateRange, setDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null] | null>(() => cachedTab?.dateRange ?? null);
+  const [dateRange, setDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null] | null>(() => cachedTab?.dateRange ?? [dayjs().subtract(6, 'day'), dayjs()]);
   const [activeTab, setActiveTab] = useState<string>(() => cachedTab?.activeTab ?? 'dept');
 
   const [divisions, setDivisions] = useState<FilterOption[]>([]);
@@ -569,7 +569,8 @@ const ProductionReports: React.FC = () => {
   useEffect(() => {
     const handleGlobalRefresh = (e: Event) => {
       const detail = (e as CustomEvent).detail;
-      if (!detail?.tabId || String(detail.tabId).startsWith(PRODUCTION_REPORTS_TAB_ID)) {
+      if (matchesTabRefresh(e, PRODUCTION_REPORTS_TAB_ID)) {
+        void detail;
         tabSessionCache.remove(PRODUCTION_REPORTS_TAB_ID);
         void loadAllRef.current();
       }

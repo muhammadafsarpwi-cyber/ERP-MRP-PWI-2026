@@ -5,6 +5,7 @@ import { Permission, PermissionStatus } from '../entities';
 import { ErpUser } from '../../user/entities/erp-user.entity';
 import { DivisionAccessService } from './division-access.service';
 import { DivisionAccess } from '../../../common/division-scope.util';
+import { authLookupCache } from '../../../common/cache/auth-lookup-cache';
 
 @Injectable()
 export class PermissionService {
@@ -82,6 +83,9 @@ export class PermissionService {
   }
 
   async checkUserPermission(userId: string, permissionCode: string): Promise<boolean> {
+    const cached = authLookupCache.getPermCheck(userId, permissionCode);
+    if (cached !== undefined) return cached;
+
     // 1. Check if user has an active Admin or Super Admin role
     try {
       const adminCheck = await this.permissionRepository.manager.query(
@@ -94,6 +98,7 @@ export class PermissionService {
         [userId],
       );
       if (adminCheck && adminCheck.length > 0) {
+        authLookupCache.setPermCheck(userId, permissionCode, true);
         return true;
       }
     } catch {
@@ -115,7 +120,9 @@ export class PermissionService {
       .andWhere('u.status = :userStatus', { userStatus: 'ACTIVE' })
       .getCount();
 
-    return result > 0;
+    const allowed = result > 0;
+    authLookupCache.setPermCheck(userId, permissionCode, allowed);
+    return allowed;
   }
 
   /**

@@ -245,11 +245,14 @@ html:not([data-theme="dark"]) body .ant-table-tbody > tr:not(:hover):not(.ant-ta
 :root:not([data-theme="dark"]) .ant-table-wrapper .ant-table-tbody > tr > td,
 :root:not([data-theme="dark"]) .ant-table-tbody > tr > td,
 :root:not([data-theme="dark"]) table.erp-data-table tbody tr td {
-  padding: 8px 12px !important;
+  padding: 7px 12px !important;
   font-size: 13px;
   color: var(--theme-text, #1e293b);
   border-bottom: 1px solid var(--erp-table-border, #e2e8f0) !important;
   transition: background-color 0.14s ease, box-shadow 0.14s ease;
+  white-space: nowrap;
+  word-break: keep-all;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Light Mode Hover State: crisp theme-tinted highlight + left indicator accent */
@@ -315,11 +318,14 @@ html:not([data-theme="dark"]) body .ant-table-tbody > tr:not(:hover):not(.ant-ta
 [data-theme="dark"] .ant-table-wrapper .ant-table-tbody > tr > td,
 [data-theme="dark"] .ant-table-tbody > tr > td,
 [data-theme="dark"] table.erp-data-table tbody tr td {
-  padding: 9px 12px !important;
+  padding: 7px 12px !important;
   font-size: 13px;
   color: var(--theme-table-text, #f1f5f9) !important;
   border-bottom: 1px solid var(--erp-table-border, var(--theme-border, #2a3054)) !important;
   transition: background-color 0.16s ease, box-shadow 0.16s ease !important;
+  white-space: nowrap;
+  word-break: keep-all;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Dark Mode Row Hover with Smooth Accent Glow + Left Indicator */
@@ -1935,6 +1941,47 @@ td.ant-table-selection-column,
   min-height: 48px !important;
   box-sizing: border-box !important;
 }
+
+/* ── Global Compact Single-Line Numbers, Codes, Badges & Visible Summary Rows ── */
+.ant-table-wrapper .ant-table-thead > tr > th,
+.ant-table-wrapper .ant-table-tbody > tr > td,
+.ant-table-wrapper .ant-table-summary > tr > td {
+  white-space: nowrap;
+  word-break: keep-all;
+  font-variant-numeric: tabular-nums;
+  vertical-align: middle;
+}
+
+.ant-table-wrapper .ant-table-tbody > tr > td {
+  padding: 7px 12px !important;
+  font-size: 13px;
+}
+
+.ant-table-wrapper .ant-table-summary > tr > td {
+  padding: 9px 12px !important;
+  font-size: 13px;
+  font-weight: 700;
+  border-top: 2px solid var(--theme-border-strong, var(--theme-border, rgba(148, 163, 184, 0.35))) !important;
+  background: var(--theme-surface-alt, rgba(148, 163, 184, 0.08)) !important;
+}
+
+.ant-table-wrapper .ant-table-tbody .ant-tag,
+.ant-table-wrapper .ant-table-tbody .ant-typography,
+.ant-table-wrapper .ant-table-tbody code,
+.ant-table-wrapper .ant-table-tbody .ant-btn-link,
+.ant-table-wrapper .ant-table-summary .ant-typography {
+  white-space: nowrap;
+  word-break: keep-all;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Opt-in wrap utility when an exceptionally long text cell should wrap nicely */
+.erp-cell-wrap {
+  white-space: normal !important;
+  word-break: break-word !important;
+  max-width: 340px;
+}
+
 
 
 

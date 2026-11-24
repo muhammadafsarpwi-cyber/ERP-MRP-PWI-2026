@@ -121,13 +121,39 @@ export class PurchaseInvoiceController {
   @RequireOrgScope()
   @RequirePermission('procurement.invoice.post')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Record supplier payment against purchase invoice (atomic AP/cash journal)' })
-  async recordPayment(@Param('id') id: string, @Body('paidAmount') paidAmount: number, @Request() req: any) {
+  @ApiOperation({ summary: 'Record supplier payment against purchase invoice (atomic AP/cash/bank/WHT journal)' })
+  async recordPayment(
+    @Param('id') id: string,
+    @Body() body: {
+      paidAmount: number;
+      bankAccountId?: string | null;
+      paymentMode?: string | null;
+      whtAmount?: number;
+      chequeNumber?: string | null;
+      chequeDate?: string | null;
+      divisionId?: string | null;
+    },
+    @Request() req: any,
+  ) {
     const companyId = this.resolveCompany(req, req.query?.companyId);
+    const paidAmount = body?.paidAmount;
     if (paidAmount == null || Number.isNaN(Number(paidAmount))) {
       throw new BadRequestException('paidAmount is required');
     }
-    const invoice = await this.service.recordPayment(id, Number(paidAmount), companyId, this.getUserId(req));
+    const invoice = await this.service.recordPayment(
+      id,
+      Number(paidAmount),
+      companyId,
+      this.getUserId(req),
+      {
+        bankAccountId: body.bankAccountId,
+        paymentMode: body.paymentMode,
+        whtAmount: body.whtAmount,
+        chequeNumber: body.chequeNumber,
+        chequeDate: body.chequeDate,
+        divisionId: body.divisionId,
+      },
+    );
     return { success: true, data: invoice, message: 'Payment recorded successfully' };
   }
 }

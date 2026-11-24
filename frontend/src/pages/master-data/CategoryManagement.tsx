@@ -8,7 +8,7 @@ import type { DataNode } from 'antd/es/tree';
 import apiService from '../../services/api';
 import { PageHeader, StatusBadge, PageToolbar, TableActions, DraggableResizableModal } from '../../components/shared';
 import GlobalLoading from '../../components/shared/GlobalLoading';
-import { TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
+import { matchesTabRefresh, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 
 interface Category {
   id: string;
@@ -251,8 +251,7 @@ const CategoryManagement: React.FC = () => {
   // Global header/tab refresh event listener
   useEffect(() => {
     const handleGlobalRefresh = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (!detail?.tabId || String(detail.tabId).startsWith('/master-data/categories')) {
+      if (matchesTabRefresh(e, '/master-data/categories')) {
         void fetchHierarchy(companyId);
       }
     };

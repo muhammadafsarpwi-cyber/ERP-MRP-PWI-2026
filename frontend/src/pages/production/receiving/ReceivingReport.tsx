@@ -14,7 +14,7 @@ import { formatNumber } from '../../../utils/numberFormat';
 import { formatApiError } from '../../../utils/apiError';
 import { formatNameWithCode } from '../../../utils/formatEntityLabel';
 import { GlobalLoading, TabKeepAlive } from '../../../components/shared';
-import { tabSessionCache, TAB_REFRESH_EVENT } from '../../../services/tabSessionCache';
+import { matchesTabRefresh, tabSessionCache, TAB_REFRESH_EVENT } from '../../../services/tabSessionCache';
 import './rawMaterialForms.css';
 
 const { Text, Title } = Typography;
@@ -271,9 +271,10 @@ const ReceivingReport: React.FC = () => {
     }
   }, [message]);
 
+  // Weekly default so initial history load stays fast (month/all still selectable)
   const currentMonth = useMemo(() => ({
-    start: dayjs().startOf('month'),
-    end: dayjs().endOf('month'),
+    start: dayjs().subtract(6, 'day').startOf('day'),
+    end: dayjs().endOf('day'),
   }), []);
 
   const runDefault = useCallback(() => {
@@ -294,8 +295,7 @@ const ReceivingReport: React.FC = () => {
   // Global header/tab refresh event listener
   useEffect(() => {
     const handleGlobalRefresh = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (!detail?.tabId || String(detail.tabId).startsWith(RM_RECEIVING_RETURN_REPORT_TAB_ID)) {
+      if (matchesTabRefresh(e, RM_RECEIVING_RETURN_REPORT_TAB_ID)) {
         tabSessionCache.remove(RM_RECEIVING_RETURN_REPORT_TAB_ID);
         runDefault();
       }

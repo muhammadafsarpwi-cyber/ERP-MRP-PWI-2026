@@ -44,7 +44,7 @@ import {
 } from 'recharts';
 import apiService from '../../services/api';
 import { TabKeepAlive } from '../../components/shared';
-import { tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
+import { matchesTabRefresh, tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import dashboardService, {
   DashboardFilters as DashboardFiltersType,
   ProductionSummary,
@@ -692,8 +692,7 @@ export const ProductionDashboard: React.FC = () => {
 
   useEffect(() => {
     const handleGlobalRefresh = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (!detail?.tabId || String(detail.tabId).startsWith(PRODUCTION_DASHBOARD_TAB_ID)) {
+      if (matchesTabRefresh(e, PRODUCTION_DASHBOARD_TAB_ID)) {
         tabSessionCache.remove(PRODUCTION_DASHBOARD_TAB_ID);
         void load();
       }

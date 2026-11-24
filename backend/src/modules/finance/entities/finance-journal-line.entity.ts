@@ -36,4 +36,13 @@ export class FinanceJournalLine extends BaseEntity {
 
   @Column({ name: 'reference_id', type: 'uuid', nullable: true })
   referenceId: string | null;
+
+  @Column({ name: 'division_id', type: 'uuid', nullable: true })
+  divisionId: string | null;
+
+  @Column({ name: 'party_type', type: 'varchar', length: 30, nullable: true })
+  partyType: string | null;
+
+  @Column({ name: 'party_id', type: 'uuid', nullable: true })
+  partyId: string | null;
 }

@@ -48,7 +48,7 @@ import {
 import InputMaterialSelect, { registerItemsInCache } from './items/InputMaterialSelect';
 import ProductionFlowCard, { StageBlock } from './items/ProductionFlowCard';
 import { buildRouteFlow, findRouteCycles, normalizeRouteRows, type RouteRow, type RouteStageSource } from './items/productionRoute';
-import { tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
+import { matchesTabRefresh, tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import { getLookupsSnapshot, invalidateLookupsCache, prefetchAllLookups } from '../../services/lookupsCache';
 import { useHeaderActions, type HeaderAction } from '../../components/layout/headerActionsStore';
 import './itemManagement.css';
@@ -1542,8 +1542,7 @@ const ItemManagement: React.FC = () => {
   // Global header/tab refresh event listener
   useEffect(() => {
     const handleGlobalRefresh = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (!detail?.tabId || String(detail.tabId).startsWith(ITEM_CACHE_KEY)) {
+      if (matchesTabRefresh(e, [ITEM_CACHE_KEY, MASTER_PRODUCTS_ITEMS_TAB_ID])) {
         tabSessionCache.remove(ITEM_CACHE_KEY);
         void fetchItems();
       }

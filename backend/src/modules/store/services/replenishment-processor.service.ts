@@ -15,8 +15,8 @@ import { ReplenishmentService } from './replenishment.service';
 @Injectable()
 export class ReplenishmentProcessorService implements OnApplicationBootstrap, OnApplicationShutdown {
   private readonly logger = new Logger(ReplenishmentProcessorService.name);
-  private readonly POLL_INTERVAL_MS = 300_000;
-  private readonly MIN_RUN_INTERVAL_MS = 300_000;
+  private readonly POLL_INTERVAL_MS = Number(process.env.REPLENISHMENT_POLL_MS || 1_800_000);
+  private readonly MIN_RUN_INTERVAL_MS = Number(process.env.REPLENISHMENT_POLL_MS || 1_800_000);
   private timer: ReturnType<typeof setInterval> | null = null;
   private running = false;
   private lastRunAt = 0;
@@ -25,12 +25,18 @@ export class ReplenishmentProcessorService implements OnApplicationBootstrap, On
 
   onApplicationBootstrap() {
     const autoMr = process.env.REPLENISHMENT_AUTO_MR !== 'false';
-    this.timer = setInterval(() => {
-      void this.tick(autoMr);
-    }, this.POLL_INTERVAL_MS);
-    this.logger.log(
-      `Store replenishment processor started (poll every ${this.POLL_INTERVAL_MS}ms, autoMR=${autoMr})`,
-    );
+    if (process.env.ENABLE_IDLE_POLLING === 'true') {
+      this.timer = setInterval(() => {
+        void this.tick(autoMr);
+      }, this.POLL_INTERVAL_MS);
+      this.logger.log(
+        `Store replenishment processor started (poll every ${this.POLL_INTERVAL_MS}ms, autoMR=${autoMr})`,
+      );
+    } else {
+      this.logger.log(
+        `Store replenishment processor initialized in on-demand mode (idle polling disabled, autoMR=${autoMr})`,
+      );
+    }
   }
 
   onApplicationShutdown() {

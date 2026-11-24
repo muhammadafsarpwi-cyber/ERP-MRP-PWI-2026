@@ -430,7 +430,8 @@ export const NAV_ENTRIES: NavEntry[] = [
     permissions: ['finance.account.view'],
     children: [
       { key: '/finance/accounts', label: 'Chart of Accounts', icon: DatabaseOutlined, color: 'success', permissions: ['finance.account.view'] },
-      { key: '/finance/journals', label: 'Journal Entries', icon: EditOutlined, color: 'success', permissions: ['finance.journal.view'] },
+      { key: '/finance/journals', label: 'Vouchers & Journals', icon: EditOutlined, color: 'success', permissions: ['finance.journal.view'] },
+      { key: '/finance/cash-bank', label: 'Cash & Bank Book', icon: WalletOutlined, color: 'success', permissions: ['finance.journal.view'] },
       { key: '/finance/reports', label: 'Financial Reports', icon: BarChartOutlined, color: 'success', permissions: ['finance.report.trial_balance'] },
     ],
   },

@@ -15,6 +15,7 @@ import {
 import EmptyState from './EmptyState';
 import { OrbitalDualRingLoader, TableEmptyLoadingState } from './LoadingState';
 import DeleteConfirmModal from './DeleteConfirmModal';
+import { markManualRefreshWindow } from '../../services/tabSessionCache';
 
 export interface ERPTableProps<T extends object = any> extends TableProps<T> {
   dense?: boolean;
@@ -830,7 +831,13 @@ export const TableToolbar: React.FC<TableToolbarProps> = ({
 
           {onRefresh && (
             <Tooltip title="Refresh">
-              <Button icon={<ReloadOutlined />} onClick={onRefresh} />
+              <Button
+                icon={<ReloadOutlined />}
+                onClick={() => {
+                  markManualRefreshWindow(800);
+                  onRefresh();
+                }}
+              />
             </Tooltip>
           )}
 

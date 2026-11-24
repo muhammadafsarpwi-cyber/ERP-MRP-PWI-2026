@@ -10,7 +10,7 @@ import { formatNumber } from '../../utils/numberFormat';
 import { calcActualKg, perUnitWeightLabel } from '../../utils/productionWeight';
 import { formatNameWithCode } from '../../utils/formatEntityLabel';
 import { PageHeader, ERPTable, TableToolbar, TableActions, TabKeepAlive, GlobalLoading } from '../../components/shared';
-import { tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
+import { matchesTabRefresh, tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 
 interface ProductionOrder {
   id: string;
@@ -193,8 +193,7 @@ const ProductionOrders: React.FC = () => {
   // Global header/tab refresh event listener
   useEffect(() => {
     const handleGlobalRefresh = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (!detail?.tabId || String(detail.tabId).startsWith(ORDERS_TAB_ID)) {
+      if (matchesTabRefresh(e, ORDERS_TAB_ID)) {
         tabSessionCache.remove(ORDERS_TAB_ID);
         void fetchData(page);
       }

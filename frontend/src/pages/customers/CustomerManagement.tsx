@@ -28,7 +28,7 @@ import {
 } from '../../components/shared';
 import type { SaveResultData, SaveResultPhase } from '../../components/shared/SaveResultDialog';
 import GlobalLoading from '../../components/shared/GlobalLoading';
-import { TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
+import { matchesTabRefresh, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import { useHeaderActions } from '../../components/layout/headerActionsStore';
 import dayjs from 'dayjs';
 import './CustomerManagement.css';
@@ -401,8 +401,7 @@ const CustomerManagement: React.FC = () => {
   // Global header/tab refresh event listener
   useEffect(() => {
     const handleGlobalRefresh = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (!detail?.tabId || String(detail.tabId).startsWith('/customers')) {
+      if (matchesTabRefresh(e, '/customers')) {
         void fetchCustomers(page, pageSize);
       }
     };
@@ -2292,7 +2291,7 @@ const CustomerManagement: React.FC = () => {
             rowKey="id"
             loading={loading}
             pagination={false}
-            scroll={{ x: 1050 }}
+            scroll={{ x: 'max-content' }}
           />
         )}
 

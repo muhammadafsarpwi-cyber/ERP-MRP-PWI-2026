@@ -37,7 +37,7 @@ import {
   DraggableResizableModal, SaveResultDialog,
   type SaveResultPhase, type SaveResultData,
 } from '../../components/shared';
-import { tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
+import { matchesTabRefresh, tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import { useHeaderActions } from '../../components/layout/headerActionsStore';
 import { handleValidationErrors } from '../../utils/formValidationHelper';
 
@@ -916,8 +916,7 @@ const MachineToolingManagement: React.FC = () => {
   // Global header/tab refresh event listener
   useEffect(() => {
     const handleGlobalRefresh = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (!detail?.tabId || String(detail.tabId).startsWith(MASTER_MACHINE_TOOLS_TAB_ID)) {
+      if (matchesTabRefresh(e, MASTER_MACHINE_TOOLS_TAB_ID)) {
         tabSessionCache.remove(MASTER_MACHINE_TOOLS_TAB_ID);
         if (activeTab === 'setup') void fetchComponentsRef.current(compPage);
       }

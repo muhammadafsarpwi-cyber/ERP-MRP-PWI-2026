@@ -9,6 +9,7 @@ import {
 import { Observable, from, of } from 'rxjs';
 import { map, tap } from 'rxjs/operators';
 import { ResponseCacheService } from './response-cache.service';
+import { authLookupCache } from './auth-lookup-cache';
 
 @Injectable()
 export class ResponseCacheInterceptor implements NestInterceptor {
@@ -59,6 +60,7 @@ export class ResponseCacheInterceptor implements NestInterceptor {
       String(req?.headers?.['cache-control'] || '').includes('no-cache') &&
         String(req?.headers?.['x-bypass-server-cache'] || '') === '1';
     if (bypass) {
+      authLookupCache.invalidateUser(req?.erpUser?.id, req?.user?.id);
       return next.handle();
     }
 

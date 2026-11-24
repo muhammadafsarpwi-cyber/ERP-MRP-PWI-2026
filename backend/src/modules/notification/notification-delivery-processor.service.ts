@@ -13,12 +13,25 @@ import { sendSmtpEmail } from './providers/smtp-email.provider';
  * Started on module init via onApplicationBootstrap. No external cron
  * dependency required — uses setInterval for the polling loop.
  */
+let deliveryWakeupHandler: (() => void) | null = null;
+
+/**
+ * Wake the delivery queue processor immediately when new EMAIL/WHATSAPP
+ * deliveries are queued instead of polling PostgreSQL every 15 seconds while idle.
+ */
+export function triggerNotificationDeliveryWakeup(): void {
+  if (deliveryWakeupHandler) {
+    deliveryWakeupHandler();
+  }
+}
+
 @Injectable()
 export class NotificationDeliveryProcessorService {
   private readonly logger = new Logger(NotificationDeliveryProcessorService.name);
-  private readonly POLL_INTERVAL_MS = 15_000;
+  private readonly POLL_INTERVAL_MS = Number(process.env.NOTIFICATION_POLL_MS || 900_000);
   private readonly MAX_RETRIES = 3;
   private timer: ReturnType<typeof setInterval> | null = null;
+  private wakeupTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     @InjectRepository(NotificationDelivery)
@@ -28,11 +41,25 @@ export class NotificationDeliveryProcessorService {
   ) {}
 
   onApplicationBootstrap() {
-    this.timer = setInterval(() => this.processQueue(), this.POLL_INTERVAL_MS);
-    this.logger.log(`Notification delivery processor started (poll every ${this.POLL_INTERVAL_MS}ms)`);
+    deliveryWakeupHandler = () => {
+      if (this.wakeupTimer) return;
+      this.wakeupTimer = setTimeout(() => {
+        this.wakeupTimer = null;
+        void this.processQueue();
+      }, 250);
+    };
+    void this.processQueue();
+    if (process.env.ENABLE_IDLE_POLLING === 'true') {
+      this.timer = setInterval(() => this.processQueue(), this.POLL_INTERVAL_MS);
+      this.logger.log(`Notification delivery processor started (poll every ${this.POLL_INTERVAL_MS}ms)`);
+    } else {
+      this.logger.log('Notification delivery processor started in event-triggered mode (idle polling disabled)');
+    }
   }
 
   onApplicationShutdown() {
+    deliveryWakeupHandler = null;
+    if (this.wakeupTimer) clearTimeout(this.wakeupTimer);
     if (this.timer) clearInterval(this.timer);
   }
 

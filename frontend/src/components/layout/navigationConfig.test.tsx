@@ -122,7 +122,7 @@ const DISCOVERED_ROUTES: string[] = [
   '/maintenance/teams',
   '/maintenance/categories', '/maintenance/pm-plans',
   '/maintenance/pm-schedules', '/maintenance/reports',
-  '/finance', '/finance/accounts', '/finance/journals', '/finance/reports',
+  '/finance', '/finance/accounts', '/finance/journals', '/finance/cash-bank', '/finance/reports',
   '/hr/dashboard', '/hr/my-attendance', '/hr/attendance-register', '/hr/shift-roster',
   '/hr/live-map', '/hr/leaves', '/hr/regularizations', '/hr/overtime-approval',
   '/hr/advances', '/hr/employee-documents', '/hr/attendance-exceptions',

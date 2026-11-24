@@ -6,7 +6,7 @@ import dayjs from 'dayjs';
 import apiService from '../../services/api';
 import { formatApiError } from '../../utils/apiError';
 import { GlobalLoading, ERPTable, DraggableResizableModal, TabKeepAlive } from '../../components/shared';
-import { tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
+import { matchesTabRefresh, tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import { useHeaderActions } from '../../components/layout/headerActionsStore';
 
 interface Company {
@@ -145,8 +145,7 @@ const SectionManagement: React.FC = () => {
 
   useEffect(() => {
     const handleGlobalRefresh = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (!detail?.tabId || String(detail.tabId).startsWith(ORGANIZATION_SECTIONS_TAB_ID)) {
+      if (matchesTabRefresh(e, ORGANIZATION_SECTIONS_TAB_ID)) {
         tabSessionCache.remove(ORGANIZATION_SECTIONS_TAB_ID);
         void fetchSectionsRef(page);
         void fetchDivisions();

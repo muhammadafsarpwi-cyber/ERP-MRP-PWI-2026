@@ -42,7 +42,10 @@ const DeliveryLogsPage: React.FC<{ channel: 'EMAIL' | 'WHATSAPP'; title: string 
   const [pageSize, setPageSize] = useState(20);
   const [status, setStatus] = useState<string | undefined>();
   const [recipient, setRecipient] = useState('');
-  const [dateRange, setDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null] | null>(null);
+  const [dateRange, setDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null] | null>(() => [
+    dayjs().subtract(6, 'day'),
+    dayjs(),
+  ]);
 
   const load = async () => {
     setLoading(true);

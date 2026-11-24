@@ -16,9 +16,9 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 import { formatDecimal, formatSmartCurrency } from '../../utils/numberFormat';
-import { ERPLineItems, ERPLine, DraggableResizableModal, PreConfirmVerificationCard } from '../../components/shared';
+import { ERPLineItems, ERPLine, DraggableResizableModal, PreConfirmVerificationCard, TableColumnSelector, useColumnVisibility } from '../../components/shared';
 import { resolveEffectiveTaxPercent, summarizeLinesTaxVerification } from '../../utils/salesTaxVerification';
-import { TAB_REFRESH_EVENT, triggerTabRefresh } from '../../services/tabSessionCache';
+import { matchesTabRefresh, TAB_REFRESH_EVENT, triggerTabRefresh } from '../../services/tabSessionCache';
 import {
   getLookupsSnapshot,
   prefetchAllLookups,
@@ -403,8 +403,7 @@ const SalesDeliveryManagement: React.FC = () => {
   // Global header tab refresh
   useEffect(() => {
     const handleGlobalRefresh = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (!detail?.tabId || String(detail.tabId).includes('deliver')) {
+      if (matchesTabRefresh(e, '/sales/deliveries')) {
         void fetchData(page, pageSize);
       }
     };
@@ -2651,6 +2650,8 @@ const SalesDeliveryManagement: React.FC = () => {
     },
   ];
 
+  const { visibleColumns, selectorProps } = useColumnVisibility('pwi_cols_sales_deliveries', columns);
+
   // Pagination calculation
   const totalEntries = displayedDeliveries.length;
   const startEntry = totalEntries === 0 ? 0 : (page - 1) * pageSize + 1;
@@ -3130,6 +3131,8 @@ const SalesDeliveryManagement: React.FC = () => {
 
             <div className="delivery-toolbar-divider" />
 
+            <TableColumnSelector {...selectorProps} size="small" />
+
             <Button
               icon={<FileExcelOutlined />}
               onClick={handleExportCsv}
@@ -3342,12 +3345,13 @@ const SalesDeliveryManagement: React.FC = () => {
 
         {/* Custom ERP Table */}
         <Table
-          columns={columns}
+          columns={visibleColumns}
           dataSource={paginatedDeliveries}
           rowKey="id"
           loading={loading}
           pagination={false}
           className="inv-custom-table"
+          scroll={{ x: 'max-content' }}
         />
 
         {/* Custom Pagination Footer */}

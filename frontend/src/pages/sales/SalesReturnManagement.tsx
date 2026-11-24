@@ -16,7 +16,7 @@ import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 import { formatDecimal } from '../../utils/numberFormat';
 import { DraggableResizableModal } from '../../components/shared';
-import { TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
+import { matchesTabRefresh, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import { useHeaderActions } from '../../components/layout/headerActionsStore';
 import dayjs from 'dayjs';
 import isSameOrBefore from 'dayjs/plugin/isSameOrBefore';
@@ -275,8 +275,7 @@ const SalesReturnManagement: React.FC = () => {
   // Global header tab refresh
   useEffect(() => {
     const handleGlobalRefresh = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (!detail?.tabId || String(detail.tabId).includes('return')) {
+      if (matchesTabRefresh(e, '/sales/returns')) {
         void fetchData(page, pageSize);
       }
     };

@@ -27,7 +27,7 @@ import {
 } from '../../components/shared';
 import type { SaveResultData, SaveResultPhase } from '../../components/shared/SaveResultDialog';
 import GlobalLoading from '../../components/shared/GlobalLoading';
-import { TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
+import { matchesTabRefresh, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import { useHeaderActions } from '../../components/layout/headerActionsStore';
 import dayjs from 'dayjs';
 import '../customers/CustomerManagement.css';
@@ -222,8 +222,7 @@ const SupplierManagement: React.FC = () => {
   // Global header/tab refresh event listener
   useEffect(() => {
     const handleGlobalRefresh = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (!detail?.tabId || String(detail.tabId).includes('supplier')) {
+      if (matchesTabRefresh(e, ['/procurement/suppliers', '/suppliers'])) {
         void fetchSuppliers(page, pageSize);
       }
     };

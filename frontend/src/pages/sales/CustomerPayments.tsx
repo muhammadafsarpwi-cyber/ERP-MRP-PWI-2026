@@ -49,8 +49,8 @@ import dayjs from 'dayjs';
 import apiService from '../../services/api';
 import { formatDecimal } from '../../utils/numberFormat';
 import { printPaymentReceiptVoucher, printTableList } from '../../utils/printTemplates';
-import { triggerTabRefresh, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
-import { DraggableResizableModal, PageHeader } from '../../components/shared';
+import { matchesTabRefresh, triggerTabRefresh, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
+import { DraggableResizableModal, PageHeader, TableColumnSelector, useColumnVisibility } from '../../components/shared';
 import './CustomerPayments.css';
 import {
   buildAllocationsPayload,
@@ -231,9 +231,9 @@ const CustomerPayments: React.FC = () => {
   }, [fetchReceipts, page, pageSize]);
 
   useEffect(() => {
-    const handler = (e: any) => {
-      if (!e?.detail?.path || e.detail.path === '/sales/receipts') {
-        fetchReceipts(page, pageSize);
+    const handler = (e: Event) => {
+      if (matchesTabRefresh(e, '/sales/receipts')) {
+        void fetchReceipts(page, pageSize);
       }
     };
     window.addEventListener(TAB_REFRESH_EVENT, handler);
@@ -838,7 +838,6 @@ const CustomerPayments: React.FC = () => {
       dataIndex: 'amount',
       key: 'amount',
       align: 'right',
-      width: 135,
       render: (val: number) => (
         <span style={{ fontWeight: 800, color: '#16a34a' }}>Rs {formatDecimal(val)}</span>
       ),
@@ -848,7 +847,6 @@ const CustomerPayments: React.FC = () => {
       dataIndex: 'unallocatedAdvanceAmount',
       key: 'unallocated',
       align: 'right',
-      width: 145,
       render: (val: number, r) =>
         Number(val) > 0 && r.status !== 'BOUNCED' ? (
           <Tag color="blue" style={{ margin: 0, fontWeight: 700 }}>
@@ -920,8 +918,10 @@ const CustomerPayments: React.FC = () => {
     },
   ];
 
+  const { visibleColumns, selectorProps } = useColumnVisibility('pwi_cols_customer_payments', columns);
+
   return (
-    <div style={{ padding: '12px 16px' }}>
+    <div style={{ padding: '12px 16px 48px 16px' }}>
       <PageHeader
         icon={<WalletOutlined />}
         title="Customer Payments & Advances"
@@ -929,6 +929,7 @@ const CustomerPayments: React.FC = () => {
         showBreadcrumbs
         extra={
           <Space wrap>
+            <TableColumnSelector {...selectorProps} />
             <Button icon={<ReloadOutlined />} onClick={() => void fetchReceipts(page, pageSize)}>
               Refresh
             </Button>
@@ -1129,9 +1130,9 @@ const CustomerPayments: React.FC = () => {
         <Table
           rowKey="id"
           loading={loading}
-          columns={columns}
+          columns={visibleColumns}
           dataSource={receipts}
-          scroll={{ x: 1120 }}
+          scroll={{ x: 'max-content' }}
           pagination={{
             current: page,
             pageSize,

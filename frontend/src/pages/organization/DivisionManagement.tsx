@@ -6,7 +6,7 @@ import dayjs from 'dayjs';
 import apiService from '../../services/api';
 import { formatApiError } from '../../utils/apiError';
 import { GlobalLoading, ERPTable, DraggableResizableModal, TabKeepAlive } from '../../components/shared';
-import { tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
+import { matchesTabRefresh, tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import { useHeaderActions } from '../../components/layout/headerActionsStore';
 
 interface Division {
@@ -100,8 +100,7 @@ const DivisionManagement: React.FC = () => {
 
   useEffect(() => {
     const handleGlobalRefresh = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (!detail?.tabId || String(detail.tabId).startsWith(ORGANIZATION_DIVISIONS_TAB_ID)) {
+      if (matchesTabRefresh(e, ORGANIZATION_DIVISIONS_TAB_ID)) {
         tabSessionCache.remove(ORGANIZATION_DIVISIONS_TAB_ID);
         void fetchDivisionsRef(page);
       }

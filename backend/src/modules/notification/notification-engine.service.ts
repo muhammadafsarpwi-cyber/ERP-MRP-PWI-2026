@@ -7,6 +7,7 @@ import { NotificationTemplate } from './entities/notification-template.entity';
 import { NotificationDelivery } from './entities/notification-delivery.entity';
 import { NotificationPreference } from './entities/notification-preference.entity';
 import { NotificationRecipientResolver, ResolvedRecipient } from './notification-recipient-resolver.service';
+import { triggerNotificationDeliveryWakeup } from './notification-delivery-processor.service';
 
 export interface EmitEventPayload {
   eventCode: string;
@@ -174,6 +175,7 @@ export class NotificationEngineService {
               eventId: event.entityId || null,
               maxRetries: 3,
             } as any);
+            triggerNotificationDeliveryWakeup();
           } catch (delError) {
             this.logger.warn(`email delivery queue failed for ${address}: ${(delError as Error).message}`);
           }
@@ -198,6 +200,7 @@ export class NotificationEngineService {
               eventId: event.entityId || null,
               maxRetries: 3,
             } as any);
+            triggerNotificationDeliveryWakeup();
           } catch (delError) {
             this.logger.warn(`whatsapp delivery queue failed for ${phone}: ${(delError as Error).message}`);
           }

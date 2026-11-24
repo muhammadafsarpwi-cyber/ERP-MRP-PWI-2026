@@ -331,7 +331,7 @@ export class CustomerReceiptService implements OnModuleInit {
       where: { companyId, status: 'ACTIVE' },
       order: { accountCode: 'ASC' },
     });
-    return all.filter((a) => a.isBankCash || ['1000', '1010', '1020'].includes(a.accountCode));
+    return all.filter((a) => a.isBankCash || ['1000', '1010', '1011', '1012', '1020'].includes(a.accountCode));
   }
 
   private async resolveDepositAccount(
@@ -459,6 +459,12 @@ export class CustomerReceiptService implements OnModuleInit {
       userId,
       manager,
       invoice.invoiceDate ? new Date(invoice.invoiceDate) : new Date(),
+      {
+        subtotal: Number(invoice.subtotal || 0),
+        taxAmount: Number(invoice.taxAmount || 0),
+        divisionId: invoice.divisionId || invoice.salesOrder?.divisionId || null,
+        customerId: masterCustomerId || invoice.customerId || null,
+      },
     );
   }
 
@@ -700,7 +706,12 @@ export class CustomerReceiptService implements OnModuleInit {
         advanceAmount: unallocatedAdvanceAmount,
         debitAccountId: depositAcct.accountId,
         debitAccountCode: depositAcct.accountCode,
+        customerId: masterCustomer.id,
         customerName: masterCustomer.name,
+        divisionId: resolvedDivisionId,
+        paymentMode,
+        chequeNumber: dto.chequeNumber?.trim() || null,
+        chequeDate: dto.chequeDate ? new Date(dto.chequeDate) : null,
         invoiceNumbers: settledInvoiceNos,
         actorId: safeUserId,
         manager,

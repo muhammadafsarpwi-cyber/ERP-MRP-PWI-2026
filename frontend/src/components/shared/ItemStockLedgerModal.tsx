@@ -212,7 +212,7 @@ export const ItemStockLedgerModal: React.FC<ItemStockLedgerModalProps> = ({
     closeBtnColor: isDark ? '#f87171' : '#dc2626',
   }), [isDark]);
 
-  const fetchLedger = useCallback(async () => {
+  const fetchLedger = useCallback(async (forceRefresh = false) => {
     const targetId = itemId || itemCode;
     if (!targetId) return;
     setLoading(true);
@@ -220,17 +220,20 @@ export const ItemStockLedgerModal: React.FC<ItemStockLedgerModalProps> = ({
     try {
       const params: any = {};
       if (selectedWarehouseId) params.warehouseId = selectedWarehouseId;
+      const reqConfig = forceRefresh ? { forceRefresh: true } : undefined;
       
       let res: any;
       try {
         res = await apiService.get<{ success: boolean; data: ItemStockLedgerData }>(
           `/inventory/balances/items/${targetId}/ledger`,
           params,
+          reqConfig,
         );
       } catch {
         res = await apiService.get<{ success: boolean; data: ItemStockLedgerData }>(
           `/inventory/receipts/items/${targetId}/ledger`,
           params,
+          reqConfig,
         );
       }
       setData(res?.data || res);
@@ -1024,7 +1027,7 @@ export const ItemStockLedgerModal: React.FC<ItemStockLedgerModalProps> = ({
         <Button
           key="refresh"
           icon={<ReloadOutlined />}
-          onClick={fetchLedger}
+          onClick={() => void fetchLedger(true)}
           loading={loading}
           style={{ background: themeColors.footerBtnBg, borderColor: themeColors.footerBtnBorder, color: themeColors.footerBtnColor, fontWeight: 600 }}
         >
@@ -1203,7 +1206,7 @@ export const ItemStockLedgerModal: React.FC<ItemStockLedgerModalProps> = ({
           message="Failed to Load Ledger History"
           description={error}
           action={
-            <Button size="small" danger onClick={fetchLedger}>
+            <Button size="small" danger onClick={() => void fetchLedger(true)}>
               Retry
             </Button>
           }

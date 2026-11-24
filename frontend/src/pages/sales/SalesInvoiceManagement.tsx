@@ -20,7 +20,7 @@ import type { ColumnsType } from 'antd/es/table';
 import { useNavigate } from 'react-router-dom';
 import apiService from '../../services/api';
 import { formatDecimal } from '../../utils/numberFormat';
-import { SaveResultDialog, PreConfirmVerificationCard } from '../../components/shared';
+import { SaveResultDialog, PreConfirmVerificationCard, TableColumnSelector, useColumnVisibility } from '../../components/shared';
 import {
   getInvoiceActionMeta,
   type InvoiceActionKey,
@@ -29,7 +29,7 @@ import {
 import { summarizeLinesTaxVerification } from '../../utils/salesTaxVerification';
 import type { SaveResultData, SaveResultPhase } from '../../components/shared/SaveResultDialog';
 import GlobalLoading from '../../components/shared/GlobalLoading';
-import { TAB_REFRESH_EVENT, triggerTabRefresh } from '../../services/tabSessionCache';
+import { matchesTabRefresh, TAB_REFRESH_EVENT, triggerTabRefresh } from '../../services/tabSessionCache';
 import { useHeaderActions } from '../../components/layout/headerActionsStore';
 import dayjs from 'dayjs';
 import isSameOrBefore from 'dayjs/plugin/isSameOrBefore';
@@ -366,8 +366,7 @@ const SalesInvoiceManagement: React.FC = () => {
   // Global header tab refresh event listener
   useEffect(() => {
     const handleGlobalRefresh = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (!detail?.tabId || String(detail.tabId).includes('invoice')) {
+      if (matchesTabRefresh(e, '/sales/invoices')) {
         void fetchData(page, pageSize);
       }
     };
@@ -1400,6 +1399,8 @@ const SalesInvoiceManagement: React.FC = () => {
     },
   ];
 
+  const { visibleColumns, selectorProps } = useColumnVisibility('pwi_cols_sales_invoices', columns);
+
   // Pagination calculation
   const totalEntries = total > 0 ? total : displayedInvoices.length;
   const startEntry = totalEntries === 0 ? 0 : (page - 1) * pageSize + 1;
@@ -1861,6 +1862,8 @@ const SalesInvoiceManagement: React.FC = () => {
 
             <div style={{ flex: 1 }} />
 
+            <TableColumnSelector {...selectorProps} />
+
             <div className="inv-entries-control">
               <span>Show</span>
               <Select
@@ -2045,12 +2048,12 @@ const SalesInvoiceManagement: React.FC = () => {
           ) : (
             <Table
               className="inv-pixel-table"
-              columns={columns}
+              columns={visibleColumns}
               dataSource={displayedInvoices}
               rowKey="id"
               loading={loading}
               pagination={false}
-              scroll={{ x: 1100 }}
+              scroll={{ x: 'max-content' }}
             />
           )}
 

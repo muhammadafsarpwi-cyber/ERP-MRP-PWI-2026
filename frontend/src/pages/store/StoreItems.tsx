@@ -160,7 +160,7 @@ const StoreItems: React.FC = () => {
         apiService.get<any>('/sections', { limit: 200, status: 'ACTIVE' }),
         apiService.get<any>('/departments', { limit: 300, status: 'ACTIVE' }),
         apiService.get<any>('/store/stores', { status: 'ACTIVE' }),
-        apiService.get<any>('/master-data/items', { limit: 5000 }),
+        apiService.get<any>('/master-data/items/lookup'),
         apiService.get<any>('/inventory/balances', { limit: 5000 }),
       ]);
 

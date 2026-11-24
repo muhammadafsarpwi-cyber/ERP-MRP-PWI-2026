@@ -12,7 +12,7 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 import { formatDecimal, toNum } from '../../utils/numberFormat';
-import { tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
+import { matchesTabRefresh, tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import {
   TabKeepAlive,
   GlobalLoading,
@@ -372,8 +372,7 @@ const BomManagement: React.FC = () => {
   // Global header/tab refresh event listener
   useEffect(() => {
     const handleGlobalRefresh = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (!detail?.tabId || String(detail.tabId).startsWith(BOM_TAB_ID)) {
+      if (matchesTabRefresh(e, BOM_TAB_ID)) {
         tabSessionCache.remove(BOM_TAB_ID);
         void fetchBoms();
       }

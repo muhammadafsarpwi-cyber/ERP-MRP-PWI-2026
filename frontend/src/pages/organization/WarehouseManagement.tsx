@@ -7,7 +7,7 @@ import apiService from '../../services/api';
 import { formatApiError } from '../../utils/apiError';
 import { PageHeader, ERPTable, StatusBadge, GlobalLoading, TabKeepAlive } from '../../components/shared';
 import BarcodePrint from '../../components/shared/BarcodePrint';
-import { tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
+import { matchesTabRefresh, tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import { useHeaderActions } from '../../components/layout/headerActionsStore';
 import { CANONICAL_PRODUCTION_DIVISIONS } from '../../services/lookupsCache';
 
@@ -299,8 +299,7 @@ const WarehouseManagement: React.FC = () => {
 
   useEffect(() => {
     const handleGlobalRefresh = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (!detail?.tabId || String(detail.tabId).startsWith(ORGANIZATION_WAREHOUSES_TAB_ID)) {
+      if (matchesTabRefresh(e, ORGANIZATION_WAREHOUSES_TAB_ID)) {
         tabSessionCache.remove(ORGANIZATION_WAREHOUSES_TAB_ID);
         void fetchWarehousesRef.current(page);
         void fetchCompanies();

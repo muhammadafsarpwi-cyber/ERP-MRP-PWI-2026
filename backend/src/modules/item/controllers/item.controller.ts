@@ -135,17 +135,19 @@ export class ItemController {
   @RequirePermission('item.view')
   @ApiOperation({ summary: 'Fast item lookup for dropdowns and caches' })
   @ApiQuery({ name: 'departmentId', required: false })
+  @ApiQuery({ name: 'divisionId', required: false })
   @ApiQuery({ name: 'itemType', required: false })
   @ApiQuery({ name: 'itemTypes', required: false })
   async getLookup(
     @Req() req: any,
     @Query('departmentId') departmentId?: string,
+    @Query('divisionId') divisionId?: string,
     @Query('itemType') itemType?: string,
     @Query('itemTypes') itemTypes?: string,
   ) {
     try {
       const types = itemTypes || itemType;
-      const items = await this.itemService.getLookupItems(departmentId, this.divisions(req), types);
+      const items = await this.itemService.getLookupItems(departmentId, this.divisions(req), types, divisionId);
       return { success: true, data: items, total: items.length };
     } catch (err: any) {
       return { success: false, error: err.message, stack: err.stack };

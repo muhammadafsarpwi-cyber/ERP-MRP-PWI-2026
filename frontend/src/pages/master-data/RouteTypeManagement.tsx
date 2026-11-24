@@ -11,7 +11,7 @@ import apiService, { describeRequestError } from '../../services/api';
 import SaveResultDialog, { SaveResultData, SaveResultPhase } from '../../components/shared/SaveResultDialog';
 import { PageHeader, StatusBadge, EmptyState, DraggableResizableModal } from '../../components/shared';
 import GlobalLoading from '../../components/shared/GlobalLoading';
-import { TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
+import { matchesTabRefresh, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import { handleValidationErrors } from '../../utils/formValidationHelper';
 
 interface RouteType {
@@ -212,8 +212,7 @@ const RouteTypeManagement: React.FC = () => {
   // Global header/tab refresh event listener
   useEffect(() => {
     const handleGlobalRefresh = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (!detail?.tabId || String(detail.tabId).startsWith('/master-data/route-types')) {
+      if (matchesTabRefresh(e, '/master-data/route-types')) {
         void fetchData(page);
       }
     };

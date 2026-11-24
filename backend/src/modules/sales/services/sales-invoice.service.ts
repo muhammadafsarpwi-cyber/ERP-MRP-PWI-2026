@@ -720,7 +720,14 @@ export class SalesInvoiceService implements OnModuleInit {
           id,
           Number(invoice.totalAmount),
           userId,
-          ...(manager ? [manager] : []),
+          manager || undefined,
+          invoice.invoiceDate ? new Date(invoice.invoiceDate) : new Date(),
+          {
+            subtotal: Number(invoice.subtotal || 0),
+            taxAmount: Number(invoice.taxAmount || 0),
+            divisionId: invoice.divisionId || invoice.salesOrder?.divisionId || null,
+            customerId: masterCustomerId || invoice.customerId || null,
+          },
         );
       } catch (e: any) {
         this.logger.warn(`Auto-posting for sales invoice ${id} failed: ${e.message}`);

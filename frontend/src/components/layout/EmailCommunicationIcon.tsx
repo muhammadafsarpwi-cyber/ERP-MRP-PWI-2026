@@ -53,20 +53,8 @@ const EmailCommunicationIcon: React.FC = () => {
   useEffect(() => {
     mountedRef.current = true;
     void refresh();
-    const timer = setInterval(() => {
-      if (typeof document !== 'undefined' && document.hidden) return;
-      void refresh();
-    }, POLL_INTERVAL_MS);
-    const onVisibilityChange = () => {
-      if (typeof document !== 'undefined' && !document.hidden) {
-        void refresh();
-      }
-    };
-    document?.addEventListener?.('visibilitychange', onVisibilityChange);
     return () => {
       mountedRef.current = false;
-      clearInterval(timer);
-      document?.removeEventListener?.('visibilitychange', onVisibilityChange);
     };
   }, [refresh]);
 
@@ -93,6 +81,9 @@ const EmailCommunicationIcon: React.FC = () => {
           <span style={{ fontWeight: 600, color: 'var(--theme-text)' }}>Email Communication</span>
         </Space>
         <Space size={0}>
+          <Button type="link" size="small" icon={<SyncOutlined spin={loading} />} onClick={() => void refresh()} data-testid="email-refresh">
+            Refresh
+          </Button>
           <Button type="link" size="small" onClick={() => { setOpen(false); navigate('/communication/email-logs'); }} data-testid="email-open-logs">
             Logs
           </Button>

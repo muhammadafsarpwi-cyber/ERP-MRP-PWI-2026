@@ -16,10 +16,10 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 import { formatDecimal, formatNumber, formatSmartCurrency } from '../../utils/numberFormat';
-import { ERPLineItems, ERPLine, DraggableResizableModal, SaveResultDialog, PreConfirmVerificationCard } from '../../components/shared';
+import { ERPLineItems, ERPLine, DraggableResizableModal, SaveResultDialog, PreConfirmVerificationCard, TableColumnSelector, useColumnVisibility } from '../../components/shared';
 import type { SaveResultData, SaveResultPhase } from '../../components/shared/SaveResultDialog';
 import { resolveEffectiveTaxPercent, summarizeLinesTaxVerification } from '../../utils/salesTaxVerification';
-import { TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
+import { matchesTabRefresh, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import { useHeaderActions } from '../../components/layout/headerActionsStore';
 import { usePermission } from '../../hooks/usePermission';
 import dayjs from 'dayjs';
@@ -752,8 +752,7 @@ const SalesOrderManagement: React.FC = () => {
   // Global header tab refresh
   useEffect(() => {
     const handleGlobalRefresh = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (!detail?.tabId || String(detail.tabId).includes('order')) {
+      if (matchesTabRefresh(e, '/sales/orders')) {
         void fetchData(page, pageSize);
       }
     };
@@ -2078,6 +2077,8 @@ const SalesOrderManagement: React.FC = () => {
     },
   ];
 
+  const { visibleColumns, selectorProps } = useColumnVisibility('pwi_cols_sales_orders', columns);
+
   // Pagination calculation
   const totalEntries = total > 0 ? total : displayedOrders.length;
   const startEntry = totalEntries === 0 ? 0 : (page - 1) * pageSize + 1;
@@ -2315,6 +2316,8 @@ const SalesOrderManagement: React.FC = () => {
 
           <div style={{ flex: 1 }} />
 
+          <TableColumnSelector {...selectorProps} />
+
           <div className="inv-entries-control">
             <span>Show</span>
             <Select
@@ -2520,14 +2523,14 @@ const SalesOrderManagement: React.FC = () => {
 
         {/* Custom ERP Table */}
         <Table
-          columns={columns}
+          columns={visibleColumns}
           dataSource={displayedOrders}
           rowKey="id"
           loading={loading}
           pagination={false}
           onChange={handleTableChange}
           className="inv-custom-table"
-          scroll={{ x: 1550 }}
+          scroll={{ x: 'max-content' }}
         />
 
         {/* Custom Pagination Footer */}

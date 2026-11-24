@@ -10,7 +10,7 @@ import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 import { PageHeader, StatusBadge, EmptyState, FilterBar, DraggableResizableModal } from '../../components/shared';
 import GlobalLoading from '../../components/shared/GlobalLoading';
-import { TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
+import { matchesTabRefresh, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import type { FilterOption } from '../../components/shared/FilterBar';
 
 interface Operation {
@@ -198,8 +198,7 @@ const OperationManagement: React.FC = () => {
   // Global header/tab refresh event listener
   useEffect(() => {
     const handleGlobalRefresh = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (!detail?.tabId || String(detail.tabId).startsWith('/master-data/operations')) {
+      if (matchesTabRefresh(e, '/master-data/operations')) {
         void fetchOperations(page);
       }
     };

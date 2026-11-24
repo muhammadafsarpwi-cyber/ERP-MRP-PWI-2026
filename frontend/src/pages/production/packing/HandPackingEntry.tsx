@@ -2460,7 +2460,10 @@ const HandPackingEntry: React.FC<HandPackingEntryProps> = ({
   const [ledgerCustomerFilter, setLedgerCustomerFilter] = useState<string | undefined>(undefined);
   const [ledgerItemSearch, setLedgerItemSearch] = useState<string>('');
   const [ledgerBatchSearch, setLedgerBatchSearch] = useState<string>('');
-  const [ledgerDateRange, setLedgerDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null] | null>(null);
+  const [ledgerDateRange, setLedgerDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null] | null>(() => [
+    dayjs().subtract(6, 'day'),
+    dayjs(),
+  ]);
   const [ledgerStatusFilter, setLedgerStatusFilter] = useState<'ALL' | 'COMPLETED' | 'PENDING_NIPPLE' | 'NIPPLE_COMPLETED' | 'SHIFTED_TO_SOC'>('ALL');
   const { token: antToken } = theme.useToken();
   const isLedgerDarkMode = (() => {

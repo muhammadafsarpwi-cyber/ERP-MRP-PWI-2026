@@ -138,20 +138,8 @@ const NotificationBell: React.FC = () => {
     mountedRef.current = true;
     void refresh();
     void refreshAlerts();
-    const timer = setInterval(() => {
-      if (typeof document !== 'undefined' && document.hidden) return;
-      void refresh();
-    }, POLL_INTERVAL_MS);
-    const onVisibilityChange = () => {
-      if (typeof document !== 'undefined' && !document.hidden) {
-        void refresh();
-      }
-    };
-    document?.addEventListener?.('visibilitychange', onVisibilityChange);
     return () => {
       mountedRef.current = false;
-      clearInterval(timer);
-      document?.removeEventListener?.('visibilitychange', onVisibilityChange);
     };
   }, [refresh, refreshAlerts]);
 
@@ -245,15 +233,28 @@ const NotificationBell: React.FC = () => {
         }}
       >
         <span style={{ fontWeight: 600, color: 'var(--theme-text)' }}>Notifications</span>
-        <Button
-          type="link"
-          size="small"
-          disabled={unreadCount === 0}
-          onClick={markAllRead}
-          data-testid="mark-all-read"
-        >
-          Mark all as read
-        </Button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <Button
+            type="link"
+            size="small"
+            onClick={() => {
+              void refresh();
+              void refreshAlerts();
+            }}
+            data-testid="notifications-refresh"
+          >
+            Refresh
+          </Button>
+          <Button
+            type="link"
+            size="small"
+            disabled={unreadCount === 0}
+            onClick={markAllRead}
+            data-testid="mark-all-read"
+          >
+            Mark all as read
+          </Button>
+        </div>
       </div>
       <div style={{ maxHeight: 420, overflowY: 'auto' }}>
         {nippleAlerts.length > 0 && (

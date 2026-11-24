@@ -49,6 +49,7 @@ import {
 import dayjs from 'dayjs';
 import { useNavigate } from 'react-router-dom';
 import { apiService } from '../../services/api';
+import { matchesTabRefresh, markManualRefreshWindow, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import { useWorkspaceTabStore } from '../../store/workspaceTabStore';
 import {
   playGentleChatChime,
@@ -756,37 +757,24 @@ const TeamChat: React.FC = () => {
     void fetchActiveMessages(activeConversationId, true);
   }, [activeConversationId, fetchActiveMessages]);
 
-  // 10-second active polling for messages & directory — paused when browser tab is hidden
-  // OR when Team Chat is inactive in a background workspace keep-alive tab.
+  // Manual tab refresh listener only (no idle periodic polling or visibilitychange loops)
   const isTeamChatActive = useWorkspaceTabStore((s) => s.activeTabId === '/team-chat');
   const prevTeamChatActiveRef = useRef<boolean>(isTeamChatActive);
 
   useEffect(() => {
-    const runPoll = () => {
-      if (typeof document !== 'undefined' && document.hidden) return;
-      if (useWorkspaceTabStore.getState().activeTabId !== '/team-chat') return;
-      void fetchDirectoryAndConversations(false);
-      if (activeConvIdRef.current) {
-        void fetchActiveMessages(activeConvIdRef.current, false);
-      }
-    };
-    if (isTeamChatActive && !prevTeamChatActiveRef.current) {
-      // Single catch-up sync when switching back into the Team Chat tab
-      runPoll();
-    }
     prevTeamChatActiveRef.current = isTeamChatActive;
-
-    const timer = window.setInterval(runPoll, ACTIVE_POLL_INTERVAL_MS);
-    const onVisibilityChange = () => {
-      if (typeof document !== 'undefined' && !document.hidden) {
-        runPoll();
+    const handleGlobalRefresh = (e: Event) => {
+      if (matchesTabRefresh(e, '/team-chat')) {
+        markManualRefreshWindow(800);
+        void fetchDirectoryAndConversations(false);
+        if (activeConvIdRef.current) {
+          void fetchActiveMessages(activeConvIdRef.current, false);
+        }
       }
     };
-    document?.addEventListener?.('visibilitychange', onVisibilityChange);
-
+    window.addEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
     return () => {
-      window.clearInterval(timer);
-      document?.removeEventListener?.('visibilitychange', onVisibilityChange);
+      window.removeEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
     };
   }, [fetchDirectoryAndConversations, fetchActiveMessages, isTeamChatActive]);
 
@@ -2099,10 +2087,11 @@ const TeamChat: React.FC = () => {
                       size="small"
                       icon={<ReloadOutlined />}
                       onClick={() => {
+                        markManualRefreshWindow(800);
                         if (activeConversationId) {
                           void fetchActiveMessages(activeConversationId, false);
-                          void fetchDirectoryAndConversations(false);
                         }
+                        void fetchDirectoryAndConversations(false);
                       }}
                     >
                       {!isMobile ? 'Sync' : null}

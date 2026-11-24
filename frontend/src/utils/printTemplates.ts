@@ -2331,3 +2331,195 @@ function renderItemNameHtml(rawName: string, primaryStyle: string): string {
       : ''
   }`;
 }
+
+export function printFinanceVoucherDocument(voucher: any): void {
+  if (!voucher) return;
+  const voucherType = String(voucher.voucherType || 'JV').toUpperCase();
+  const voucherTitleMap: Record<string, string> = {
+    PV: 'PAYMENT VOUCHER',
+    RV: 'RECEIPT VOUCHER',
+    CV: 'CONTRA VOUCHER',
+    JV: 'JOURNAL VOUCHER',
+  };
+  const title = voucherTitleMap[voucherType] || 'ACCOUNTING VOUCHER';
+  const lines = Array.isArray(voucher.lines) ? voucher.lines : [];
+  const totalDr = lines.reduce((s: number, l: any) => s + Number(l.debit || 0), 0) || Number(voucher.totalDebit || 0);
+  const totalCr = lines.reduce((s: number, l: any) => s + Number(l.credit || 0), 0) || Number(voucher.totalCredit || 0);
+  const entryDate = voucher.entryDate ? dayjs(voucher.entryDate).format('DD MMM YYYY') : '-';
+
+  const rowsHtml = lines
+    .map(
+      (l: any, idx: number) => `
+      <tr>
+        <td style="text-align: center; width: 32px;">${idx + 1}</td>
+        <td style="font-family: monospace; font-weight: 700;">${l.account?.accountCode || '-'}</td>
+        <td>${l.account?.accountName || '-'}</td>
+        <td>${l.description || voucher.description || '-'}</td>
+        <td style="text-align: right; font-weight: 600;">${Number(l.debit || 0) > 0 ? formatDecimal(l.debit) : '-'}</td>
+        <td style="text-align: right; font-weight: 600;">${Number(l.credit || 0) > 0 ? formatDecimal(l.credit) : '-'}</td>
+      </tr>
+    `,
+    )
+    .join('');
+
+  const bodyHtml = `
+    <div class="company-header">
+      <div class="company-logo-info">
+        <img class="company-logo" src="${getLogoUrl()}" alt="Logo" onerror="this.style.display='none'" />
+        <div>
+          <div class="company-name">Pakistan Wire Industries (Pvt.) LTD</div>
+          <div class="company-sub">Plot 179, Block E, SITE Superhighway, Karachi, Pakistan</div>
+          <div class="company-tax">Finance &amp; Accounts Department | NTN: 0819234-7 | STRN: 17-00-9812-001</div>
+        </div>
+      </div>
+      <div class="doc-badge-box">
+        <div class="doc-badge">${title}</div>
+        <div class="doc-badge-sub">VOUCHER #: ${voucher.journalNumber || '-'}</div>
+      </div>
+    </div>
+
+    <div class="info-grid">
+      <div class="info-card">
+        <div class="info-card-title">VOUCHER DETAILS</div>
+        <div class="info-row"><span class="info-label">Voucher Number:</span><span class="info-val" style="font-family: monospace; font-weight: 800;">${voucher.journalNumber || '-'}</span></div>
+        <div class="info-row"><span class="info-label">Posting Date:</span><span class="info-val">${entryDate}</span></div>
+        <div class="info-row"><span class="info-label">Accounting Type:</span><span class="info-val">${String(voucher.journalType || 'GENERAL').replace(/_/g, ' ')}</span></div>
+        <div class="info-row"><span class="info-label">Status:</span><span class="info-val">${voucher.status || 'DRAFT'}</span></div>
+      </div>
+      <div class="info-card">
+        <div class="info-card-title">COST CENTER &amp; INSTRUMENT</div>
+        <div class="info-row"><span class="info-label">Division / Unit:</span><span class="info-val">${voucher.divisionName || 'Head Office / Shared'}</span></div>
+        <div class="info-row"><span class="info-label">Party / Counterparty:</span><span class="info-val">${voucher.partyName || '-'}</span></div>
+        <div class="info-row"><span class="info-label">Payment Mode:</span><span class="info-val">${voucher.paymentMode ? String(voucher.paymentMode).replace(/_/g, ' ') : '-'}</span></div>
+        ${voucher.chequeNumber ? `<div class="info-row"><span class="info-label">Cheque #:</span><span class="info-val" style="font-family: monospace;">${voucher.chequeNumber}${voucher.chequeDate ? ` (${dayjs(voucher.chequeDate).format('DD MMM YYYY')})` : ''}</span></div>` : ''}
+      </div>
+    </div>
+
+    ${voucher.description ? `
+      <div style="border: 1px solid #cbd5e1; border-radius: 4px; padding: 8px 12px; margin: 10px 0 12px; font-size: 11px; background: #f8fafc;">
+        <strong>Narration:</strong> ${voucher.description}
+      </div>
+    ` : ''}
+
+    <table class="print-table">
+      <thead>
+        <tr>
+          <th style="width: 36px; text-align: center;">#</th>
+          <th style="width: 90px;">Code</th>
+          <th>Account Title</th>
+          <th>Line Description</th>
+          <th style="width: 120px; text-align: right;">Debit (PKR)</th>
+          <th style="width: 120px; text-align: right;">Credit (PKR)</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rowsHtml}
+      </tbody>
+      <tfoot>
+        <tr style="background: #f1f5f9; font-weight: 800;">
+          <td colspan="4" style="text-align: right;">TOTAL (PKR)</td>
+          <td style="text-align: right;">Rs ${formatDecimal(totalDr)}</td>
+          <td style="text-align: right;">Rs ${formatDecimal(totalCr)}</td>
+        </tr>
+      </tfoot>
+    </table>
+
+    <div class="signatures" style="margin-top: 34px;">
+      <div class="sig-box">Prepared By</div>
+      <div class="sig-box">Checked / Accounts Officer</div>
+      <div class="sig-box">Approved By / Finance Manager</div>
+      <div class="sig-box">Payee / Receiver Signature</div>
+    </div>
+
+    <div class="footer-note">
+      Printed from PWI ERP Finance &amp; Accounting on ${new Date().toLocaleString()}
+    </div>
+  `;
+
+  printHtmlContent(`${title} - ${voucher.journalNumber || 'Print'}`, bodyHtml);
+}
+
+export function printFinancialStatementHtml(opts: {
+  title: string;
+  subtitle?: string;
+  periodLabel: string;
+  divisionLabel?: string;
+  summaryPairs?: Array<{ label: string; value: string }>;
+  headers: string[];
+  rows: Array<Array<string | number>>;
+  rightAlignCols?: number[];
+  totalsRow?: Array<string | number>;
+}): void {
+  const rightSet = new Set(opts.rightAlignCols || []);
+  const thHtml = opts.headers
+    .map((h, i) => `<th style="${rightSet.has(i) ? 'text-align: right;' : ''}">${h}</th>`)
+    .join('');
+
+  const rowsHtml = opts.rows
+    .map(
+      (r) =>
+        `<tr>${r
+          .map(
+            (cell, i) =>
+              `<td style="${rightSet.has(i) ? 'text-align: right; font-variant-numeric: tabular-nums;' : ''}">${cell}</td>`,
+          )
+          .join('')}</tr>`,
+    )
+    .join('');
+
+  const totalsHtml = opts.totalsRow
+    ? `<tfoot><tr style="background: #f1f5f9; font-weight: 800;">${opts.totalsRow
+        .map(
+          (cell, i) =>
+            `<td style="${rightSet.has(i) ? 'text-align: right; font-variant-numeric: tabular-nums;' : ''}">${cell}</td>`,
+        )
+        .join('')}</tr></tfoot>`
+    : '';
+
+  const summaryHtml =
+    opts.summaryPairs && opts.summaryPairs.length > 0
+      ? `<div style="display: grid; grid-template-columns: repeat(${Math.min(4, opts.summaryPairs.length)}, 1fr); gap: 8px; margin: 10px 0 12px;">
+          ${opts.summaryPairs
+            .map(
+              (p) =>
+                `<div style="border: 1px solid #cbd5e1; border-radius: 4px; padding: 6px 10px; background: #f8fafc;">
+                  <div style="font-size: 9px; text-transform: uppercase; color: #475569; font-weight: 700;">${p.label}</div>
+                  <div style="font-size: 13px; font-weight: 800; color: #0f172a;">${p.value}</div>
+                </div>`,
+            )
+            .join('')}
+        </div>`
+      : '';
+
+  const bodyHtml = `
+    <div class="company-header">
+      <div class="company-logo-info">
+        <img class="company-logo" src="${getLogoUrl()}" alt="Logo" onerror="this.style.display='none'" />
+        <div>
+          <div class="company-name">Pakistan Wire Industries (Pvt.) LTD</div>
+          <div class="company-sub">Plot 179, Block E, SITE Superhighway, Karachi, Pakistan</div>
+          <div class="company-tax">Currency: PKR (Pakistani Rupee) | Division: ${opts.divisionLabel || 'All Divisions'}</div>
+        </div>
+      </div>
+      <div class="doc-badge-box">
+        <div class="doc-badge">${opts.title.toUpperCase()}</div>
+        <div class="doc-badge-sub">${opts.periodLabel}</div>
+      </div>
+    </div>
+
+    ${opts.subtitle ? `<div style="font-size: 11px; color: #475569; margin-bottom: 8px;">${opts.subtitle}</div>` : ''}
+    ${summaryHtml}
+
+    <table class="print-table">
+      <thead><tr>${thHtml}</tr></thead>
+      <tbody>${rowsHtml || `<tr><td colspan="${opts.headers.length}" style="text-align: center; padding: 14px;">No financial entries in selected period</td></tr>`}</tbody>
+      ${totalsHtml}
+    </table>
+
+    <div class="footer-note">
+      Printed from PWI ERP Finance &amp; Accounting on ${new Date().toLocaleString()}
+    </div>
+  `;
+
+  printHtmlContent(opts.title, bodyHtml);
+}

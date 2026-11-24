@@ -648,12 +648,15 @@ html[data-theme='dark'] .inv-trace-title,
 }
 
 .inv-pixel-table .ant-table-tbody > tr > td {
-  padding: 10px 14px !important;
+  padding: 7px 12px !important;
   border-bottom: 1px solid var(--erp-table-border, var(--inv-table-border)) !important;
   font-size: 13px;
   background-color: var(--erp-table-row-bg, var(--inv-table-row-odd)) !important;
   color: var(--inv-text-primary, var(--theme-text)) !important;
   vertical-align: middle;
+  white-space: nowrap;
+  word-break: keep-all;
+  font-variant-numeric: tabular-nums;
 }
 
 .inv-pixel-table .ant-table-tbody > tr:hover > td {

@@ -14,7 +14,7 @@ export {
 export { default as EmptyState } from './EmptyState';
 export { default as LoadingState, OrbitalDualRingLoader, TableEmptyLoadingState, type OrbitalDualRingLoaderProps, type TableEmptyLoadingStateProps } from './LoadingState';
 export { default as ERPLineItems, type ERPLine, type ERPLineItemsProps } from './ERPLineItems';
-export { default as FinanceJournalLineEditor, type JournalLine } from './FinanceJournalLineEditor';
+export { default as FinanceJournalLineEditor, type JournalLine, type JournalLineInput } from './FinanceJournalLineEditor';
 export {
   default as ERPTable,
   type ERPTableProps,
@@ -27,6 +27,12 @@ export {
   type ActionButtonVariant,
   TableToolbar,
 } from './ERPTable';
+export {
+  default as TableColumnSelector,
+  useColumnVisibility,
+  type TableColumnSelectorProps,
+  type ColumnToggleMeta,
+} from './TableColumnSelector';
 export {
   HeaderCell,
   HighlightedCell,

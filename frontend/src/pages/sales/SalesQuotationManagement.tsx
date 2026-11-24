@@ -16,7 +16,7 @@ import apiService from '../../services/api';
 import { formatDecimal } from '../../utils/numberFormat';
 import { ERPLineItems, ERPLine, DraggableResizableModal, SaveResultDialog } from '../../components/shared';
 import type { SaveResultData, SaveResultPhase } from '../../components/shared/SaveResultDialog';
-import { TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
+import { matchesTabRefresh, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import { useHeaderActions } from '../../components/layout/headerActionsStore';
 import dayjs from 'dayjs';
 import isSameOrBefore from 'dayjs/plugin/isSameOrBefore';
@@ -271,8 +271,7 @@ const SalesQuotationManagement: React.FC = () => {
   // Global header tab refresh
   useEffect(() => {
     const handleGlobalRefresh = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (!detail?.tabId || String(detail.tabId).includes('quotation')) {
+      if (matchesTabRefresh(e, '/sales/quotations')) {
         void fetchData(page, pageSize);
       }
     };

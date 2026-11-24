@@ -26,7 +26,7 @@ import { formatDecimal, toNum } from '../../utils/numberFormat';
 import { handleValidationErrors } from '../../utils/formValidationHelper';
 
 import { getLookupsSnapshot, subscribeLookups } from '../../services/lookupsCache';
-import { tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
+import { matchesTabRefresh, tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 
 const ROUTING_TAB_ID = '/production/routings';
 
@@ -214,8 +214,7 @@ const RoutingManagement: React.FC = () => {
   // Global header/tab refresh event listener
   useEffect(() => {
     const handleGlobalRefresh = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (!detail?.tabId || String(detail.tabId).startsWith(ROUTING_TAB_ID)) {
+      if (matchesTabRefresh(e, ROUTING_TAB_ID)) {
         tabSessionCache.remove(ROUTING_TAB_ID);
         void fetchRoutings();
       }

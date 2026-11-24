@@ -12,12 +12,15 @@ export enum JournalType {
   SALES_INVOICE = 'SALES_INVOICE',
   PURCHASE_INVOICE = 'PURCHASE_INVOICE',
   CONTRA = 'CONTRA',
+  SALES_RETURN = 'SALES_RETURN',
+  GRN_ACCRUAL = 'GRN_ACCRUAL',
 }
 
 export enum JournalStatus {
   DRAFT = 'DRAFT',
   POSTED = 'POSTED',
   REVERSED = 'REVERSED',
+  ARCHIVED = 'ARCHIVED',
 }
 
 @Entity('finance_journals')
@@ -71,6 +74,36 @@ export class FinanceJournal extends BaseEntity {
 
   @Column({ name: 'posted_by', type: 'uuid', nullable: true })
   postedBy: string | null;
+
+  @Column({ name: 'division_id', type: 'uuid', nullable: true })
+  divisionId: string | null;
+
+  @Column({ name: 'voucher_type', type: 'varchar', length: 20, nullable: true })
+  voucherType: string | null;
+
+  @Column({ name: 'party_type', type: 'varchar', length: 30, nullable: true })
+  partyType: string | null;
+
+  @Column({ name: 'party_id', type: 'uuid', nullable: true })
+  partyId: string | null;
+
+  @Column({ name: 'payment_mode', type: 'varchar', length: 30, nullable: true })
+  paymentMode: string | null;
+
+  @Column({ name: 'cheque_number', type: 'varchar', length: 60, nullable: true })
+  chequeNumber: string | null;
+
+  @Column({ name: 'cheque_date', type: 'date', nullable: true })
+  chequeDate: Date | null;
+
+  @Column({ name: 'bank_account_id', type: 'uuid', nullable: true })
+  bankAccountId: string | null;
+
+  @Column({ name: 'archived_at', type: 'timestamptz', nullable: true })
+  archivedAt: Date | null;
+
+  @Column({ name: 'archive_reason', type: 'text', nullable: true })
+  archiveReason: string | null;
 
   @OneToMany(() => FinanceJournalLine, (l) => l.journal, { cascade: true })
   lines: FinanceJournalLine[];

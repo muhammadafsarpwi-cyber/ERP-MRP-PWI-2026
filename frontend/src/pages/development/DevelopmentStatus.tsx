@@ -198,8 +198,6 @@ const DevelopmentStatus: React.FC = () => {
 
   useEffect(() => {
     checkBackend();
-    const interval = setInterval(checkBackend, 15000);
-    return () => clearInterval(interval);
   }, [checkBackend]);
 
   return (

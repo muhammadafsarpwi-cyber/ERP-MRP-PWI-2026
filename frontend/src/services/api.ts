@@ -259,6 +259,18 @@ class ApiService {
           activeRequests += 1;
           loading().begin();
         }
+        const manualWindowActive =
+          typeof window !== 'undefined' &&
+          Number((window as any).__erpBypassServerCacheUntil || 0) > Date.now();
+        if (config?.forceRefresh || manualWindowActive) {
+          if (!config.headers) config.headers = {};
+          config.headers['Cache-Control'] = 'no-cache';
+          config.headers['X-Bypass-Server-Cache'] = '1';
+          if (config?.url) {
+            invalidateEtagByPrefix(String(config.url));
+          }
+          delete config.forceRefresh;
+        }
         const token = localStorage.getItem('token') || localStorage.getItem('access_token');
         if (token) {
           config.headers.Authorization = `Bearer ${token}`;
@@ -501,53 +513,10 @@ class ApiService {
    * and the brief explicitly rules it out.
    */
   startSessionWatchdog(options: { staleAfterMs?: number; intervalMs?: number } = {}): () => void {
-    const staleAfterMs = options.staleAfterMs ?? 60_000;
-    const intervalMs = options.intervalMs ?? 60_000;
-
-    let checking = false;
-    let timer: ReturnType<typeof setInterval> | null = null;
-
-    const revalidate = async () => {
-      if (checking) return;
-      const token = localStorage.getItem('token') || localStorage.getItem('access_token');
-      if (!token) return; // not signed in — nothing to revalidate
-
-      // Cheap gate: only do work when the token is near expiry or the cached
-      // permission/division snapshot has aged out.
-      const ts = Number(localStorage.getItem('erp_permissions_ts') || '0');
-      const identityStale = !ts || Date.now() - ts > staleAfterMs;
-      if (!identityStale && !isTokenExpiring(token, REFRESH_SKEW_SECONDS)) return;
-
-      checking = true;
-      try {
-        if (isTokenExpiring(token, REFRESH_SKEW_SECONDS)) {
-          const fresh = await refreshAccessToken();
-          if (!fresh) {
-            endSessionAndRedirect('access token expired while the tab was in the background');
-            return;
-          }
-        } else {
-          await syncIdentityAfterRefresh();
-        }
-      } finally {
-        checking = false;
-      }
-    };
-
-    const onVisible = () => {
-      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
-      void revalidate();
-    };
-
-    document?.addEventListener?.('visibilitychange', onVisible);
-    window?.addEventListener?.('focus', onVisible);
-    timer = setInterval(() => void revalidate(), intervalMs);
-
-    return () => {
-      document?.removeEventListener?.('visibilitychange', onVisible);
-      window?.removeEventListener?.('focus', onVisible);
-      if (timer) clearInterval(timer);
-    };
+    // Session tokens refresh on-demand in the request interceptor before expired
+    // requests; avoid idle background polling loops that burn DB egress.
+    void options;
+    return () => {};
   }
 }
 

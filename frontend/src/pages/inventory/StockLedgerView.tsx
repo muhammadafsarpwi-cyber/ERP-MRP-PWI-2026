@@ -128,7 +128,11 @@ const StockLedgerView: React.FC = () => {
   const [filterWarehouse, setFilterWarehouse] = useState<string | undefined>(undefined);
   const [filterTxType, setFilterTxType] = useState<string | undefined>(undefined);
   const [filterDirection, setFilterDirection] = useState<string | undefined>(undefined);
-  const [dateRange, setDateRange] = useState<[any, any] | null>(null);
+  // Default initial ledger load to weekly (Last 7 Days); pick dates/month or Clear Filters to widen
+  const [dateRange, setDateRange] = useState<[any, any] | null>(() => [
+    dayjs().subtract(6, 'day'),
+    dayjs(),
+  ]);
 
   // UI state
   const [filtersCollapsed, setFiltersCollapsed] = useState(false);

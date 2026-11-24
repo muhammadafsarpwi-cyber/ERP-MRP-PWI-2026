@@ -122,6 +122,7 @@ export class CompanyService {
   async findOne(id: string): Promise<Company> {
     const company = await this.companyRepository.findOne({
       where: { id },
+      relationLoadStrategy: 'query',
       relations: ['branches', 'businessUnits', 'departments', 'warehouses', 'divisions', 'sections'],
     });
 

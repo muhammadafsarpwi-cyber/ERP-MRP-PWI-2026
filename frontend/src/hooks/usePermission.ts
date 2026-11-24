@@ -42,7 +42,7 @@ interface UserData {
 const PERMISSIONS_TTL_MS = 5 * 60 * 1000;
 
 /** How stale a cached identity may get before a focus/visibility revalidation. */
-export const PERMISSIONS_FOCUS_TTL_MS = 60 * 1000;
+export const PERMISSIONS_FOCUS_TTL_MS = 15 * 60 * 1000;
 
 const DEFAULT_DIVISION_ACCESS: DivisionAccess = {
   unrestricted: true,

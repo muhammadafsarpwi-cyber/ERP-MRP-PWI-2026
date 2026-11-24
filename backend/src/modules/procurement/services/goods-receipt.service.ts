@@ -1,10 +1,11 @@
-import { Injectable, NotFoundException, ConflictException, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, BadRequestException, ForbiddenException, Logger, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { GoodsReceipt, GoodsReceiptLine, PurchaseOrder, PurchaseOrderLine } from '../entities';
 import { CreateGoodsReceiptDto, UpdateGoodsReceiptDto, GoodsReceiptFilterDto } from '../dto';
 import { StockLedgerService } from '../../inventory/services/stock-ledger.service';
 import { InventoryBalanceService } from '../../inventory/services/inventory-balance.service';
+import { FinanceAutoPostingService } from '../../finance/services/finance-auto-posting.service';
 import { Warehouse } from '../../organization/entities/warehouse.entity';
 import { StockLedger } from '../../inventory/entities';
 import { Item, UomConversion } from '../../item/entities';
@@ -26,6 +27,8 @@ export class GoodsReceiptService {
     private readonly poLineRepo: Repository<PurchaseOrderLine>,
     private readonly stockLedgerService: StockLedgerService,
     private readonly inventoryBalanceService: InventoryBalanceService,
+    @Optional()
+    private readonly autoPosting?: FinanceAutoPostingService,
   ) {}
 
   /**
@@ -236,6 +239,7 @@ export class GoodsReceiptService {
       // maintained alongside the existing received-quantity tracking so the PO
       // carries BOTH a received quantity and a received value for reconciliation.
       let receivedMoney = 0;
+      let totalAcceptedValue = 0;
 
       for (const line of locked.lines || []) {
         const acceptedQty = Number(line.quantityAccepted || 0);
@@ -265,6 +269,9 @@ export class GoodsReceiptService {
         const poLineForCost = (line.poLineId ? byId.get(line.poLineId) : undefined)
           || poLines.find((l) => l.itemId === line.itemId);
         const rawUnitPrice = Number(line.unitPrice || poLineForCost?.unitPrice || 0);
+        if (rawUnitPrice > 0 && acceptedQty > 0) {
+          totalAcceptedValue += acceptedQty * rawUnitPrice;
+        }
         const effectiveUnitCost =
           rawUnitPrice > 0 && postQty > 0
             ? Number(((acceptedQty * rawUnitPrice) / postQty).toFixed(4))
@@ -402,6 +409,26 @@ export class GoodsReceiptService {
         postedAt: new Date(),
         updatedBy: userId || null,
       });
+
+      // Perpetual inventory accrual: DR 1210 Raw Material Inventory / CR 2010 GRN Clearing
+      if (this.autoPosting && totalAcceptedValue > 0.005) {
+        const divId =
+          locked.divisionId ||
+          wh?.divisionId ||
+          locked.notes?.match(/\[Division:\s*([^\]]+)\]/)?.[1] ||
+          null;
+        await this.autoPosting.postGoodsReceiptAccrual({
+          companyId: locked.companyId,
+          grnId: locked.id,
+          grnNumber: locked.grnNumber || locked.receiptCode,
+          receiptDate: locked.receiptDate ? new Date(locked.receiptDate) : new Date(),
+          amount: Math.round(totalAcceptedValue * 100) / 100,
+          supplierId: locked.supplierId || null,
+          divisionId: divId,
+          actorId: userId,
+          manager,
+        });
+      }
     });
 
     return this.findOne(id);

@@ -6,7 +6,7 @@ import dayjs from 'dayjs';
 import apiService from '../../services/api';
 import { formatApiError } from '../../utils/apiError';
 import { DraggableResizableModal, GlobalLoading, TabKeepAlive, ERPTable } from '../../components/shared';
-import { tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
+import { matchesTabRefresh, tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import { useHeaderActions } from '../../components/layout/headerActionsStore';
 
 interface Warehouse {
@@ -174,8 +174,7 @@ const LocationManagement: React.FC = () => {
 
   useEffect(() => {
     const handleGlobalRefresh = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (!detail?.tabId || String(detail.tabId).startsWith(ORGANIZATION_LOCATIONS_TAB_ID)) {
+      if (matchesTabRefresh(e, ORGANIZATION_LOCATIONS_TAB_ID)) {
         tabSessionCache.remove(ORGANIZATION_LOCATIONS_TAB_ID);
         void fetchLocationsRef(page);
         void fetchWarehouses();

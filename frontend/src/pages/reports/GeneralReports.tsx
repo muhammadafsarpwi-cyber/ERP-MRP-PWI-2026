@@ -87,7 +87,7 @@ export type ReportId =
   | 'fin_cashflow'
   | 'fin_daybook';
 
-export type TimeframePreset = 'all' | 'today' | 'this_month' | 'last_month' | 'this_quarter' | 'last_quarter' | 'this_year' | 'custom';
+export type TimeframePreset = 'all' | 'today' | 'this_week' | 'this_month' | 'last_month' | 'this_quarter' | 'last_quarter' | 'this_year' | 'custom';
 
 export type ChartType = 'horizontal' | 'column' | 'donut' | 'efficiency';
 
@@ -875,10 +875,10 @@ export const GeneralReports: React.FC = () => {
     setExpandedNavGroups((prev) => ({ ...prev, [group]: !prev[group] }));
   }, []);
 
-  // Date & Filter State - Defaults to 'all' (All Available Supabase Records)
-  const [timeframe, setTimeframe] = useState<TimeframePreset>('all');
-  const [fromDate, setFromDate] = useState<Dayjs | null>(null);
-  const [toDate, setToDate] = useState<Dayjs | null>(null);
+  // Date & Filter State - Defaults to 'this_week' (Last 7 Days) for fast initial load; user can pick Month / Year / All Records anytime
+  const [timeframe, setTimeframe] = useState<TimeframePreset>('this_week');
+  const [fromDate, setFromDate] = useState<Dayjs | null>(() => dayjs().subtract(6, 'day').startOf('day'));
+  const [toDate, setToDate] = useState<Dayjs | null>(() => dayjs().endOf('day'));
   const [groupBy, setGroupBy] = useState<string>('day');
 
   // Sub-view toggle for Target vs Actual: 'machine' | 'department'
@@ -1205,6 +1205,10 @@ export const GeneralReports: React.FC = () => {
         setFromDate(now.startOf('day'));
         setToDate(now.endOf('day'));
         break;
+      case 'this_week':
+        setFromDate(now.subtract(6, 'day').startOf('day'));
+        setToDate(now.endOf('day'));
+        break;
       case 'this_month':
         setFromDate(now.startOf('month'));
         setToDate(now.endOf('month'));
@@ -1526,7 +1530,7 @@ export const GeneralReports: React.FC = () => {
       if (dept.name.toLowerCase().includes('maintenance') || dept.name.toLowerCase().includes('stores')) return false;
       return !editingSteps.some(
         (s) => s.name.toLowerCase() === dept.name.toLowerCase() ||
-               (s.departmentKey && s.departmentKey.toLowerCase() === dept.name.toLowerCase())
+          (s.departmentKey && s.departmentKey.toLowerCase() === dept.name.toLowerCase())
       );
     });
   }, [departmentsList, activeDivisionObj.id, editingSteps]);
@@ -1866,17 +1870,17 @@ export const GeneralReports: React.FC = () => {
         const status: 'Completed' | 'On Track' | 'Delayed' | 'Idle / OFF' = m.count === 0
           ? 'Idle / OFF'
           : efficiency >= 95
-          ? 'Completed'
-          : efficiency >= 75
-          ? 'On Track'
-          : 'Delayed';
+            ? 'Completed'
+            : efficiency >= 75
+              ? 'On Track'
+              : 'Delayed';
         const remarksDisplay = m.count === 0
           ? 'Idle — No production logged'
           : m.remarks
-          ? m.remarks
-          : efficiency >= 95
-          ? 'Target achieved'
-          : 'Production ongoing';
+            ? m.remarks
+            : efficiency >= 95
+              ? 'Target achieved'
+              : 'Production ongoing';
         return {
           ...m,
           variance,
@@ -2323,7 +2327,7 @@ export const GeneralReports: React.FC = () => {
         subMachines,
       };
     })
-    .sort((a, b) => getDeptOrder(a.department) - getDeptOrder(b.department));
+      .sort((a, b) => getDeptOrder(a.department) - getDeptOrder(b.department));
   }, [activePipeline, filteredProduction, selectedDivision, selectedPipelineStep, activeDivisionObj, machineSummary, getDeptOrder]);
 
   // 5 Canonical Plant Departments summary for the Department Comparison Card
@@ -2333,18 +2337,18 @@ export const GeneralReports: React.FC = () => {
     const isSpoke = selectedDivision === 'd1000000-0000-0000-0000-000000000001' || activeDivisionObj.name.toLowerCase().includes('spoke');
     const deptConfigs = isSpoke
       ? [
-          { name: 'Straightener', matchKey: 'straightener', isPack: false },
-          { name: 'Swagging', matchKey: 'swagging', isPack: false },
-          { name: 'Spoke', matchKey: 'spoke', isPack: false },
-          { name: 'Spoke Plating', matchKey: 'plating', isPack: false },
-          { name: 'Spoke Packing', matchKey: 'packing', isPack: true },
-        ]
+        { name: 'Straightener', matchKey: 'straightener', isPack: false },
+        { name: 'Swagging', matchKey: 'swagging', isPack: false },
+        { name: 'Spoke', matchKey: 'spoke', isPack: false },
+        { name: 'Spoke Plating', matchKey: 'plating', isPack: false },
+        { name: 'Spoke Packing', matchKey: 'packing', isPack: true },
+      ]
       : [
-          { name: 'Flattening', matchKey: 'flattening', isPack: false },
-          { name: 'Spiral', matchKey: 'spiral', isPack: false },
-          { name: 'PVC', matchKey: 'pvc', isPack: false },
-          { name: 'Cutting & Packing', matchKey: 'packing', isPack: true },
-        ];
+        { name: 'Flattening', matchKey: 'flattening', isPack: false },
+        { name: 'Spiral', matchKey: 'spiral', isPack: false },
+        { name: 'PVC', matchKey: 'pvc', isPack: false },
+        { name: 'Cutting & Packing', matchKey: 'packing', isPack: true },
+      ];
 
     const colors = ['#06b6d4', '#10b981', '#38bdf8', '#8b5cf6', '#ec4899'];
 
@@ -3358,65 +3362,65 @@ export const GeneralReports: React.FC = () => {
                   onClick: () => void;
                 }>;
               }> = [
-                {
-                  key: 'production',
-                  label: 'PRODUCTION (MRP)',
-                  icon: <RocketOutlined />,
-                  highlight: true,
-                  items: [
-                    { id: 'prod_daily', label: 'Daily Production', icon: <CalendarOutlined />, badge: productionEntries.length, onClick: () => { setSelectedCategory('production'); setSelectedReport('prod_daily'); setGroupBy('day'); setDetailMode('detailed'); } },
-                    { id: 'prod_machine', label: 'Machine-wise', icon: <ToolOutlined />, onClick: () => { setSelectedCategory('production'); setSelectedReport('prod_machine'); setGroupBy('machine'); setDetailMode('summary'); } },
-                    { id: 'prod_shift', label: 'Shift-wise', icon: <ClockCircleOutlined />, onClick: () => { setSelectedCategory('production'); setSelectedReport('prod_shift'); setGroupBy('shift'); setDetailMode('summary'); } },
-                    { id: 'prod_operator', label: 'Operator-wise', icon: <TeamOutlined />, onClick: () => { setSelectedCategory('production'); setSelectedReport('prod_operator'); setGroupBy('operator'); setDetailMode('summary'); } },
-                    { id: 'prod_department', label: 'Department-wise', icon: <ApartmentOutlined />, onClick: () => { setSelectedCategory('production'); setSelectedReport('prod_department'); setGroupBy('department'); setDetailMode('summary'); } },
-                    { id: 'prod_item', label: 'Item-wise', icon: <AppstoreOutlined />, badge: 'Items', onClick: () => { setSelectedCategory('production'); setSelectedReport('prod_item'); setGroupBy('item'); setDetailMode('summary'); } },
-                    { id: 'prod_target_vs_actual', label: 'Target vs Actual', icon: <SafetyCertificateOutlined />, badge: 'Variance', onClick: () => { setSelectedCategory('production'); setSelectedReport('prod_target_vs_actual'); setDetailMode('summary'); } },
-                    { id: 'prod_scrap', label: 'Scrap & Rejection', icon: <FallOutlined />, badge: 'Scrap', onClick: () => { setSelectedCategory('production'); setSelectedReport('prod_scrap'); setDetailMode('summary'); } },
-                  ],
-                },
-                {
-                  key: 'sales',
-                  label: 'SALES',
-                  icon: <ShoppingOutlined />,
-                  items: [
-                    { id: 'sales_overview', label: 'Sales Overview', icon: <LineChartOutlined />, badge: salesInvoices.length, onClick: () => { setSelectedCategory('sales'); setSelectedReport('sales_overview'); } },
-                    { id: 'sales_product', label: 'Product Sales', icon: <AppstoreOutlined />, onClick: () => { setSelectedCategory('sales'); setSelectedReport('sales_product'); } },
-                    { id: 'sales_customer', label: 'Customer Statement', icon: <UserOutlined />, onClick: () => { setSelectedCategory('sales'); setSelectedReport('sales_customer'); } },
-                    { id: 'sales_bill_profit', label: 'Bill-wise Profit', icon: <RiseOutlined />, onClick: () => { setSelectedCategory('sales'); setSelectedReport('sales_bill_profit'); } },
-                    { id: 'sales_party_pl', label: 'Party-wise P&L', icon: <TeamOutlined />, onClick: () => { setSelectedCategory('sales'); setSelectedReport('sales_party_pl'); } },
-                    { id: 'sales_category', label: 'By Category', icon: <ProjectOutlined />, onClick: () => { setSelectedCategory('sales'); setSelectedReport('sales_category'); } },
-                  ],
-                },
-                {
-                  key: 'receivables',
-                  label: 'RECEIVABLES & PAYABLES',
-                  icon: <DollarOutlined />,
-                  items: [
-                    { id: 'rec_aging', label: 'Receivables Aging', icon: <ClockCircleOutlined />, onClick: () => { setSelectedCategory('receivables'); setSelectedReport('rec_aging'); } },
-                    { id: 'pay_aging', label: 'Payables Aging', icon: <ClockCircleOutlined />, onClick: () => { setSelectedCategory('receivables'); setSelectedReport('pay_aging'); } },
-                    { id: 'supplier_statement', label: 'Supplier Statement', icon: <UserOutlined />, onClick: () => { setSelectedCategory('receivables'); setSelectedReport('supplier_statement'); } },
-                  ],
-                },
-                {
-                  key: 'inventory',
-                  label: 'INVENTORY',
-                  icon: <AppstoreOutlined />,
-                  items: [
-                    { id: 'inv_stock', label: 'Stock Summary', icon: <AppstoreOutlined />, onClick: () => { setSelectedCategory('inventory'); setSelectedReport('inv_stock'); } },
-                    { id: 'inv_valuation', label: 'Stock Valuation', icon: <DollarOutlined />, onClick: () => { setSelectedCategory('inventory'); setSelectedReport('inv_valuation'); } },
-                    { id: 'inv_movement', label: 'Stock Movement', icon: <SyncOutlined />, onClick: () => { setSelectedCategory('inventory'); setSelectedReport('inv_movement'); } },
-                  ],
-                },
-                {
-                  key: 'finance',
-                  label: 'FINANCE',
-                  icon: <BankOutlined />,
-                  items: [
-                    { id: 'fin_pl', label: 'Profit & Loss', icon: <BarChartOutlined />, onClick: () => { setSelectedCategory('finance'); setSelectedReport('fin_pl'); } },
-                    { id: 'fin_balance', label: 'Balance Sheet', icon: <BankOutlined />, onClick: () => { setSelectedCategory('finance'); setSelectedReport('fin_balance'); } },
-                  ],
-                },
-              ];
+                  {
+                    key: 'production',
+                    label: 'PRODUCTION (MRP)',
+                    icon: <RocketOutlined />,
+                    highlight: true,
+                    items: [
+                      { id: 'prod_daily', label: 'Daily Production', icon: <CalendarOutlined />, badge: productionEntries.length, onClick: () => { setSelectedCategory('production'); setSelectedReport('prod_daily'); setGroupBy('day'); setDetailMode('detailed'); } },
+                      { id: 'prod_machine', label: 'Machine-wise', icon: <ToolOutlined />, onClick: () => { setSelectedCategory('production'); setSelectedReport('prod_machine'); setGroupBy('machine'); setDetailMode('summary'); } },
+                      { id: 'prod_shift', label: 'Shift-wise', icon: <ClockCircleOutlined />, onClick: () => { setSelectedCategory('production'); setSelectedReport('prod_shift'); setGroupBy('shift'); setDetailMode('summary'); } },
+                      { id: 'prod_operator', label: 'Operator-wise', icon: <TeamOutlined />, onClick: () => { setSelectedCategory('production'); setSelectedReport('prod_operator'); setGroupBy('operator'); setDetailMode('summary'); } },
+                      { id: 'prod_department', label: 'Department-wise', icon: <ApartmentOutlined />, onClick: () => { setSelectedCategory('production'); setSelectedReport('prod_department'); setGroupBy('department'); setDetailMode('summary'); } },
+                      { id: 'prod_item', label: 'Item-wise', icon: <AppstoreOutlined />, badge: 'Items', onClick: () => { setSelectedCategory('production'); setSelectedReport('prod_item'); setGroupBy('item'); setDetailMode('summary'); } },
+                      { id: 'prod_target_vs_actual', label: 'Target vs Actual', icon: <SafetyCertificateOutlined />, badge: 'Variance', onClick: () => { setSelectedCategory('production'); setSelectedReport('prod_target_vs_actual'); setDetailMode('summary'); } },
+                      { id: 'prod_scrap', label: 'Scrap & Rejection', icon: <FallOutlined />, badge: 'Scrap', onClick: () => { setSelectedCategory('production'); setSelectedReport('prod_scrap'); setDetailMode('summary'); } },
+                    ],
+                  },
+                  {
+                    key: 'sales',
+                    label: 'SALES',
+                    icon: <ShoppingOutlined />,
+                    items: [
+                      { id: 'sales_overview', label: 'Sales Overview', icon: <LineChartOutlined />, badge: salesInvoices.length, onClick: () => { setSelectedCategory('sales'); setSelectedReport('sales_overview'); } },
+                      { id: 'sales_product', label: 'Product Sales', icon: <AppstoreOutlined />, onClick: () => { setSelectedCategory('sales'); setSelectedReport('sales_product'); } },
+                      { id: 'sales_customer', label: 'Customer Statement', icon: <UserOutlined />, onClick: () => { setSelectedCategory('sales'); setSelectedReport('sales_customer'); } },
+                      { id: 'sales_bill_profit', label: 'Bill-wise Profit', icon: <RiseOutlined />, onClick: () => { setSelectedCategory('sales'); setSelectedReport('sales_bill_profit'); } },
+                      { id: 'sales_party_pl', label: 'Party-wise P&L', icon: <TeamOutlined />, onClick: () => { setSelectedCategory('sales'); setSelectedReport('sales_party_pl'); } },
+                      { id: 'sales_category', label: 'By Category', icon: <ProjectOutlined />, onClick: () => { setSelectedCategory('sales'); setSelectedReport('sales_category'); } },
+                    ],
+                  },
+                  {
+                    key: 'receivables',
+                    label: 'RECEIVABLES & PAYABLES',
+                    icon: <DollarOutlined />,
+                    items: [
+                      { id: 'rec_aging', label: 'Receivables Aging', icon: <ClockCircleOutlined />, onClick: () => { setSelectedCategory('receivables'); setSelectedReport('rec_aging'); } },
+                      { id: 'pay_aging', label: 'Payables Aging', icon: <ClockCircleOutlined />, onClick: () => { setSelectedCategory('receivables'); setSelectedReport('pay_aging'); } },
+                      { id: 'supplier_statement', label: 'Supplier Statement', icon: <UserOutlined />, onClick: () => { setSelectedCategory('receivables'); setSelectedReport('supplier_statement'); } },
+                    ],
+                  },
+                  {
+                    key: 'inventory',
+                    label: 'INVENTORY',
+                    icon: <AppstoreOutlined />,
+                    items: [
+                      { id: 'inv_stock', label: 'Stock Summary', icon: <AppstoreOutlined />, onClick: () => { setSelectedCategory('inventory'); setSelectedReport('inv_stock'); } },
+                      { id: 'inv_valuation', label: 'Stock Valuation', icon: <DollarOutlined />, onClick: () => { setSelectedCategory('inventory'); setSelectedReport('inv_valuation'); } },
+                      { id: 'inv_movement', label: 'Stock Movement', icon: <SyncOutlined />, onClick: () => { setSelectedCategory('inventory'); setSelectedReport('inv_movement'); } },
+                    ],
+                  },
+                  {
+                    key: 'finance',
+                    label: 'FINANCE',
+                    icon: <BankOutlined />,
+                    items: [
+                      { id: 'fin_pl', label: 'Profit & Loss', icon: <BarChartOutlined />, onClick: () => { setSelectedCategory('finance'); setSelectedReport('fin_pl'); } },
+                      { id: 'fin_balance', label: 'Balance Sheet', icon: <BankOutlined />, onClick: () => { setSelectedCategory('finance'); setSelectedReport('fin_balance'); } },
+                    ],
+                  },
+                ];
 
               return navGroups.map((group) => {
                 const visibleItems = q
@@ -3477,6 +3481,13 @@ export const GeneralReports: React.FC = () => {
                   onClick={() => handleTimeframeChange('today')}
                 >
                   Today
+                </button>
+                <button
+                  type="button"
+                  className={`reports-time-pill ${timeframe === 'this_week' ? 'active' : ''}`}
+                  onClick={() => handleTimeframeChange('this_week')}
+                >
+                  This Week
                 </button>
                 <button
                   type="button"
@@ -3728,7 +3739,7 @@ export const GeneralReports: React.FC = () => {
                         setCustomSequences(updated);
                         try {
                           localStorage.setItem('pwi_division_pipeline_seq_v2', JSON.stringify(updated));
-                        } catch {}
+                        } catch { }
                         message.success(`Reset ${activeDivisionObj.name} to factory standard sequence`);
                       }}
                       style={{ fontSize: 11, padding: 0 }}
@@ -4989,1458 +5000,1457 @@ export const GeneralReports: React.FC = () => {
               {/* ===================================================
                   REAL KPI SUMMARY METRIC CARDS (Standard)
                   =================================================== */}
-          <Spin spinning={loading}>
-            <div className="reports-kpi-grid">
-              {selectedCategory === 'production' ? (
-                <>
-                  <div className="reports-kpi-card blue">
-                    <div className="reports-kpi-title">TARGET PRODUCTION</div>
-                    <div className="reports-kpi-value-row">
-                      <span className="reports-kpi-value">{formatDecimal(prodSummary.totalTarget)}</span>
-                      <span className="reports-kpi-trend positive">Planned</span>
-                    </div>
-                    <div className="reports-kpi-subtext">Sum of machine targets in period</div>
-                  </div>
+              <Spin spinning={loading}>
+                <div className="reports-kpi-grid">
+                  {selectedCategory === 'production' ? (
+                    <>
+                      <div className="reports-kpi-card blue">
+                        <div className="reports-kpi-title">TARGET PRODUCTION</div>
+                        <div className="reports-kpi-value-row">
+                          <span className="reports-kpi-value">{formatDecimal(prodSummary.totalTarget)}</span>
+                          <span className="reports-kpi-trend positive">Planned</span>
+                        </div>
+                        <div className="reports-kpi-subtext">Sum of machine targets in period</div>
+                      </div>
 
-                  <div className="reports-kpi-card purple">
-                    <div className="reports-kpi-title">ACTUAL PRODUCED</div>
-                    <div className="reports-kpi-value-row">
-                      <span className="reports-kpi-value">{formatDecimal(prodSummary.totalActual)}</span>
-                      <span className={`reports-kpi-trend ${prodSummary.totalVariance >= 0 ? 'positive' : 'negative'}`}>
-                        {prodSummary.totalVariance >= 0 ? `+${formatDecimal(prodSummary.totalVariance)}` : formatDecimal(prodSummary.totalVariance)}
-                      </span>
-                    </div>
-                    <div className="reports-kpi-subtext">
-                      {prodSummary.totalActualKg > 0
-                        ? `Net yield: ${formatDecimal(prodSummary.totalActualKg)} kg total weight`
-                        : 'Net verified yield from entries'}
-                    </div>
-                  </div>
+                      <div className="reports-kpi-card purple">
+                        <div className="reports-kpi-title">ACTUAL PRODUCED</div>
+                        <div className="reports-kpi-value-row">
+                          <span className="reports-kpi-value">{formatDecimal(prodSummary.totalActual)}</span>
+                          <span className={`reports-kpi-trend ${prodSummary.totalVariance >= 0 ? 'positive' : 'negative'}`}>
+                            {prodSummary.totalVariance >= 0 ? `+${formatDecimal(prodSummary.totalVariance)}` : formatDecimal(prodSummary.totalVariance)}
+                          </span>
+                        </div>
+                        <div className="reports-kpi-subtext">
+                          {prodSummary.totalActualKg > 0
+                            ? `Net yield: ${formatDecimal(prodSummary.totalActualKg)} kg total weight`
+                            : 'Net verified yield from entries'}
+                        </div>
+                      </div>
 
-                  <div className="reports-kpi-card green">
-                    <div className="reports-kpi-title">
-                      {selectedReport === 'prod_scrap' ? 'PROCESS SCRAP RATE' : 'PLANT EFFICIENCY'}
-                    </div>
-                    <div className="reports-kpi-value-row">
-                      <span className="reports-kpi-value">
-                        {selectedReport === 'prod_scrap'
-                          ? `${(prodSummary.avgScrapRate || 0).toFixed(2)}%`
-                          : `${formatDecimal(prodSummary.avgEfficiency)}%`}
-                      </span>
-                      <span className={`reports-kpi-trend ${selectedReport === 'prod_scrap' ? ((prodSummary.avgScrapRate || 0) > 2 ? 'negative' : 'positive') : 'positive'}`}>
-                        {selectedReport === 'prod_scrap' ? 'Kg Benchmark' : 'Average'}
-                      </span>
-                    </div>
-                    <div className="reports-kpi-subtext">
-                      {selectedReport === 'prod_scrap'
-                        ? `Scrap wt vs produced wt (${formatDecimal(prodSummary.totalScrap)} kg / ${formatDecimal(prodSummary.totalActualKg)} kg)`
-                        : 'Target attainment percentage'}
-                    </div>
-                  </div>
+                      <div className="reports-kpi-card green">
+                        <div className="reports-kpi-title">
+                          {selectedReport === 'prod_scrap' ? 'PROCESS SCRAP RATE' : 'PLANT EFFICIENCY'}
+                        </div>
+                        <div className="reports-kpi-value-row">
+                          <span className="reports-kpi-value">
+                            {selectedReport === 'prod_scrap'
+                              ? `${(prodSummary.avgScrapRate || 0).toFixed(2)}%`
+                              : `${formatDecimal(prodSummary.avgEfficiency)}%`}
+                          </span>
+                          <span className={`reports-kpi-trend ${selectedReport === 'prod_scrap' ? ((prodSummary.avgScrapRate || 0) > 2 ? 'negative' : 'positive') : 'positive'}`}>
+                            {selectedReport === 'prod_scrap' ? 'Kg Benchmark' : 'Average'}
+                          </span>
+                        </div>
+                        <div className="reports-kpi-subtext">
+                          {selectedReport === 'prod_scrap'
+                            ? `Scrap wt vs produced wt (${formatDecimal(prodSummary.totalScrap)} kg / ${formatDecimal(prodSummary.totalActualKg)} kg)`
+                            : 'Target attainment percentage'}
+                        </div>
+                      </div>
 
-                  <div className="reports-kpi-card red">
-                    <div className="reports-kpi-title">TOTAL REJECTION / SCRAP</div>
-                    <div className="reports-kpi-value-row">
-                      <span className="reports-kpi-value">{formatDecimal(prodSummary.totalScrap)} kg</span>
-                      <span className="reports-kpi-trend negative">{prodSummary.totalDowntime}h Downtime</span>
-                    </div>
-                    <div className="reports-kpi-subtext">Recorded process scrap in Supabase</div>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="reports-kpi-card blue">
-                    <div className="reports-kpi-title">INVOICES</div>
-                    <div className="reports-kpi-value-row">
-                      <span className="reports-kpi-value">{salesSummary.count}</span>
-                      <span className="reports-kpi-trend positive">Real Bills</span>
-                    </div>
-                    <div className="reports-kpi-subtext">Recorded sales invoices in Supabase</div>
-                  </div>
+                      <div className="reports-kpi-card red">
+                        <div className="reports-kpi-title">TOTAL REJECTION / SCRAP</div>
+                        <div className="reports-kpi-value-row">
+                          <span className="reports-kpi-value">{formatDecimal(prodSummary.totalScrap)} kg</span>
+                          <span className="reports-kpi-trend negative">{prodSummary.totalDowntime}h Downtime</span>
+                        </div>
+                        <div className="reports-kpi-subtext">Recorded process scrap in Supabase</div>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="reports-kpi-card blue">
+                        <div className="reports-kpi-title">INVOICES</div>
+                        <div className="reports-kpi-value-row">
+                          <span className="reports-kpi-value">{salesSummary.count}</span>
+                          <span className="reports-kpi-trend positive">Real Bills</span>
+                        </div>
+                        <div className="reports-kpi-subtext">Recorded sales invoices in Supabase</div>
+                      </div>
 
-                  <div className="reports-kpi-card purple">
-                    <div className="reports-kpi-title">BILLED REVENUE</div>
-                    <div className="reports-kpi-value-row">
-                      <span className="reports-kpi-value">Rs {formatDecimal(salesSummary.totalBilled)}</span>
-                      <span className="reports-kpi-trend positive">Gross</span>
-                    </div>
-                    <div className="reports-kpi-subtext">Total invoiced sales volume</div>
-                  </div>
+                      <div className="reports-kpi-card purple">
+                        <div className="reports-kpi-title">BILLED REVENUE</div>
+                        <div className="reports-kpi-value-row">
+                          <span className="reports-kpi-value">Rs {formatDecimal(salesSummary.totalBilled)}</span>
+                          <span className="reports-kpi-trend positive">Gross</span>
+                        </div>
+                        <div className="reports-kpi-subtext">Total invoiced sales volume</div>
+                      </div>
 
-                  <div className="reports-kpi-card green">
-                    <div className="reports-kpi-title">COLLECTED CASH</div>
-                    <div className="reports-kpi-value-row">
-                      <span className="reports-kpi-value">Rs {formatDecimal(salesSummary.totalPaid)}</span>
-                      <span className="reports-kpi-trend positive">Cleared</span>
-                    </div>
-                    <div className="reports-kpi-subtext">Total payments received</div>
-                  </div>
+                      <div className="reports-kpi-card green">
+                        <div className="reports-kpi-title">COLLECTED CASH</div>
+                        <div className="reports-kpi-value-row">
+                          <span className="reports-kpi-value">Rs {formatDecimal(salesSummary.totalPaid)}</span>
+                          <span className="reports-kpi-trend positive">Cleared</span>
+                        </div>
+                        <div className="reports-kpi-subtext">Total payments received</div>
+                      </div>
 
-                  <div className="reports-kpi-card red">
-                    <div className="reports-kpi-title">OUTSTANDING RECEIVABLE</div>
-                    <div className="reports-kpi-value-row">
-                      <span className="reports-kpi-value">Rs {formatDecimal(salesSummary.totalDue)}</span>
-                      <span className="reports-kpi-trend neutral">Balance Due</span>
-                    </div>
-                    <div className="reports-kpi-subtext">Pending client settlement</div>
-                  </div>
-                </>
-              )}
-            </div>
-          </Spin>
+                      <div className="reports-kpi-card red">
+                        <div className="reports-kpi-title">OUTSTANDING RECEIVABLE</div>
+                        <div className="reports-kpi-value-row">
+                          <span className="reports-kpi-value">Rs {formatDecimal(salesSummary.totalDue)}</span>
+                          <span className="reports-kpi-trend neutral">Balance Due</span>
+                        </div>
+                        <div className="reports-kpi-subtext">Pending client settlement</div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </Spin>
 
-          {/* ===================================================
+              {/* ===================================================
               INTERACTIVE VISUAL CHARTS (Multiple Pattern Switcher)
               =================================================== */}
-          <div className="reports-chart-card">
-            <div className="reports-chart-header">
-              <div className="reports-chart-title">
-                {chartHeaderInfo.icon}
-                <span>{chartHeaderInfo.title}</span>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                {/* Chart Type Selector */}
-                {selectedReport !== 'sales_overview' && selectedReport !== 'prod_daily' && (
-                  <div className="reports-chart-type-selector no-print">
-                    <button
-                      type="button"
-                      className={`reports-chart-type-btn ${chartType === 'horizontal' ? 'active' : ''}`}
-                      onClick={() => setChartType('horizontal')}
-                      title="Horizontal Target Progress Bars"
-                    >
-                      <BarChartOutlined /> Bars
-                    </button>
-                    <button
-                      type="button"
-                      className={`reports-chart-type-btn ${chartType === 'column' ? 'active' : ''}`}
-                      onClick={() => setChartType('column')}
-                      title="Vertical Columns (Target vs Actual)"
-                    >
-                      <ProjectOutlined /> Columns
-                    </button>
-                    <button
-                      type="button"
-                      className={`reports-chart-type-btn ${chartType === 'donut' ? 'active' : ''}`}
-                      onClick={() => setChartType('donut')}
-                      title="Donut Distribution Chart"
-                    >
-                      <PieChartOutlined /> Donut
-                    </button>
-                    <button
-                      type="button"
-                      className={`reports-chart-type-btn ${chartType === 'efficiency' ? 'active' : ''}`}
-                      onClick={() => setChartType('efficiency')}
-                      title="Efficiency Attainment Grid"
-                    >
-                      <SafetyCertificateOutlined /> Attainment
-                    </button>
+              <div className="reports-chart-card">
+                <div className="reports-chart-header">
+                  <div className="reports-chart-title">
+                    {chartHeaderInfo.icon}
+                    <span>{chartHeaderInfo.title}</span>
                   </div>
-                )}
 
-                <div className="reports-chart-legend">
-                  {chartHeaderInfo.legend.map((item, idx) => {
-                    const legendColors = ['#2563eb', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6'];
-                    return (
-                      <div key={item} className="reports-legend-item">
-                        <span className="reports-legend-dot" style={{ backgroundColor: legendColors[idx % legendColors.length] }} />
-                        <span>{item}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                    {/* Chart Type Selector */}
+                    {selectedReport !== 'sales_overview' && selectedReport !== 'prod_daily' && (
+                      <div className="reports-chart-type-selector no-print">
+                        <button
+                          type="button"
+                          className={`reports-chart-type-btn ${chartType === 'horizontal' ? 'active' : ''}`}
+                          onClick={() => setChartType('horizontal')}
+                          title="Horizontal Target Progress Bars"
+                        >
+                          <BarChartOutlined /> Bars
+                        </button>
+                        <button
+                          type="button"
+                          className={`reports-chart-type-btn ${chartType === 'column' ? 'active' : ''}`}
+                          onClick={() => setChartType('column')}
+                          title="Vertical Columns (Target vs Actual)"
+                        >
+                          <ProjectOutlined /> Columns
+                        </button>
+                        <button
+                          type="button"
+                          className={`reports-chart-type-btn ${chartType === 'donut' ? 'active' : ''}`}
+                          onClick={() => setChartType('donut')}
+                          title="Donut Distribution Chart"
+                        >
+                          <PieChartOutlined /> Donut
+                        </button>
+                        <button
+                          type="button"
+                          className={`reports-chart-type-btn ${chartType === 'efficiency' ? 'active' : ''}`}
+                          onClick={() => setChartType('efficiency')}
+                          title="Efficiency Attainment Grid"
+                        >
+                          <SafetyCertificateOutlined /> Attainment
+                        </button>
                       </div>
-                    );
-                  })}
+                    )}
+
+                    <div className="reports-chart-legend">
+                      {chartHeaderInfo.legend.map((item, idx) => {
+                        const legendColors = ['#2563eb', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6'];
+                        return (
+                          <div key={item} className="reports-legend-item">
+                            <span className="reports-legend-dot" style={{ backgroundColor: legendColors[idx % legendColors.length] }} />
+                            <span>{item}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
 
-            {selectedReport === 'sales_overview' || selectedReport === 'prod_daily' ? (
-              <div className="reports-trend-chart-wrap">
-                <svg className="reports-trend-svg" viewBox="0 0 800 220" preserveAspectRatio="none">
-                  <defs>
-                    <linearGradient id="trendGradientReal" x1="0%" y1="0%" x2="0%" y2="100%">
-                      <stop offset="0%" stopColor="var(--theme-accent, #10b981)" stopOpacity="0.35" />
-                      <stop offset="100%" stopColor="var(--theme-accent, #10b981)" stopOpacity="0.0" />
-                    </linearGradient>
-                  </defs>
+                {selectedReport === 'sales_overview' || selectedReport === 'prod_daily' ? (
+                  <div className="reports-trend-chart-wrap">
+                    <svg className="reports-trend-svg" viewBox="0 0 800 220" preserveAspectRatio="none">
+                      <defs>
+                        <linearGradient id="trendGradientReal" x1="0%" y1="0%" x2="0%" y2="100%">
+                          <stop offset="0%" stopColor="var(--theme-accent, #10b981)" stopOpacity="0.35" />
+                          <stop offset="100%" stopColor="var(--theme-accent, #10b981)" stopOpacity="0.0" />
+                        </linearGradient>
+                      </defs>
 
-                  <line x1="40" y1="30" x2="780" y2="30" className="reports-trend-axis-line" />
-                  <text x="10" y="34" className="reports-trend-axis-text">100%</text>
+                      <line x1="40" y1="30" x2="780" y2="30" className="reports-trend-axis-line" />
+                      <text x="10" y="34" className="reports-trend-axis-text">100%</text>
 
-                  <line x1="40" y1="80" x2="780" y2="80" className="reports-trend-axis-line" />
-                  <text x="10" y="84" className="reports-trend-axis-text">75%</text>
+                      <line x1="40" y1="80" x2="780" y2="80" className="reports-trend-axis-line" />
+                      <text x="10" y="84" className="reports-trend-axis-text">75%</text>
 
-                  <line x1="40" y1="130" x2="780" y2="130" className="reports-trend-axis-line" />
-                  <text x="10" y="134" className="reports-trend-axis-text">50%</text>
+                      <line x1="40" y1="130" x2="780" y2="130" className="reports-trend-axis-line" />
+                      <text x="10" y="134" className="reports-trend-axis-text">50%</text>
 
-                  <line x1="40" y1="180" x2="780" y2="180" className="reports-trend-axis-line" />
-                  <text x="10" y="184" className="reports-trend-axis-text">25%</text>
+                      <line x1="40" y1="180" x2="780" y2="180" className="reports-trend-axis-line" />
+                      <text x="10" y="184" className="reports-trend-axis-text">25%</text>
 
-                  <path
-                    d="M 60,140 C 180,170 260,150 380,90 C 500,60 620,105 740,50 L 740,200 L 60,200 Z"
-                    fill="url(#trendGradientReal)"
-                  />
+                      <path
+                        d="M 60,140 C 180,170 260,150 380,90 C 500,60 620,105 740,50 L 740,200 L 60,200 Z"
+                        fill="url(#trendGradientReal)"
+                      />
 
-                  <path
-                    d="M 60,140 C 180,170 260,150 380,90 C 500,60 620,105 740,50"
-                    className="reports-trend-curve"
-                    stroke="var(--theme-accent, #10b981)"
-                  />
+                      <path
+                        d="M 60,140 C 180,170 260,150 380,90 C 500,60 620,105 740,50"
+                        className="reports-trend-curve"
+                        stroke="var(--theme-accent, #10b981)"
+                      />
 
-                  <circle cx="60" cy="140" r="4.5" fill="#ffffff" stroke="var(--theme-accent, #10b981)" strokeWidth="2.5" className="reports-trend-dot" />
-                  <circle cx="200" cy="160" r="4.5" fill="#ffffff" stroke="var(--theme-accent, #10b981)" strokeWidth="2.5" className="reports-trend-dot" />
-                  <circle cx="380" cy="90" r="5" fill="#ffffff" stroke="var(--theme-accent, #10b981)" strokeWidth="2.5" className="reports-trend-dot" />
-                  <circle cx="560" cy="80" r="4.5" fill="#ffffff" stroke="var(--theme-accent, #10b981)" strokeWidth="2.5" className="reports-trend-dot" />
-                  <circle cx="740" cy="50" r="5" fill="#ffffff" stroke="var(--theme-accent, #10b981)" strokeWidth="2.5" className="reports-trend-dot" />
+                      <circle cx="60" cy="140" r="4.5" fill="#ffffff" stroke="var(--theme-accent, #10b981)" strokeWidth="2.5" className="reports-trend-dot" />
+                      <circle cx="200" cy="160" r="4.5" fill="#ffffff" stroke="var(--theme-accent, #10b981)" strokeWidth="2.5" className="reports-trend-dot" />
+                      <circle cx="380" cy="90" r="5" fill="#ffffff" stroke="var(--theme-accent, #10b981)" strokeWidth="2.5" className="reports-trend-dot" />
+                      <circle cx="560" cy="80" r="4.5" fill="#ffffff" stroke="var(--theme-accent, #10b981)" strokeWidth="2.5" className="reports-trend-dot" />
+                      <circle cx="740" cy="50" r="5" fill="#ffffff" stroke="var(--theme-accent, #10b981)" strokeWidth="2.5" className="reports-trend-dot" />
 
-                  <text x="50" y="212" className="reports-trend-axis-text">01 Sept</text>
-                  <text x="180" y="212" className="reports-trend-axis-text">08 Sept</text>
-                  <text x="360" y="212" className="reports-trend-axis-text">15 Sept</text>
-                  <text x="540" y="212" className="reports-trend-axis-text">22 Sept</text>
-                  <text x="720" y="212" className="reports-trend-axis-text">30 Sept</text>
-                </svg>
-              </div>
-            ) : chartType === 'column' ? (
-              /* ALTERNATE PATTERN 1: SVG VERTICAL COLUMN CHART (Target vs Actual / Rejection Scrap) */
-              <div className="reports-columns-wrap">
-                <svg className="reports-column-svg" viewBox="0 0 800 240">
-                  <line x1="40" y1="20" x2="780" y2="20" stroke="var(--theme-border, #e2e8f0)" strokeDasharray="4 4" />
-                  <line x1="40" y1="80" x2="780" y2="80" stroke="var(--theme-border, #e2e8f0)" strokeDasharray="4 4" />
-                  <line x1="40" y1="140" x2="780" y2="140" stroke="var(--theme-border, #e2e8f0)" strokeDasharray="4 4" />
-                  <line x1="40" y1="200" x2="780" y2="200" stroke="var(--theme-border, #cbd5e1)" strokeWidth="1.5" />
+                      <text x="50" y="212" className="reports-trend-axis-text">01 Sept</text>
+                      <text x="180" y="212" className="reports-trend-axis-text">08 Sept</text>
+                      <text x="360" y="212" className="reports-trend-axis-text">15 Sept</text>
+                      <text x="540" y="212" className="reports-trend-axis-text">22 Sept</text>
+                      <text x="720" y="212" className="reports-trend-axis-text">30 Sept</text>
+                    </svg>
+                  </div>
+                ) : chartType === 'column' ? (
+                  /* ALTERNATE PATTERN 1: SVG VERTICAL COLUMN CHART (Target vs Actual / Rejection Scrap) */
+                  <div className="reports-columns-wrap">
+                    <svg className="reports-column-svg" viewBox="0 0 800 240">
+                      <line x1="40" y1="20" x2="780" y2="20" stroke="var(--theme-border, #e2e8f0)" strokeDasharray="4 4" />
+                      <line x1="40" y1="80" x2="780" y2="80" stroke="var(--theme-border, #e2e8f0)" strokeDasharray="4 4" />
+                      <line x1="40" y1="140" x2="780" y2="140" stroke="var(--theme-border, #e2e8f0)" strokeDasharray="4 4" />
+                      <line x1="40" y1="200" x2="780" y2="200" stroke="var(--theme-border, #cbd5e1)" strokeWidth="1.5" />
 
-                  {(() => {
-                    const isScrap = selectedReport === 'prod_scrap';
-                    const maxScrapKg = Math.max(...barChartItems.map((it) => it.value), 1);
+                      {(() => {
+                        const isScrap = selectedReport === 'prod_scrap';
+                        const maxScrapKg = Math.max(...barChartItems.map((it) => it.value), 1);
 
-                    return barChartItems.map((item, idx) => {
-                      const colWidth = Math.min(65, Math.floor(700 / (barChartItems.length || 1)));
-                      const x = 60 + idx * (colWidth + 30);
-                      
-                      let actualHeight = 0;
-                      let targetHeight = 150;
+                        return barChartItems.map((item, idx) => {
+                          const colWidth = Math.min(65, Math.floor(700 / (barChartItems.length || 1)));
+                          const x = 60 + idx * (colWidth + 30);
 
-                      if (isScrap) {
-                        actualHeight = item.value > 0 ? Math.min(145, Math.max(22, Math.round((item.value / maxScrapKg) * 135))) : 0;
-                        targetHeight = 145;
-                      } else {
-                        targetHeight = Math.min(170, Math.max(10, Math.round(((item.target || item.value) / (item.target || item.value || 1)) * 160)));
-                        actualHeight = Math.min(170, Math.max(6, Math.round((item.percentage / 100) * targetHeight)));
-                      }
+                          let actualHeight = 0;
+                          let targetHeight = 150;
 
-                      const yActual = 200 - actualHeight;
-                      const yTarget = 200 - targetHeight;
-                      const rateVal = item.efficiency ?? item.percentage ?? 0;
+                          if (isScrap) {
+                            actualHeight = item.value > 0 ? Math.min(145, Math.max(22, Math.round((item.value / maxScrapKg) * 135))) : 0;
+                            targetHeight = 145;
+                          } else {
+                            targetHeight = Math.min(170, Math.max(10, Math.round(((item.target || item.value) / (item.target || item.value || 1)) * 160)));
+                            actualHeight = Math.min(170, Math.max(6, Math.round((item.percentage / 100) * targetHeight)));
+                          }
 
-                      return (
-                        <g key={item.id}>
-                          {/* Target / Reference baseline bar outline */}
-                          <rect
-                            x={x}
-                            y={yTarget}
-                            width={colWidth}
-                            height={targetHeight}
-                            fill="rgba(100, 116, 139, 0.05)"
-                            stroke="rgba(100, 116, 139, 0.25)"
-                            strokeDasharray="3 3"
-                            rx="4"
-                          />
-                          {/* Actual filled bar (only if yield or scrap > 0) */}
-                          {actualHeight > 0 && (
-                            <rect
-                              x={x + 4}
-                              y={yActual}
-                              width={colWidth - 8}
-                              height={actualHeight}
-                              fill={item.color}
-                              rx="3"
-                            />
-                          )}
+                          const yActual = 200 - actualHeight;
+                          const yTarget = 200 - targetHeight;
+                          const rateVal = item.efficiency ?? item.percentage ?? 0;
 
-                          {/* Top values: Quantity AND Percentage */}
-                          {isScrap ? (
-                            <g>
+                          return (
+                            <g key={item.id}>
+                              {/* Target / Reference baseline bar outline */}
+                              <rect
+                                x={x}
+                                y={yTarget}
+                                width={colWidth}
+                                height={targetHeight}
+                                fill="rgba(100, 116, 139, 0.05)"
+                                stroke="rgba(100, 116, 139, 0.25)"
+                                strokeDasharray="3 3"
+                                rx="4"
+                              />
+                              {/* Actual filled bar (only if yield or scrap > 0) */}
+                              {actualHeight > 0 && (
+                                <rect
+                                  x={x + 4}
+                                  y={yActual}
+                                  width={colWidth - 8}
+                                  height={actualHeight}
+                                  fill={item.color}
+                                  rx="3"
+                                />
+                              )}
+
+                              {/* Top values: Quantity AND Percentage */}
+                              {isScrap ? (
+                                <g>
+                                  <text
+                                    x={x + colWidth / 2}
+                                    y={actualHeight > 0 ? yActual - 18 : 176}
+                                    textAnchor="middle"
+                                    fill={item.value > 0 ? '#ef4444' : 'var(--theme-text-muted, #94a3b8)'}
+                                    fontSize="11"
+                                    fontWeight="800"
+                                  >
+                                    {formatDecimal(item.value)} kg
+                                  </text>
+                                  <text
+                                    x={x + colWidth / 2}
+                                    y={actualHeight > 0 ? yActual - 6 : 190}
+                                    textAnchor="middle"
+                                    fill={rateVal > 2 ? '#ef4444' : rateVal > 0 ? '#f59e0b' : 'var(--theme-text-muted, #94a3b8)'}
+                                    fontSize="10"
+                                    fontWeight="700"
+                                  >
+                                    {rateVal.toFixed(2)}%
+                                  </text>
+                                </g>
+                              ) : (
+                                <text
+                                  x={x + colWidth / 2}
+                                  y={yActual - 6}
+                                  textAnchor="middle"
+                                  fill="var(--theme-text, #0f172a)"
+                                  fontSize="11"
+                                  fontWeight="700"
+                                >
+                                  {item.percentage}%
+                                </text>
+                              )}
+
+                              {/* Label at bottom */}
                               <text
                                 x={x + colWidth / 2}
-                                y={actualHeight > 0 ? yActual - 18 : 176}
+                                y={218}
                                 textAnchor="middle"
-                                fill={item.value > 0 ? '#ef4444' : 'var(--theme-text-muted, #94a3b8)'}
+                                fill="var(--theme-text-muted, #64748b)"
                                 fontSize="11"
-                                fontWeight="800"
+                                fontWeight="600"
                               >
-                                {formatDecimal(item.value)} kg
-                              </text>
-                              <text
-                                x={x + colWidth / 2}
-                                y={actualHeight > 0 ? yActual - 6 : 190}
-                                textAnchor="middle"
-                                fill={rateVal > 2 ? '#ef4444' : rateVal > 0 ? '#f59e0b' : 'var(--theme-text-muted, #94a3b8)'}
-                                fontSize="10"
-                                fontWeight="700"
-                              >
-                                {rateVal.toFixed(2)}%
+                                {item.shortLabel || item.label.split(' ')[0]}
                               </text>
                             </g>
-                          ) : (
-                            <text
-                              x={x + colWidth / 2}
-                              y={yActual - 6}
-                              textAnchor="middle"
-                              fill="var(--theme-text, #0f172a)"
-                              fontSize="11"
-                              fontWeight="700"
-                            >
-                              {item.percentage}%
-                            </text>
-                          )}
+                          );
+                        });
+                      })()}
+                    </svg>
+                  </div>
+                ) : chartType === 'donut' ? (
+                  /* ALTERNATE PATTERN 2: INTERACTIVE SVG DONUT / PIE DISTRIBUTION */
+                  <div className="reports-donut-wrap">
+                    <svg width="220" height="220" viewBox="0 0 220 220">
+                      <circle cx="110" cy="110" r="75" fill="none" stroke="var(--theme-surface-alt, #f1f5f9)" strokeWidth="26" />
+                      {(() => {
+                        const totalVal = barChartItems.reduce((acc, it) => acc + (it.value || 0), 0) || 1;
+                        const circumference = 2 * Math.PI * 75;
+                        let accumulated = 0;
 
-                          {/* Label at bottom */}
-                          <text
-                            x={x + colWidth / 2}
-                            y={218}
-                            textAnchor="middle"
-                            fill="var(--theme-text-muted, #64748b)"
-                            fontSize="11"
-                            fontWeight="600"
-                          >
-                            {item.shortLabel || item.label.split(' ')[0]}
-                          </text>
-                        </g>
-                      );
-                    });
-                  })()}
-                </svg>
-              </div>
-            ) : chartType === 'donut' ? (
-              /* ALTERNATE PATTERN 2: INTERACTIVE SVG DONUT / PIE DISTRIBUTION */
-              <div className="reports-donut-wrap">
-                <svg width="220" height="220" viewBox="0 0 220 220">
-                  <circle cx="110" cy="110" r="75" fill="none" stroke="var(--theme-surface-alt, #f1f5f9)" strokeWidth="26" />
-                  {(() => {
-                    const totalVal = barChartItems.reduce((acc, it) => acc + (it.value || 0), 0) || 1;
-                    const circumference = 2 * Math.PI * 75;
-                    let accumulated = 0;
+                        return barChartItems.map((it) => {
+                          const share = (it.value || 0) / totalVal;
+                          const strokeDasharray = `${share * circumference} ${circumference}`;
+                          const strokeDashoffset = -accumulated * circumference;
+                          accumulated += share;
 
-                    return barChartItems.map((it) => {
-                      const share = (it.value || 0) / totalVal;
-                      const strokeDasharray = `${share * circumference} ${circumference}`;
-                      const strokeDashoffset = -accumulated * circumference;
-                      accumulated += share;
+                          return (
+                            <circle
+                              key={it.id}
+                              cx="110"
+                              cy="110"
+                              r="75"
+                              fill="none"
+                              stroke={it.color}
+                              strokeWidth="26"
+                              strokeDasharray={strokeDasharray}
+                              strokeDashoffset={strokeDashoffset}
+                              transform="rotate(-90 110 110)"
+                              style={{ transition: 'stroke-dasharray 0.5s ease' }}
+                            />
+                          );
+                        });
+                      })()}
+                      <text x="110" y="102" textAnchor="middle" fontSize="11" fontWeight="700" fill="var(--theme-text-muted, #64748b)">
+                        {selectedReport === 'prod_scrap' ? 'TOTAL SCRAP' : 'TOTAL YIELD'}
+                      </text>
+                      <text x="110" y="122" textAnchor="middle" fontSize="15" fontWeight="800" fill={selectedReport === 'prod_scrap' ? '#ef4444' : 'var(--theme-text, #0f172a)'}>
+                        {selectedReport === 'prod_scrap'
+                          ? `${formatDecimal(prodSummary.totalScrap)} kg`
+                          : formatDecimal(barChartItems.reduce((acc, it) => acc + (it.value || 0), 0))}
+                      </text>
+                      {selectedReport === 'prod_scrap' && (
+                        <text x="110" y="138" textAnchor="middle" fontSize="10" fontWeight="700" fill="#ef4444">
+                          {(prodSummary.avgScrapRate || 0).toFixed(2)}% rate
+                        </text>
+                      )}
+                    </svg>
+
+                    <div className="reports-donut-legend">
+                      {barChartItems.map((it) => {
+                        const totalVal = barChartItems.reduce((acc, x) => acc + (x.value || 0), 0) || 1;
+                        const share = Math.round(((it.value || 0) / totalVal) * 100);
+                        const rateVal = it.efficiency ?? it.percentage ?? 0;
+                        return (
+                          <div key={it.id} className="reports-donut-legend-row">
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <span style={{ width: 10, height: 10, borderRadius: '50%', backgroundColor: it.color }} />
+                              <span style={{ fontWeight: 600 }}>{it.shortLabel || it.label}</span>
+                            </div>
+                            <span style={{ fontWeight: 700 }}>
+                              {selectedReport === 'prod_scrap' ? `${formatDecimal(it.value)} kg` : it.displayValue}
+                              <Tag color={selectedReport === 'prod_scrap' ? (rateVal > 2 ? 'error' : 'success') : 'blue'} style={{ fontSize: 10, marginLeft: 4 }}>
+                                {selectedReport === 'prod_scrap' ? `${rateVal.toFixed(2)}% rate` : `${share}%`}
+                              </Tag>
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : chartType === 'efficiency' ? (
+                  /* ALTERNATE PATTERN 3: EFFICIENCY ATTAINMENT GRID */
+                  <div className="reports-efficiency-grid">
+                    {barChartItems.map((it) => {
+                      const isScrap = selectedReport === 'prod_scrap';
+                      const rateVal = it.efficiency ?? it.percentage ?? 0;
+                      const eff = it.efficiency ?? it.percentage;
+                      const circleBg = isScrap
+                        ? (rateVal > 5 ? '#ef4444' : rateVal > 2 ? '#f59e0b' : '#10b981')
+                        : (eff >= 95 ? '#10b981' : eff >= 75 ? '#2563eb' : eff > 0 ? '#f59e0b' : '#ef4444');
 
                       return (
-                        <circle
-                          key={it.id}
-                          cx="110"
-                          cy="110"
-                          r="75"
-                          fill="none"
-                          stroke={it.color}
-                          strokeWidth="26"
-                          strokeDasharray={strokeDasharray}
-                          strokeDashoffset={strokeDashoffset}
-                          transform="rotate(-90 110 110)"
-                          style={{ transition: 'stroke-dasharray 0.5s ease' }}
-                        />
-                      );
-                    });
-                  })()}
-                  <text x="110" y="102" textAnchor="middle" fontSize="11" fontWeight="700" fill="var(--theme-text-muted, #64748b)">
-                    {selectedReport === 'prod_scrap' ? 'TOTAL SCRAP' : 'TOTAL YIELD'}
-                  </text>
-                  <text x="110" y="122" textAnchor="middle" fontSize="15" fontWeight="800" fill={selectedReport === 'prod_scrap' ? '#ef4444' : 'var(--theme-text, #0f172a)'}>
-                    {selectedReport === 'prod_scrap'
-                      ? `${formatDecimal(prodSummary.totalScrap)} kg`
-                      : formatDecimal(barChartItems.reduce((acc, it) => acc + (it.value || 0), 0))}
-                  </text>
-                  {selectedReport === 'prod_scrap' && (
-                    <text x="110" y="138" textAnchor="middle" fontSize="10" fontWeight="700" fill="#ef4444">
-                      {(prodSummary.avgScrapRate || 0).toFixed(2)}% rate
-                    </text>
-                  )}
-                </svg>
-
-                <div className="reports-donut-legend">
-                  {barChartItems.map((it) => {
-                    const totalVal = barChartItems.reduce((acc, x) => acc + (x.value || 0), 0) || 1;
-                    const share = Math.round(((it.value || 0) / totalVal) * 100);
-                    const rateVal = it.efficiency ?? it.percentage ?? 0;
-                    return (
-                      <div key={it.id} className="reports-donut-legend-row">
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <span style={{ width: 10, height: 10, borderRadius: '50%', backgroundColor: it.color }} />
-                          <span style={{ fontWeight: 600 }}>{it.shortLabel || it.label}</span>
-                        </div>
-                        <span style={{ fontWeight: 700 }}>
-                          {selectedReport === 'prod_scrap' ? `${formatDecimal(it.value)} kg` : it.displayValue}
-                          <Tag color={selectedReport === 'prod_scrap' ? (rateVal > 2 ? 'error' : 'success') : 'blue'} style={{ fontSize: 10, marginLeft: 4 }}>
-                            {selectedReport === 'prod_scrap' ? `${rateVal.toFixed(2)}% rate` : `${share}%`}
-                          </Tag>
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : chartType === 'efficiency' ? (
-              /* ALTERNATE PATTERN 3: EFFICIENCY ATTAINMENT GRID */
-              <div className="reports-efficiency-grid">
-                {barChartItems.map((it) => {
-                  const isScrap = selectedReport === 'prod_scrap';
-                  const rateVal = it.efficiency ?? it.percentage ?? 0;
-                  const eff = it.efficiency ?? it.percentage;
-                  const circleBg = isScrap
-                    ? (rateVal > 5 ? '#ef4444' : rateVal > 2 ? '#f59e0b' : '#10b981')
-                    : (eff >= 95 ? '#10b981' : eff >= 75 ? '#2563eb' : eff > 0 ? '#f59e0b' : '#ef4444');
-
-                  return (
-                    <div key={it.id} className="reports-efficiency-card">
-                      <div className="reports-efficiency-circle" style={{ backgroundColor: circleBg }}>
-                        {isScrap ? `${rateVal.toFixed(2)}%` : `${eff.toFixed(0)}%`}
-                      </div>
-                      <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #0f172a)' }}>{it.label}</div>
-                      <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #64748b)' }}>
-                        {isScrap
-                          ? `${formatDecimal(it.value)} kg scrap / ${formatDecimal(it.target || 0)} kg output`
-                          : `${it.displayValue} ${it.target ? `/ ${formatDecimal(it.target)} ${it.unit || ''}` : ''}`}
-                      </div>
-                      <Tag color={isScrap ? (rateVal > 5 ? 'error' : rateVal > 2 ? 'warning' : 'success') : (eff >= 95 ? 'success' : eff >= 75 ? 'processing' : eff > 0 ? 'warning' : 'error')} style={{ marginTop: 4 }}>
-                        {isScrap
-                          ? (rateVal > 5 ? 'High Scrap (>5%)' : rateVal > 2 ? 'Moderate Scrap' : 'Low Scrap (<2%)')
-                          : (eff >= 95 ? 'Completed' : eff >= 75 ? 'On Track' : eff > 0 ? 'Delayed' : 'Idle / OFF')}
-                      </Tag>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              /* DEFAULT PATTERN: HORIZONTAL TARGET PROGRESS BARS */
-              <div className="reports-bars-container">
-                {(() => {
-                  const isScrap = selectedReport === 'prod_scrap';
-                  const maxScrapKg = Math.max(...barChartItems.map((it) => it.value), 1);
-
-                  return barChartItems.map((item) => {
-                    const rateVal = item.efficiency ?? item.percentage ?? 0;
-                    const fillPercent = isScrap
-                      ? (item.value > 0 ? Math.max(14, Math.min(100, Math.round((item.value / maxScrapKg) * 100))) : 0)
-                      : item.percentage;
-
-                    return (
-                      <div key={item.id} className="reports-bar-row">
-                        <div className="reports-bar-label-line">
-                          <span>{item.label}</span>
-                          <span style={{ fontWeight: 700 }}>
-                            {isScrap
-                              ? `${formatDecimal(item.value)} kg Scrap (${rateVal.toFixed(2)}%)`
-                              : `${item.displayValue} ${item.sublabel && <span style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 500 }}>({item.sublabel})</span>}`}
-                          </span>
-                        </div>
-                        <div className="reports-bar-track">
-                          <div
-                            className="reports-bar-fill"
-                            style={{
-                              width: `${fillPercent}%`,
-                              backgroundColor: item.color,
-                            }}
-                          >
-                            {isScrap
-                              ? (item.value > 0 ? `${formatDecimal(item.value)} kg (${rateVal.toFixed(2)}%)` : '0 kg (0%)')
-                              : `${item.percentage}%`}
+                        <div key={it.id} className="reports-efficiency-card">
+                          <div className="reports-efficiency-circle" style={{ backgroundColor: circleBg }}>
+                            {isScrap ? `${rateVal.toFixed(2)}%` : `${eff.toFixed(0)}%`}
                           </div>
+                          <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--theme-text, #0f172a)' }}>{it.label}</div>
+                          <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #64748b)' }}>
+                            {isScrap
+                              ? `${formatDecimal(it.value)} kg scrap / ${formatDecimal(it.target || 0)} kg output`
+                              : `${it.displayValue} ${it.target ? `/ ${formatDecimal(it.target)} ${it.unit || ''}` : ''}`}
+                          </div>
+                          <Tag color={isScrap ? (rateVal > 5 ? 'error' : rateVal > 2 ? 'warning' : 'success') : (eff >= 95 ? 'success' : eff >= 75 ? 'processing' : eff > 0 ? 'warning' : 'error')} style={{ marginTop: 4 }}>
+                            {isScrap
+                              ? (rateVal > 5 ? 'High Scrap (>5%)' : rateVal > 2 ? 'Moderate Scrap' : 'Low Scrap (<2%)')
+                              : (eff >= 95 ? 'Completed' : eff >= 75 ? 'On Track' : eff > 0 ? 'Delayed' : 'Idle / OFF')}
+                          </Tag>
                         </div>
-                      </div>
-                    );
-                  });
-                })()}
-              </div>
-            )}
-          </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  /* DEFAULT PATTERN: HORIZONTAL TARGET PROGRESS BARS */
+                  <div className="reports-bars-container">
+                    {(() => {
+                      const isScrap = selectedReport === 'prod_scrap';
+                      const maxScrapKg = Math.max(...barChartItems.map((it) => it.value), 1);
 
-          {/* ===================================================
-              REAL DATA RECORDS TABLE
-              =================================================== */}
-          <div className="reports-table-card">
-            <div className="reports-table-header">
-              <div className="reports-table-title">
-                <BarChartOutlined style={{ color: 'var(--theme-accent, #10b981)' }} />
-                <span>
-                  {selectedCategory === 'production'
-                    ? (detailMode === 'detailed' || selectedReport === 'prod_daily'
-                        ? `Detailed Production Slips (${filteredProduction.length} entries from Supabase)`
-                        : `${reportMeta.title} (${
-                            selectedReport === 'prod_shift'
-                              ? shiftSummary.length
-                              : selectedReport === 'prod_operator'
-                              ? operatorSummary.length
-                              : selectedReport === 'prod_item' || (selectedReport === 'prod_scrap' && scrapSubView === 'item')
-                              ? itemSummary.length
-                              : selectedReport === 'prod_department' || (selectedReport === 'prod_target_vs_actual' && targetSubView === 'department') || (selectedReport === 'prod_scrap' && scrapSubView === 'department')
-                              ? departmentSummary.length
-                              : machineSummary.length
-                          } rows)`)
-                    : `Sales Records (${filteredSales.length} items from Supabase)`}
-                </span>
-              </div>
+                      return barChartItems.map((item) => {
+                        const rateVal = item.efficiency ?? item.percentage ?? 0;
+                        const fillPercent = isScrap
+                          ? (item.value > 0 ? Math.max(14, Math.min(100, Math.round((item.value / maxScrapKg) * 100))) : 0)
+                          : item.percentage;
 
-              <div className="reports-table-actions no-print">
-                {selectedCategory === 'production' && selectedReport !== 'prod_daily' && (
-                  <div style={{ display: 'inline-flex', gap: 4, marginRight: 8 }}>
-                    <button
-                      type="button"
-                      className={`reports-time-pill ${detailMode === 'summary' ? 'active' : ''}`}
-                      onClick={() => setDetailMode('summary')}
-                    >
-                      Summary Table
-                    </button>
-                    <button
-                      type="button"
-                      className={`reports-time-pill ${detailMode === 'detailed' ? 'active' : ''}`}
-                      onClick={() => setDetailMode('detailed')}
-                    >
-                      Detailed Slips ({filteredProduction.length})
-                    </button>
+                        return (
+                          <div key={item.id} className="reports-bar-row">
+                            <div className="reports-bar-label-line">
+                              <span>{item.label}</span>
+                              <span style={{ fontWeight: 700 }}>
+                                {isScrap
+                                  ? `${formatDecimal(item.value)} kg Scrap (${rateVal.toFixed(2)}%)`
+                                  : `${item.displayValue} ${item.sublabel && <span style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 500 }}>({item.sublabel})</span>}`}
+                              </span>
+                            </div>
+                            <div className="reports-bar-track">
+                              <div
+                                className="reports-bar-fill"
+                                style={{
+                                  width: `${fillPercent}%`,
+                                  backgroundColor: item.color,
+                                }}
+                              >
+                                {isScrap
+                                  ? (item.value > 0 ? `${formatDecimal(item.value)} kg (${rateVal.toFixed(2)}%)` : '0 kg (0%)')
+                                  : `${item.percentage}%`}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      });
+                    })()}
                   </div>
                 )}
-                <Button
-                  size="small"
-                  icon={<FilePdfOutlined style={{ color: '#ef4444' }} />}
-                  onClick={handleExportPdf}
-                  loading={pdfLoading}
-                >
-                  Export PDF
-                </Button>
-                <Button
-                  size="small"
-                  icon={<PrinterOutlined style={{ color: 'var(--theme-accent, #10b981)' }} />}
-                  onClick={handlePrintCurrentTable}
-                >
-                  Print
-                </Button>
-                <Button
-                  size="small"
-                  icon={<FileExcelOutlined style={{ color: '#16a34a' }} />}
-                  onClick={handleExportCsv}
-                >
-                  Export CSV
-                </Button>
               </div>
-            </div>
 
-            {selectedCategory === 'production' ? (
-              detailMode === 'summary' && selectedReport === 'prod_shift' ? (
-                /* 1. SHIFT-WISE SUMMARY TABLE */
-                <Table
-                  className="reports-data-table"
-                  dataSource={shiftSummary}
-                  rowKey="shift"
-                  pagination={false}
-                  size="small"
-                  columns={[
-                    {
-                      title: 'Shift',
-                      dataIndex: 'shift',
-                      key: 'shift',
-                      render: (s) => (
-                        <Tag color={s.includes('A') ? 'blue' : s.includes('B') ? 'orange' : s.includes('Night') ? 'purple' : 'cyan'} style={{ fontWeight: 700, padding: '2px 8px' }}>
-                          {s}
-                        </Tag>
-                      ),
-                    },
-                    {
-                      title: 'Target Qty',
-                      dataIndex: 'totalTarget',
-                      key: 'totalTarget',
-                      render: (v) => formatDecimal(v),
-                    },
-                    {
-                      title: 'Actual Output',
-                      dataIndex: 'totalActual',
-                      key: 'totalActual',
-                      render: (v, row) => (
-                        <div>
-                          <strong style={{ color: 'var(--theme-text, #0f172a)' }}>{formatDecimal(v)}</strong>
-                          {row.totalActualKg > 0 && (
-                            <div style={{ fontSize: 11, color: 'var(--theme-accent, #10b981)', fontWeight: 600 }}>
-                              {formatDecimal(row.totalActualKg)} kg
-                            </div>
-                          )}
-                        </div>
-                      ),
-                    },
-                    {
-                      title: 'Variance',
-                      dataIndex: 'variance',
-                      key: 'variance',
-                      render: (v) => (
-                        <span style={{ fontWeight: 700, color: v >= 0 ? '#10b981' : '#ef4444' }}>
-                          {v >= 0 ? `+${formatDecimal(v)}` : formatDecimal(v)}
-                        </span>
-                      ),
-                    },
-                    {
-                      title: 'Rejection / Scrap',
-                      dataIndex: 'totalScrap',
-                      key: 'totalScrap',
-                      render: (v, row) => (
-                        <div>
-                          <strong style={{ color: '#ef4444' }}>{formatDecimal(v)} kg</strong>
-                          {row.scrapRate > 0 && (
-                            <div style={{ fontSize: 10, color: row.scrapRate > 5 ? '#ef4444' : row.scrapRate > 2 ? '#f59e0b' : '#10b981', fontWeight: 600 }}>
-                              {row.scrapRate.toFixed(2)}% rate
-                            </div>
-                          )}
-                        </div>
-                      ),
-                    },
-                    {
-                      title: 'Efficiency',
-                      dataIndex: 'efficiency',
-                      key: 'efficiency',
-                      render: (v) => (
-                        <Tag color={v >= 95 ? 'success' : v >= 75 ? 'processing' : 'error'}>
-                          {formatDecimal(v)}%
-                        </Tag>
-                      ),
-                    },
-                    {
-                      title: 'Running Hours',
-                      dataIndex: 'totalRunning',
-                      key: 'totalRunning',
-                      render: (v) => `${v}h`,
-                    },
-                    {
-                      title: 'Downtime',
-                      dataIndex: 'totalDowntime',
-                      key: 'totalDowntime',
-                      render: (v) => `${v}h`,
-                    },
-                    {
-                      title: 'Entries Count',
-                      dataIndex: 'count',
-                      key: 'count',
-                      render: (c) => <Tag color="default">{c} slips</Tag>,
-                    },
-                  ]}
-                />
-              ) : detailMode === 'summary' && selectedReport === 'prod_operator' ? (
-                /* 2. OPERATOR-WISE SUMMARY TABLE */
-                <Table
-                  className="reports-data-table"
-                  dataSource={operatorSummary}
-                  rowKey="operator"
-                  pagination={false}
-                  size="small"
-                  columns={[
-                    {
-                      title: 'Lead Operator',
-                      dataIndex: 'operator',
-                      key: 'operator',
-                      render: (op, row) => (
-                        <div>
-                          <div style={{ fontWeight: 700 }}>{op}</div>
-                          <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)' }}>Supervisor: {row.supervisor}</div>
-                        </div>
-                      ),
-                    },
-                    {
-                      title: 'Machines Handled',
-                      dataIndex: 'machineList',
-                      key: 'machineList',
-                      render: (m) => <Tag color="blue">{m || 'General Line'}</Tag>,
-                    },
-                    {
-                      title: 'Total Target',
-                      dataIndex: 'totalTarget',
-                      key: 'totalTarget',
-                      render: (v) => formatDecimal(v),
-                    },
-                    {
-                      title: 'Total Produced',
-                      dataIndex: 'totalActual',
-                      key: 'totalActual',
-                      render: (v, row) => (
-                        <div>
-                          <strong style={{ color: 'var(--theme-text, #0f172a)' }}>{formatDecimal(v)}</strong>
-                          {row.totalActualKg > 0 && (
-                            <div style={{ fontSize: 11, color: 'var(--theme-accent, #10b981)', fontWeight: 600 }}>
-                              {formatDecimal(row.totalActualKg)} kg
-                            </div>
-                          )}
-                        </div>
-                      ),
-                    },
-                    {
-                      title: 'Variance',
-                      dataIndex: 'variance',
-                      key: 'variance',
-                      render: (v) => (
-                        <span style={{ fontWeight: 700, color: v >= 0 ? '#10b981' : '#ef4444' }}>
-                          {v >= 0 ? `+${formatDecimal(v)}` : formatDecimal(v)}
-                        </span>
-                      ),
-                    },
-                    {
-                      title: 'Rejection / Scrap',
-                      dataIndex: 'totalScrap',
-                      key: 'totalScrap',
-                      render: (v, row) => (
-                        <div>
-                          <strong style={{ color: '#ef4444' }}>{formatDecimal(v)} kg</strong>
-                          {row.scrapRate > 0 && (
-                            <div style={{ fontSize: 10, color: row.scrapRate > 5 ? '#ef4444' : row.scrapRate > 2 ? '#f59e0b' : '#10b981', fontWeight: 600 }}>
-                              {row.scrapRate.toFixed(2)}% rate
-                            </div>
-                          )}
-                        </div>
-                      ),
-                    },
-                    {
-                      title: 'Plant Efficiency',
-                      dataIndex: 'efficiency',
-                      key: 'efficiency',
-                      render: (v) => (
-                        <Tag color={v >= 95 ? 'success' : v >= 75 ? 'processing' : 'error'}>
-                          {formatDecimal(v)}%
-                        </Tag>
-                      ),
-                    },
-                    {
-                      title: 'Slips',
-                      dataIndex: 'count',
-                      key: 'count',
-                      render: (c) => <Tag color="default">{c} entries</Tag>,
-                    },
-                  ]}
-                />
-              ) : detailMode === 'summary' && (selectedReport === 'prod_department' || (selectedReport === 'prod_target_vs_actual' && targetSubView === 'department') || (selectedReport === 'prod_scrap' && scrapSubView === 'department')) ? (
-                /* 3. DEPARTMENT-WISE SUMMARY TABLE WITH EXPANDABLE (+) MACHINE BREAKDOWN */
-                <Table
-                  className="reports-data-table"
-                  dataSource={departmentSummary}
-                  rowKey="department"
-                  pagination={false}
-                  size="small"
-                  expandable={{
-                    expandedRowRender: (deptRecord) => (
-                      <div className="reports-nested-subtable-wrap">
-                        <div className="reports-nested-subtable-header">
-                          <ToolOutlined />
-                          <span>{deptRecord.department} — All Machine Production Breakdown ({deptRecord.subMachines.length} Lines Fleet)</span>
-                        </div>
-                        <Table
-                          dataSource={deptRecord.subMachines}
-                          rowKey="machineNo"
-                          pagination={false}
-                          size="small"
-                          columns={[
-                            {
-                              title: 'Machine #',
-                              dataIndex: 'machineNo',
-                              key: 'machineNo',
-                              width: 120,
-                              render: (no) => <Tag color="blue" style={{ fontWeight: 700 }}>{no}</Tag>,
-                            },
-                            {
-                              title: 'Machine Name',
-                              dataIndex: 'machineName',
-                              key: 'machineName',
-                              render: (name) => <strong style={{ color: 'var(--theme-text, #0f172a)' }}>{name}</strong>,
-                            },
-                            {
-                              title: `Target (${deptRecord.unit})`,
-                              dataIndex: 'totalTarget',
-                              key: 'totalTarget',
-                              render: (v) => `${formatDecimal(v)} ${deptRecord.unit}`,
-                            },
-                            {
-                              title: `Actual Output (${deptRecord.unit})`,
-                              dataIndex: 'totalActual',
-                              key: 'totalActual',
-                              render: (v, row) => (
-                                <div>
-                                  <strong>{formatDecimal(v)} {deptRecord.unit}</strong>
-                                  {row.totalActualKg > 0 && deptRecord.unit !== 'kg' && (
-                                    <div style={{ fontSize: 11, color: 'var(--theme-accent, #10b981)', fontWeight: 600 }}>
-                                      {formatDecimal(row.totalActualKg)} kg
-                                    </div>
-                                  )}
+              {/* ===================================================
+              REAL DATA RECORDS TABLE
+              =================================================== */}
+              <div className="reports-table-card">
+                <div className="reports-table-header">
+                  <div className="reports-table-title">
+                    <BarChartOutlined style={{ color: 'var(--theme-accent, #10b981)' }} />
+                    <span>
+                      {selectedCategory === 'production'
+                        ? (detailMode === 'detailed' || selectedReport === 'prod_daily'
+                          ? `Detailed Production Slips (${filteredProduction.length} entries from Supabase)`
+                          : `${reportMeta.title} (${selectedReport === 'prod_shift'
+                            ? shiftSummary.length
+                            : selectedReport === 'prod_operator'
+                              ? operatorSummary.length
+                              : selectedReport === 'prod_item' || (selectedReport === 'prod_scrap' && scrapSubView === 'item')
+                                ? itemSummary.length
+                                : selectedReport === 'prod_department' || (selectedReport === 'prod_target_vs_actual' && targetSubView === 'department') || (selectedReport === 'prod_scrap' && scrapSubView === 'department')
+                                  ? departmentSummary.length
+                                  : machineSummary.length
+                          } rows)`)
+                        : `Sales Records (${filteredSales.length} items from Supabase)`}
+                    </span>
+                  </div>
+
+                  <div className="reports-table-actions no-print">
+                    {selectedCategory === 'production' && selectedReport !== 'prod_daily' && (
+                      <div style={{ display: 'inline-flex', gap: 4, marginRight: 8 }}>
+                        <button
+                          type="button"
+                          className={`reports-time-pill ${detailMode === 'summary' ? 'active' : ''}`}
+                          onClick={() => setDetailMode('summary')}
+                        >
+                          Summary Table
+                        </button>
+                        <button
+                          type="button"
+                          className={`reports-time-pill ${detailMode === 'detailed' ? 'active' : ''}`}
+                          onClick={() => setDetailMode('detailed')}
+                        >
+                          Detailed Slips ({filteredProduction.length})
+                        </button>
+                      </div>
+                    )}
+                    <Button
+                      size="small"
+                      icon={<FilePdfOutlined style={{ color: '#ef4444' }} />}
+                      onClick={handleExportPdf}
+                      loading={pdfLoading}
+                    >
+                      Export PDF
+                    </Button>
+                    <Button
+                      size="small"
+                      icon={<PrinterOutlined style={{ color: 'var(--theme-accent, #10b981)' }} />}
+                      onClick={handlePrintCurrentTable}
+                    >
+                      Print
+                    </Button>
+                    <Button
+                      size="small"
+                      icon={<FileExcelOutlined style={{ color: '#16a34a' }} />}
+                      onClick={handleExportCsv}
+                    >
+                      Export CSV
+                    </Button>
+                  </div>
+                </div>
+
+                {selectedCategory === 'production' ? (
+                  detailMode === 'summary' && selectedReport === 'prod_shift' ? (
+                    /* 1. SHIFT-WISE SUMMARY TABLE */
+                    <Table
+                      className="reports-data-table"
+                      dataSource={shiftSummary}
+                      rowKey="shift"
+                      pagination={false}
+                      size="small"
+                      columns={[
+                        {
+                          title: 'Shift',
+                          dataIndex: 'shift',
+                          key: 'shift',
+                          render: (s) => (
+                            <Tag color={s.includes('A') ? 'blue' : s.includes('B') ? 'orange' : s.includes('Night') ? 'purple' : 'cyan'} style={{ fontWeight: 700, padding: '2px 8px' }}>
+                              {s}
+                            </Tag>
+                          ),
+                        },
+                        {
+                          title: 'Target Qty',
+                          dataIndex: 'totalTarget',
+                          key: 'totalTarget',
+                          render: (v) => formatDecimal(v),
+                        },
+                        {
+                          title: 'Actual Output',
+                          dataIndex: 'totalActual',
+                          key: 'totalActual',
+                          render: (v, row) => (
+                            <div>
+                              <strong style={{ color: 'var(--theme-text, #0f172a)' }}>{formatDecimal(v)}</strong>
+                              {row.totalActualKg > 0 && (
+                                <div style={{ fontSize: 11, color: 'var(--theme-accent, #10b981)', fontWeight: 600 }}>
+                                  {formatDecimal(row.totalActualKg)} kg
                                 </div>
-                              ),
-                            },
-                            {
-                              title: 'Variance',
-                              dataIndex: 'variance',
-                              key: 'variance',
-                              render: (v) => (
-                                <span style={{ fontWeight: 700, color: v >= 0 ? '#10b981' : '#ef4444' }}>
-                                  {v >= 0 ? `+${formatDecimal(v)}` : formatDecimal(v)}
+                              )}
+                            </div>
+                          ),
+                        },
+                        {
+                          title: 'Variance',
+                          dataIndex: 'variance',
+                          key: 'variance',
+                          render: (v) => (
+                            <span style={{ fontWeight: 700, color: v >= 0 ? '#10b981' : '#ef4444' }}>
+                              {v >= 0 ? `+${formatDecimal(v)}` : formatDecimal(v)}
+                            </span>
+                          ),
+                        },
+                        {
+                          title: 'Rejection / Scrap',
+                          dataIndex: 'totalScrap',
+                          key: 'totalScrap',
+                          render: (v, row) => (
+                            <div>
+                              <strong style={{ color: '#ef4444' }}>{formatDecimal(v)} kg</strong>
+                              {row.scrapRate > 0 && (
+                                <div style={{ fontSize: 10, color: row.scrapRate > 5 ? '#ef4444' : row.scrapRate > 2 ? '#f59e0b' : '#10b981', fontWeight: 600 }}>
+                                  {row.scrapRate.toFixed(2)}% rate
+                                </div>
+                              )}
+                            </div>
+                          ),
+                        },
+                        {
+                          title: 'Efficiency',
+                          dataIndex: 'efficiency',
+                          key: 'efficiency',
+                          render: (v) => (
+                            <Tag color={v >= 95 ? 'success' : v >= 75 ? 'processing' : 'error'}>
+                              {formatDecimal(v)}%
+                            </Tag>
+                          ),
+                        },
+                        {
+                          title: 'Running Hours',
+                          dataIndex: 'totalRunning',
+                          key: 'totalRunning',
+                          render: (v) => `${v}h`,
+                        },
+                        {
+                          title: 'Downtime',
+                          dataIndex: 'totalDowntime',
+                          key: 'totalDowntime',
+                          render: (v) => `${v}h`,
+                        },
+                        {
+                          title: 'Entries Count',
+                          dataIndex: 'count',
+                          key: 'count',
+                          render: (c) => <Tag color="default">{c} slips</Tag>,
+                        },
+                      ]}
+                    />
+                  ) : detailMode === 'summary' && selectedReport === 'prod_operator' ? (
+                    /* 2. OPERATOR-WISE SUMMARY TABLE */
+                    <Table
+                      className="reports-data-table"
+                      dataSource={operatorSummary}
+                      rowKey="operator"
+                      pagination={false}
+                      size="small"
+                      columns={[
+                        {
+                          title: 'Lead Operator',
+                          dataIndex: 'operator',
+                          key: 'operator',
+                          render: (op, row) => (
+                            <div>
+                              <div style={{ fontWeight: 700 }}>{op}</div>
+                              <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)' }}>Supervisor: {row.supervisor}</div>
+                            </div>
+                          ),
+                        },
+                        {
+                          title: 'Machines Handled',
+                          dataIndex: 'machineList',
+                          key: 'machineList',
+                          render: (m) => <Tag color="blue">{m || 'General Line'}</Tag>,
+                        },
+                        {
+                          title: 'Total Target',
+                          dataIndex: 'totalTarget',
+                          key: 'totalTarget',
+                          render: (v) => formatDecimal(v),
+                        },
+                        {
+                          title: 'Total Produced',
+                          dataIndex: 'totalActual',
+                          key: 'totalActual',
+                          render: (v, row) => (
+                            <div>
+                              <strong style={{ color: 'var(--theme-text, #0f172a)' }}>{formatDecimal(v)}</strong>
+                              {row.totalActualKg > 0 && (
+                                <div style={{ fontSize: 11, color: 'var(--theme-accent, #10b981)', fontWeight: 600 }}>
+                                  {formatDecimal(row.totalActualKg)} kg
+                                </div>
+                              )}
+                            </div>
+                          ),
+                        },
+                        {
+                          title: 'Variance',
+                          dataIndex: 'variance',
+                          key: 'variance',
+                          render: (v) => (
+                            <span style={{ fontWeight: 700, color: v >= 0 ? '#10b981' : '#ef4444' }}>
+                              {v >= 0 ? `+${formatDecimal(v)}` : formatDecimal(v)}
+                            </span>
+                          ),
+                        },
+                        {
+                          title: 'Rejection / Scrap',
+                          dataIndex: 'totalScrap',
+                          key: 'totalScrap',
+                          render: (v, row) => (
+                            <div>
+                              <strong style={{ color: '#ef4444' }}>{formatDecimal(v)} kg</strong>
+                              {row.scrapRate > 0 && (
+                                <div style={{ fontSize: 10, color: row.scrapRate > 5 ? '#ef4444' : row.scrapRate > 2 ? '#f59e0b' : '#10b981', fontWeight: 600 }}>
+                                  {row.scrapRate.toFixed(2)}% rate
+                                </div>
+                              )}
+                            </div>
+                          ),
+                        },
+                        {
+                          title: 'Plant Efficiency',
+                          dataIndex: 'efficiency',
+                          key: 'efficiency',
+                          render: (v) => (
+                            <Tag color={v >= 95 ? 'success' : v >= 75 ? 'processing' : 'error'}>
+                              {formatDecimal(v)}%
+                            </Tag>
+                          ),
+                        },
+                        {
+                          title: 'Slips',
+                          dataIndex: 'count',
+                          key: 'count',
+                          render: (c) => <Tag color="default">{c} entries</Tag>,
+                        },
+                      ]}
+                    />
+                  ) : detailMode === 'summary' && (selectedReport === 'prod_department' || (selectedReport === 'prod_target_vs_actual' && targetSubView === 'department') || (selectedReport === 'prod_scrap' && scrapSubView === 'department')) ? (
+                    /* 3. DEPARTMENT-WISE SUMMARY TABLE WITH EXPANDABLE (+) MACHINE BREAKDOWN */
+                    <Table
+                      className="reports-data-table"
+                      dataSource={departmentSummary}
+                      rowKey="department"
+                      pagination={false}
+                      size="small"
+                      expandable={{
+                        expandedRowRender: (deptRecord) => (
+                          <div className="reports-nested-subtable-wrap">
+                            <div className="reports-nested-subtable-header">
+                              <ToolOutlined />
+                              <span>{deptRecord.department} — All Machine Production Breakdown ({deptRecord.subMachines.length} Lines Fleet)</span>
+                            </div>
+                            <Table
+                              dataSource={deptRecord.subMachines}
+                              rowKey="machineNo"
+                              pagination={false}
+                              size="small"
+                              columns={[
+                                {
+                                  title: 'Machine #',
+                                  dataIndex: 'machineNo',
+                                  key: 'machineNo',
+                                  width: 120,
+                                  render: (no) => <Tag color="blue" style={{ fontWeight: 700 }}>{no}</Tag>,
+                                },
+                                {
+                                  title: 'Machine Name',
+                                  dataIndex: 'machineName',
+                                  key: 'machineName',
+                                  render: (name) => <strong style={{ color: 'var(--theme-text, #0f172a)' }}>{name}</strong>,
+                                },
+                                {
+                                  title: `Target (${deptRecord.unit})`,
+                                  dataIndex: 'totalTarget',
+                                  key: 'totalTarget',
+                                  render: (v) => `${formatDecimal(v)} ${deptRecord.unit}`,
+                                },
+                                {
+                                  title: `Actual Output (${deptRecord.unit})`,
+                                  dataIndex: 'totalActual',
+                                  key: 'totalActual',
+                                  render: (v, row) => (
+                                    <div>
+                                      <strong>{formatDecimal(v)} {deptRecord.unit}</strong>
+                                      {row.totalActualKg > 0 && deptRecord.unit !== 'kg' && (
+                                        <div style={{ fontSize: 11, color: 'var(--theme-accent, #10b981)', fontWeight: 600 }}>
+                                          {formatDecimal(row.totalActualKg)} kg
+                                        </div>
+                                      )}
+                                    </div>
+                                  ),
+                                },
+                                {
+                                  title: 'Variance',
+                                  dataIndex: 'variance',
+                                  key: 'variance',
+                                  render: (v) => (
+                                    <span style={{ fontWeight: 700, color: v >= 0 ? '#10b981' : '#ef4444' }}>
+                                      {v >= 0 ? `+${formatDecimal(v)}` : formatDecimal(v)}
+                                    </span>
+                                  ),
+                                },
+                                {
+                                  title: 'Rejection / Scrap',
+                                  dataIndex: 'totalScrap',
+                                  key: 'totalScrap',
+                                  render: (v, row) => (
+                                    <div>
+                                      <span style={{ color: '#ef4444', fontWeight: 600 }}>{formatDecimal(v)} kg</span>
+                                      {row.scrapRate > 0 && (
+                                        <div style={{ fontSize: 10, color: row.scrapRate > 5 ? '#ef4444' : row.scrapRate > 2 ? '#f59e0b' : '#10b981', fontWeight: 600 }}>
+                                          {row.scrapRate.toFixed(2)}% rate
+                                        </div>
+                                      )}
+                                    </div>
+                                  ),
+                                },
+                                {
+                                  title: 'Efficiency',
+                                  dataIndex: 'efficiency',
+                                  key: 'efficiency',
+                                  render: (v, row) => (
+                                    <Tag color={row.count === 0 ? 'default' : v >= 95 ? 'success' : v >= 75 ? 'processing' : 'error'}>
+                                      {row.count === 0 ? '100% OFF (0%)' : `${formatDecimal(v)}%`}
+                                    </Tag>
+                                  ),
+                                },
+                                {
+                                  title: 'Hours / Downtime',
+                                  key: 'hours',
+                                  render: (_, row) => `${row.totalRunning}h / ${row.totalDowntime}h`,
+                                },
+                                {
+                                  title: 'Remarks / Notes',
+                                  dataIndex: 'remarks',
+                                  key: 'remarks',
+                                  render: (rem: string | undefined, row: any) => {
+                                    if (row.count === 0) {
+                                      return (
+                                        <span style={{ fontStyle: 'italic', color: 'var(--theme-text-muted, #94a3b8)', fontSize: 12 }}>
+                                          Idle — No production logged
+                                        </span>
+                                      );
+                                    }
+                                    if (rem && rem.trim()) {
+                                      return (
+                                        <span style={{ color: 'var(--theme-text, #0f172a)', fontSize: 12, fontWeight: 500 }}>
+                                          {rem}
+                                        </span>
+                                      );
+                                    }
+                                    return (
+                                      <span style={{ color: 'var(--theme-text-muted, #94a3b8)', fontSize: 12 }}>
+                                        {row.efficiency >= 95 ? 'Target attained smoothly' : 'Running normal'}
+                                      </span>
+                                    );
+                                  },
+                                },
+                                {
+                                  title: 'Status',
+                                  dataIndex: 'status',
+                                  key: 'status',
+                                  render: (st) => (
+                                    <Tag color={st === 'Completed' ? 'green' : st === 'On Track' ? 'blue' : st === 'Delayed' ? 'orange' : 'magenta'}>
+                                      {st}
+                                    </Tag>
+                                  ),
+                                },
+                              ]}
+                            />
+                          </div>
+                        ),
+                        rowExpandable: (record) => Array.isArray(record.subMachines) && record.subMachines.length > 0,
+                      }}
+                      columns={[
+                        {
+                          title: 'Department',
+                          dataIndex: 'department',
+                          key: 'department',
+                          render: (d, row) => (
+                            <div>
+                              <div style={{ fontWeight: 700 }}>{d}</div>
+                              <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)' }}>{row.divisionName} • Unit: {row.unit}</div>
+                            </div>
+                          ),
+                        },
+                        {
+                          title: 'Active Lines',
+                          dataIndex: 'machineList',
+                          key: 'machineList',
+                          render: (m, row) => (
+                            <span>
+                              <strong>{row.activeMachines}</strong> active / {row.totalRegisteredMachines} lines
+                              <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)' }}>({m || 'No active slips'})</div>
+                            </span>
+                          ),
+                        },
+                        {
+                          title: 'Target Qty',
+                          dataIndex: 'totalTarget',
+                          key: 'totalTarget',
+                          render: (v, row) => `${formatDecimal(v)} ${row.unit}`,
+                        },
+                        {
+                          title: 'Actual Output',
+                          dataIndex: 'totalActual',
+                          key: 'totalActual',
+                          render: (v, row) => (
+                            <div>
+                              <strong>{formatDecimal(v)} {row.unit}</strong>
+                              {row.totalActualKg > 0 && row.unit !== 'kg' && (
+                                <div style={{ fontSize: 11, color: 'var(--theme-accent, #10b981)', fontWeight: 600 }}>
+                                  {formatDecimal(row.totalActualKg)} kg
+                                </div>
+                              )}
+                            </div>
+                          ),
+                        },
+                        {
+                          title: 'Variance',
+                          dataIndex: 'variance',
+                          key: 'variance',
+                          render: (v, row) => (
+                            <span style={{ fontWeight: 700, color: v >= 0 ? '#10b981' : '#ef4444' }}>
+                              {v >= 0 ? `+${formatDecimal(v)}` : formatDecimal(v)} {row.unit}
+                            </span>
+                          ),
+                        },
+                        {
+                          title: 'Rejection / Scrap',
+                          dataIndex: 'totalScrap',
+                          key: 'totalScrap',
+                          render: (v) => <strong style={{ color: '#ef4444' }}>{formatDecimal(v)} kg</strong>,
+                        },
+                        {
+                          title: selectedReport === 'prod_scrap' ? 'Scrap Rate' : 'Efficiency',
+                          key: 'rateOrEff',
+                          render: (_, row) => (
+                            <Tag color={selectedReport === 'prod_scrap' ? (row.scrapRate > 5 ? 'error' : row.scrapRate > 2 ? 'warning' : 'success') : (row.efficiency >= 95 ? 'success' : row.efficiency >= 75 ? 'processing' : 'error')}>
+                              {selectedReport === 'prod_scrap' ? `${row.scrapRate.toFixed(2)}%` : `${formatDecimal(row.efficiency)}%`}
+                            </Tag>
+                          ),
+                        },
+                        {
+                          title: 'Downtime',
+                          dataIndex: 'totalDowntime',
+                          key: 'totalDowntime',
+                          render: (v) => `${v}h`,
+                        },
+                      ]}
+                    />
+                  ) : detailMode === 'summary' && (selectedReport === 'prod_machine' || (selectedReport === 'prod_target_vs_actual' && targetSubView === 'machine') || (selectedReport === 'prod_scrap' && scrapSubView === 'machine')) ? (
+                    /* 4. MACHINE-WISE SUMMARY TABLE (Target / Scrap / Machine Fleet) */
+                    <Table
+                      className="reports-data-table"
+                      dataSource={machineSummary}
+                      rowKey="machineNo"
+                      pagination={false}
+                      size="small"
+                      columns={[
+                        {
+                          title: 'Machine',
+                          dataIndex: 'machineName',
+                          key: 'machineName',
+                          render: (name, row) => (
+                            <div>
+                              <div style={{ fontWeight: 700 }}>{name}</div>
+                              <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)' }}>{row.machineNo} • {row.department} • {row.divisionName}</div>
+                            </div>
+                          ),
+                        },
+                        {
+                          title: 'Target Qty',
+                          dataIndex: 'totalTarget',
+                          key: 'totalTarget',
+                          render: (v, row) => `${formatDecimal(v)} ${row.unit}`,
+                        },
+                        {
+                          title: 'Actual Output',
+                          dataIndex: 'totalActual',
+                          key: 'totalActual',
+                          render: (v, row) => (
+                            <div>
+                              <strong>{formatDecimal(v)} {row.unit}</strong>
+                              {row.totalActualKg > 0 && row.unit !== 'kg' && (
+                                <div style={{ fontSize: 11, color: 'var(--theme-accent, #10b981)', fontWeight: 600 }}>
+                                  {formatDecimal(row.totalActualKg)} kg
+                                </div>
+                              )}
+                            </div>
+                          ),
+                        },
+                        {
+                          title: 'Variance',
+                          dataIndex: 'variance',
+                          key: 'variance',
+                          render: (v, row) => (
+                            <span style={{ fontWeight: 700, color: v >= 0 ? '#10b981' : '#ef4444' }}>
+                              {v >= 0 ? `+${formatDecimal(v)}` : formatDecimal(v)} {row.unit}
+                            </span>
+                          ),
+                        },
+                        {
+                          title: 'Rejection / Scrap',
+                          dataIndex: 'totalScrap',
+                          key: 'totalScrap',
+                          render: (v, row) => (
+                            <div>
+                              <strong style={{ color: '#ef4444' }}>{formatDecimal(v)} kg</strong>
+                              {row.scrapRate > 0 && (
+                                <div style={{ fontSize: 10, color: row.scrapRate > 5 ? '#ef4444' : row.scrapRate > 2 ? '#f59e0b' : '#10b981', fontWeight: 600 }}>
+                                  {row.scrapRate.toFixed(2)}% rate
+                                </div>
+                              )}
+                            </div>
+                          ),
+                        },
+                        {
+                          title: selectedReport === 'prod_scrap' ? 'Scrap Rate' : 'Attainment',
+                          key: 'rateOrAttainment',
+                          render: (_, row) => (
+                            <Tag color={row.count === 0 ? 'default' : selectedReport === 'prod_scrap' ? (row.scrapRate > 5 ? 'error' : row.scrapRate > 2 ? 'warning' : 'success') : (row.efficiency >= 95 ? 'success' : row.efficiency >= 75 ? 'processing' : 'error')}>
+                              {row.count === 0 ? '100% OFF (0%)' : selectedReport === 'prod_scrap' ? `${row.scrapRate.toFixed(2)}%` : `${formatDecimal(row.efficiency)}%`}
+                            </Tag>
+                          ),
+                        },
+                        {
+                          title: 'Downtime',
+                          dataIndex: 'totalDowntime',
+                          key: 'totalDowntime',
+                          render: (v) => `${v}h`,
+                        },
+                        {
+                          title: 'Remarks / Notes',
+                          dataIndex: 'remarks',
+                          key: 'remarks',
+                          render: (rem: string | undefined, row: any) => {
+                            if (row.count === 0) {
+                              return (
+                                <span style={{ fontStyle: 'italic', color: 'var(--theme-text-muted, #94a3b8)', fontSize: 12 }}>
+                                  Idle — No production logged
                                 </span>
-                              ),
-                            },
-                            {
-                              title: 'Rejection / Scrap',
-                              dataIndex: 'totalScrap',
-                              key: 'totalScrap',
-                              render: (v, row) => (
-                                <div>
-                                  <span style={{ color: '#ef4444', fontWeight: 600 }}>{formatDecimal(v)} kg</span>
-                                  {row.scrapRate > 0 && (
-                                    <div style={{ fontSize: 10, color: row.scrapRate > 5 ? '#ef4444' : row.scrapRate > 2 ? '#f59e0b' : '#10b981', fontWeight: 600 }}>
-                                      {row.scrapRate.toFixed(2)}% rate
-                                    </div>
-                                  )}
+                              );
+                            }
+                            if (rem && rem.trim()) {
+                              return (
+                                <span style={{ color: 'var(--theme-text, #0f172a)', fontSize: 12, fontWeight: 500 }}>
+                                  {rem}
+                                </span>
+                              );
+                            }
+                            return (
+                              <span style={{ color: 'var(--theme-text-muted, #94a3b8)', fontSize: 12 }}>
+                                {row.efficiency >= 95 ? 'Target attained smoothly' : 'Running normal'}
+                              </span>
+                            );
+                          },
+                        },
+                        {
+                          title: 'Status',
+                          dataIndex: 'status',
+                          key: 'status',
+                          render: (st, row) => (
+                            <Tag color={row.count === 0 ? 'magenta' : st === 'Completed' ? 'green' : st === 'On Track' ? 'blue' : 'orange'}>
+                              {row.count === 0 ? 'Idle / OFF' : `${row.count} slips (${st})`}
+                            </Tag>
+                          ),
+                        },
+                      ]}
+                    />
+                  ) : detailMode === 'summary' && (selectedReport === 'prod_item' || (selectedReport === 'prod_scrap' && scrapSubView === 'item')) ? (
+                    /* 4B. ITEM-WISE SUMMARY TABLE (Item yield, output weight kg, rejection kg & %) */
+                    <Table
+                      className="reports-data-table"
+                      dataSource={itemSummary}
+                      rowKey={(r) => `${r.itemCode}_${r.itemName}`}
+                      pagination={false}
+                      size="small"
+                      summary={() => (
+                        <Table.Summary.Row className="reports-total-summary-row">
+                          <Table.Summary.Cell index={0}>TOTAL</Table.Summary.Cell>
+                          <Table.Summary.Cell index={1}><strong>{formatDecimal(prodSummary.totalTarget)}</strong></Table.Summary.Cell>
+                          <Table.Summary.Cell index={2}>
+                            <strong>{formatDecimal(prodSummary.totalActual)}</strong>
+                            {prodSummary.totalActualKg > 0 && (
+                              <div style={{ fontSize: 11, color: 'var(--theme-accent, #10b981)', fontWeight: 700 }}>
+                                {formatDecimal(prodSummary.totalActualKg)} kg
+                              </div>
+                            )}
+                          </Table.Summary.Cell>
+                          <Table.Summary.Cell index={3}>
+                            <span style={{ color: prodSummary.totalVariance >= 0 ? '#10b981' : '#ef4444', fontWeight: 700 }}>
+                              {prodSummary.totalVariance >= 0 ? `+${formatDecimal(prodSummary.totalVariance)}` : formatDecimal(prodSummary.totalVariance)}
+                            </span>
+                          </Table.Summary.Cell>
+                          <Table.Summary.Cell index={4}>
+                            <strong style={{ color: '#ef4444' }}>{formatDecimal(prodSummary.totalScrap)} kg</strong>
+                            {prodSummary.avgScrapRate > 0 && (
+                              <div style={{ fontSize: 10, color: '#ef4444', fontWeight: 600 }}>
+                                {prodSummary.avgScrapRate.toFixed(2)}% rate
+                              </div>
+                            )}
+                          </Table.Summary.Cell>
+                          <Table.Summary.Cell index={5}>
+                            <Tag color={selectedReport === 'prod_scrap' ? (prodSummary.avgScrapRate > 2 ? 'error' : 'success') : 'blue'} style={{ fontWeight: 700 }}>
+                              {selectedReport === 'prod_scrap' ? `${prodSummary.avgScrapRate.toFixed(2)}%` : `${formatDecimal(prodSummary.avgEfficiency)}%`}
+                            </Tag>
+                          </Table.Summary.Cell>
+                          <Table.Summary.Cell index={6}>
+                            <strong>{prodSummary.totalDowntime}h</strong>
+                          </Table.Summary.Cell>
+                          <Table.Summary.Cell index={7}>
+                            <Tag color="cyan">{itemSummary.reduce((acc, it) => acc + it.count, 0)} slips</Tag>
+                          </Table.Summary.Cell>
+                        </Table.Summary.Row>
+                      )}
+                      columns={[
+                        {
+                          title: 'Item / Product',
+                          dataIndex: 'itemName',
+                          key: 'itemName',
+                          render: (name, row) => (
+                            <div>
+                              <div style={{ fontWeight: 700, color: 'var(--theme-text, #0f172a)' }}>{name}</div>
+                              <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)' }}>
+                                <Tag color="geekblue" style={{ fontSize: 10, padding: '0 4px', marginRight: 4 }}>{row.itemCode}</Tag>
+                                {row.departmentName} • {row.divisionName}
+                              </div>
+                            </div>
+                          ),
+                        },
+                        {
+                          title: 'Target Qty',
+                          dataIndex: 'totalTarget',
+                          key: 'totalTarget',
+                          render: (v, row) => `${formatDecimal(v)} ${row.uom}`,
+                        },
+                        {
+                          title: 'Actual Output',
+                          dataIndex: 'totalActual',
+                          key: 'totalActual',
+                          render: (v, row) => (
+                            <div>
+                              <strong>{formatDecimal(v)} {row.uom}</strong>
+                              {row.totalActualKg > 0 && row.uom !== 'kg' && (
+                                <div style={{ fontSize: 11, color: 'var(--theme-accent, #10b981)', fontWeight: 600 }}>
+                                  {formatDecimal(row.totalActualKg)} kg
                                 </div>
-                              ),
-                            },
-                            {
-                              title: 'Efficiency',
-                              dataIndex: 'efficiency',
-                              key: 'efficiency',
-                              render: (v, row) => (
-                                <Tag color={row.count === 0 ? 'default' : v >= 95 ? 'success' : v >= 75 ? 'processing' : 'error'}>
-                                  {row.count === 0 ? '100% OFF (0%)' : `${formatDecimal(v)}%`}
-                                </Tag>
-                              ),
-                            },
-                            {
-                              title: 'Hours / Downtime',
-                              key: 'hours',
-                              render: (_, row) => `${row.totalRunning}h / ${row.totalDowntime}h`,
-                            },
-                            {
-                              title: 'Remarks / Notes',
-                              dataIndex: 'remarks',
-                              key: 'remarks',
-                              render: (rem: string | undefined, row: any) => {
-                                if (row.count === 0) {
-                                  return (
-                                    <span style={{ fontStyle: 'italic', color: 'var(--theme-text-muted, #94a3b8)', fontSize: 12 }}>
-                                      Idle — No production logged
-                                    </span>
-                                  );
-                                }
-                                if (rem && rem.trim()) {
-                                  return (
-                                    <span style={{ color: 'var(--theme-text, #0f172a)', fontSize: 12, fontWeight: 500 }}>
-                                      {rem}
-                                    </span>
-                                  );
-                                }
-                                return (
-                                  <span style={{ color: 'var(--theme-text-muted, #94a3b8)', fontSize: 12 }}>
-                                    {row.efficiency >= 95 ? 'Target attained smoothly' : 'Running normal'}
-                                  </span>
-                                );
-                              },
-                            },
-                            {
-                              title: 'Status',
-                              dataIndex: 'status',
-                              key: 'status',
-                              render: (st) => (
-                                <Tag color={st === 'Completed' ? 'green' : st === 'On Track' ? 'blue' : st === 'Delayed' ? 'orange' : 'magenta'}>
-                                  {st}
-                                </Tag>
-                              ),
-                            },
-                          ]}
-                        />
-                      </div>
-                    ),
-                    rowExpandable: (record) => Array.isArray(record.subMachines) && record.subMachines.length > 0,
-                  }}
-                  columns={[
-                    {
-                      title: 'Department',
-                      dataIndex: 'department',
-                      key: 'department',
-                      render: (d, row) => (
-                        <div>
-                          <div style={{ fontWeight: 700 }}>{d}</div>
-                          <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)' }}>{row.divisionName} • Unit: {row.unit}</div>
-                        </div>
-                      ),
-                    },
-                    {
-                      title: 'Active Lines',
-                      dataIndex: 'machineList',
-                      key: 'machineList',
-                      render: (m, row) => (
-                        <span>
-                          <strong>{row.activeMachines}</strong> active / {row.totalRegisteredMachines} lines
-                          <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)' }}>({m || 'No active slips'})</div>
-                        </span>
-                      ),
-                    },
-                    {
-                      title: 'Target Qty',
-                      dataIndex: 'totalTarget',
-                      key: 'totalTarget',
-                      render: (v, row) => `${formatDecimal(v)} ${row.unit}`,
-                    },
-                    {
-                      title: 'Actual Output',
-                      dataIndex: 'totalActual',
-                      key: 'totalActual',
-                      render: (v, row) => (
-                        <div>
-                          <strong>{formatDecimal(v)} {row.unit}</strong>
-                          {row.totalActualKg > 0 && row.unit !== 'kg' && (
-                            <div style={{ fontSize: 11, color: 'var(--theme-accent, #10b981)', fontWeight: 600 }}>
-                              {formatDecimal(row.totalActualKg)} kg
+                              )}
                             </div>
-                          )}
-                        </div>
-                      ),
-                    },
-                    {
-                      title: 'Variance',
-                      dataIndex: 'variance',
-                      key: 'variance',
-                      render: (v, row) => (
-                        <span style={{ fontWeight: 700, color: v >= 0 ? '#10b981' : '#ef4444' }}>
-                          {v >= 0 ? `+${formatDecimal(v)}` : formatDecimal(v)} {row.unit}
-                        </span>
-                      ),
-                    },
-                    {
-                      title: 'Rejection / Scrap',
-                      dataIndex: 'totalScrap',
-                      key: 'totalScrap',
-                      render: (v) => <strong style={{ color: '#ef4444' }}>{formatDecimal(v)} kg</strong>,
-                    },
-                    {
-                      title: selectedReport === 'prod_scrap' ? 'Scrap Rate' : 'Efficiency',
-                      key: 'rateOrEff',
-                      render: (_, row) => (
-                        <Tag color={selectedReport === 'prod_scrap' ? (row.scrapRate > 5 ? 'error' : row.scrapRate > 2 ? 'warning' : 'success') : (row.efficiency >= 95 ? 'success' : row.efficiency >= 75 ? 'processing' : 'error')}>
-                          {selectedReport === 'prod_scrap' ? `${row.scrapRate.toFixed(2)}%` : `${formatDecimal(row.efficiency)}%`}
-                        </Tag>
-                      ),
-                    },
-                    {
-                      title: 'Downtime',
-                      dataIndex: 'totalDowntime',
-                      key: 'totalDowntime',
-                      render: (v) => `${v}h`,
-                    },
-                  ]}
-                />
-              ) : detailMode === 'summary' && (selectedReport === 'prod_machine' || (selectedReport === 'prod_target_vs_actual' && targetSubView === 'machine') || (selectedReport === 'prod_scrap' && scrapSubView === 'machine')) ? (
-                /* 4. MACHINE-WISE SUMMARY TABLE (Target / Scrap / Machine Fleet) */
-                <Table
-                  className="reports-data-table"
-                  dataSource={machineSummary}
-                  rowKey="machineNo"
-                  pagination={false}
-                  size="small"
-                  columns={[
-                    {
-                      title: 'Machine',
-                      dataIndex: 'machineName',
-                      key: 'machineName',
-                      render: (name, row) => (
-                        <div>
-                          <div style={{ fontWeight: 700 }}>{name}</div>
-                          <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)' }}>{row.machineNo} • {row.department} • {row.divisionName}</div>
-                        </div>
-                      ),
-                    },
-                    {
-                      title: 'Target Qty',
-                      dataIndex: 'totalTarget',
-                      key: 'totalTarget',
-                      render: (v, row) => `${formatDecimal(v)} ${row.unit}`,
-                    },
-                    {
-                      title: 'Actual Output',
-                      dataIndex: 'totalActual',
-                      key: 'totalActual',
-                      render: (v, row) => (
-                        <div>
-                          <strong>{formatDecimal(v)} {row.unit}</strong>
-                          {row.totalActualKg > 0 && row.unit !== 'kg' && (
-                            <div style={{ fontSize: 11, color: 'var(--theme-accent, #10b981)', fontWeight: 600 }}>
-                              {formatDecimal(row.totalActualKg)} kg
-                            </div>
-                          )}
-                        </div>
-                      ),
-                    },
-                    {
-                      title: 'Variance',
-                      dataIndex: 'variance',
-                      key: 'variance',
-                      render: (v, row) => (
-                        <span style={{ fontWeight: 700, color: v >= 0 ? '#10b981' : '#ef4444' }}>
-                          {v >= 0 ? `+${formatDecimal(v)}` : formatDecimal(v)} {row.unit}
-                        </span>
-                      ),
-                    },
-                    {
-                      title: 'Rejection / Scrap',
-                      dataIndex: 'totalScrap',
-                      key: 'totalScrap',
-                      render: (v, row) => (
-                        <div>
-                          <strong style={{ color: '#ef4444' }}>{formatDecimal(v)} kg</strong>
-                          {row.scrapRate > 0 && (
-                            <div style={{ fontSize: 10, color: row.scrapRate > 5 ? '#ef4444' : row.scrapRate > 2 ? '#f59e0b' : '#10b981', fontWeight: 600 }}>
-                              {row.scrapRate.toFixed(2)}% rate
-                            </div>
-                          )}
-                        </div>
-                      ),
-                    },
-                    {
-                      title: selectedReport === 'prod_scrap' ? 'Scrap Rate' : 'Attainment',
-                      key: 'rateOrAttainment',
-                      render: (_, row) => (
-                        <Tag color={row.count === 0 ? 'default' : selectedReport === 'prod_scrap' ? (row.scrapRate > 5 ? 'error' : row.scrapRate > 2 ? 'warning' : 'success') : (row.efficiency >= 95 ? 'success' : row.efficiency >= 75 ? 'processing' : 'error')}>
-                          {row.count === 0 ? '100% OFF (0%)' : selectedReport === 'prod_scrap' ? `${row.scrapRate.toFixed(2)}%` : `${formatDecimal(row.efficiency)}%`}
-                        </Tag>
-                      ),
-                    },
-                    {
-                      title: 'Downtime',
-                      dataIndex: 'totalDowntime',
-                      key: 'totalDowntime',
-                      render: (v) => `${v}h`,
-                    },
-                    {
-                      title: 'Remarks / Notes',
-                      dataIndex: 'remarks',
-                      key: 'remarks',
-                      render: (rem: string | undefined, row: any) => {
-                        if (row.count === 0) {
-                          return (
-                            <span style={{ fontStyle: 'italic', color: 'var(--theme-text-muted, #94a3b8)', fontSize: 12 }}>
-                              Idle — No production logged
+                          ),
+                        },
+                        {
+                          title: 'Variance',
+                          dataIndex: 'variance',
+                          key: 'variance',
+                          render: (v, row) => (
+                            <span style={{ fontWeight: 700, color: v >= 0 ? '#10b981' : '#ef4444' }}>
+                              {v >= 0 ? `+${formatDecimal(v)}` : formatDecimal(v)} {row.uom}
                             </span>
-                          );
-                        }
-                        if (rem && rem.trim()) {
-                          return (
-                            <span style={{ color: 'var(--theme-text, #0f172a)', fontSize: 12, fontWeight: 500 }}>
-                              {rem}
+                          ),
+                        },
+                        {
+                          title: 'Rejection / Scrap',
+                          dataIndex: 'totalScrap',
+                          key: 'totalScrap',
+                          render: (v, row) => (
+                            <div>
+                              <strong style={{ color: '#ef4444' }}>{formatDecimal(v)} kg</strong>
+                              {row.scrapRate > 0 && (
+                                <div style={{ fontSize: 10, color: row.scrapRate > 5 ? '#ef4444' : row.scrapRate > 2 ? '#f59e0b' : '#10b981', fontWeight: 600 }}>
+                                  {row.scrapRate.toFixed(2)}% rate
+                                </div>
+                              )}
+                            </div>
+                          ),
+                        },
+                        {
+                          title: selectedReport === 'prod_scrap' ? 'Scrap Rate' : 'Efficiency',
+                          key: 'rateOrEff',
+                          render: (_, row) => (
+                            <Tag color={selectedReport === 'prod_scrap' ? (row.scrapRate > 5 ? 'error' : row.scrapRate > 2 ? 'warning' : 'success') : (row.efficiency >= 95 ? 'success' : row.efficiency >= 75 ? 'processing' : 'error')}>
+                              {selectedReport === 'prod_scrap' ? `${row.scrapRate.toFixed(2)}%` : `${formatDecimal(row.efficiency)}%`}
+                            </Tag>
+                          ),
+                        },
+                        {
+                          title: 'Downtime',
+                          dataIndex: 'downtimeHours',
+                          key: 'downtimeHours',
+                          render: (v) => `${v}h`,
+                        },
+                        {
+                          title: 'Entries',
+                          dataIndex: 'count',
+                          key: 'count',
+                          render: (cnt) => (
+                            <Tag color="blue">{cnt} slips</Tag>
+                          ),
+                        },
+                      ]}
+                    />
+                  ) : (
+                    /* 5. FULL DETAILED PRODUCTION SLIPS TABLE (Default & Detailed Mode) */
+                    <Table
+                      className="reports-data-table"
+                      dataSource={filteredProduction}
+                      rowKey="id"
+                      pagination={{ pageSize: 8, showSizeChanger: false }}
+                      size="small"
+                      summary={() => (
+                        <Table.Summary.Row className="reports-total-summary-row">
+                          <Table.Summary.Cell index={0}>TOTAL</Table.Summary.Cell>
+                          <Table.Summary.Cell index={1}>-</Table.Summary.Cell>
+                          <Table.Summary.Cell index={2}>-</Table.Summary.Cell>
+                          <Table.Summary.Cell index={3}>-</Table.Summary.Cell>
+                          <Table.Summary.Cell index={4}><strong>{formatDecimal(prodSummary.totalTarget)}</strong></Table.Summary.Cell>
+                          <Table.Summary.Cell index={5}>
+                            <strong>{formatDecimal(prodSummary.totalActual)}</strong>
+                            {prodSummary.totalActualKg > 0 && (
+                              <div style={{ fontSize: 11, color: 'var(--theme-accent, #10b981)', fontWeight: 700 }}>
+                                {formatDecimal(prodSummary.totalActualKg)} kg
+                              </div>
+                            )}
+                          </Table.Summary.Cell>
+                          <Table.Summary.Cell index={6}>
+                            <span style={{ color: prodSummary.totalVariance >= 0 ? '#10b981' : '#ef4444' }}>
+                              {prodSummary.totalVariance >= 0 ? `+${formatDecimal(prodSummary.totalVariance)}` : formatDecimal(prodSummary.totalVariance)}
                             </span>
-                          );
-                        }
-                        return (
-                          <span style={{ color: 'var(--theme-text-muted, #94a3b8)', fontSize: 12 }}>
-                            {row.efficiency >= 95 ? 'Target attained smoothly' : 'Running normal'}
+                          </Table.Summary.Cell>
+                          <Table.Summary.Cell index={7}>
+                            <strong style={{ color: '#ef4444' }}>{formatDecimal(prodSummary.totalScrap)} kg</strong>
+                            {prodSummary.avgScrapRate > 0 && (
+                              <div style={{ fontSize: 10, color: '#ef4444', fontWeight: 600 }}>
+                                {prodSummary.avgScrapRate.toFixed(2)}% rate
+                              </div>
+                            )}
+                          </Table.Summary.Cell>
+                          <Table.Summary.Cell index={8}><strong>{formatDecimal(prodSummary.avgEfficiency)}%</strong></Table.Summary.Cell>
+                          <Table.Summary.Cell index={9}>-</Table.Summary.Cell>
+                        </Table.Summary.Row>
+                      )}
+                      columns={[
+                        {
+                          title: 'Entry #',
+                          dataIndex: 'entryNumber',
+                          key: 'entryNumber',
+                          width: 130,
+                          render: (text, row) => (
+                            <div>
+                              <strong style={{ color: 'var(--theme-accent, #10b981)' }}>{text}</strong>
+                              <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)' }}>{dayjs(row.entryDate).format('DD MMM YYYY')}</div>
+                            </div>
+                          ),
+                        },
+                        {
+                          title: 'Machine',
+                          dataIndex: 'machineName',
+                          key: 'machineName',
+                          render: (text, row) => (
+                            <div>
+                              <div style={{ fontWeight: 700 }}>{text}</div>
+                              <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)' }}>{row.machineNo} • {row.divisionName}</div>
+                            </div>
+                          ),
+                        },
+                        {
+                          title: 'Shift',
+                          dataIndex: 'shiftName',
+                          key: 'shiftName',
+                          width: 140,
+                          render: (s) => (
+                            <Tag color={s.includes('A') ? 'blue' : s.includes('B') ? 'orange' : s.includes('Night') ? 'purple' : 'cyan'}>
+                              {s}
+                            </Tag>
+                          ),
+                        },
+                        {
+                          title: 'Operator',
+                          dataIndex: 'operatorName',
+                          key: 'operatorName',
+                          render: (op, row) => (
+                            <div>
+                              <div>{op}</div>
+                              <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)' }}>Sup: {row.supervisorName}</div>
+                            </div>
+                          ),
+                        },
+                        {
+                          title: 'Target',
+                          dataIndex: 'targetQuantity',
+                          key: 'targetQuantity',
+                          render: (v) => formatDecimal(v),
+                        },
+                        {
+                          title: 'Actual',
+                          dataIndex: 'actualQuantity',
+                          key: 'actualQuantity',
+                          render: (v, row) => {
+                            const kg = row.actualKg || calcEntryActualKg(row);
+                            return (
+                              <div>
+                                <strong style={{ color: 'var(--theme-text, #0f172a)' }}>{formatDecimal(v)}</strong>
+                                {kg > 0 && (
+                                  <div style={{ fontSize: 11, color: 'var(--theme-accent, #10b981)', fontWeight: 600 }}>
+                                    {formatDecimal(kg)} kg
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          },
+                        },
+                        {
+                          title: 'Variance',
+                          dataIndex: 'varianceQuantity',
+                          key: 'varianceQuantity',
+                          render: (v) => (
+                            <span style={{ fontWeight: 700, color: v >= 0 ? '#10b981' : '#ef4444' }}>
+                              {v >= 0 ? `+${formatDecimal(v)}` : formatDecimal(v)}
+                            </span>
+                          ),
+                        },
+                        {
+                          title: 'Rejection / Scrap',
+                          dataIndex: 'scrapQuantity',
+                          key: 'scrapQuantity',
+                          render: (v, row) => {
+                            const kg = row.actualKg || calcEntryActualKg(row);
+                            const rate = kg > 0 ? (v / kg) * 100 : 0;
+                            return (
+                              <div>
+                                <strong style={{ color: '#ef4444' }}>{formatDecimal(v)} kg</strong>
+                                {rate > 0 && (
+                                  <div style={{ fontSize: 10, color: rate > 5 ? '#ef4444' : rate > 2 ? '#f59e0b' : '#10b981', fontWeight: 600 }}>
+                                    {rate.toFixed(2)}% rate
+                                  </div>
+                                )}
+                                <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)' }}>Down: {row.downtimeHours}h</div>
+                              </div>
+                            );
+                          },
+                        },
+                        {
+                          title: 'Efficiency',
+                          dataIndex: 'efficiencyPercent',
+                          key: 'efficiencyPercent',
+                          render: (v) => (
+                            <Tag color={v >= 95 ? 'success' : v >= 75 ? 'processing' : 'error'}>
+                              {formatDecimal(v)}%
+                            </Tag>
+                          ),
+                        },
+                        {
+                          title: 'Remarks / Notes',
+                          dataIndex: 'remarks',
+                          key: 'remarks',
+                          render: (rem) => rem ? (
+                            <span style={{ fontSize: 12, color: 'var(--theme-text, #0f172a)' }}>{rem}</span>
+                          ) : (
+                            <span style={{ fontSize: 12, color: 'var(--theme-text-muted, #94a3b8)', fontStyle: 'italic' }}>-</span>
+                          ),
+                        },
+                        {
+                          title: 'Status',
+                          dataIndex: 'status',
+                          key: 'status',
+                          render: (st) => (
+                            <Tag color={st === 'Completed' ? 'green' : st === 'On Track' ? 'blue' : 'warning'}>
+                              {st}
+                            </Tag>
+                          ),
+                        },
+                      ]}
+                    />
+                  )
+                ) : (
+                  <Table
+                    className="reports-data-table"
+                    dataSource={filteredSales}
+                    rowKey="id"
+                    pagination={{ pageSize: 8, showSizeChanger: false }}
+                    size="small"
+                    summary={() => (
+                      <Table.Summary.Row className="reports-total-summary-row">
+                        <Table.Summary.Cell index={0}>TOTAL</Table.Summary.Cell>
+                        <Table.Summary.Cell index={1}>-</Table.Summary.Cell>
+                        <Table.Summary.Cell index={2}>-</Table.Summary.Cell>
+                        <Table.Summary.Cell index={3}>-</Table.Summary.Cell>
+                        <Table.Summary.Cell index={4}>
+                          <strong>Rs {formatDecimal(salesSummary.totalBilled)}</strong>
+                        </Table.Summary.Cell>
+                        <Table.Summary.Cell index={5}>
+                          <strong style={{ color: '#10b981' }}>Rs {formatDecimal(salesSummary.totalPaid)}</strong>
+                        </Table.Summary.Cell>
+                        <Table.Summary.Cell index={6}>
+                          <strong style={{ color: '#ef4444' }}>Rs {formatDecimal(salesSummary.totalDue)}</strong>
+                        </Table.Summary.Cell>
+                        <Table.Summary.Cell index={7}>-</Table.Summary.Cell>
+                      </Table.Summary.Row>
+                    )}
+                    columns={[
+                      {
+                        title: 'Invoice #',
+                        dataIndex: 'invoiceNo',
+                        key: 'invoiceNo',
+                        render: (v) => <strong style={{ color: 'var(--theme-accent, #10b981)' }}>{v}</strong>,
+                      },
+                      {
+                        title: 'Customer',
+                        dataIndex: 'customerName',
+                        key: 'customerName',
+                        render: (c, row) => (
+                          <div>
+                            <div style={{ fontWeight: 600 }}>{c}</div>
+                            {row.customerCode && <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)' }}>{row.customerCode}</div>}
+                          </div>
+                        ),
+                      },
+                      {
+                        title: 'Date',
+                        dataIndex: 'invoiceDate',
+                        key: 'invoiceDate',
+                        render: (d) => dayjs(d).format('DD MMM YYYY'),
+                      },
+                      {
+                        title: 'Due Date',
+                        dataIndex: 'dueDate',
+                        key: 'dueDate',
+                        render: (d) => dayjs(d).format('DD MMM YYYY'),
+                      },
+                      {
+                        title: 'Total (Rs)',
+                        dataIndex: 'totalAmount',
+                        key: 'totalAmount',
+                        render: (v) => `Rs ${formatDecimal(v)}`,
+                      },
+                      {
+                        title: 'Paid (Rs)',
+                        dataIndex: 'paidAmount',
+                        key: 'paidAmount',
+                        render: (v) => <span style={{ color: '#10b981', fontWeight: 600 }}>Rs {formatDecimal(v)}</span>,
+                      },
+                      {
+                        title: 'Due (Rs)',
+                        dataIndex: 'dueAmount',
+                        key: 'dueAmount',
+                        render: (v) => (
+                          <span style={{ color: v > 0 ? '#ef4444' : 'var(--theme-text-muted, #94a3b8)', fontWeight: v > 0 ? 700 : 400 }}>
+                            Rs {formatDecimal(v)}
                           </span>
-                        );
+                        ),
                       },
-                    },
-                    {
-                      title: 'Status',
-                      dataIndex: 'status',
-                      key: 'status',
-                      render: (st, row) => (
-                        <Tag color={row.count === 0 ? 'magenta' : st === 'Completed' ? 'green' : st === 'On Track' ? 'blue' : 'orange'}>
-                          {row.count === 0 ? 'Idle / OFF' : `${row.count} slips (${st})`}
-                        </Tag>
-                      ),
-                    },
-                  ]}
-                />
-              ) : detailMode === 'summary' && (selectedReport === 'prod_item' || (selectedReport === 'prod_scrap' && scrapSubView === 'item')) ? (
-                /* 4B. ITEM-WISE SUMMARY TABLE (Item yield, output weight kg, rejection kg & %) */
-                <Table
-                  className="reports-data-table"
-                  dataSource={itemSummary}
-                  rowKey={(r) => `${r.itemCode}_${r.itemName}`}
-                  pagination={false}
-                  size="small"
-                  summary={() => (
-                    <Table.Summary.Row className="reports-total-summary-row">
-                      <Table.Summary.Cell index={0}>TOTAL</Table.Summary.Cell>
-                      <Table.Summary.Cell index={1}><strong>{formatDecimal(prodSummary.totalTarget)}</strong></Table.Summary.Cell>
-                      <Table.Summary.Cell index={2}>
-                        <strong>{formatDecimal(prodSummary.totalActual)}</strong>
-                        {prodSummary.totalActualKg > 0 && (
-                          <div style={{ fontSize: 11, color: 'var(--theme-accent, #10b981)', fontWeight: 700 }}>
-                            {formatDecimal(prodSummary.totalActualKg)} kg
-                          </div>
-                        )}
-                      </Table.Summary.Cell>
-                      <Table.Summary.Cell index={3}>
-                        <span style={{ color: prodSummary.totalVariance >= 0 ? '#10b981' : '#ef4444', fontWeight: 700 }}>
-                          {prodSummary.totalVariance >= 0 ? `+${formatDecimal(prodSummary.totalVariance)}` : formatDecimal(prodSummary.totalVariance)}
-                        </span>
-                      </Table.Summary.Cell>
-                      <Table.Summary.Cell index={4}>
-                        <strong style={{ color: '#ef4444' }}>{formatDecimal(prodSummary.totalScrap)} kg</strong>
-                        {prodSummary.avgScrapRate > 0 && (
-                          <div style={{ fontSize: 10, color: '#ef4444', fontWeight: 600 }}>
-                            {prodSummary.avgScrapRate.toFixed(2)}% rate
-                          </div>
-                        )}
-                      </Table.Summary.Cell>
-                      <Table.Summary.Cell index={5}>
-                        <Tag color={selectedReport === 'prod_scrap' ? (prodSummary.avgScrapRate > 2 ? 'error' : 'success') : 'blue'} style={{ fontWeight: 700 }}>
-                          {selectedReport === 'prod_scrap' ? `${prodSummary.avgScrapRate.toFixed(2)}%` : `${formatDecimal(prodSummary.avgEfficiency)}%`}
-                        </Tag>
-                      </Table.Summary.Cell>
-                      <Table.Summary.Cell index={6}>
-                        <strong>{prodSummary.totalDowntime}h</strong>
-                      </Table.Summary.Cell>
-                      <Table.Summary.Cell index={7}>
-                        <Tag color="cyan">{itemSummary.reduce((acc, it) => acc + it.count, 0)} slips</Tag>
-                      </Table.Summary.Cell>
-                    </Table.Summary.Row>
-                  )}
-                  columns={[
-                    {
-                      title: 'Item / Product',
-                      dataIndex: 'itemName',
-                      key: 'itemName',
-                      render: (name, row) => (
-                        <div>
-                          <div style={{ fontWeight: 700, color: 'var(--theme-text, #0f172a)' }}>{name}</div>
-                          <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)' }}>
-                            <Tag color="geekblue" style={{ fontSize: 10, padding: '0 4px', marginRight: 4 }}>{row.itemCode}</Tag>
-                            {row.departmentName} • {row.divisionName}
-                          </div>
-                        </div>
-                      ),
-                    },
-                    {
-                      title: 'Target Qty',
-                      dataIndex: 'totalTarget',
-                      key: 'totalTarget',
-                      render: (v, row) => `${formatDecimal(v)} ${row.uom}`,
-                    },
-                    {
-                      title: 'Actual Output',
-                      dataIndex: 'totalActual',
-                      key: 'totalActual',
-                      render: (v, row) => (
-                        <div>
-                          <strong>{formatDecimal(v)} {row.uom}</strong>
-                          {row.totalActualKg > 0 && row.uom !== 'kg' && (
-                            <div style={{ fontSize: 11, color: 'var(--theme-accent, #10b981)', fontWeight: 600 }}>
-                              {formatDecimal(row.totalActualKg)} kg
-                            </div>
-                          )}
-                        </div>
-                      ),
-                    },
-                    {
-                      title: 'Variance',
-                      dataIndex: 'variance',
-                      key: 'variance',
-                      render: (v, row) => (
-                        <span style={{ fontWeight: 700, color: v >= 0 ? '#10b981' : '#ef4444' }}>
-                          {v >= 0 ? `+${formatDecimal(v)}` : formatDecimal(v)} {row.uom}
-                        </span>
-                      ),
-                    },
-                    {
-                      title: 'Rejection / Scrap',
-                      dataIndex: 'totalScrap',
-                      key: 'totalScrap',
-                      render: (v, row) => (
-                        <div>
-                          <strong style={{ color: '#ef4444' }}>{formatDecimal(v)} kg</strong>
-                          {row.scrapRate > 0 && (
-                            <div style={{ fontSize: 10, color: row.scrapRate > 5 ? '#ef4444' : row.scrapRate > 2 ? '#f59e0b' : '#10b981', fontWeight: 600 }}>
-                              {row.scrapRate.toFixed(2)}% rate
-                            </div>
-                          )}
-                        </div>
-                      ),
-                    },
-                    {
-                      title: selectedReport === 'prod_scrap' ? 'Scrap Rate' : 'Efficiency',
-                      key: 'rateOrEff',
-                      render: (_, row) => (
-                        <Tag color={selectedReport === 'prod_scrap' ? (row.scrapRate > 5 ? 'error' : row.scrapRate > 2 ? 'warning' : 'success') : (row.efficiency >= 95 ? 'success' : row.efficiency >= 75 ? 'processing' : 'error')}>
-                          {selectedReport === 'prod_scrap' ? `${row.scrapRate.toFixed(2)}%` : `${formatDecimal(row.efficiency)}%`}
-                        </Tag>
-                      ),
-                    },
-                    {
-                      title: 'Downtime',
-                      dataIndex: 'downtimeHours',
-                      key: 'downtimeHours',
-                      render: (v) => `${v}h`,
-                    },
-                    {
-                      title: 'Entries',
-                      dataIndex: 'count',
-                      key: 'count',
-                      render: (cnt) => (
-                        <Tag color="blue">{cnt} slips</Tag>
-                      ),
-                    },
-                  ]}
-                />
-              ) : (
-                /* 5. FULL DETAILED PRODUCTION SLIPS TABLE (Default & Detailed Mode) */
-                <Table
-                  className="reports-data-table"
-                  dataSource={filteredProduction}
-                  rowKey="id"
-                  pagination={{ pageSize: 8, showSizeChanger: false }}
-                  size="small"
-                  summary={() => (
-                    <Table.Summary.Row className="reports-total-summary-row">
-                      <Table.Summary.Cell index={0}>TOTAL</Table.Summary.Cell>
-                      <Table.Summary.Cell index={1}>-</Table.Summary.Cell>
-                      <Table.Summary.Cell index={2}>-</Table.Summary.Cell>
-                      <Table.Summary.Cell index={3}>-</Table.Summary.Cell>
-                      <Table.Summary.Cell index={4}><strong>{formatDecimal(prodSummary.totalTarget)}</strong></Table.Summary.Cell>
-                      <Table.Summary.Cell index={5}>
-                        <strong>{formatDecimal(prodSummary.totalActual)}</strong>
-                        {prodSummary.totalActualKg > 0 && (
-                          <div style={{ fontSize: 11, color: 'var(--theme-accent, #10b981)', fontWeight: 700 }}>
-                            {formatDecimal(prodSummary.totalActualKg)} kg
-                          </div>
-                        )}
-                      </Table.Summary.Cell>
-                      <Table.Summary.Cell index={6}>
-                        <span style={{ color: prodSummary.totalVariance >= 0 ? '#10b981' : '#ef4444' }}>
-                          {prodSummary.totalVariance >= 0 ? `+${formatDecimal(prodSummary.totalVariance)}` : formatDecimal(prodSummary.totalVariance)}
-                        </span>
-                      </Table.Summary.Cell>
-                      <Table.Summary.Cell index={7}>
-                        <strong style={{ color: '#ef4444' }}>{formatDecimal(prodSummary.totalScrap)} kg</strong>
-                        {prodSummary.avgScrapRate > 0 && (
-                          <div style={{ fontSize: 10, color: '#ef4444', fontWeight: 600 }}>
-                            {prodSummary.avgScrapRate.toFixed(2)}% rate
-                          </div>
-                        )}
-                      </Table.Summary.Cell>
-                      <Table.Summary.Cell index={8}><strong>{formatDecimal(prodSummary.avgEfficiency)}%</strong></Table.Summary.Cell>
-                      <Table.Summary.Cell index={9}>-</Table.Summary.Cell>
-                    </Table.Summary.Row>
-                  )}
-                  columns={[
-                    {
-                      title: 'Entry #',
-                      dataIndex: 'entryNumber',
-                      key: 'entryNumber',
-                      width: 130,
-                      render: (text, row) => (
-                        <div>
-                          <strong style={{ color: 'var(--theme-accent, #10b981)' }}>{text}</strong>
-                          <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)' }}>{dayjs(row.entryDate).format('DD MMM YYYY')}</div>
-                        </div>
-                      ),
-                    },
-                    {
-                      title: 'Machine',
-                      dataIndex: 'machineName',
-                      key: 'machineName',
-                      render: (text, row) => (
-                        <div>
-                          <div style={{ fontWeight: 700 }}>{text}</div>
-                          <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)' }}>{row.machineNo} • {row.divisionName}</div>
-                        </div>
-                      ),
-                    },
-                    {
-                      title: 'Shift',
-                      dataIndex: 'shiftName',
-                      key: 'shiftName',
-                      width: 140,
-                      render: (s) => (
-                        <Tag color={s.includes('A') ? 'blue' : s.includes('B') ? 'orange' : s.includes('Night') ? 'purple' : 'cyan'}>
-                          {s}
-                        </Tag>
-                      ),
-                    },
-                    {
-                      title: 'Operator',
-                      dataIndex: 'operatorName',
-                      key: 'operatorName',
-                      render: (op, row) => (
-                        <div>
-                          <div>{op}</div>
-                          <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)' }}>Sup: {row.supervisorName}</div>
-                        </div>
-                      ),
-                    },
-                    {
-                      title: 'Target',
-                      dataIndex: 'targetQuantity',
-                      key: 'targetQuantity',
-                      render: (v) => formatDecimal(v),
-                    },
-                    {
-                      title: 'Actual',
-                      dataIndex: 'actualQuantity',
-                      key: 'actualQuantity',
-                      render: (v, row) => {
-                        const kg = row.actualKg || calcEntryActualKg(row);
-                        return (
-                          <div>
-                            <strong style={{ color: 'var(--theme-text, #0f172a)' }}>{formatDecimal(v)}</strong>
-                            {kg > 0 && (
-                              <div style={{ fontSize: 11, color: 'var(--theme-accent, #10b981)', fontWeight: 600 }}>
-                                {formatDecimal(kg)} kg
-                              </div>
-                            )}
-                          </div>
-                        );
+                      {
+                        title: 'Status',
+                        dataIndex: 'status',
+                        key: 'status',
+                        render: (st) => (
+                          <Tag color={st === 'Paid' ? 'green' : st === 'Partial' ? 'orange' : st === 'Draft' ? 'default' : 'red'}>
+                            {st.toUpperCase()}
+                          </Tag>
+                        ),
                       },
-                    },
-                    {
-                      title: 'Variance',
-                      dataIndex: 'varianceQuantity',
-                      key: 'varianceQuantity',
-                      render: (v) => (
-                        <span style={{ fontWeight: 700, color: v >= 0 ? '#10b981' : '#ef4444' }}>
-                          {v >= 0 ? `+${formatDecimal(v)}` : formatDecimal(v)}
-                        </span>
-                      ),
-                    },
-                    {
-                      title: 'Rejection / Scrap',
-                      dataIndex: 'scrapQuantity',
-                      key: 'scrapQuantity',
-                      render: (v, row) => {
-                        const kg = row.actualKg || calcEntryActualKg(row);
-                        const rate = kg > 0 ? (v / kg) * 100 : 0;
-                        return (
-                          <div>
-                            <strong style={{ color: '#ef4444' }}>{formatDecimal(v)} kg</strong>
-                            {rate > 0 && (
-                              <div style={{ fontSize: 10, color: rate > 5 ? '#ef4444' : rate > 2 ? '#f59e0b' : '#10b981', fontWeight: 600 }}>
-                                {rate.toFixed(2)}% rate
-                              </div>
-                            )}
-                            <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)' }}>Down: {row.downtimeHours}h</div>
-                          </div>
-                        );
-                      },
-                    },
-                    {
-                      title: 'Efficiency',
-                      dataIndex: 'efficiencyPercent',
-                      key: 'efficiencyPercent',
-                      render: (v) => (
-                        <Tag color={v >= 95 ? 'success' : v >= 75 ? 'processing' : 'error'}>
-                          {formatDecimal(v)}%
-                        </Tag>
-                      ),
-                    },
-                    {
-                      title: 'Remarks / Notes',
-                      dataIndex: 'remarks',
-                      key: 'remarks',
-                      render: (rem) => rem ? (
-                        <span style={{ fontSize: 12, color: 'var(--theme-text, #0f172a)' }}>{rem}</span>
-                      ) : (
-                        <span style={{ fontSize: 12, color: 'var(--theme-text-muted, #94a3b8)', fontStyle: 'italic' }}>-</span>
-                      ),
-                    },
-                    {
-                      title: 'Status',
-                      dataIndex: 'status',
-                      key: 'status',
-                      render: (st) => (
-                        <Tag color={st === 'Completed' ? 'green' : st === 'On Track' ? 'blue' : 'warning'}>
-                          {st}
-                        </Tag>
-                      ),
-                    },
-                  ]}
-                />
-              )
-            ) : (
-              <Table
-                className="reports-data-table"
-                dataSource={filteredSales}
-                rowKey="id"
-                pagination={{ pageSize: 8, showSizeChanger: false }}
-                size="small"
-                summary={() => (
-                  <Table.Summary.Row className="reports-total-summary-row">
-                    <Table.Summary.Cell index={0}>TOTAL</Table.Summary.Cell>
-                    <Table.Summary.Cell index={1}>-</Table.Summary.Cell>
-                    <Table.Summary.Cell index={2}>-</Table.Summary.Cell>
-                    <Table.Summary.Cell index={3}>-</Table.Summary.Cell>
-                    <Table.Summary.Cell index={4}>
-                      <strong>Rs {formatDecimal(salesSummary.totalBilled)}</strong>
-                    </Table.Summary.Cell>
-                    <Table.Summary.Cell index={5}>
-                      <strong style={{ color: '#10b981' }}>Rs {formatDecimal(salesSummary.totalPaid)}</strong>
-                    </Table.Summary.Cell>
-                    <Table.Summary.Cell index={6}>
-                      <strong style={{ color: '#ef4444' }}>Rs {formatDecimal(salesSummary.totalDue)}</strong>
-                    </Table.Summary.Cell>
-                    <Table.Summary.Cell index={7}>-</Table.Summary.Cell>
-                  </Table.Summary.Row>
+                    ]}
+                  />
                 )}
-                columns={[
-                  {
-                    title: 'Invoice #',
-                    dataIndex: 'invoiceNo',
-                    key: 'invoiceNo',
-                    render: (v) => <strong style={{ color: 'var(--theme-accent, #10b981)' }}>{v}</strong>,
-                  },
-                  {
-                    title: 'Customer',
-                    dataIndex: 'customerName',
-                    key: 'customerName',
-                    render: (c, row) => (
-                      <div>
-                        <div style={{ fontWeight: 600 }}>{c}</div>
-                        {row.customerCode && <div style={{ fontSize: 11, color: 'var(--theme-text-muted, #94a3b8)' }}>{row.customerCode}</div>}
-                      </div>
-                    ),
-                  },
-                  {
-                    title: 'Date',
-                    dataIndex: 'invoiceDate',
-                    key: 'invoiceDate',
-                    render: (d) => dayjs(d).format('DD MMM YYYY'),
-                  },
-                  {
-                    title: 'Due Date',
-                    dataIndex: 'dueDate',
-                    key: 'dueDate',
-                    render: (d) => dayjs(d).format('DD MMM YYYY'),
-                  },
-                  {
-                    title: 'Total (Rs)',
-                    dataIndex: 'totalAmount',
-                    key: 'totalAmount',
-                    render: (v) => `Rs ${formatDecimal(v)}`,
-                  },
-                  {
-                    title: 'Paid (Rs)',
-                    dataIndex: 'paidAmount',
-                    key: 'paidAmount',
-                    render: (v) => <span style={{ color: '#10b981', fontWeight: 600 }}>Rs {formatDecimal(v)}</span>,
-                  },
-                  {
-                    title: 'Due (Rs)',
-                    dataIndex: 'dueAmount',
-                    key: 'dueAmount',
-                    render: (v) => (
-                      <span style={{ color: v > 0 ? '#ef4444' : 'var(--theme-text-muted, #94a3b8)', fontWeight: v > 0 ? 700 : 400 }}>
-                        Rs {formatDecimal(v)}
-                      </span>
-                    ),
-                  },
-                  {
-                    title: 'Status',
-                    dataIndex: 'status',
-                    key: 'status',
-                    render: (st) => (
-                      <Tag color={st === 'Paid' ? 'green' : st === 'Partial' ? 'orange' : st === 'Draft' ? 'default' : 'red'}>
-                        {st.toUpperCase()}
-                      </Tag>
-                    ),
-                  },
-                ]}
-              />
-            )}
-          </div>
-        </>
-      )}
+              </div>
+            </>
+          )}
         </div>
       </div>
 

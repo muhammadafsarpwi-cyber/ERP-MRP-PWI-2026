@@ -25,7 +25,7 @@ import { DraggableResizableModal, SaveResultDialog, PageHeader, FilterBar, ItemS
 import type { SaveResultData, SaveResultPhase } from '../../../components/shared/SaveResultDialog';
 import { useRawReceiptDraftStore } from '../../../store/rawReceiptDraftStore';
 import type { ReceiptDraft, OrgBundle } from '../../../store/rawReceiptDraftStore';
-import { tabSessionCache, TAB_REFRESH_EVENT } from '../../../services/tabSessionCache';
+import { matchesTabRefresh, tabSessionCache, TAB_REFRESH_EVENT } from '../../../services/tabSessionCache';
 import { useThemeStore } from '../../../theme/themeStore';
 import {
   exportReceivingPdf,
@@ -387,7 +387,10 @@ const RawMaterialReceiving: React.FC = () => {
   const [listLoading, setListLoading] = useState(false);
   const [listState, setListState] = useState<'loading' | 'error' | 'ready'>(() => cachedTab ? 'ready' : 'loading');
 
-  const [filters, setFilters] = useState<{ status?: string; warehouseId?: string; gatePassNo?: string; dateFrom?: string; dateTo?: string; divisionId?: string }>(() => cachedTab?.filters ?? {});
+  const [filters, setFilters] = useState<{ status?: string; warehouseId?: string; gatePassNo?: string; dateFrom?: string; dateTo?: string; divisionId?: string }>(() => cachedTab?.filters ?? {
+    dateFrom: dayjs().subtract(6, 'day').format('YYYY-MM-DD'),
+    dateTo: dayjs().format('YYYY-MM-DD'),
+  });
 
   // Raw Material Returns Integration (for Inward vs Outward vs Net Available Stock)
   const [returnsSummary, setReturnsSummary] = useState<{
@@ -935,8 +938,7 @@ const RawMaterialReceiving: React.FC = () => {
   // Global header/tab refresh event listener
   useEffect(() => {
     const handleGlobalRefresh = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (!detail?.tabId || String(detail.tabId).startsWith(RM_RECEIVING_TAB_ID)) {
+      if (matchesTabRefresh(e, RM_RECEIVING_TAB_ID)) {
         tabSessionCache.remove(RM_RECEIVING_TAB_ID);
         void loadList(1);
       }

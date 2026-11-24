@@ -20,7 +20,7 @@ import { handleValidationErrors } from '../../utils/formValidationHelper';
 import { PageHeader, SaveResultDialog, DraggableResizableModal } from '../../components/shared';
 import { DivisionSelect } from '../../components/shared';
 import GlobalLoading from '../../components/shared/GlobalLoading';
-import { TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
+import { matchesTabRefresh, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import type { SaveResultData, SaveResultPhase } from '../../components/shared/SaveResultDialog';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -186,8 +186,7 @@ const RoleManagement: React.FC = () => {
   // Global header/tab refresh event listener
   useEffect(() => {
     const handleGlobalRefresh = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (!detail?.tabId || String(detail.tabId).startsWith('/admin/roles')) {
+      if (matchesTabRefresh(e, '/admin/roles')) {
         void fetchRoles(page);
         void fetchPermissions();
       }

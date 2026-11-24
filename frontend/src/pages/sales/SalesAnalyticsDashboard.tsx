@@ -357,7 +357,7 @@ export const SalesAnalyticsDashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState<string>('dashboard');
 
   // Filters
-  const [period, setPeriod] = useState<string>('all');
+  const [period, setPeriod] = useState<string>('this_week');
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null] | null>(null);
   const [rankingMetric, setRankingMetric] = useState<string>('salesAmount');
   const [outstandingOnly, setOutstandingOnly] = useState<boolean>(false);

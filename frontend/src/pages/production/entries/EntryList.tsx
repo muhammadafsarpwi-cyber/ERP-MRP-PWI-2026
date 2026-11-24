@@ -29,7 +29,7 @@ import {
 } from 'antd';
 import PageHeader from '../../../components/shared/PageHeader';
 import { useHeaderActions } from '../../../components/layout/headerActionsStore';
-import { tabSessionCache, TAB_REFRESH_EVENT } from '../../../services/tabSessionCache';
+import { matchesTabRefresh, tabSessionCache, TAB_REFRESH_EVENT } from '../../../services/tabSessionCache';
 import { getLookupsSnapshot, prefetchAllLookups } from '../../../services/lookupsCache';
 import {
   PlusOutlined,
@@ -1084,7 +1084,11 @@ const EntryList: React.FC = () => {
   const [fDepartment, setFDepartment] = useState<string>();
   const [fWarehouse, setFWarehouse] = useState<string>();
   const [warehouses, setWarehouses] = useState<{ id: string; name: string; warehouseCode: string }[]>([]);
-  const [dateRange, setDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null]>([null, null]);
+  // Default initial load to weekly (Last 7 Days); clear/reset or pick custom dates/month to view wider history
+  const [dateRange, setDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null]>(() => [
+    dayjs().subtract(6, 'day'),
+    dayjs(),
+  ]);
   const [fShift, setFShift] = useState<string>();
   const [fMachineNo, setFMachineNo] = useState<string>('');
   const [fStatus, setFStatus] = useState<string>();
@@ -1514,8 +1518,7 @@ const EntryList: React.FC = () => {
   // Global header / tab refresh event listener
   useEffect(() => {
     const handleGlobalRefresh = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (!detail?.tabId || detail.tabId.startsWith('/production/entries')) {
+      if (matchesTabRefresh(e, '/production/entries')) {
         handleRefresh();
       }
     };

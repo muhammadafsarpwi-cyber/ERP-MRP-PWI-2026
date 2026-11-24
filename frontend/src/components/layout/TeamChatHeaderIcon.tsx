@@ -134,26 +134,14 @@ const TeamChatHeaderIcon: React.FC = () => {
   useEffect(() => {
     mountedRef.current = true;
     void refreshUnread();
-    const timer = window.setInterval(() => {
-      if (typeof document !== 'undefined' && document.hidden) return;
-      void refreshUnread();
-    }, POLL_BACKGROUND_MS);
 
-    const onVisibilityChange = () => {
-      if (typeof document !== 'undefined' && !document.hidden) {
-        void refreshUnread();
-      }
-    };
     const onSync = () => {
       void refreshUnread();
     };
-    document?.addEventListener?.('visibilitychange', onVisibilityChange);
     window.addEventListener('erp-team-chat-sync', onSync);
 
     return () => {
       mountedRef.current = false;
-      window.clearInterval(timer);
-      document?.removeEventListener?.('visibilitychange', onVisibilityChange);
       window.removeEventListener('erp-team-chat-sync', onSync);
     };
   }, [refreshUnread]);

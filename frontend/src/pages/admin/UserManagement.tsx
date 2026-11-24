@@ -35,7 +35,7 @@ import {
 } from '../../components/shared/DivisionAccessModal';
 import { DivisionSelect } from '../../components/shared';
 import GlobalLoading from '../../components/shared/GlobalLoading';
-import { TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
+import { matchesTabRefresh, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import type { SaveResultData, SaveResultPhase } from '../../components/shared/SaveResultDialog';
 import UserAvatar, { resolveSrc } from '../../components/layout/UserAvatar';
 import { useUserStore } from '../../store/userStore';
@@ -341,8 +341,7 @@ const UserManagement: React.FC = () => {
   // Global header/tab refresh event listener
   useEffect(() => {
     const handleGlobalRefresh = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (!detail?.tabId || String(detail.tabId).startsWith('/admin/users')) {
+      if (matchesTabRefresh(e, '/admin/users')) {
         void fetchUsers(page, search || undefined, statusFilter);
         void fetchRoles();
         void fetchCompanies();

@@ -759,8 +759,11 @@ html[data-theme='dark'],
 }
 
 .customer-pixel-table .ant-table-tbody > tr > td {
-  padding: 10px 14px !important;
+  padding: 7px 12px !important;
   font-size: 13px;
+  white-space: nowrap;
+  word-break: keep-all;
+  font-variant-numeric: tabular-nums;
 }
 
 /* --- Row Content Styling --- */

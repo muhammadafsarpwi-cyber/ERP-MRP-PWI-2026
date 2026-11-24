@@ -405,7 +405,27 @@ export class PurchaseInvoiceService {
       });
 
       // AP journal lives in the SAME transaction as the invoice + PO update.
-      await this.autoPosting.postPurchaseInvoice(companyId, invoice.invoiceCode, invoice.id, totalAmount, userId, manager);
+      const hasGrnAccrual = receivedAmount > MATCH_EPSILON;
+      const taxAmt = Number(invoice.taxAmount || 0);
+      if (hasGrnAccrual || taxAmt > MATCH_EPSILON) {
+        await this.autoPosting.postPurchaseInvoice(
+          companyId,
+          invoice.invoiceCode,
+          invoice.id,
+          totalAmount,
+          userId,
+          manager,
+          {
+            subtotal: Number(invoice.subtotal || 0),
+            taxAmount: taxAmt,
+            hasGrnAccrual,
+            supplierId: invoice.supplierId,
+            entryDate: invoice.invoiceDate ? new Date(invoice.invoiceDate) : new Date(),
+          },
+        );
+      } else {
+        await this.autoPosting.postPurchaseInvoice(companyId, invoice.invoiceCode, invoice.id, totalAmount, userId, manager);
+      }
     });
 
     return this.findOne(id, companyId);
@@ -419,7 +439,20 @@ export class PurchaseInvoiceService {
     return this.repo.save(invoice);
   }
 
-  async recordPayment(id: string, amount: number, companyId: string, userId?: string): Promise<PurchaseInvoice> {
+  async recordPayment(
+    id: string,
+    amount: number,
+    companyId: string,
+    userId?: string,
+    paymentOpts?: {
+      bankAccountId?: string | null;
+      paymentMode?: string | null;
+      whtAmount?: number;
+      chequeNumber?: string | null;
+      chequeDate?: string | null;
+      divisionId?: string | null;
+    },
+  ): Promise<PurchaseInvoice> {
     const invoice = await this.findOne(id, companyId);
     if (invoice.status === 'CANCELLED') throw new BadRequestException('Cannot record payment for a cancelled invoice');
     if (amount <= 0) throw new BadRequestException('Payment amount must be greater than zero');
@@ -429,14 +462,43 @@ export class PurchaseInvoiceService {
     const newPaid = Number(invoice.paidAmount || 0) + amount;
     const paymentStatus = newPaid >= Number(invoice.totalAmount) ? 'PAID' : newPaid > 0 ? 'PARTIAL' : 'UNPAID';
 
-    // Atomic: paid amount + AP/cash journal together (or nothing).
+    const hasOpts = Boolean(
+      paymentOpts &&
+        (paymentOpts.bankAccountId ||
+          paymentOpts.paymentMode ||
+          (paymentOpts.whtAmount && Number(paymentOpts.whtAmount) > 0) ||
+          paymentOpts.chequeNumber ||
+          paymentOpts.divisionId),
+    );
+
+    // Atomic: paid amount + AP/cash/bank/WHT journal together (or nothing).
     await this.repo.manager.transaction(async (manager: EntityManager) => {
       await manager.getRepository(PurchaseInvoice).update(invoice.id, {
         paidAmount: newPaid,
         paymentStatus,
         updatedBy: userId || null,
       });
-      await this.autoPosting.postSupplierPayment(companyId, invoice.invoiceCode, invoice.id, amount, userId, manager);
+      if (hasOpts) {
+        await this.autoPosting.postSupplierPayment(
+          companyId,
+          invoice.invoiceCode,
+          invoice.id,
+          amount,
+          userId,
+          manager,
+          {
+            bankAccountId: paymentOpts?.bankAccountId || null,
+            paymentMode: paymentOpts?.paymentMode || 'BANK_TRANSFER',
+            whtAmount: Number(paymentOpts?.whtAmount || 0),
+            chequeNumber: paymentOpts?.chequeNumber || null,
+            chequeDate: paymentOpts?.chequeDate ? new Date(paymentOpts.chequeDate) : null,
+            divisionId: paymentOpts?.divisionId || null,
+            supplierId: invoice.supplierId,
+          },
+        );
+      } else {
+        await this.autoPosting.postSupplierPayment(companyId, invoice.invoiceCode, invoice.id, amount, userId, manager);
+      }
     });
 
     return this.findOne(id, companyId);

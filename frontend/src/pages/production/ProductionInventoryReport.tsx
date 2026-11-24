@@ -52,7 +52,7 @@ import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 import dashboardService, { FilterOption } from '../../services/dashboardService';
 import { PageHeader, EmptyState, LargeLoadingBuffer } from '../../components/shared';
-import { tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
+import { matchesTabRefresh, tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import { useWorkspaceTabStore } from '../../store/workspaceTabStore';
 import { formatDimension } from '../../utils/numberFormat';
 import { renderWhatsAppTemplate, resolveWhatsAppTemplate } from '../../utils/whatsappSettingsStore';
@@ -948,18 +948,17 @@ const ProductionInventoryReport: React.FC = () => {
   }, [divisions, movementTypes, masterItemTypes, cachedTab]);
 
   useEffect(() => {
-    // Always fetch fresh data on mount so report is never frozen on stale session cache
-    tabSessionCache.remove(tabKey);
-    ledgerCacheRef.current.clear();
-    void loadReport(applied);
+    // Load once per session; re-fetches only when filters change or user explicitly clicks Refresh
+    if (!tabSessionCache.has(tabKey)) {
+      void loadReport(applied);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Global tab refresh event listener
   useEffect(() => {
     const handleGlobalRefresh = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (detail?.tabId && detail.tabId.startsWith('/production/inventory-report')) {
+      if (matchesTabRefresh(e, '/production/inventory-report')) {
         tabSessionCache.remove(tabKey);
         void loadReport(applied);
       }

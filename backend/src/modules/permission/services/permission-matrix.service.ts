@@ -11,6 +11,7 @@ import {
 } from '../../role/entities/role-permission-division-scope.entity';
 import { Division } from '../../organization/entities/division.entity';
 import { UpdatePermissionMatrixDto } from '../dto/permission-matrix.dto';
+import { authLookupCache } from '../../../common/cache/auth-lookup-cache';
 
 export interface PermissionMatrixCell {
   permissionId: string;
@@ -375,6 +376,7 @@ export class PermissionMatrixService {
       }
     }
 
+    authLookupCache.invalidateAll();
     return { success: true, message: 'Permission matrix updated successfully' };
   }
 
@@ -441,6 +443,9 @@ export class PermissionMatrixService {
   }
 
   async getUserPermissions(userId: string): Promise<string[]> {
+    const cached = authLookupCache.getPermsByUserId(userId);
+    if (cached) return cached;
+
     const result = await this.rolePermissionRepository
       .createQueryBuilder('rp')
       .innerJoin('roles', 'r', 'r.id = rp.role_id')
@@ -454,6 +459,8 @@ export class PermissionMatrixService {
       .select('DISTINCT p.permission_code', 'code')
       .getRawMany();
 
-    return result.map((r: any) => r.code);
+    const codes = result.map((r: any) => r.code);
+    authLookupCache.setPermsByUserId(userId, codes);
+    return codes;
   }
 }

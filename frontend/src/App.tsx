@@ -13,6 +13,7 @@ import { CustomerManagement, CustomerAnalytics } from './pages/customers';
 import FinancePage from './pages/finance/FinancePage';
 import ChartOfAccounts from './pages/finance/ChartOfAccounts';
 import JournalEntries from './pages/finance/JournalEntries';
+import CashBankBook from './pages/finance/CashBankBook';
 import FinanceReports from './pages/finance/FinanceReports';
 import EmployeesPage from './pages/hr/Employees';
 import AttendanceLeave from './pages/hr/AttendanceLeave';
@@ -163,6 +164,8 @@ const App: React.FC = () => {
   //
   // Explicitly NOT a `window.location.reload()`: this revalidates in place and
   // leaves the user's open tabs, form state and scroll position alone.
+  // Access tokens refresh automatically just-in-time before any API request
+  // in api.ts request interceptor; avoid idle 60s background polling.
   React.useEffect(() => apiService.startSessionWatchdog(), []);
 
   return (
@@ -246,6 +249,7 @@ const App: React.FC = () => {
                   <Route path="/finance/accounts" element={<ChartOfAccounts />} />
                   <Route path="/finance/journals" element={<JournalEntries />} />
                   <Route path="/finance/journals/new" element={<JournalEntries />} />
+                  <Route path="/finance/cash-bank" element={<CashBankBook />} />
                   <Route path="/finance/reports/*" element={<FinanceReports />} />
                   <Route path="/hr/dashboard" element={<HrDashboard />} />
                   <Route path="/hr/attendance-register" element={<AttendanceRegister />} />

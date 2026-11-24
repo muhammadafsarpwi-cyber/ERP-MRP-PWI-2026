@@ -103,6 +103,7 @@ const PurchaseInvoiceManagement: React.FC = () => {
   const [divisions, setDivisions] = useState<DivisionOption[]>(DEFAULT_DIVISIONS);
   const [purchaseOrders, setPurchaseOrders] = useState<any[]>([]);
   const [goodsReceipts, setGoodsReceipts] = useState<any[]>([]);
+  const [bankCashAccounts, setBankCashAccounts] = useState<Array<{ id: string; accountCode: string; accountName: string; balance?: number }>>([]);
   const [invoiceLines, setInvoiceLines] = useState<InvoiceLineRow[]>([]);
 
   useEffect(() => {
@@ -114,6 +115,10 @@ const PurchaseInvoiceManagement: React.FC = () => {
       try {
         const s = await apiService.get<{ data: Array<{ id: string; name: string }> }>('/procurement/suppliers', { limit: 200 });
         setSuppliers(s.data || []);
+      } catch { /* ignore */ }
+      try {
+        const b = await apiService.get<{ data: Array<{ id: string; accountCode: string; accountName: string; balance?: number }> }>('/finance/accounts/bank-cash');
+        setBankCashAccounts(b.data || []);
       } catch { /* ignore */ }
       try {
         const d = await apiService.get<any>('/divisions', { limit: 50, status: 'ACTIVE' });
@@ -318,8 +323,15 @@ const PurchaseInvoiceManagement: React.FC = () => {
 
   const handlePayment = (invoice: PurchaseInvoice) => {
     const balance = Math.max(0, Number(invoice.totalAmount) - Number(invoice.paidAmount || 0));
+    const defaultBank = bankCashAccounts.find((a) => a.accountCode === '1011') || bankCashAccounts[0];
     setPaymentInvoice(invoice);
-    paymentForm.setFieldsValue({ paidAmount: balance });
+    paymentForm.setFieldsValue({
+      paidAmount: balance,
+      paymentMode: 'BANK_TRANSFER',
+      bankAccountId: defaultBank?.id,
+      whtAmount: 0,
+      chequeNumber: '',
+    });
     setPaymentVisible(true);
   };
 
@@ -327,8 +339,14 @@ const PurchaseInvoiceManagement: React.FC = () => {
     if (!paymentInvoice) return;
     try {
       const values = await paymentForm.validateFields();
-      await apiService.patch(`/procurement/invoices/${paymentInvoice.id}/record-payment`, { paidAmount: values.paidAmount });
-      message.success('Payment recorded successfully');
+      await apiService.patch(`/procurement/invoices/${paymentInvoice.id}/record-payment`, {
+        paidAmount: values.paidAmount,
+        paymentMode: values.paymentMode,
+        bankAccountId: values.bankAccountId || null,
+        whtAmount: Number(values.whtAmount || 0),
+        chequeNumber: values.chequeNumber?.trim() || null,
+      });
+      message.success('Supplier payment & GL voucher recorded successfully');
       setPaymentVisible(false);
       fetchData(page);
     } catch {
@@ -613,16 +631,54 @@ const PurchaseInvoiceManagement: React.FC = () => {
       </DraggableResizableModal>
 
       <Modal title="Record Supplier Payment" open={paymentVisible}
-        onOk={handlePaymentSubmit} onCancel={() => setPaymentVisible(false)} width={480}>
+        onOk={handlePaymentSubmit} onCancel={() => setPaymentVisible(false)} width={560} okText="Post Payment Voucher">
         {paymentInvoice && (
           <Form form={paymentForm} layout="vertical">
             <p style={{ marginBottom: 12 }}>
-              Invoice <b>{paymentInvoice.invoiceCode}</b> — Total {formatDecimal(paymentInvoice.totalAmount)},
-              Paid {formatDecimal(paymentInvoice.paidAmount ?? 0)}, Remaining{' '}
-              {formatDecimal(Math.max(0, Number(paymentInvoice.totalAmount) - Number(paymentInvoice.paidAmount || 0)))}
+              Invoice <b>{paymentInvoice.invoiceCode}</b> — Total Rs {formatDecimal(paymentInvoice.totalAmount)},
+              Paid Rs {formatDecimal(paymentInvoice.paidAmount ?? 0)}, Remaining{' '}
+              <b>Rs {formatDecimal(Math.max(0, Number(paymentInvoice.totalAmount) - Number(paymentInvoice.paidAmount || 0)))}</b>
             </p>
-            <Form.Item name="paidAmount" label="Paid Amount" rules={[{ required: true }]}>
-              <InputNumber style={{ width: '100%' }} min={0} precision={2} />
+            <Row gutter={12}>
+              <Col span={12}>
+                <Form.Item name="paidAmount" label="Gross Settlement Amount (PKR)" rules={[{ required: true }]}>
+                  <InputNumber style={{ width: '100%' }} min={1} precision={2} prefix="Rs " />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item name="whtAmount" label="Withholding Tax (WHT Deducted)">
+                  <InputNumber style={{ width: '100%' }} min={0} precision={2} prefix="Rs " />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Row gutter={12}>
+              <Col span={12}>
+                <Form.Item name="paymentMode" label="Payment Mode" rules={[{ required: true }]}>
+                  <Select
+                    options={[
+                      { label: 'Bank Transfer / IBFT', value: 'BANK_TRANSFER' },
+                      { label: 'Cheque', value: 'CHEQUE' },
+                      { label: 'Cash', value: 'CASH' },
+                      { label: 'Pay Order', value: 'PAY_ORDER' },
+                    ]}
+                  />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item name="bankAccountId" label="Paid From (Cash / Bank Account)">
+                  <Select
+                    allowClear
+                    placeholder="Select Cash or Bank Account"
+                    options={bankCashAccounts.map((a) => ({
+                      value: a.id,
+                      label: `${a.accountCode} - ${a.accountName}`,
+                    }))}
+                  />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Form.Item name="chequeNumber" label="Cheque / Transfer Reference # (Optional)">
+              <Input placeholder="Optional cheque number or IBFT reference" />
             </Form.Item>
           </Form>
         )}

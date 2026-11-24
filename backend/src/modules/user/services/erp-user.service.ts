@@ -11,6 +11,7 @@ import { CreateErpUserDto, UpdateErpUserDto, AssignRolesDto, AssignOrgScopeDto, 
 import { SupabaseUser } from '../../auth/interfaces/supabase-user.interface';
 import { SupabaseAuthService } from '../../auth/services/supabase-auth.service';
 import { NotificationsService } from '../../notification/notifications.service';
+import { authLookupCache } from '../../../common/cache/auth-lookup-cache';
 
 @Injectable()
 export class ErpUserService {
@@ -32,10 +33,16 @@ export class ErpUserService {
   ) {}
 
   async findByAuthUserId(authUserId: string): Promise<ErpUser | null> {
-    return this.userRepository.findOne({
+    const cached = authLookupCache.getUserByAuthId<ErpUser>(authUserId);
+    if (cached) return cached;
+    const found = await this.userRepository.findOne({
       where: { authUserId },
       relations: ['userRoles', 'userRoles.role', 'defaultCompany'],
     });
+    if (found) {
+      authLookupCache.setUserByAuthId(authUserId, found);
+    }
+    return found;
   }
 
   async createFromAuthUser(supabaseUser: SupabaseUser): Promise<ErpUser> {
@@ -339,7 +346,9 @@ export class ErpUserService {
       throw new NotFoundException('User not found');
     }
     Object.assign(user, updates, { updatedBy: actorUserId ?? user.id });
-    return this.userRepository.save(user);
+    const saved = await this.userRepository.save(user);
+    authLookupCache.invalidateUser(saved.id, saved.authUserId);
+    return saved;
   }
 
   async setAvatarUrl(authUserId: string, avatarUrl: string | null, actorUserId?: string): Promise<ErpUser> {
@@ -352,7 +361,9 @@ export class ErpUserService {
     }
     user.avatarUrl = avatarUrl;
     user.updatedBy = actorUserId ?? user.id;
-    return this.userRepository.save(user);
+    const saved = await this.userRepository.save(user);
+    authLookupCache.invalidateUser(saved.id, saved.authUserId);
+    return saved;
   }
 
   async activate(id: string, userId?: string): Promise<ErpUser> {
@@ -362,7 +373,9 @@ export class ErpUserService {
     }
     user.status = ErpUserStatus.ACTIVE;
     user.updatedBy = userId || null;
-    return this.userRepository.save(user);
+    const saved = await this.userRepository.save(user);
+    authLookupCache.invalidateUser(saved.id, saved.authUserId);
+    return saved;
   }
 
   async deactivate(id: string, userId?: string): Promise<ErpUser> {
@@ -372,7 +385,9 @@ export class ErpUserService {
     }
     user.status = ErpUserStatus.INACTIVE;
     user.updatedBy = userId || null;
-    return this.userRepository.save(user);
+    const saved = await this.userRepository.save(user);
+    authLookupCache.invalidateUser(saved.id, saved.authUserId);
+    return saved;
   }
 
   async updateLastLogin(id: string): Promise<void> {
@@ -386,7 +401,9 @@ export class ErpUserService {
     const user = await this.findOne(id);
     user.avatarUrl = avatarUrl;
     user.updatedBy = actorUserId ?? user.id;
-    return this.userRepository.save(user);
+    const saved = await this.userRepository.save(user);
+    authLookupCache.invalidateUser(saved.id, saved.authUserId);
+    return saved;
   }
 
   async assignRoles(id: string, dto: AssignRolesDto, userId?: string): Promise<ErpUser> {
@@ -417,6 +434,7 @@ export class ErpUserService {
       }
     }
 
+    authLookupCache.invalidateUser(id, user.authUserId);
     return this.findOne(id);
   }
 
@@ -424,6 +442,7 @@ export class ErpUserService {
     for (const roleId of dto.roleIds) {
       await this.userRoleRepository.delete({ userId: id, roleId });
     }
+    authLookupCache.invalidateUser(id);
     return this.findOne(id);
   }
 
@@ -457,7 +476,9 @@ export class ErpUserService {
       status: OrgScopeStatus.ACTIVE,
     });
 
-    return this.orgScopeRepository.save(scope);
+    const saved = await this.orgScopeRepository.save(scope);
+    authLookupCache.invalidateUser(id, user.authUserId);
+    return saved;
   }
 
   /**
@@ -480,6 +501,7 @@ export class ErpUserService {
       throw new NotFoundException('Organizational scope not found');
     }
     await this.orgScopeRepository.remove(scope);
+    authLookupCache.invalidateUser(id);
 
     if (scope.scopeLevel !== ScopeLevel.DIVISION || !scope.divisionId) return;
 
@@ -678,10 +700,14 @@ export class ErpUserService {
       order: { createdAt: 'ASC' },
     });
 
+    authLookupCache.invalidateUser(id, user.authUserId);
     return { user, scopes };
   }
 
   async getUserOrganizationScopes(userId: string): Promise<UserOrganizationScope[]> {
+    const cached = authLookupCache.getScopesByUserId<UserOrganizationScope>(userId);
+    if (cached) return cached;
+
     let scopes = await this.orgScopeRepository.find({
       where: { userId, status: OrgScopeStatus.ACTIVE },
       relations: ['company', 'division', 'section', 'department'],
@@ -730,6 +756,7 @@ export class ErpUserService {
       }
     }
 
+    authLookupCache.setScopesByUserId(userId, scopes);
     return scopes;
   }
 

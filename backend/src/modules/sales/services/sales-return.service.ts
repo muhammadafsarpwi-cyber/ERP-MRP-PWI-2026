@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, Logger, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger, Inject, Optional, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, Not, EntityManager } from 'typeorm';
 import {
@@ -13,6 +13,7 @@ import { StockLedger } from '../../inventory/entities';
 import { StockLedgerService } from '../../inventory/services/stock-ledger.service';
 import { InventoryBalanceService } from '../../inventory/services/inventory-balance.service';
 import { CustomerLedgerService } from '../../customer/services/customer-ledger.service';
+import { FinanceAutoPostingService } from '../../finance/services/finance-auto-posting.service';
 import { CreateSalesReturnDto } from '../dto';
 import { customerNameMatchKeys } from './customer-match.util';
 import { isCommittedReturnStatus } from './sales-return-status.util';
@@ -59,6 +60,9 @@ export class SalesReturnService {
     private readonly balanceService: InventoryBalanceService,
     @Inject(forwardRef(() => CustomerLedgerService))
     private readonly customerLedgerService: CustomerLedgerService,
+    @Optional()
+    @Inject(forwardRef(() => FinanceAutoPostingService))
+    private readonly autoPosting?: FinanceAutoPostingService,
   ) {}
 
   async create(dto: CreateSalesReturnDto, userId?: string): Promise<SalesReturn> {
@@ -652,6 +656,26 @@ export class SalesReturnService {
       locked.status = locked.stockPosted ? 'COMPLETED' : 'CREDITED';
       locked.updatedBy = userId || null;
       await manager.getRepository(SalesReturn).save(locked);
+
+      // Post GL Credit Note entry (DR 4090 Sales Returns + DR 2150 GST / CR 1100 AR)
+      if (this.autoPosting && creditAmount > 0) {
+        const divId = locked.salesOrder?.divisionId || null;
+        await this.autoPosting.postSalesReturnCreditNote({
+          companyId: locked.companyId,
+          returnId: locked.id,
+          returnNumber: locked.returnNumber,
+          creditNoteNumber,
+          creditDate: locked.creditNoteDate,
+          subtotal: Number(locked.subtotal || 0),
+          taxAmount: Number(locked.taxAmount || 0),
+          totalAmount: creditAmount,
+          customerId: masterCustomerId || locked.customerId,
+          customerName: locked.customer?.companyName || undefined,
+          divisionId: divId,
+          actorId: userId,
+          manager,
+        });
+      }
 
       // Automatically adjust original Sales Invoice balance if linked.
       // Balance = max(0, total - paid - all posted credit notes), so credits and

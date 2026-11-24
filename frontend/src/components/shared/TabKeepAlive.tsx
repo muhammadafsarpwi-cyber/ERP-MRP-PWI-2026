@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
+import { matchesTabRefreshDetail, tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 
 export interface TabKeepAliveProps {
   /**
@@ -108,7 +108,7 @@ export const TabKeepAlive: React.FC<TabKeepAliveProps> = ({
   useEffect(() => {
     const handleGlobalRefresh = (e: Event) => {
       const detail = (e as CustomEvent)?.detail;
-      if (!detail?.tabId || String(detail.tabId).startsWith(tabId)) {
+      if (matchesTabRefreshDetail(detail, tabId)) {
         tabSessionCache.remove(tabId);
         loadedOnceRef.current = false;
         setReady(false);

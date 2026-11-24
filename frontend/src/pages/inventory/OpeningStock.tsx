@@ -177,7 +177,7 @@ const OpeningStock: React.FC = () => {
     (async () => {
       setLoadingItems(true);
       try {
-        const res = await apiService.get<any>('/master-data/items', { limit: 5000, divisionId: selectedDivisionId });
+        const res = await apiService.get<any>('/master-data/items/lookup', { divisionId: selectedDivisionId });
         const raw: any[] = Array.isArray(res) ? res : res?.data?.items || res?.data || [];
         const normalized: ItemOption[] = raw
           .filter((it) => it?.id && (!it.divisionId || it.divisionId === selectedDivisionId))

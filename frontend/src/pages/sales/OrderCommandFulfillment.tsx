@@ -40,7 +40,7 @@ import dayjs from 'dayjs';
 import apiService from '../../services/api';
 import { formatDecimal } from '../../utils/numberFormat';
 import { useHeaderActions } from '../../components/layout/headerActionsStore';
-import { TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
+import { matchesTabRefresh, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import { usePermission } from '../../hooks/usePermission';
 import CardSelectDropdown from '../../components/dashboard/CardSelectDropdown';
 import {
@@ -327,8 +327,7 @@ const OrderCommandFulfillment: React.FC = () => {
 
   useEffect(() => {
     const onTabRefresh = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (!detail?.tabId || String(detail.tabId).includes('order-command')) {
+      if (matchesTabRefresh(e, '/sales/order-command')) {
         void fetchOverview(true);
       }
     };

@@ -12,7 +12,7 @@ import { handleValidationErrors } from '../../utils/formValidationHelper';
 import SaveResultDialog, { SaveResultData, SaveResultPhase } from '../../components/shared/SaveResultDialog';
 import { PageHeader, StatusBadge, EmptyState, DraggableResizableModal } from '../../components/shared';
 import GlobalLoading from '../../components/shared/GlobalLoading';
-import { TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
+import { matchesTabRefresh, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 
 interface ItemType {
   id: string;
@@ -214,8 +214,7 @@ const ItemTypeManagement: React.FC = () => {
   // Global header/tab refresh event listener
   useEffect(() => {
     const handleGlobalRefresh = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (!detail?.tabId || String(detail.tabId).startsWith('/master-data/item-types')) {
+      if (matchesTabRefresh(e, '/master-data/item-types')) {
         void fetchData(page);
       }
     };

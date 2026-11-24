@@ -24,7 +24,7 @@ import { DraggableResizableModal, SaveResultDialog, PageHeader, FilterBar, TabKe
 import type { SaveResultData, SaveResultPhase } from '../../../components/shared/SaveResultDialog';
 
 
-import { tabSessionCache, TAB_REFRESH_EVENT } from '../../../services/tabSessionCache';
+import { matchesTabRefresh, tabSessionCache, TAB_REFRESH_EVENT } from '../../../services/tabSessionCache';
 import '../receiving/rawMaterialForms.css';
 
 const { Text, Title } = Typography;
@@ -225,7 +225,10 @@ const RawMaterialReturn: React.FC = () => {
     sourceNo?: string;
     dateFrom?: string;
     dateTo?: string;
-  }>(() => cachedTab?.filters ?? {});
+  }>(() => cachedTab?.filters ?? {
+    dateFrom: dayjs().subtract(6, 'day').format('YYYY-MM-DD'),
+    dateTo: dayjs().format('YYYY-MM-DD'),
+  });
 
   const [modalOpen, setModalOpen] = useState(false);
   const [isModalMinimized, setIsModalMinimized] = useState(false);
@@ -414,8 +417,7 @@ const RawMaterialReturn: React.FC = () => {
   // Global header/tab refresh event listener
   useEffect(() => {
     const handleGlobalRefresh = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (!detail?.tabId || String(detail.tabId).startsWith(RM_RETURN_TAB_ID)) {
+      if (matchesTabRefresh(e, RM_RETURN_TAB_ID)) {
         tabSessionCache.remove(RM_RETURN_TAB_ID);
         void loadList(1);
       }

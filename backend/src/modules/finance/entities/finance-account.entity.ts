@@ -46,7 +46,7 @@ export class FinanceAccount extends BaseEntity {
   @JoinColumn({ name: 'parent_account_id' })
   parentAccount: FinanceAccount | null;
 
-  @Column({ type: 'varchar', length: 3, default: 'USD' })
+  @Column({ type: 'varchar', length: 3, default: 'PKR' })
   currency: string;
 
   @Column({ name: 'is_bank_cash', type: 'boolean', default: false })
@@ -57,6 +57,15 @@ export class FinanceAccount extends BaseEntity {
 
   @Column({ name: 'is_ap', type: 'boolean', default: false })
   isAp: boolean;
+
+  @Column({ name: 'bank_name', type: 'varchar', length: 120, nullable: true })
+  bankName: string | null;
+
+  @Column({ name: 'bank_account_number', type: 'varchar', length: 80, nullable: true })
+  bankAccountNumber: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  notes: string | null;
 
   @Column({ type: 'varchar', length: 20, default: 'ACTIVE' })
   status: string;

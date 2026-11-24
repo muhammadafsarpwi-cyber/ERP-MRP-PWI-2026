@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import * as crypto from 'crypto';
+import { authLookupCache } from './auth-lookup-cache';
 
 export interface CacheRule {
   id: string;
@@ -39,6 +40,12 @@ const DEFAULT_CACHE_RULES: CacheRule[] = [
     ttlMs: 60_000,
     tags: ['team-chat:attachment'],
     perUser: true,
+  },
+  {
+    id: 'items-lookup',
+    pattern: /^\/(master-data\/)?items\/lookup$/,
+    ttlMs: 120_000,
+    tags: ['items'],
   },
   {
     id: 'items',
@@ -97,10 +104,18 @@ const DEFAULT_CACHE_RULES: CacheRule[] = [
     tags: ['masters'],
   },
   {
+    id: 'sales-analytics',
+    pattern: /^\/sales\/analytics\/(dashboard|customer-analytics|customer-rankings|item-analytics|customer-item-matrix|order-fulfillment|finished-goods-availability|customer-outstanding|nipple-shipment-plan)$/,
+    ttlMs: 60_000,
+    tags: ['sales-analytics', 'nipple-alerts'],
+    perUser: true,
+  },
+  {
     id: 'nipple-alerts',
     pattern: /^\/sales\/analytics\/nipple-import-alerts$/,
     ttlMs: 60_000,
     tags: ['nipple-alerts'],
+    perUser: true,
   },
   {
     id: 'comm-summary',
@@ -144,21 +159,29 @@ const DEFAULT_CACHE_RULES: CacheRule[] = [
     tags: ['production:bulk-ledger'],
     perUser: false,
   },
+  {
+    id: 'finance:reports-and-coa',
+    pattern: /^\/finance\/(accounts|accounts\/bank-cash|account-groups|reports\/(trial-balance|general-ledger|cash-bank-book|pl|balance-sheet|ar|ap))$/,
+    ttlMs: 20_000,
+    tags: ['finance'],
+    perUser: true,
+  },
 ];
 
 const INVALIDATION_RULES: Array<{ pattern: RegExp; tags: string[] | 'ALL' }> = [
   { pattern: /^\/(master-data\/)?items(\/|$)/, tags: ['items', 'routings', 'nipple-alerts', 'masters', 'dashboard', 'production:bulk-ledger'] },
   { pattern: /^\/(production\/)?machines(\/|$)/, tags: ['machines', 'routings', 'machine-tooling', 'dashboard'] },
   { pattern: /^\/(organization\/)?departments(\/|$)/, tags: ['departments', 'divisions', 'machines', 'routings', 'masters', 'dashboard'] },
-  { pattern: /^\/divisions(\/|$)/, tags: ['divisions', 'departments', 'warehouses', 'items', 'routings', 'masters', 'dashboard'] },
+  { pattern: /^\/divisions(\/|$)/, tags: ['divisions', 'departments', 'warehouses', 'items', 'routings', 'masters', 'dashboard', 'finance'] },
   { pattern: /^\/((organization\/)?warehouses|store\/stores)(\/|$)/, tags: ['warehouses', 'routings', 'dashboard'] },
   { pattern: /^\/(uoms|master-data\/uoms?|master-data\/uom-conversions)(\/|$)/, tags: ['uoms', 'items', 'routings', 'masters', 'dashboard', 'production:bulk-ledger'] },
   { pattern: /^\/production\/routings(\/|$)/, tags: ['routings', 'dashboard'] },
   { pattern: /^\/machine-tooling(\/|$)/, tags: ['machine-tooling', 'machines', 'dashboard'] },
   { pattern: /^\/team-chat(\/|$)/, tags: ['team-chat:users', 'team-chat:conversations'] },
   { pattern: /^\/(sections|master-data\/(operations|categories|item-types|route-types))(\/|$)/, tags: ['masters', 'items', 'routings', 'dashboard'] },
-  { pattern: /^\/customer(\/|$)/, tags: ['customers', 'dashboard'] },
-  { pattern: /^\/(sales|procurement|inventory|production|store|bom|raw-material-receiving)(\/|$)/, tags: ['nipple-alerts', 'routings', 'dashboard', 'sales-command', 'sales-orders', 'production:bulk-ledger'] },
+  { pattern: /^\/customer(\/|$)/, tags: ['customers', 'dashboard', 'finance'] },
+  { pattern: /^\/(sales|procurement|inventory|production|store|bom|raw-material-receiving)(\/|$)/, tags: ['sales-analytics', 'nipple-alerts', 'routings', 'dashboard', 'sales-command', 'sales-orders', 'production:bulk-ledger', 'finance'] },
+  { pattern: /^\/finance(\/|$)/, tags: ['finance', 'dashboard'] },
   { pattern: /^\/(notifications|communication)(\/|$)/, tags: ['comm-summary'] },
   { pattern: /^\/admin\/(users|roles|permissions|recycle-bin)(\/|$)/, tags: 'ALL' },
 ];
@@ -268,5 +291,6 @@ export class ResponseCacheService {
 
   invalidateAll(): void {
     this.store.clear();
+    authLookupCache.invalidateAll();
   }
 }

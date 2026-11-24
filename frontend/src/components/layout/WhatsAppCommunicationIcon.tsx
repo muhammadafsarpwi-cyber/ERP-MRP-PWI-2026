@@ -54,20 +54,8 @@ const WhatsAppCommunicationIcon: React.FC = () => {
   useEffect(() => {
     mountedRef.current = true;
     void refresh();
-    const timer = setInterval(() => {
-      if (typeof document !== 'undefined' && document.hidden) return;
-      void refresh();
-    }, POLL_INTERVAL_MS);
-    const onVisibilityChange = () => {
-      if (typeof document !== 'undefined' && !document.hidden) {
-        void refresh();
-      }
-    };
-    document?.addEventListener?.('visibilitychange', onVisibilityChange);
     return () => {
       mountedRef.current = false;
-      clearInterval(timer);
-      document?.removeEventListener?.('visibilitychange', onVisibilityChange);
     };
   }, [refresh]);
 
@@ -94,6 +82,9 @@ const WhatsAppCommunicationIcon: React.FC = () => {
           <span style={{ fontWeight: 600, color: 'var(--theme-text)' }}>WhatsApp Communication</span>
         </Space>
         <Space size={0}>
+          <Button type="link" size="small" icon={<SyncOutlined spin={loading} />} onClick={() => void refresh()} data-testid="whatsapp-refresh">
+            Refresh
+          </Button>
           <Button type="link" size="small" onClick={() => { setOpen(false); navigate('/communication/whatsapp-logs'); }} data-testid="whatsapp-open-logs">
             Logs
           </Button>

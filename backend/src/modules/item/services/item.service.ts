@@ -679,7 +679,12 @@ export class ItemService implements OnModuleInit {
    * Caches active items in memory for 5 minutes (invalidated on item write)
    * so frontend requests resolve in < 5ms.
    */
-  async getLookupItems(departmentId?: string, allowedDivisionIds?: string[], itemTypes?: string | string[]): Promise<any[]> {
+  async getLookupItems(
+    departmentId?: string,
+    allowedDivisionIds?: string[],
+    itemTypes?: string | string[],
+    divisionId?: string,
+  ): Promise<any[]> {
     try {
       const now = Date.now();
       const rawTypes: string[] = [];
@@ -712,14 +717,20 @@ export class ItemService implements OnModuleInit {
         return [clean];
       })));
 
-      if (!departmentId && !allowedDivisionIds && resolvedTypes.length === 0 && this.lookupMemoryCache && (now - this.lookupMemoryCache.timestamp < this.LOOKUP_CACHE_TTL)) {
+      if (!departmentId && !divisionId && !allowedDivisionIds && resolvedTypes.length === 0 && this.lookupMemoryCache && (now - this.lookupMemoryCache.timestamp < this.LOOKUP_CACHE_TTL)) {
         return this.lookupMemoryCache.data;
       }
-      if (!departmentId && allowedDivisionIds && resolvedTypes.length === 0 && this.lookupMemoryCache && (now - this.lookupMemoryCache.timestamp < this.LOOKUP_CACHE_TTL)) {
+      if (!departmentId && !divisionId && allowedDivisionIds && resolvedTypes.length === 0 && this.lookupMemoryCache && (now - this.lookupMemoryCache.timestamp < this.LOOKUP_CACHE_TTL)) {
         return this.lookupMemoryCache.data.filter(item => !item.divisionId || allowedDivisionIds.includes(item.divisionId));
       }
+      if (!departmentId && divisionId && resolvedTypes.length === 0 && this.lookupMemoryCache && (now - this.lookupMemoryCache.timestamp < this.LOOKUP_CACHE_TTL)) {
+        const divFiltered = this.lookupMemoryCache.data.filter(item => !item.divisionId || item.divisionId === divisionId);
+        return allowedDivisionIds
+          ? divFiltered.filter(item => !item.divisionId || allowedDivisionIds.includes(item.divisionId))
+          : divFiltered;
+      }
 
-      const cacheKey = `${departmentId || 'all'}:${(allowedDivisionIds || []).slice().sort().join(',')}:${resolvedTypes.slice().sort().join(',')}`;
+      const cacheKey = `${departmentId || 'all'}:${divisionId || 'all'}:${(allowedDivisionIds || []).slice().sort().join(',')}:${resolvedTypes.slice().sort().join(',')}`;
       const cached = this.parameterizedLookupCache.get(cacheKey);
       if (cached && (now - cached.timestamp < this.LOOKUP_CACHE_TTL)) {
         return cached.data;
@@ -737,12 +748,24 @@ export class ItemService implements OnModuleInit {
           i.cost_price AS "costPrice",
           i.material_role_usage AS "materialRoleUsage",
           i.status,
+          i.is_active AS "isActive",
           i.is_manufacturable AS "isManufacturable",
+          i.is_store_item AS "isStoreItem",
+          i.storage_location AS "storageLocation",
+          i.minimum_stock_level AS "minimumStockLevel",
+          i.reorder_level AS "reorderLevel",
+          i.maximum_stock_level AS "maximumStockLevel",
+          i.batch_tracked AS "batchTracked",
+          i.serial_tracked AS "serialTracked",
           i.department_id AS "departmentId",
           i.section_id AS "sectionId",
           i.division_id AS "divisionId",
           i.category_id AS "categoryId",
+          c.name AS "categoryName",
+          i.route_type_id AS "routeTypeId",
           i.wire_size_mm AS "wireSizeMm",
+          i.thickness_mm AS "thicknessMm",
+          i.width_mm AS "widthMm",
           i.weight_per_piece AS "weightPerPiece",
           i.pieces_per_kg AS "piecesPerKg",
           i.weight_per_meter AS "weightPerMeter",
@@ -756,8 +779,6 @@ export class ItemService implements OnModuleInit {
           i.packaging_unit AS "packagingUnit",
           i.purchase_uom_id AS "purchaseUomId",
           i.sales_uom_id AS "salesUomId",
-          u.code AS "baseUomCode",
-          u.symbol AS "baseUomSymbol",
           su.code AS "salesUomCode",
           su.symbol AS "salesUomSymbol",
           pu.code AS "purchaseUomCode",
@@ -772,12 +793,17 @@ export class ItemService implements OnModuleInit {
         LEFT JOIN uoms u ON u.id = i.base_uom_id
         LEFT JOIN uoms su ON su.id = i.sales_uom_id
         LEFT JOIN uoms pu ON pu.id = i.purchase_uom_id
+        LEFT JOIN item_categories c ON c.id = i.category_id
         WHERE i.status = 'ACTIVE'
       `;
       const params: any[] = [];
       if (departmentId) {
         params.push(departmentId);
         sql += ` AND i.department_id = $${params.length}`;
+      }
+      if (divisionId) {
+        params.push(divisionId);
+        sql += ` AND (i.division_id = $${params.length} OR i.division_id IS NULL)`;
       }
       if (resolvedTypes.length > 0) {
         params.push(resolvedTypes);
@@ -794,12 +820,13 @@ export class ItemService implements OnModuleInit {
       const rows = await this.itemRepository.query(sql, params);
       const result = (rows || []).map((r: any) => ({
         ...r,
+        uomCode: r.baseUomCode || undefined,
         baseUom: r.baseUomCode ? { id: r.baseUomId, code: r.baseUomCode, symbol: r.baseUomSymbol } : undefined,
         salesUom: r.salesUomCode ? { id: r.salesUomId, code: r.salesUomCode, symbol: r.salesUomSymbol } : undefined,
         purchaseUom: r.purchaseUomCode ? { id: r.purchaseUomId, code: r.purchaseUomCode, symbol: r.purchaseUomSymbol } : undefined,
       }));
 
-      if (!departmentId && !allowedDivisionIds && resolvedTypes.length === 0) {
+      if (!departmentId && !divisionId && !allowedDivisionIds && resolvedTypes.length === 0) {
         this.lookupMemoryCache = { data: result, timestamp: now };
       }
       this.parameterizedLookupCache.set(cacheKey, { data: result, timestamp: now });

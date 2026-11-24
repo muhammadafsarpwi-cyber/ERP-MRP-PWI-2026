@@ -110,9 +110,93 @@ export const tabSessionCache = {
 
 export const TAB_REFRESH_EVENT = 'erp_tab_refresh_event';
 
+const WORKSPACE_TABS_STORAGE_KEY = 'pwi_erp_workspace_tabs_v1';
+
+export function normalizeTabPath(raw?: string | null): string {
+  if (!raw) return '/';
+  const cleaned = String(raw).split('?')[0].split('#')[0].replace(/\/+$/, '') || '/';
+  // Strip version suffixes like /dashboard/v5 -> /dashboard for route matching
+  return cleaned.replace(/\/v\d+$/, '') || '/';
+}
+
+export function getActiveWorkspaceTabId(): string | null {
+  try {
+    const raw = localStorage.getItem(WORKSPACE_TABS_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed.activeTabId === 'string' && parsed.activeTabId.trim()) {
+        return parsed.activeTabId;
+      }
+    }
+  } catch {
+    // ignore storage errors
+  }
+  if (typeof window !== 'undefined' && window.location?.pathname) {
+    return window.location.pathname;
+  }
+  return null;
+}
+
+export function isRouteActive(canonicalTabIds: string | string[]): boolean {
+  const activeRaw = getActiveWorkspaceTabId();
+  if (!activeRaw) return false;
+  const active = normalizeTabPath(activeRaw);
+  const ids = Array.isArray(canonicalTabIds) ? canonicalTabIds : [canonicalTabIds];
+  return ids.some((id) => {
+    const norm = normalizeTabPath(id);
+    if (norm === '/') return active === '/';
+    return active === norm || active.startsWith(`${norm}/`);
+  });
+}
+
+/**
+ * Strict route-scoped matcher for `TAB_REFRESH_EVENT`.
+ * - When `detail.tabId` or `detail.path` is omitted, returns true ONLY for the
+ *   currently active workspace tab (preventing background tabs from reloading).
+ * - When a target route is specified, matches on an exact segment boundary
+ *   rather than `.includes()` / bare `.startsWith()` (so `/sales/orders`
+ *   never triggers `/sales/orders-division-review` or `/sales/order-command`).
+ */
+export function matchesTabRefreshDetail(
+  detail: { tabId?: string; path?: string } | undefined | null,
+  canonicalTabIds: string | string[],
+): boolean {
+  const rawTarget = detail?.tabId || detail?.path;
+  if (!rawTarget) {
+    return isRouteActive(canonicalTabIds);
+  }
+  const target = normalizeTabPath(rawTarget);
+  const ids = Array.isArray(canonicalTabIds) ? canonicalTabIds : [canonicalTabIds];
+  return ids.some((id) => {
+    const norm = normalizeTabPath(id);
+    if (norm === '/') return target === '/';
+    return target === norm || target.startsWith(`${norm}/`);
+  });
+}
+
+export function matchesTabRefresh(
+  event: Event,
+  canonicalTabIds: string | string[],
+): boolean {
+  const detail = (event as CustomEvent<{ tabId?: string; path?: string }>)?.detail;
+  return matchesTabRefreshDetail(detail, canonicalTabIds);
+}
+
+/** Marks a short window during which API GET requests bypass server/ETag cache. */
+export function markManualRefreshWindow(durationMs = 800): void {
+  if (typeof window !== 'undefined') {
+    (window as any).__erpBypassServerCacheUntil = Date.now() + durationMs;
+  }
+}
+
 /**
  * Dispatches a manual refresh request for the active tab or a specific tabId.
  */
 export function triggerTabRefresh(tabId?: string): void {
-  window.dispatchEvent(new CustomEvent(TAB_REFRESH_EVENT, { detail: { tabId } }));
+  const target = tabId ?? getActiveWorkspaceTabId() ?? undefined;
+  markManualRefreshWindow(800);
+  if (target) {
+    tabSessionCache.remove(target);
+  }
+  window.dispatchEvent(new CustomEvent(TAB_REFRESH_EVENT, { detail: { tabId: target } }));
 }

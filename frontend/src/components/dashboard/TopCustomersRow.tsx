@@ -7,7 +7,7 @@ import {
   InboxOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import { TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
+import { matchesTabRefresh, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import { DateRangePreset, dateRangePresetToFilters } from './dashboardShared';
 import { getFiscalQuarterFromIso, getFiscalYearFromIso } from '../../utils/fiscalYear';
 import dashboardService, {
@@ -228,8 +228,7 @@ export const TopCustomersRow: React.FC<TopCustomersRowProps> = ({
 
   useEffect(() => {
     const onRefresh = (evt: Event) => {
-      const detail = (evt as CustomEvent<{ tabId?: string }>)?.detail;
-      if (!detail?.tabId || detail.tabId === '/dashboard' || String(detail.tabId).startsWith('/dashboard/')) {
+      if (matchesTabRefresh(evt, '/dashboard')) {
         clearTopCustomersCache();
         setRefreshNonce((n) => n + 1);
       }

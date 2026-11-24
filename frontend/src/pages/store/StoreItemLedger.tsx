@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import dayjs from 'dayjs';
 import { Card, Table, Select, DatePicker, Tag, Empty, Space } from 'antd';
 import { DatabaseOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
@@ -53,7 +54,10 @@ const StoreItemLedger: React.FC = () => {
   const [ledgerData, setLedgerData] = useState<LedgerEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [storesLoading, setStoresLoading] = useState(true);
-  const [dateRange, setDateRange] = useState<[any, any] | null>(null);
+  const [dateRange, setDateRange] = useState<[any, any] | null>(() => [
+    dayjs().subtract(6, 'day'),
+    dayjs(),
+  ]);
 
   useEffect(() => {
     loadStores();
@@ -175,7 +179,7 @@ const StoreItemLedger: React.FC = () => {
               options={stores.map(s => ({ value: s.id, label: `${s.storeCode} - ${s.storeName}` }))}
             />
             <span style={{ fontWeight: 500 }}>Date Range:</span>
-            <RangePicker onChange={(dates) => setDateRange(dates as [any, any])} />
+            <RangePicker value={dateRange} onChange={(dates) => setDateRange(dates as [any, any])} />
           </Space>
         </Card>
 

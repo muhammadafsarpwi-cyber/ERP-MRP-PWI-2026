@@ -1,4 +1,16 @@
-import { IsString, IsNotEmpty, IsOptional, IsNumber, IsIn, IsDateString, Min, MaxLength, IsArray, ValidateNested, IsInt } from 'class-validator';
+import {
+  IsString,
+  IsNotEmpty,
+  IsOptional,
+  IsNumber,
+  IsIn,
+  IsDateString,
+  Min,
+  MaxLength,
+  IsArray,
+  ValidateNested,
+  IsBoolean,
+} from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { AccountType, NormalBalance } from '../entities';
@@ -10,12 +22,16 @@ export class CreateAccountDto {
   @ApiProperty() @IsString() @IsNotEmpty() @MaxLength(255) accountName: string;
   @ApiProperty({ enum: AccountType }) @IsIn(Object.values(AccountType)) accountType: string;
   @ApiProperty({ enum: NormalBalance }) @IsIn(Object.values(NormalBalance)) normalBalance: string;
-  @ApiPropertyOptional() @IsUUID() @IsOptional() groupId?: string;
-  @ApiPropertyOptional() @IsUUID() @IsOptional() parentAccountId?: string;
+  @ApiPropertyOptional() @IsUUID() @IsOptional() groupId?: string | null;
+  @ApiPropertyOptional() @IsUUID() @IsOptional() parentAccountId?: string | null;
   @ApiPropertyOptional() @IsString() @IsOptional() currency?: string;
-  @ApiPropertyOptional() @IsOptional() isBankCash?: boolean;
-  @ApiPropertyOptional() @IsOptional() isAr?: boolean;
-  @ApiPropertyOptional() @IsOptional() isAp?: boolean;
+  @ApiPropertyOptional() @IsOptional() @IsBoolean() isBankCash?: boolean;
+  @ApiPropertyOptional() @IsOptional() @IsBoolean() isAr?: boolean;
+  @ApiPropertyOptional() @IsOptional() @IsBoolean() isAp?: boolean;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(120) bankName?: string | null;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(80) bankAccountNumber?: string | null;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(1000) notes?: string | null;
+  @ApiPropertyOptional({ enum: ['ACTIVE', 'INACTIVE'] }) @IsOptional() @IsIn(['ACTIVE', 'INACTIVE']) status?: string;
 }
 
 export class CreateJournalLineDto {
@@ -25,20 +41,69 @@ export class CreateJournalLineDto {
   @ApiProperty({ default: 0 }) @IsNumber() @Min(0) credit: number;
   @ApiPropertyOptional() @IsString() @IsOptional() referenceType?: string;
   @ApiPropertyOptional() @IsUUID() @IsOptional() referenceId?: string;
+  @ApiPropertyOptional() @IsUUID() @IsOptional() divisionId?: string | null;
+  @ApiPropertyOptional() @IsString() @IsOptional() partyType?: string | null;
+  @ApiPropertyOptional() @IsUUID() @IsOptional() partyId?: string | null;
 }
 
 export class CreateJournalDto {
-  @ApiProperty() @IsUUID() @IsNotEmpty() companyId: string;
-  @ApiProperty({ enum: ['GENERAL','RECEIPT','PAYMENT','EXPENSE','SALES_INVOICE','PURCHASE_INVOICE','CONTRA'] })
-  @IsIn(['GENERAL','RECEIPT','PAYMENT','EXPENSE','SALES_INVOICE','PURCHASE_INVOICE','CONTRA'])
+  @ApiPropertyOptional() @IsUUID() @IsOptional() companyId?: string;
+  @ApiProperty({
+    enum: [
+      'GENERAL',
+      'RECEIPT',
+      'PAYMENT',
+      'EXPENSE',
+      'SALES_INVOICE',
+      'PURCHASE_INVOICE',
+      'CONTRA',
+      'SALES_RETURN',
+      'GRN_ACCRUAL',
+    ],
+  })
+  @IsIn([
+    'GENERAL',
+    'RECEIPT',
+    'PAYMENT',
+    'EXPENSE',
+    'SALES_INVOICE',
+    'PURCHASE_INVOICE',
+    'CONTRA',
+    'SALES_RETURN',
+    'GRN_ACCRUAL',
+  ])
   journalType: string;
   @ApiProperty() @IsDateString() entryDate: string;
   @ApiPropertyOptional() @IsUUID() @IsOptional() periodId?: string;
   @ApiPropertyOptional() @IsUUID() @IsOptional() fiscalYearId?: string;
   @ApiPropertyOptional() @IsString() @IsOptional() @MaxLength(500) description?: string;
+  @ApiPropertyOptional({ enum: ['JV', 'PV', 'RV', 'CV'] }) @IsOptional() @IsIn(['JV', 'PV', 'RV', 'CV']) voucherType?: string;
+  @ApiPropertyOptional() @IsUUID() @IsOptional() divisionId?: string | null;
+  @ApiPropertyOptional() @IsString() @IsOptional() partyType?: string | null;
+  @ApiPropertyOptional() @IsUUID() @IsOptional() partyId?: string | null;
+  @ApiPropertyOptional() @IsString() @IsOptional() paymentMode?: string | null;
+  @ApiPropertyOptional() @IsString() @IsOptional() chequeNumber?: string | null;
+  @ApiPropertyOptional() @IsDateString() @IsOptional() chequeDate?: string | null;
+  @ApiPropertyOptional() @IsUUID() @IsOptional() bankAccountId?: string | null;
+  @ApiPropertyOptional() @IsOptional() @IsBoolean() postImmediately?: boolean;
   @ApiProperty({ type: [CreateJournalLineDto] })
-  @IsArray() @ValidateNested({ each: true }) @Type(() => CreateJournalLineDto)
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CreateJournalLineDto)
   lines: CreateJournalLineDto[];
+}
+
+export class CreateContraTransferDto {
+  @ApiPropertyOptional() @IsUUID() @IsOptional() companyId?: string;
+  @ApiProperty() @IsDateString() entryDate: string;
+  @ApiProperty() @IsUUID() fromAccountId: string;
+  @ApiProperty() @IsUUID() toAccountId: string;
+  @ApiProperty() @IsNumber() @Min(0.01) amount: number;
+  @ApiPropertyOptional() @IsUUID() @IsOptional() divisionId?: string | null;
+  @ApiPropertyOptional() @IsString() @IsOptional() @MaxLength(30) paymentMode?: string;
+  @ApiPropertyOptional() @IsString() @IsOptional() @MaxLength(60) chequeNumber?: string;
+  @ApiPropertyOptional() @IsString() @IsOptional() @MaxLength(500) description?: string;
+  @ApiPropertyOptional() @IsOptional() @IsBoolean() postImmediately?: boolean;
 }
 
 export class CreateFiscalYearDto {
@@ -49,5 +114,5 @@ export class CreateFiscalYearDto {
 }
 
 export class ClosePeriodDto {
-  @ApiProperty({ enum: ['OPEN','CLOSED'] }) @IsIn(['OPEN','CLOSED']) status: string;
+  @ApiProperty({ enum: ['OPEN', 'CLOSED'] }) @IsIn(['OPEN', 'CLOSED']) status: string;
 }

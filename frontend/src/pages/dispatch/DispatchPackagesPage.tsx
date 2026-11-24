@@ -47,7 +47,7 @@ import { apiService } from '../../services/api';
 import { MobilePackageBuilder } from './MobilePackageBuilder';
 import { DispatchPackagePrintModal } from './DispatchPackagePrint';
 import { GatePassExitModal } from './GatePassExitModal';
-import { tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
+import { matchesTabRefresh, tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 
 const { Title, Text } = Typography;
 
@@ -114,8 +114,8 @@ export const DispatchPackagesPage: React.FC = () => {
 
   // Tab refresh listener
   useEffect(() => {
-    const handleTabRefresh = (e: any) => {
-      if (!e.detail?.tabId || e.detail.tabId === DISPATCH_PACKAGES_TAB_ID) {
+    const handleTabRefresh = (e: Event) => {
+      if (matchesTabRefresh(e, DISPATCH_PACKAGES_TAB_ID)) {
         loadPackages();
       }
     };

@@ -32,7 +32,7 @@ import { rawNum, isoDate } from '../../utils/csvRoundTrip';
 import BarcodePrint from '../../components/shared/BarcodePrint';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
+import { matchesTabRefresh, tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import { CardSelectDropdown } from '../../components/dashboard/CardSelectDropdown';
 
 const { Text } = Typography;
@@ -1856,8 +1856,7 @@ const MachineManagement: React.FC<{ initialMachineId?: string }> = ({ initialMac
   // Global header/tab refresh event listener
   useEffect(() => {
     const handleGlobalRefresh = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (!detail?.tabId || String(detail.tabId).startsWith(MASTER_MACHINE_MASTER_TAB_ID)) {
+      if (matchesTabRefresh(e, MASTER_MACHINE_MASTER_TAB_ID)) {
         tabSessionCache.remove(MASTER_MACHINE_MASTER_TAB_ID);
         void fetchMachinesRef.current(page);
       }
