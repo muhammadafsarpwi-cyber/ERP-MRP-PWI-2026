@@ -106,6 +106,176 @@ interface SalesOrder {
 
 const STATUS_OPTIONS = ['All statuses', 'Draft', 'Confirmed', 'Processing', 'Shipped', 'Delivered', 'Closed', 'Cancelled'];
 
+export interface ResolvedOrderCustomer {
+  name: string;
+  code: string;
+  displayWithCode: string;
+}
+
+export function normalizeSalesUomCode(raw?: string | null): string {
+  const cleaned = String(raw || '').trim().toUpperCase();
+  if (!cleaned) return '';
+  if (cleaned === 'METER' || cleaned === 'METERS' || cleaned === 'MTR' || cleaned === 'MTRS') return 'M';
+  if (cleaned === 'GROSS') return 'GRS';
+  if (cleaned === 'KILOGRAM' || cleaned === 'KILOGRAMS' || cleaned === 'KGS') return 'KG';
+  return cleaned;
+}
+
+export function resolveDivisionDefaultUom(
+  division?: { divisionCode?: string; name?: string } | null,
+): string {
+  if (!division) return '';
+  const code = String(division.divisionCode || '').trim().toUpperCase();
+  const name = String(division.name || '').trim().toLowerCase();
+  if (code.includes('CCD') || name.includes('control cable') || name.includes('cable')) return 'M';
+  if (code.includes('SPI') || name.includes('spoke')) return 'GRS';
+  if (code.includes('WRD') || name.includes('wire')) return 'KG';
+  return '';
+}
+
+export function resolveOrderLineUom(
+  item: any,
+  division?: { divisionCode?: string; name?: string } | null,
+): string {
+  const fromItem = normalizeSalesUomCode(
+    item?.uom?.code ||
+    item?.uomCode ||
+    item?.item?.salesUom?.code ||
+    item?.item?.baseUom?.code,
+  );
+  if (fromItem) return fromItem;
+  return resolveDivisionDefaultUom(division) || 'Units';
+}
+
+export function resolveOrderUomLabel(
+  record: { divisionId?: string | null; division?: { id?: string; divisionCode?: string; name?: string } | null; items?: any[] } | null | undefined,
+  divisionsList: Array<{ id: string; divisionCode: string; name: string }> = [],
+): string {
+  if (!record) return 'Units';
+  const div = record.division || divisionsList.find((d) => d.id === record.divisionId) || null;
+  const items = record.items || [];
+  const uoms = Array.from(
+    new Set(items.map((it: any) => resolveOrderLineUom(it, div)).filter(Boolean)),
+  );
+  if (uoms.length === 1) return uoms[0];
+  if (uoms.length > 1) return uoms.join('/');
+  return resolveDivisionDefaultUom(div) || 'Units';
+}
+
+export interface UomKpiBucket {
+  uom: string;
+  demand: number;
+  delivered: number;
+  remaining: number;
+}
+
+export interface SalesOrderKpiSummary {
+  totalOrdersCount: number;
+  totalDemandQty: number;
+  totalDeliveredQty: number;
+  remainingBalanceQty: number;
+  dispatchPercentage: string;
+  balancePercentage: string;
+  totalGrossAmount: number;
+  primaryUom: string;
+  isMixedUom: boolean;
+  uomBuckets: UomKpiBucket[];
+}
+
+export function summarizeSalesOrderKpis(
+  orders: Array<Pick<SalesOrder, 'totalAmount' | 'divisionId' | 'division' | 'items'>>,
+  divisionsList: Array<{ id: string; divisionCode: string; name: string }> = [],
+  activeDivisionId?: string,
+  totalCount?: number,
+): SalesOrderKpiSummary {
+  const list = orders || [];
+  const totalOrdersCount = totalCount || list.length;
+  const activeDivision = activeDivisionId
+    ? divisionsList.find((d) => d.id === activeDivisionId) || null
+    : null;
+
+  let totalDemandQty = 0;
+  let totalDeliveredQty = 0;
+  let totalGrossAmount = 0;
+  const bucketMap = new Map<string, UomKpiBucket>();
+
+  list.forEach((ord) => {
+    totalGrossAmount += Number(ord.totalAmount || 0);
+    const ordDiv = ord.division || divisionsList.find((d) => d.id === ord.divisionId) || activeDivision;
+    const items = ord.items || [];
+    items.forEach((it: any) => {
+      const demand = Number(it.quantity || it.orderedQuantity || 0);
+      const delivered = Number(it.deliveredQuantity ?? it.shippedQuantity ?? 0);
+      const remaining = Math.max(0, demand - delivered);
+      totalDemandQty += demand;
+      totalDeliveredQty += delivered;
+
+      const uom = resolveOrderLineUom(it, ordDiv);
+      const existing = bucketMap.get(uom) || { uom, demand: 0, delivered: 0, remaining: 0 };
+      existing.demand += demand;
+      existing.delivered += delivered;
+      existing.remaining += remaining;
+      bucketMap.set(uom, existing);
+    });
+  });
+
+  const uomBuckets = Array.from(bucketMap.values()).sort((a, b) => b.demand - a.demand);
+  const isMixedUom = uomBuckets.length > 1;
+  const primaryUom =
+    uomBuckets.length >= 1
+      ? uomBuckets[0].uom
+      : resolveDivisionDefaultUom(activeDivision) || 'Units';
+
+  const remainingBalanceQty = Math.max(0, totalDemandQty - totalDeliveredQty);
+  const dispatchPercentage = totalDemandQty > 0 ? ((totalDeliveredQty / totalDemandQty) * 100).toFixed(1) : '0.0';
+  const balancePercentage = totalDemandQty > 0 ? ((remainingBalanceQty / totalDemandQty) * 100).toFixed(1) : '100.0';
+
+  return {
+    totalOrdersCount,
+    totalDemandQty,
+    totalDeliveredQty,
+    remainingBalanceQty,
+    dispatchPercentage,
+    balancePercentage,
+    totalGrossAmount,
+    primaryUom,
+    isMixedUom,
+    uomBuckets,
+  };
+}
+
+export function resolveSalesOrderCustomer(
+  record: any,
+  customersList: Array<{ id: string; name?: string; companyName?: string; customerCode?: string }> = [],
+): ResolvedOrderCustomer {
+  if (!record) return { name: '-', code: '', displayWithCode: '-' };
+  const c = typeof record.customer === 'object' && record.customer !== null ? record.customer : undefined;
+  const targetId = record.customerId || (typeof record.customer === 'string' ? record.customer : c?.id);
+  const found = targetId ? customersList.find((item) => item.id === targetId) : undefined;
+
+  const code = String(
+    c?.customerCode ||
+    found?.customerCode ||
+    record.customerCode ||
+    '',
+  ).trim();
+
+  const name = String(
+    c?.companyName ||
+    c?.name ||
+    c?.legalName ||
+    found?.companyName ||
+    found?.name ||
+    record.companyName ||
+    record.customerName ||
+    '',
+  ).trim();
+
+  const safeName = name || code || '-';
+  const displayWithCode = code && safeName && safeName !== code ? `[${code}] ${safeName}` : safeName;
+  return { name: safeName, code, displayWithCode };
+}
+
 export function buildSalesOrderPayload(values: any, lineItems: ERPLine[], editingOrderNumber?: string): any {
   let orderNumber: string | undefined;
   if (editingOrderNumber && String(editingOrderNumber).trim()) {
@@ -528,28 +698,7 @@ const SalesOrderManagement: React.FC = () => {
   }, []);
 
   const getCustomerDisplayName = useCallback((record: any): string => {
-    if (!record) return '-';
-    // 1. Direct customer relation object (loaded from backend relation join)
-    const c = record.customer;
-    if (c) {
-      const code = c.customerCode ? `[${c.customerCode}] ` : '';
-      const name = c.companyName || c.name || c.legalName;
-      if (name) return `${code}${name}`;
-    }
-    // 2. Direct name fields
-    if (record.companyName) return record.companyName;
-    if (record.customerName) return record.customerName;
-    // 3. Lookup in loaded customers state array
-    const targetId = record.customerId || (typeof record.customer === 'string' ? record.customer : record.customer?.id);
-    if (targetId) {
-      const found = customers.find(item => item.id === targetId);
-      if (found) {
-        const code = found.customerCode ? `[${found.customerCode}] ` : '';
-        const name = found.companyName || found.name;
-        if (name) return `${code}${name}`;
-      }
-    }
-    return record.customerId || 'Customer';
+    return resolveSalesOrderCustomer(record, customers).displayWithCode;
   }, [customers]);
 
   const fetchData = useCallback(async (
@@ -623,45 +772,6 @@ const SalesOrderManagement: React.FC = () => {
     };
   }, [data, total]);
 
-  // Authoritative Action KPI Metrics for Sales Orders
-  const kpiMetrics = useMemo(() => {
-    const list = data || [];
-    const totalOrdersCount = total || list.length;
-    let totalDemandQty = 0;
-    let totalDeliveredQty = 0;
-    let totalGrossAmount = 0;
-
-    list.forEach(ord => {
-      totalGrossAmount += Number(ord.totalAmount || 0);
-      const items = ord.items || [];
-      items.forEach((it: any) => {
-        totalDemandQty += Number(it.quantity || it.orderedQuantity || 0);
-        totalDeliveredQty += Number(it.deliveredQuantity || 0);
-      });
-    });
-
-    const remainingBalanceQty = Math.max(0, totalDemandQty - totalDeliveredQty);
-    const dispatchPercentage = totalDemandQty > 0 ? ((totalDeliveredQty / totalDemandQty) * 100).toFixed(1) : '0.0';
-    const balancePercentage = totalDemandQty > 0 ? ((remainingBalanceQty / totalDemandQty) * 100).toFixed(1) : '100.0';
-
-    return {
-      totalOrdersCount,
-      totalDemandQty,
-      totalDeliveredQty,
-      remainingBalanceQty,
-      dispatchPercentage,
-      balancePercentage,
-      totalGrossAmount,
-    };
-  }, [data, total]);
-
-  // Available currencies
-  const availableCurrencies = useMemo(() => {
-    const set = new Set<string>(['PKR', 'USD', 'EUR', 'GBP']);
-    data.forEach(d => { if (d.currency) set.add(d.currency); });
-    return Array.from(set);
-  }, [data]);
-
   // Preserve authoritative server-side global multi-page sort order (never re-sort locally)
   const displayedOrders = useMemo(() => {
     return data.filter(d => {
@@ -691,6 +801,19 @@ const SalesOrderManagement: React.FC = () => {
       return true;
     });
   }, [data, activeChevron, filterDivision, filterCurrency, filterCustomer, filterStatus, filterDateFrom, filterDateTo]);
+
+  // Authoritative Action KPI Metrics for Sales Orders (dynamic division/item UOM)
+  const kpiMetrics = useMemo(
+    () => summarizeSalesOrderKpis(displayedOrders, divisions, filterDivision, total),
+    [displayedOrders, divisions, filterDivision, total],
+  );
+
+  // Available currencies
+  const availableCurrencies = useMemo(() => {
+    const set = new Set<string>(['PKR', 'USD', 'EUR', 'GBP']);
+    data.forEach(d => { if (d.currency) set.add(d.currency); });
+    return Array.from(set);
+  }, [data]);
 
   const activeFilterCount = [filterDivision, filterCurrency, filterCustomer, filterStatus, filterDateFrom, filterDateTo].filter(Boolean).length;
 
@@ -1092,18 +1215,28 @@ const SalesOrderManagement: React.FC = () => {
   };
 
   const confirmWorkflowAction = async (record: SalesOrder, action: string, actionLabel: string, color: string) => {
+    let resolvedRecord = record;
     let items = record.items || [];
-    if (!items || items.length === 0) {
+    const needsCustomerHydration =
+      !record.customer?.companyName && !record.customer?.name && !record.companyName && !record.customerName;
+    if (!items || items.length === 0 || needsCustomerHydration) {
       try {
         const res = await apiService.get<any>(`/sales/orders/${record.id}`);
         const fullOrder = (res as any)?.data || res;
-        items = fullOrder?.items || [];
+        if (fullOrder) {
+          resolvedRecord = {
+            ...record,
+            ...fullOrder,
+            customer: fullOrder.customer || record.customer,
+          };
+          items = fullOrder.items || items;
+        }
       } catch (err) {
-        console.warn('Could not load full order items for confirmation modal:', err);
+        console.warn('Could not load full order details for confirmation modal:', err);
       }
     }
     setConfirmTarget({
-      record,
+      record: resolvedRecord,
       action,
       actionLabel,
       color,
@@ -1135,7 +1268,8 @@ const SalesOrderManagement: React.FC = () => {
           : Math.max(0, ordered - delivered);
         const code = ful?.itemCode || it.item?.code || (it as any).itemCode || `SKU-${idx + 1}`;
         const desc = it.description || it.item?.name || `Item #${idx + 1}`;
-        const uom = it.uom?.code || it.uomCode || ful?.uom || 'GRS';
+        const ordDiv = fullOrder.division || divisions.find((d) => d.id === fullOrder.divisionId) || null;
+        const uom = normalizeSalesUomCode(ful?.uom) || resolveOrderLineUom(it, ordDiv);
 
         return {
           salesOrderItemId: it.id,
@@ -1227,7 +1361,7 @@ const SalesOrderManagement: React.FC = () => {
               </div>
               <div style={{ fontSize: 12.5, color: '#334155', display: 'flex', flexDirection: 'column', gap: 4 }}>
                 <div><strong>Sales Order / SOC:</strong> {deliveryOrder.orderNumber}</div>
-                <div><strong>Customer:</strong> {deliveryOrder.customer?.name || deliveryOrder.companyName || 'Valued Customer'}</div>
+                <div><strong>Customer:</strong> {resolveSalesOrderCustomer(deliveryOrder, customers).displayWithCode}</div>
                 <div><strong>Dispatch Date:</strong> {deliveryDate}</div>
                 {deliveryCarrier && <div><strong>Transporter:</strong> {deliveryCarrier}</div>}
                 {deliveryTracking && <div><strong>Vehicle / Bilty #:</strong> {deliveryTracking}</div>}
@@ -1272,7 +1406,8 @@ const SalesOrderManagement: React.FC = () => {
         const produced = Number(ful?.producedQuantity ?? it.producedQuantity ?? 0);
         const avail = Number(ful?.availableStock ?? 0);
         const shortage = Math.max(0, ordered - produced);
-        const uom = it.uom?.code || it.uomCode || ful?.uom || 'GRS';
+        const ordDiv = full.division || divisions.find((d) => d.id === full.divisionId) || null;
+        const uom = normalizeSalesUomCode(ful?.uom) || resolveOrderLineUom(it, ordDiv);
         const code = ful?.itemCode || it.item?.code || (it as any).itemCode || `SKU-${idx + 1}`;
         const desc = it.description || it.item?.name || `Product Line #${idx + 1}`;
 
@@ -1479,8 +1614,9 @@ const SalesOrderManagement: React.FC = () => {
       sortOrder: antdSortOrderFor('customer'),
       render: (_, record) => {
         const c = record.customer;
-        const custCode = c?.customerCode || (record as any).customerCode;
-        const compName = c?.companyName || c?.name || record.companyName || record.customerName || 'Valued Customer';
+        const resolvedCust = resolveSalesOrderCustomer(record, customers);
+        const custCode = resolvedCust.code;
+        const compName = resolvedCust.name;
         const phone = (c as any)?.phone || (record as any).phone;
         return (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 3, whiteSpace: 'nowrap' }}>
@@ -1540,8 +1676,7 @@ const SalesOrderManagement: React.FC = () => {
         const totalQty = items.reduce((sum: number, it: any) => sum + Number(it.quantity || it.orderedQuantity || 0), 0);
         const deliveredQty = items.reduce((sum: number, it: any) => sum + Number(it.deliveredQuantity || 0), 0);
         const remainingQty = Math.max(0, totalQty - deliveredQty);
-        const uoms = Array.from(new Set(items.map((it: any) => it.uom?.code || it.uomCode || 'GRS').filter(Boolean)));
-        const uomLabel = uoms.length === 1 ? uoms[0] : (uoms.length > 1 ? uoms.join('/') : 'GRS');
+        const uomLabel = resolveOrderUomLabel(record, divisions);
 
         const tooltipContent = items.length > 0 ? (
           <div style={{ maxHeight: 340, overflowY: 'auto', padding: '2px', width: 380, maxWidth: '100%', boxSizing: 'border-box' }}>
@@ -1949,6 +2084,57 @@ const SalesOrderManagement: React.FC = () => {
   const endEntry = Math.min(page * pageSize, totalEntries);
   const totalPages = Math.ceil(totalEntries / pageSize) || 1;
 
+  const renderKpiQuantityValue = (
+    totalVal: number,
+    bucketKey: 'demand' | 'delivered' | 'remaining',
+  ) => {
+    if (!kpiMetrics.isMixedUom) {
+      return (
+        <>
+          {formatNumber(totalVal, 2)}{' '}
+          <span style={{ fontSize: 13, opacity: 0.85 }}>{kpiMetrics.primaryUom}</span>
+        </>
+      );
+    }
+    const visibleBuckets = kpiMetrics.uomBuckets.slice(0, 2);
+    const extraCount = kpiMetrics.uomBuckets.length - visibleBuckets.length;
+    const fullBreakdownText = kpiMetrics.uomBuckets
+      .map((b) => `${formatNumber(b[bucketKey], 2)} ${b.uom}`)
+      .join(' · ');
+
+    const content = (
+      <span
+        style={{
+          fontSize: 16,
+          lineHeight: 1.25,
+          display: 'inline-flex',
+          flexWrap: 'wrap',
+          alignItems: 'baseline',
+          gap: '2px 6px',
+        }}
+      >
+        {visibleBuckets.map((b, idx) => (
+          <React.Fragment key={b.uom}>
+            {idx > 0 && <span style={{ opacity: 0.65 }}>·</span>}
+            <span>
+              {formatNumber(b[bucketKey], 2)}{' '}
+              <span style={{ fontSize: 12, opacity: 0.85 }}>{b.uom}</span>
+            </span>
+          </React.Fragment>
+        ))}
+        {extraCount > 0 && (
+          <span style={{ fontSize: 11.5, opacity: 0.85 }}>+{extraCount} more</span>
+        )}
+      </span>
+    );
+
+    return extraCount > 0 ? (
+      <Tooltip title={fullBreakdownText}>{content}</Tooltip>
+    ) : (
+      content
+    );
+  };
+
   return (
     <div className="inv-page-container">
       {/* Main Card */}
@@ -1983,7 +2169,7 @@ const SalesOrderManagement: React.FC = () => {
           >
             <div className="action-kpi-body">
               <div className="action-kpi-val">
-                {formatNumber(kpiMetrics.totalDemandQty, 2)} <span style={{ fontSize: 13, opacity: 0.85 }}>GRS</span>
+                {renderKpiQuantityValue(kpiMetrics.totalDemandQty, 'demand')}
               </div>
               <div className="action-kpi-label">Total Demand Quantity</div>
               <div className="action-kpi-watermark"><AppstoreOutlined /></div>
@@ -1999,7 +2185,7 @@ const SalesOrderManagement: React.FC = () => {
           >
             <div className="action-kpi-body">
               <div className="action-kpi-val">
-                {formatNumber(kpiMetrics.totalDeliveredQty, 2)} <span style={{ fontSize: 13, opacity: 0.85 }}>GRS</span>
+                {renderKpiQuantityValue(kpiMetrics.totalDeliveredQty, 'delivered')}
               </div>
               <div className="action-kpi-label">Dispatched Quantity</div>
               <div className="action-kpi-watermark"><SendOutlined /></div>
@@ -2015,7 +2201,7 @@ const SalesOrderManagement: React.FC = () => {
           >
             <div className="action-kpi-body">
               <div className="action-kpi-val">
-                {formatNumber(kpiMetrics.remainingBalanceQty, 2)} <span style={{ fontSize: 13, opacity: 0.85 }}>GRS</span>
+                {renderKpiQuantityValue(kpiMetrics.remainingBalanceQty, 'remaining')}
               </div>
               <div className="action-kpi-label">Remaining Balance Qty</div>
               <div className="action-kpi-watermark"><ClockCircleOutlined /></div>
@@ -3360,7 +3546,8 @@ const SalesOrderManagement: React.FC = () => {
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
                   <span style={{ color: 'var(--theme-text-muted, #94a3b8)' }}>Ordered Volume:</span>
                   <span style={{ fontWeight: 700, color: '#38bdf8' }}>
-                    {formatDecimal((detailItem.items || []).reduce((s: number, i: any) => s + Number(i.quantity || 0), 0))} GRS
+                    {formatDecimal((detailItem.items || []).reduce((s: number, i: any) => s + Number(i.quantity || 0), 0))}{' '}
+                    {resolveOrderUomLabel(detailItem, divisions)}
                   </span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
@@ -3370,7 +3557,8 @@ const SalesOrderManagement: React.FC = () => {
                       ['delivered', 'closed'].includes(detailItem.status?.toLowerCase())
                         ? (detailItem.items || []).reduce((s: number, i: any) => s + Number(i.quantity || 0), 0)
                         : (detailItem.items || []).reduce((s: number, i: any) => s + Number(i.deliveredQuantity ?? i.shippedQuantity ?? 0), 0)
-                    )} GRS
+                    )}{' '}
+                    {resolveOrderUomLabel(detailItem, divisions)}
                   </span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
@@ -3572,7 +3760,7 @@ const SalesOrderManagement: React.FC = () => {
             fontSize: 12.5,
             color: 'var(--inv-text-primary, inherit)'
           }}>
-            <div><strong>Customer:</strong> {deliveryOrder?.customer?.name || deliveryOrder?.companyName || 'Valued Customer'}</div>
+            <div><strong>Customer:</strong> {resolveSalesOrderCustomer(deliveryOrder, customers).displayWithCode}</div>
             <div><strong>Order Date:</strong> {deliveryOrder?.orderDate ? dayjs(deliveryOrder.orderDate).format('DD-MMM-YYYY') : '-'}</div>
             <div><strong>Target Delivery:</strong> {deliveryOrder?.deliveryDate ? dayjs(deliveryOrder.deliveryDate).format('DD-MMM-YYYY') : '-'}</div>
             <div><strong>Currency:</strong> {deliveryOrder?.currency || 'PKR'}</div>
@@ -3736,7 +3924,7 @@ const SalesOrderManagement: React.FC = () => {
             fontSize: 12.5,
             color: 'var(--inv-text-primary, inherit)'
           }}>
-            <div><strong>Customer:</strong> {prodOrder?.customer?.name || prodOrder?.companyName || 'Valued Customer'}</div>
+            <div><strong>Customer:</strong> {resolveSalesOrderCustomer(prodOrder, customers).displayWithCode}</div>
             <div><strong>Order Date:</strong> {prodOrder?.orderDate ? dayjs(prodOrder.orderDate).format('DD-MMM-YYYY') : '-'}</div>
             <div><strong>Delivery Due:</strong> {prodOrder?.deliveryDate ? dayjs(prodOrder.deliveryDate).format('DD-MMM-YYYY') : '-'}</div>
             <div><strong>Total Order Lines:</strong> {prodItemsList.length}</div>
@@ -3927,7 +4115,7 @@ const SalesOrderManagement: React.FC = () => {
                 },
                 {
                   label: 'Customer',
-                  value: confirmTarget.record.customer?.name || confirmTarget.record.companyName || 'Valued Customer',
+                  value: resolveSalesOrderCustomer(confirmTarget.record, customers).displayWithCode,
                 },
                 {
                   label: 'Current Status',
@@ -4060,8 +4248,10 @@ const SalesOrderManagement: React.FC = () => {
                 headerItems={[
                   {
                     label: 'Selected Customer',
-                    value: selCustomer?.companyName || selCustomer?.name || 'Selected Customer',
-                    subtext: selCustomer?.customerCode || undefined,
+                    value: resolveSalesOrderCustomer(
+                      { customerId: pendingOrderValues?.customerId, customer: selCustomer },
+                      customers,
+                    ).displayWithCode,
                   },
                   {
                     label: 'Division & SOC #',

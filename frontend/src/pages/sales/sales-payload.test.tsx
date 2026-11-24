@@ -1,5 +1,11 @@
 import { buildSalesQuotationPayload } from './SalesQuotationManagement';
-import { buildSalesOrderPayload } from './SalesOrderManagement';
+import {
+  buildSalesOrderPayload,
+  resolveDivisionDefaultUom,
+  resolveOrderUomLabel,
+  resolveSalesOrderCustomer,
+  summarizeSalesOrderKpis,
+} from './SalesOrderManagement';
 import { computeMaximumReturnableQuantity, clampReturnQuantity } from './SalesReturnManagement';
 import { ERPLine } from '../../components/shared';
 
@@ -141,6 +147,120 @@ describe('Acceptance Test Matrix — Frontend Contracts (TEST 11 & TEST 12)', ()
     handleDivisionChange('d1000000-0000-0000-0000-000000000002');
     expect(currentDivision).toBe('d1000000-0000-0000-0000-000000000002');
     expect(lineItems.length).toBe(0); // Safely cleared
+  });
+});
+
+describe('SalesOrderManagement — Dynamic KPI UOM & Real Customer Resolution', () => {
+  const divisions = [
+    { id: 'div-spi', divisionCode: 'DIV-001-SPI', name: 'Spoke Division' },
+    { id: 'div-ccd', divisionCode: 'DIV-002-CCD', name: 'Control Cable Division' },
+    { id: 'div-wrd', divisionCode: 'DIV-003-WRD', name: 'WRD Division' },
+  ];
+
+  it('derives M for Control Cable Division KPI cards and never hardcodes GRS', () => {
+    const kpi = summarizeSalesOrderKpis(
+      [
+        {
+          totalAmount: 500000,
+          divisionId: 'div-ccd',
+          items: [
+            { quantity: 1000000, deliveredQuantity: 0, uom: { code: 'M' } },
+            { quantity: 436250, deliveredQuantity: 0, uomCode: 'METER' },
+          ],
+        },
+      ],
+      divisions,
+      'div-ccd',
+      1,
+    );
+
+    expect(kpi.primaryUom).toBe('M');
+    expect(kpi.isMixedUom).toBe(false);
+    expect(kpi.totalDemandQty).toBe(1436250);
+    expect(kpi.totalDeliveredQty).toBe(0);
+    expect(kpi.remainingBalanceQty).toBe(1436250);
+  });
+
+  it('derives GRS for Spoke Division and falls back to division default UOM when zero orders match', () => {
+    const spokeKpi = summarizeSalesOrderKpis(
+      [
+        {
+          totalAmount: 100000,
+          divisionId: 'div-spi',
+          items: [{ quantity: 500, deliveredQuantity: 100, uom: { code: 'GRS' } }],
+        },
+      ],
+      divisions,
+      'div-spi',
+      1,
+    );
+    expect(spokeKpi.primaryUom).toBe('GRS');
+    expect(spokeKpi.isMixedUom).toBe(false);
+
+    const emptyCcd = summarizeSalesOrderKpis([], divisions, 'div-ccd', 0);
+    expect(emptyCcd.primaryUom).toBe('M');
+
+    const emptyWrd = summarizeSalesOrderKpis([], divisions, 'div-wrd', 0);
+    expect(emptyWrd.primaryUom).toBe('KG');
+    expect(resolveDivisionDefaultUom(divisions[1])).toBe('M');
+  });
+
+  it('builds exact per-UOM breakdown when All Divisions has mixed GRS and M orders', () => {
+    const mixed = summarizeSalesOrderKpis(
+      [
+        {
+          totalAmount: 200000,
+          divisionId: 'div-spi',
+          items: [{ quantity: 1200, deliveredQuantity: 300, uom: { code: 'GRS' } }],
+        },
+        {
+          totalAmount: 400000,
+          divisionId: 'div-ccd',
+          items: [{ quantity: 50000, deliveredQuantity: 10000, uom: { code: 'M' } }],
+        },
+      ],
+      divisions,
+      undefined,
+      2,
+    );
+
+    expect(mixed.isMixedUom).toBe(true);
+    expect(mixed.uomBuckets).toEqual([
+      { uom: 'M', demand: 50000, delivered: 10000, remaining: 40000 },
+      { uom: 'GRS', demand: 1200, delivered: 300, remaining: 900 },
+    ]);
+    expect(resolveOrderUomLabel({ divisionId: 'div-ccd', items: [{ uom: { code: 'M' } }] }, divisions)).toBe('M');
+  });
+
+  it('resolves real Customer Name and Code from order relation or customers list with no "Valued Customer" fallback', () => {
+    const customers = [
+      { id: 'cust-1', customerCode: 'CUS-KND-008', companyName: 'KANDA CONTROL' },
+      { id: 'cust-2', customerCode: 'CUS-XIC-006', companyName: 'Xinda Control Cable Pakistan (Pvt) Ltd.' },
+    ];
+
+    const fromRelation = resolveSalesOrderCustomer(
+      {
+        customerId: 'cust-1',
+        customer: { id: 'cust-1', customerCode: 'CUS-KND-008', companyName: 'KANDA CONTROL' },
+      },
+      customers,
+    );
+    expect(fromRelation).toEqual({
+      name: 'KANDA CONTROL',
+      code: 'CUS-KND-008',
+      displayWithCode: '[CUS-KND-008] KANDA CONTROL',
+    });
+
+    const fromListFallback = resolveSalesOrderCustomer({ customerId: 'cust-2' }, customers);
+    expect(fromListFallback).toEqual({
+      name: 'Xinda Control Cable Pakistan (Pvt) Ltd.',
+      code: 'CUS-XIC-006',
+      displayWithCode: '[CUS-XIC-006] Xinda Control Cable Pakistan (Pvt) Ltd.',
+    });
+
+    const missing = resolveSalesOrderCustomer({ customerId: 'unknown' }, customers);
+    expect(missing.name).not.toContain('Valued Customer');
+    expect(missing.displayWithCode).not.toContain('Valued Customer');
   });
 });
 
