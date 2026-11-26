@@ -1390,6 +1390,335 @@ describe('ProductionEntryService — automatic BOM consumption', () => {
     expect(receipt[0]).toMatchObject({ itemId: 'item-1', direction: 'IN', warehouseId: 'wh-1', quantity: 7200 });
   });
 
+  it('WIP-CS-006 (2,010 M, routing path): consumes 74.37 KG of FLAT-STRIP-005 (0.037) and 90.45 KG of FLAT-STRIP-006 (0.045) instead of product 0.0820 or 50/50', async () => {
+    makeOrgMocks();
+    bomRepo.find.mockResolvedValue([]);
+    warehouseRepo.findOne.mockResolvedValue({ id: 'wh-ccd-ft', warehouseCode: 'CCD-FT-001', status: 'ACTIVE' });
+    productionRoutingService.getEffectiveRouteForItem.mockResolvedValue({
+      routingCode: 'RT-CS-006',
+      operations: [
+        {
+          outputs: [{ itemId: 'item-cs-006' }],
+          inputs: [
+            { itemId: 'strip-005', uomId: 'uom-kg', quantity: 1, sourceWarehouseId: 'wh-ccd-ft' },
+            { itemId: 'strip-006', uomId: 'uom-kg', quantity: 1, sourceWarehouseId: 'wh-ccd-ft' },
+          ],
+        },
+      ],
+    });
+    itemRepo.findOne.mockImplementation(({ where }: any) => {
+      const id = where?.id;
+      if (id === 'item-cs-006') {
+        return Promise.resolve({
+          id: 'item-cs-006',
+          companyId: COMPANY,
+          itemCode: 'WIP-CS-006',
+          name: 'Spiral Core 5.75 mm DS',
+          baseUomId: 'uom-m',
+          baseUom: { id: 'uom-m', code: 'M', uomType: 'LENGTH' },
+          weightPerMeter: 0.0820,
+          productionInItemId: 'strip-005',
+          productionInItemId2: 'strip-006',
+          status: 'ACTIVE',
+        });
+      }
+      if (id === 'strip-005') {
+        return Promise.resolve({
+          id: 'strip-005',
+          companyId: COMPANY,
+          itemCode: 'FLAT-STRIP-005',
+          name: 'Flat Strip T 0.80 × W 1.85 mm',
+          baseUomId: 'uom-kg',
+          baseUom: { id: 'uom-kg', code: 'KG', uomType: 'WEIGHT' },
+          weightPerMeter: 0.037,
+          status: 'ACTIVE',
+        });
+      }
+      if (id === 'strip-006') {
+        return Promise.resolve({
+          id: 'strip-006',
+          companyId: COMPANY,
+          itemCode: 'FLAT-STRIP-006',
+          name: 'Flat Strip T 0.95 × W 2.10 mm',
+          baseUomId: 'uom-kg',
+          baseUom: { id: 'uom-kg', code: 'KG', uomType: 'WEIGHT' },
+          weightPerMeter: 0.045,
+          status: 'ACTIVE',
+        });
+      }
+      return Promise.resolve(null);
+    });
+    uomRepo.findOne.mockImplementation(({ where }: any) =>
+      where?.id === 'uom-m'
+        ? Promise.resolve({ id: 'uom-m', code: 'M' })
+        : Promise.resolve({ id: 'uom-kg', code: 'KG' }),
+    );
+    balanceService.getAvailableStock.mockResolvedValue(10000);
+
+    await service.create(
+      {
+        ...validDto(),
+        itemId: 'item-cs-006',
+        uomId: 'uom-m',
+        targetQuantity: 2010,
+        actualQuantity: 2010,
+        scrapQuantity: 0,
+        postToInventory: true,
+        warehouseId: 'wh-cs',
+        rawMaterialWarehouseId: 'wh-ccd-ft',
+      } as any,
+      COMPANY,
+    );
+
+    const consumes = stockLedgerService.create.mock.calls.filter(
+      (c: any) => c[0].transactionType === 'PRODUCTION_CONSUMPTION',
+    );
+    expect(consumes).toHaveLength(2);
+    expect(consumes[0][0]).toMatchObject({ itemId: 'strip-005', quantity: 74.37, direction: 'OUT', warehouseId: 'wh-ccd-ft' });
+    expect(consumes[1][0]).toMatchObject({ itemId: 'strip-006', quantity: 90.45, direction: 'OUT', warehouseId: 'wh-ccd-ft' });
+    expect(Math.round((consumes[0][0].quantity + consumes[1][0].quantity) * 100) / 100).toBe(164.82);
+  });
+
+  it('WIP-CS-006 (2,010 M, non-routing Item Master / BOM path): consumes 74.37 KG of FLAT-STRIP-005 and 90.45 KG of FLAT-STRIP-006', async () => {
+    makeOrgMocks();
+    productionRoutingService.getEffectiveRouteForItem.mockResolvedValue(null);
+    bomRepo.find.mockResolvedValue([]);
+    warehouseRepo.findOne.mockResolvedValue({ id: 'wh-ccd-ft', warehouseCode: 'CCD-FT-001', status: 'ACTIVE' });
+    itemRepo.findOne.mockImplementation(({ where }: any) => {
+      const id = where?.id;
+      const code = where?.itemCode;
+      if (id === 'item-cs-006') {
+        return Promise.resolve({
+          id: 'item-cs-006',
+          companyId: COMPANY,
+          itemCode: 'WIP-CS-006',
+          name: 'Spiral Core 5.75 mm DS',
+          baseUomId: 'uom-m',
+          baseUom: { id: 'uom-m', code: 'M', uomType: 'LENGTH' },
+          weightPerMeter: 0.0820,
+          productionInItemId: 'strip-005',
+          productionInItemId2: 'strip-006',
+          status: 'ACTIVE',
+        });
+      }
+      if (id === 'strip-005' || code === 'FLAT-STRIP-005') {
+        return Promise.resolve({
+          id: 'strip-005',
+          companyId: COMPANY,
+          itemCode: 'FLAT-STRIP-005',
+          baseUomId: 'uom-kg',
+          baseUom: { id: 'uom-kg', code: 'KG', uomType: 'WEIGHT' },
+          weightPerMeter: 0.037,
+          status: 'ACTIVE',
+        });
+      }
+      if (id === 'strip-006' || code === 'FLAT-STRIP-006') {
+        return Promise.resolve({
+          id: 'strip-006',
+          companyId: COMPANY,
+          itemCode: 'FLAT-STRIP-006',
+          baseUomId: 'uom-kg',
+          baseUom: { id: 'uom-kg', code: 'KG', uomType: 'WEIGHT' },
+          weightPerMeter: 0.045,
+          status: 'ACTIVE',
+        });
+      }
+      return Promise.resolve(null);
+    });
+    uomRepo.findOne.mockResolvedValue({ id: 'uom-m', code: 'M' });
+    balanceService.getAvailableStock.mockResolvedValue(10000);
+
+    await service.create(
+      {
+        ...validDto(),
+        itemId: 'item-cs-006',
+        uomId: 'uom-m',
+        targetQuantity: 2010,
+        actualQuantity: 2010,
+        scrapQuantity: 0,
+        postToInventory: true,
+        warehouseId: 'wh-cs',
+        rawMaterialWarehouseId: 'wh-ccd-ft',
+      } as any,
+      COMPANY,
+    );
+
+    const consumes = stockLedgerService.create.mock.calls.filter(
+      (c: any) => c[0].transactionType === 'PRODUCTION_CONSUMPTION',
+    );
+    expect(consumes).toHaveLength(2);
+    expect(consumes[0][0]).toMatchObject({ itemId: 'strip-005', quantity: 74.37, direction: 'OUT', warehouseId: 'wh-ccd-ft' });
+    expect(consumes[1][0]).toMatchObject({ itemId: 'strip-006', quantity: 90.45, direction: 'OUT', warehouseId: 'wh-ccd-ft' });
+  });
+
+  it('WIP-CS-006 (PE-2026-04231: 1,050 M good + 10.98 M scrap = 1,060.98 M): deducts 39.2563 KG from FLAT-STRIP-005 and 47.7441 KG from FLAT-STRIP-006 (total 87.0004 KG, preserves CCD-FT-022, blocks stale combined weight)', async () => {
+    makeOrgMocks();
+    bomRepo.find.mockResolvedValue([]);
+    warehouseRepo.findOne.mockImplementation(async ({ where }: any) => {
+      if (where?.id === 'wh-ft-022') {
+        return { id: 'wh-ft-022', companyId: COMPANY, warehouseCode: 'CCD-FT-022', name: 'CCD Flattening Warehouse', status: 'ACTIVE' };
+      }
+      if (where?.warehouseCode === 'CCD-FT-001') {
+        return { id: 'wh-wrong-001', companyId: COMPANY, warehouseCode: 'CCD-FT-001', status: 'ACTIVE' };
+      }
+      return { id: where?.id || 'wh-ft-022', companyId: COMPANY, status: 'ACTIVE' };
+    });
+    productionRoutingService.getEffectiveRouteForItem.mockResolvedValue({
+      id: 'rtg-109',
+      routingCode: 'RTG-109',
+      operations: [
+        {
+          id: 'op-50',
+          sequenceNo: 50,
+          operationName: 'Spiral',
+          inputs: [
+            // Even if a stale routing row held the combined 0.082 weight, per-component weightPerMeter must win!
+            { itemId: 'strip-005', uomId: 'uom-kg', quantity: 0.082, sourceWarehouseId: null },
+            { itemId: 'strip-006', uomId: 'uom-kg', quantity: 0.082, sourceWarehouseId: null },
+          ],
+          outputs: [{ itemId: 'item-cs-006', quantity: 1 }],
+        },
+      ],
+    });
+    itemRepo.findOne.mockImplementation(({ where }: any) => {
+      const id = where?.id;
+      const code = where?.itemCode;
+      if (id === 'item-cs-006') {
+        return Promise.resolve({
+          id: 'item-cs-006',
+          companyId: COMPANY,
+          itemCode: 'WIP-CS-006',
+          name: 'Spiral Core 5.75 mm DS',
+          baseUomId: 'uom-m',
+          baseUom: { id: 'uom-m', code: 'M', uomType: 'LENGTH' },
+          weightPerMeter: 0.082,
+          productionInItemId: 'strip-005',
+          productionInItemId2: 'strip-006',
+          status: 'ACTIVE',
+        });
+      }
+      if (id === 'strip-005' || code === 'FLAT-STRIP-005') {
+        return Promise.resolve({
+          id: 'strip-005',
+          companyId: COMPANY,
+          itemCode: 'FLAT-STRIP-005',
+          baseUomId: 'uom-kg',
+          baseUom: { id: 'uom-kg', code: 'KG', uomType: 'WEIGHT' },
+          weightPerMeter: 0.037,
+          status: 'ACTIVE',
+        });
+      }
+      if (id === 'strip-006' || code === 'FLAT-STRIP-006') {
+        return Promise.resolve({
+          id: 'strip-006',
+          companyId: COMPANY,
+          itemCode: 'FLAT-STRIP-006',
+          baseUomId: 'uom-kg',
+          baseUom: { id: 'uom-kg', code: 'KG', uomType: 'WEIGHT' },
+          weightPerMeter: 0.045,
+          status: 'ACTIVE',
+        });
+      }
+      return Promise.resolve(null);
+    });
+    uomRepo.findOne.mockResolvedValue({ id: 'uom-m', code: 'M' });
+    balanceService.getAvailableStock.mockResolvedValue(10000);
+
+    await service.create(
+      {
+        ...validDto(),
+        itemId: 'item-cs-006',
+        uomId: 'uom-m',
+        targetQuantity: 1300,
+        actualQuantity: 1050,
+        scrapQuantity: 10.98,
+        postToInventory: true,
+        warehouseId: 'wh-cs-033',
+        rawMaterialWarehouseId: 'wh-ft-022',
+      } as any,
+      COMPANY,
+    );
+
+    const consumes = stockLedgerService.create.mock.calls.filter(
+      (c: any) => c[0].transactionType === 'PRODUCTION_CONSUMPTION',
+    );
+    expect(consumes).toHaveLength(2);
+    expect(consumes[0][0]).toMatchObject({ itemId: 'strip-005', quantity: 39.2563, direction: 'OUT', warehouseId: 'wh-ft-022' });
+    expect(consumes[1][0]).toMatchObject({ itemId: 'strip-006', quantity: 47.7441, direction: 'OUT', warehouseId: 'wh-ft-022' });
+    expect(Math.round((consumes[0][0].quantity + consumes[1][0].quantity) * 1000) / 1000).toBe(87);
+  });
+
+  it('honors explicit componentConsumptions quantities from Entry Form payload', async () => {
+    makeOrgMocks();
+    bomRepo.find.mockResolvedValue([]);
+    warehouseRepo.findOne.mockResolvedValue({ id: 'wh-ft-022', companyId: COMPANY, warehouseCode: 'CCD-FT-022', status: 'ACTIVE' });
+    productionRoutingService.getEffectiveRouteForItem.mockResolvedValue({
+      id: 'rtg-109',
+      routingCode: 'RTG-109',
+      operations: [
+        {
+          id: 'op-50',
+          sequenceNo: 50,
+          operationName: 'Spiral',
+          inputs: [
+            { itemId: 'strip-005', uomId: 'uom-kg', quantity: 1, sourceWarehouseId: null },
+            { itemId: 'strip-006', uomId: 'uom-kg', quantity: 1, sourceWarehouseId: null },
+          ],
+          outputs: [{ itemId: 'item-cs-006', quantity: 1 }],
+        },
+      ],
+    });
+    itemRepo.findOne.mockImplementation(({ where }: any) => {
+      if (where?.id === 'item-cs-006') {
+        return Promise.resolve({
+          id: 'item-cs-006',
+          companyId: COMPANY,
+          itemCode: 'WIP-CS-006',
+          baseUomId: 'uom-m',
+          baseUom: { id: 'uom-m', code: 'M', uomType: 'LENGTH' },
+          weightPerMeter: 0.082,
+          productionInItemId: 'strip-005',
+          productionInItemId2: 'strip-006',
+          status: 'ACTIVE',
+        });
+      }
+      if (where?.id === 'strip-005') {
+        return Promise.resolve({ id: 'strip-005', itemCode: 'FLAT-STRIP-005', baseUomId: 'uom-kg', baseUom: { code: 'KG', uomType: 'WEIGHT' }, weightPerMeter: 0.037, status: 'ACTIVE' });
+      }
+      if (where?.id === 'strip-006') {
+        return Promise.resolve({ id: 'strip-006', itemCode: 'FLAT-STRIP-006', baseUomId: 'uom-kg', baseUom: { code: 'KG', uomType: 'WEIGHT' }, weightPerMeter: 0.045, status: 'ACTIVE' });
+      }
+      return Promise.resolve(null);
+    });
+    balanceService.getAvailableStock.mockResolvedValue(10000);
+
+    await service.create(
+      {
+        ...validDto(),
+        itemId: 'item-cs-006',
+        uomId: 'uom-m',
+        targetQuantity: 1300,
+        actualQuantity: 1050,
+        scrapQuantity: 10.98,
+        postToInventory: true,
+        warehouseId: 'wh-cs-033',
+        rawMaterialWarehouseId: 'wh-ft-022',
+        componentConsumptions: [
+          { itemId: 'strip-005', quantity: 39.256, uomId: 'uom-kg', warehouseId: 'wh-ft-022' },
+          { itemId: 'strip-006', quantity: 47.744, uomId: 'uom-kg', warehouseId: 'wh-ft-022' },
+        ],
+      } as any,
+      COMPANY,
+    );
+
+    const consumes = stockLedgerService.create.mock.calls.filter(
+      (c: any) => c[0].transactionType === 'PRODUCTION_CONSUMPTION',
+    );
+    expect(consumes).toHaveLength(2);
+    expect(consumes[0][0]).toMatchObject({ itemId: 'strip-005', quantity: 39.256, direction: 'OUT', warehouseId: 'wh-ft-022' });
+    expect(consumes[1][0]).toMatchObject({ itemId: 'strip-006', quantity: 47.744, direction: 'OUT', warehouseId: 'wh-ft-022' });
+  });
+
   it('consumes raw material converted from PCS to KG using weightPerPiece (50,000 PCS @ 0.01049 kg/pc = 524.5 KG)', async () => {
     makeOrgMocks();
     bomRepo.find.mockResolvedValue([]);

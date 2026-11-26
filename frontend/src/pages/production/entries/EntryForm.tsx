@@ -438,6 +438,7 @@ const EntryForm: React.FC<EntryFormProps> = ({
     productionInDepartmentName?: string | null;
     productionOutItemName?: string | null;
     chainWarning?: string | null;
+    consumptionLines?: Array<{ itemId: string; quantity: number; uomId?: string | null }>;
   }>>({});
 
   const handleRawMaterialData = useCallback((newData: Record<string, any>) => {
@@ -449,6 +450,8 @@ const EntryForm: React.FC<EntryFormProps> = ({
         const p = prev[k];
         const n = newData[k];
         if (!p || !n) return true;
+        const pLines = JSON.stringify(p.consumptionLines || []);
+        const nLines = JSON.stringify(n.consumptionLines || []);
         return (
           p.itemCode !== n.itemCode ||
           p.itemName !== n.itemName ||
@@ -458,7 +461,8 @@ const EntryForm: React.FC<EntryFormProps> = ({
           p.wireSizeMm !== n.wireSizeMm ||
           p.uomCode !== n.uomCode ||
           p.productionInItemId !== n.productionInItemId ||
-          p.chainWarning !== n.chainWarning
+          p.chainWarning !== n.chainWarning ||
+          pLines !== nLines
         );
       });
       return changed ? newData : prev;
@@ -2476,6 +2480,37 @@ const EntryForm: React.FC<EntryFormProps> = ({
       }
       payload.rawMaterialWarehouseId = (values as { rawMaterialWarehouseId?: string }).rawMaterialWarehouseId ?? undefined;
       payload.warehouseId = (values as { warehouseId?: string }).warehouseId ?? undefined;
+      if (!isFullDowntime) {
+        const byCompId = new Map<string, { itemId: string; quantity: number; uomId?: string | null; warehouseId?: string | null }>();
+        const activeOutIds = itemLines.filter((l) => !!l?.itemId).map((l) => String(l.itemId));
+        const uuidLike = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        for (const outId of activeOutIds) {
+          const rmInfo = rawMaterialData[outId];
+          for (const cl of rmInfo?.consumptionLines || []) {
+            if (!cl?.itemId || !uuidLike.test(String(cl.itemId)) || !(Number(cl.quantity) > 0)) continue;
+            const prev = byCompId.get(cl.itemId);
+            const qty = Math.round(Number(cl.quantity) * 10000) / 10000;
+            const validUomId = cl.uomId && uuidLike.test(String(cl.uomId)) ? cl.uomId : null;
+            const validWhId =
+              payload.rawMaterialWarehouseId && uuidLike.test(String(payload.rawMaterialWarehouseId))
+                ? String(payload.rawMaterialWarehouseId)
+                : null;
+            if (prev) {
+              prev.quantity = Math.round((prev.quantity + qty) * 10000) / 10000;
+            } else {
+              byCompId.set(cl.itemId, {
+                itemId: cl.itemId,
+                quantity: qty,
+                ...(validUomId ? { uomId: validUomId } : {}),
+                ...(validWhId ? { warehouseId: validWhId } : {}),
+              });
+            }
+          }
+        }
+        if (byCompId.size > 0) {
+          payload.componentConsumptions = Array.from(byCompId.values());
+        }
+      }
       const coilSizeVal = (values as { coilSize?: string }).coilSize;
       if (typeof coilSizeVal === 'string' && coilSizeVal.trim().length > 0) {
         payload.coilSize = coilSizeVal.trim();
@@ -5569,6 +5604,7 @@ const RawMaterialAvailability: React.FC<{
     productionInDepartmentName?: string | null;
     productionOutItemName?: string | null;
     chainWarning?: string | null;
+    consumptionLines?: Array<{ itemId: string; quantity: number; uomId?: string | null }>;
   }>) => void;
 }> = ({ productionItems, lookups, warehouseId, receiptWarehouseId, sourceStoreLabel, receiptStoreLabel, fallbackScrapQty, isDone, excludeEntryId, consumedByItem, onData }) => {
   const [data, setData] = useState<Record<string, RawMatItem>>({});
@@ -5808,13 +5844,17 @@ const RawMaterialAvailability: React.FC<{
           const lineUomId = bomLine?.uomId ?? componentBaseUomId;
           const componentItem = lookups.items.find((i) => i.id === prevStageItemId) || rawItemRef.item;
           const compUom = rawBaseUomCode || componentItem?.baseUom?.code || bomLine?.uom?.code || 'KG';
+          const enrichedComponent = {
+            ...(componentItem || {}),
+            uomCode: compUom,
+          };
           const prodUom = lookups.uoms.find((u) => u.id === (p.uomId || item?.baseUomId));
           const enrichedProduct = {
             ...(item || {}),
             uomCode: prodUom?.code || item?.baseUom?.code || 'PCS',
             uomType: prodUom?.uomType || (prodUom?.code === 'PCS' ? 'COUNT' : prodUom?.code === 'M' ? 'LENGTH' : undefined),
           };
-          const totalUnits = convertProductToComponentQty(units, enrichedProduct, compUom);
+          const totalUnits = convertProductToComponentQty(units, enrichedProduct, enrichedComponent);
           let req = totalUnits * rawQuantity * (1 + rawScrapFactor) / (rawYield / 100);
           req = convertBetweenUoms(lineUomId, componentBaseUomId, req, lookups.uomConversions);
           if (rawQuantity <= 0) {
@@ -5841,27 +5881,41 @@ const RawMaterialAvailability: React.FC<{
           let lines: RawMatLine[] = [];
           if (item?.itemCode === 'WIP-CS-006') {
             // Dual input matrix for WIP-CS-006:
-            // Input Material 1: Flat Strip T 0.80 × W 1.85 mm (FLAT-STRIP-005)
-            // Input Material 2: Flat Strip T 0.95 × W 2.10 mm (FLAT-STRIP-006)
+            // Input Material 1: Flat Strip T 0.80 × W 1.85 mm (FLAT-STRIP-005 — 0.037 kg/m)
+            // Input Material 2: Flat Strip T 0.95 × W 2.10 mm (FLAT-STRIP-006 — 0.045 kg/m)
             let strip005 = lookups.items.find((i) => i.itemCode === 'FLAT-STRIP-005' || i.id === masterInItemId);
-            if (!strip005 && masterInItemId) {
+            const id005Lookup = strip005?.id || masterInItemId;
+            if ((!strip005 || strip005.weightPerMeter == null) && id005Lookup) {
               try {
-                const s5Res = await apiService.get<{ data?: ItemLk }>(`/master-data/items/${masterInItemId}`);
+                const s5Res = await apiService.get<{ data?: ItemLk }>(`/master-data/items/${id005Lookup}`);
                 if (s5Res?.data) strip005 = s5Res.data;
               } catch {}
             }
             const strip006Id = (item as any)?.productionInItemId2 || '36fef579-55af-46b6-b348-82f989ba53de';
             let strip006 = lookups.items.find((i) => i.itemCode === 'FLAT-STRIP-006' || i.id === strip006Id);
-            if (!strip006 && strip006Id) {
+            const id006Lookup = strip006?.id || strip006Id;
+            if ((!strip006 || strip006.weightPerMeter == null) && id006Lookup) {
               try {
-                const s6Res = await apiService.get<{ data?: ItemLk }>(`/master-data/items/${strip006Id}`);
+                const s6Res = await apiService.get<{ data?: ItemLk }>(`/master-data/items/${id006Lookup}`);
                 if (s6Res?.data) strip006 = s6Res.data;
               } catch {}
             }
 
             const totalMeters = totalProdQty;
-            const wpm005 = Number(strip005?.weightPerMeter || 0.0374);
-            const wpm006 = Number(strip006?.weightPerMeter || 0.0434);
+            const bom005 = (bom?.lines ?? []).find((bl) => bl.itemId === (strip005?.id || masterInItemId));
+            const bom006 = (bom?.lines ?? []).find((bl) => bl.itemId === (strip006?.id || strip006Id));
+            const bomRatio005 = bom005 && toNum(bom005.quantity) > 0 && toNum(bom005.quantity) !== 1
+              ? toNum(bom005.quantity) / baseQuantity
+              : 0;
+            const bomRatio006 = bom006 && toNum(bom006.quantity) > 0 && toNum(bom006.quantity) !== 1
+              ? toNum(bom006.quantity) / baseQuantity
+              : 0;
+            const wpm005 = toNum(strip005?.weightPerMeter) > 0
+              ? toNum(strip005?.weightPerMeter)
+              : (bomRatio005 > 0 ? bomRatio005 : 0.037);
+            const wpm006 = toNum(strip006?.weightPerMeter) > 0
+              ? toNum(strip006?.weightPerMeter)
+              : (bomRatio006 > 0 ? bomRatio006 : 0.045);
             const req005 = Math.round(totalMeters * wpm005 * 10000) / 10000;
             const req006 = Math.round(totalMeters * wpm006 * 10000) / 10000;
 
@@ -6149,9 +6203,13 @@ const RawMaterialAvailability: React.FC<{
         next[key] = {
           ...it,
           lines: it.lines.map((l) => {
+            const componentItem = lookups.items.find((i) => i.id === l.rawItemId || (l.itemCode && i.itemCode === l.itemCode));
             if (it.itemCode === 'WIP-CS-006' || l.itemCode === 'FLAT-STRIP-005' || l.itemCode === 'FLAT-STRIP-006') {
               const totalMeters = totalProdQty;
-              const wpm = Number(l.weightPerMeter || (l.itemCode === 'FLAT-STRIP-005' ? 0.0374 : 0.0434));
+              const liveCompWpm = toNum(componentItem?.weightPerMeter);
+              const wpm = liveCompWpm > 0
+                ? liveCompWpm
+                : (toNum(l.weightPerMeter) > 0 ? toNum(l.weightPerMeter) : (l.itemCode === 'FLAT-STRIP-005' ? 0.037 : 0.045));
               const required = Math.round(totalMeters * wpm * 10000) / 10000;
               let balance = l.balance;
               let shortage = l.shortage;
@@ -6159,11 +6217,15 @@ const RawMaterialAvailability: React.FC<{
                 balance = Math.round((l.available - required) * 10000) / 10000;
                 shortage = Math.max(0, Math.round(-balance * 10000) / 10000);
               }
-              return { ...l, required, balance, shortage };
+              return { ...l, weightPerMeter: wpm, required, balance, shortage };
             }
-            const componentItem = lookups.items.find((i) => i.id === l.rawItemId);
             const compUom = l.uomCode || l.rawBaseUomCode || componentItem?.baseUom?.code || 'KG';
-            const totalUnits = convertProductToComponentQty(units, enrichedProduct, compUom);
+            const enrichedComponent = {
+              ...(componentItem || {}),
+              uomCode: compUom,
+              weightPerMeter: l.weightPerMeter ?? componentItem?.weightPerMeter,
+            };
+            const totalUnits = convertProductToComponentQty(units, enrichedProduct, enrichedComponent);
             let req = totalUnits * l.rawQuantity * (1 + l.rawScrapFactor) / (l.rawYield / 100);
             req = convertBetweenUoms(l.lineUomId, l.componentBaseUomId, req, lookups.uomConversions);
             const required = Math.round(req * 10000) / 10000;
@@ -6202,6 +6264,7 @@ const RawMaterialAvailability: React.FC<{
       productionInDepartmentName?: string | null;
       productionOutItemName?: string | null;
       chainWarning?: string | null;
+      consumptionLines?: Array<{ itemId: string; quantity: number; uomId?: string | null }>;
     }> = {};
     for (const key of Object.keys(data)) {
       const it = data[key];
@@ -6221,6 +6284,13 @@ const RawMaterialAvailability: React.FC<{
           productionInDepartmentName: it.sourceDepartmentName ?? null,
           productionOutItemName: it.outItemName ?? null,
           chainWarning: it.chainWarning ?? null,
+          consumptionLines: it.lines
+            .filter((l) => !!l.rawItemId && Number(l.required) >= 0)
+            .map((l) => ({
+              itemId: String(l.rawItemId),
+              quantity: Math.round(Number(l.required || 0) * 10000) / 10000,
+              uomId: l.componentBaseUomId ?? null,
+            })),
         };
       }
     }

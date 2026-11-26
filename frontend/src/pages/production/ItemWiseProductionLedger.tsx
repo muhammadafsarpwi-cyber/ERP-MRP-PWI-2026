@@ -389,8 +389,10 @@ interface StagePass {
   production: number;
   scrapTodayPcs: number;
   scrapTodayKg: number;
-  /** 1 for RM (already KG), weight_per_piece for PCS/GRS, null if unknown. */
+  /** 1 for RM/KG (already KG), weight_per_piece for PCS/GRS, kg/m for M, null if unknown. */
   multiplier: number | null;
+  /** Configured Item Master per-meter weight (kg/m) for KG-based intermediate items like FLAT-STRIP-*. */
+  perMeterWeight?: number | null;
   found: boolean;
 }
 
@@ -431,6 +433,7 @@ interface LedgerMetrics {
   returnOutValue: number;
   closingPieces: number;
   perPieceWeight: number | null;
+  perMeterWeight?: number | null;
   totalWeight: number | null;
   scrapToday: number;
   scrapMonth: number;
@@ -774,6 +777,15 @@ export const STANDARD_ITEM_WEIGHTS: Record<string, number> = {
   'SPI-FG-SPK-011': 0.0162,
   'SPI-FG-SPK-012': 0.0172,
   'SPI-FG-SPK-013': 0.01181,
+
+  // Spiral Core (M)
+  'WIP-CS-006': 0.082,
+};
+
+/** Default Item Master per-meter specs (kg/m) for KG-denominated flattened strip stages when DB lookup is pending. */
+export const STANDARD_KG_PER_METER_SPECS: Record<string, number> = {
+  'FLAT-STRIP-005': 0.037,
+  'FLAT-STRIP-006': 0.045,
 };
 
 /** Rows 2-8: PCS/GRS multiply by kg/pc, M/METER multiply by kg/m; KG passes through (× 1). */
@@ -1402,6 +1414,17 @@ export const buildChainGrid = (
             isDp ? dpParentFgCode : rowDef.itemCode,
           );
 
+    const isNonRmKgItem =
+      rowDef.stage !== 'RM' &&
+      ((effectiveUom ?? '').trim().toUpperCase() === 'KG' || rowDef.itemCode.startsWith('FLAT-STRIP'));
+    const mappedStripWpm = weightMap[rowDef.itemCode];
+    const perMeterWeight = isNonRmKgItem
+      ? ((srcMeterWeight != null && Number(srcMeterWeight) > 0 ? Number(srcMeterWeight) : null) ??
+         (mappedStripWpm != null && Number(mappedStripWpm) > 0 && Number(mappedStripWpm) !== 1 ? Number(mappedStripWpm) : null) ??
+         STANDARD_KG_PER_METER_SPECS[rowDef.itemCode] ??
+         null)
+      : null;
+
     // Derive Opening Balance strictly from `stock_ledger` (< dateFrom) so Closing Qty
     // matches Stock Movement History & Item Ledger 100% (no synthetic rolling overrides).
     const resolvedOp = isDp
@@ -1422,6 +1445,7 @@ export const buildChainGrid = (
       scrapTodayPcs,
       scrapTodayKg,
       multiplier,
+      perMeterWeight,
       found: isDp ? Boolean(dpRowSource) : Boolean(src),
     };
   });
@@ -1556,6 +1580,7 @@ export const buildChainGrid = (
       returnOutValue: iss.returnOutValue,
       closingPieces,
       perPieceWeight: p.multiplier,
+      perMeterWeight: p.perMeterWeight ?? null,
       totalWeight,
       scrapToday: rawScrapToday,
       scrapMonth: rawScrapMonth,
@@ -1718,7 +1743,7 @@ const exportDisplayRow = (r: LedgerMetrics): (string | number | null)[] => {
     closeText,
     // §6 — UoM travels with the balance it qualifies.
     uomText,
-    fmtPpw(r.perPieceWeight),
+    fmtPpw(r.perMeterWeight != null && r.perMeterWeight > 0 ? r.perMeterWeight : r.perPieceWeight),
     fmtKg(r.totalWeight),
     // §12 — dual unit display: row UOM on line 1, KG on line 2 (or KG for RM)
     (() => {
@@ -2075,6 +2100,9 @@ const materializeBulkLedgerItems = (
           itemName: m?.name ?? namesSnapshot[rDef.itemCode] ?? rDef.itemLabel ?? rDef.itemCode,
           itemType: m?.itemType ?? (rDef.stage === 'RM' ? 'RAW_MATERIAL' : rDef.stage === 'FG' ? 'FINISHED_GOOD' : 'WIP'),
           uomCode: m?.baseUom?.code ?? m?.uom?.code ?? m?.uomCode ?? (rDef.stage === 'RM' || rDef.stage === 'FL' ? 'KG' : 'PCS'),
+          weightPerMeter: m?.weightPerMeter != null ? Number(m.weightPerMeter) : (m?.weight_per_meter != null ? Number(m.weight_per_meter) : null),
+          finishedWeightPerMeter: m?.finishedWeightPerMeter != null ? Number(m.finishedWeightPerMeter) : (m?.finished_weight_per_meter != null ? Number(m.finished_weight_per_meter) : null),
+          weightPerPiece: m?.weightPerPiece != null ? Number(m.weightPerPiece) : (m?.weight_per_piece != null ? Number(m.weight_per_piece) : null),
           openingBalance: 0,
           openingDispatched: 0,
           totalIn: 0,
@@ -2413,6 +2441,11 @@ const ItemWiseProductionLedger: React.FC = () => {
             rawW = i.itemType === 'FINISHED_GOOD'
               ? (finWpm != null && Number(finWpm) > 0 ? finWpm : wpm)
               : (wpm != null && Number(wpm) > 0 ? wpm : finWpm);
+          } else if (itemUom === 'KG' && !String(i.itemCode).toUpperCase().startsWith('RM-')) {
+            const wpm = i.weightPerMeter ?? i.weight_per_meter;
+            if (wpm != null && Number(wpm) > 0) {
+              rawW = wpm;
+            }
           } else if (itemUom !== 'KG') {
             rawW = i.weightPerPiece ?? i.weight_per_piece ?? i.weight;
           }
@@ -3215,19 +3248,25 @@ const ItemWiseProductionLedger: React.FC = () => {
         onCell: () => ({ className: 'iwl-cell-weight iwl-cell-num' }),
         render: (v: number | null, row: LedgerMetrics) => {
           const ppw = row.perPieceWeight;
+          const pmw = row.perMeterWeight;
           const uom = (row.uomCode ?? '').trim().toUpperCase();
           const isMeter = isMeterUnit(uom);
           const isKgRow = row.stage === 'RM' || uom === 'KG';
-          const unitFactorLabel = isKgRow
-            ? '1.0000'
-            : ppw != null
-              ? `@ ${fmtPpw(ppw)} ${isMeter ? 'kg/m' : 'kg/pc'}`
-              : '—';
-          const tip = isKgRow
-            ? `Total Weight: ${fmtDisplayKg(v)} KG (Closing balance is already in KG)`
-            : isMeter
-              ? `Total Weight: ${fmtDisplayKg(v)} KG\nWeight per Meter: ${fmtPpw(ppw)} kg/m (Closing M × kg/m)`
-              : `Total Weight: ${fmtDisplayKg(v)} KG\nWeight per Piece: ${fmtPpw(ppw)} kg/pc (${isCountUnit(uom) ? 'Closing PCS × kg/pc' : 'Multiplier 1'})`;
+          const hasKgMeterSpec = isKgRow && row.stage !== 'RM' && pmw != null && pmw > 0;
+          const unitFactorLabel = hasKgMeterSpec
+            ? `@ ${fmtPpw(pmw)} kg/m`
+            : isKgRow
+              ? '1.0000'
+              : ppw != null
+                ? `@ ${fmtPpw(ppw)} ${isMeter ? 'kg/m' : 'kg/pc'}`
+                : '—';
+          const tip = hasKgMeterSpec
+            ? `Total Weight: ${fmtDisplayKg(v)} KG (Closing balance is already in KG)\nWeight per Meter: ${fmtPpw(pmw)} kg/m`
+            : isKgRow
+              ? `Total Weight: ${fmtDisplayKg(v)} KG (Closing balance is already in KG)`
+              : isMeter
+                ? `Total Weight: ${fmtDisplayKg(v)} KG\nWeight per Meter: ${fmtPpw(ppw)} kg/m (Closing M × kg/m)`
+                : `Total Weight: ${fmtDisplayKg(v)} KG\nWeight per Piece: ${fmtPpw(ppw)} kg/pc (${isCountUnit(uom) ? 'Closing PCS × kg/pc' : 'Multiplier 1'})`;
           const isNeg = v !== null && v < 0;
           return (
             <Tooltip title={<span style={{ whiteSpace: 'pre-line' }}>{tip}</span>}>

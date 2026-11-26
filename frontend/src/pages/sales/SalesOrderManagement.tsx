@@ -12,6 +12,7 @@ import {
   BuildOutlined, BranchesOutlined, SendOutlined, DownOutlined, UpOutlined, ApartmentOutlined,
   DatabaseOutlined, SaveOutlined, CloseOutlined, ClearOutlined, AppstoreOutlined,
   ExclamationCircleOutlined, InfoCircleOutlined, ClockCircleOutlined, RightCircleOutlined, WhatsAppOutlined,
+  RollbackOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
@@ -19,7 +20,7 @@ import { formatDecimal, formatNumber, formatSmartCurrency } from '../../utils/nu
 import { ERPLineItems, ERPLine, DraggableResizableModal, SaveResultDialog, PreConfirmVerificationCard, TableColumnSelector, useColumnVisibility } from '../../components/shared';
 import type { SaveResultData, SaveResultPhase } from '../../components/shared/SaveResultDialog';
 import { resolveEffectiveTaxPercent, summarizeLinesTaxVerification } from '../../utils/salesTaxVerification';
-import { matchesTabRefresh, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
+import { matchesTabRefresh, TAB_REFRESH_EVENT, triggerTabRefresh } from '../../services/tabSessionCache';
 import { useHeaderActions } from '../../components/layout/headerActionsStore';
 import { usePermission } from '../../hooks/usePermission';
 import dayjs from 'dayjs';
@@ -481,11 +482,17 @@ export function computeOrderChanges(
 
 const SalesOrderManagement: React.FC = () => {
   const { message } = App.useApp();
-  const { can } = usePermission();
+  const { can, canAny } = usePermission();
   const navigate = useNavigate();
   const canCreate = can('sales.orders.create');
   const canUpdate = can('sales.orders.update');
   const canApprove = can('sales.orders.approve');
+  const isAdmin = canAny(
+    'admin.users.view',
+    'admin.roles.view',
+    'admin.permissions.view',
+    'admin.recycle_bin.restore',
+  );
 
   const [data, setData] = useState<SalesOrder[]>([]);
   const [loading, setLoading] = useState(false);
@@ -1184,16 +1191,41 @@ const SalesOrderManagement: React.FC = () => {
     setSaveResultError(undefined);
 
     try {
-      await apiService.patch(`/sales/orders/${id}/${action}`, overrideOptions || {});
+      const res: any = await apiService.patch(`/sales/orders/${id}/${action}`, overrideOptions || {});
+      const updatedOrder = res?.data || res;
+      const isRevert = action === 'revert-delivery';
+      const revertedStatus = updatedOrder?.status || 'Processing';
+      const displayLabel = isRevert
+        ? `Reverted to ${revertedStatus}`
+        : action === 'confirm'
+          ? 'Confirmed'
+          : action === 'cancel'
+            ? 'Cancelled'
+            : action.toUpperCase();
+
       setSaveResultPhase('success');
-      setSaveResultSuccessTitle(`Order ${action.toUpperCase()} Successfully`);
+      setSaveResultSuccessTitle(
+        isRevert ? 'Order Reverted Successfully' : `Order ${displayLabel} Successfully`,
+      );
       setSaveResultData({
-        title: `Order ${action.toUpperCase()} Successfully`,
-        message: `The sales order workflow transition to "${action}" has completed.`,
-        recordType: 'Action',
-        recordCode: action.toUpperCase(),
-        tags: [{ label: action.toUpperCase(), color: 'green' }],
+        title: isRevert ? 'Order Reverted Successfully' : `Order ${displayLabel} Successfully`,
+        message: isRevert
+          ? `Sales order status has been restored to "${revertedStatus}" and item balances recalculated from confirmed Sales Deliveries.`
+          : `The sales order workflow transition to "${displayLabel}" has completed.`,
+        recordType: 'Sales Order',
+        recordCode: updatedOrder?.orderNumber || displayLabel.toUpperCase(),
+        tags: [
+          {
+            label: isRevert ? String(revertedStatus).toUpperCase() : displayLabel.toUpperCase(),
+            color: isRevert ? 'orange' : action === 'cancel' ? 'red' : 'green',
+          },
+        ],
       });
+      if (detailVisible && detailItem?.id === id && updatedOrder?.id) {
+        setDetailItem(updatedOrder);
+      }
+      triggerTabRefresh('/sales/deliveries');
+      triggerTabRefresh('/sales/order-command');
       fetchData(page, pageSize);
     } catch (err: any) {
       const errData = err?.response?.data;
@@ -1210,7 +1242,8 @@ const SalesOrderManagement: React.FC = () => {
         });
         return;
       }
-      const msg = errData?.message || err?.message || `Failed to ${action} order`;
+      const fallbackActionLabel = action === 'revert-delivery' ? 'revert' : action;
+      const msg = errData?.message || err?.message || `Failed to ${fallbackActionLabel} order`;
       setSaveResultPhase('error');
       setSaveResultError(Array.isArray(msg) ? msg.join(', ') : msg);
       setSaveResultRetry(() => () => handleAction(id, action));
@@ -2076,17 +2109,6 @@ const SalesOrderManagement: React.FC = () => {
                 </button>
               </Tooltip>
             )}
-            {s === 'confirmed' && canApprove && (
-              <Tooltip title="Process Order">
-                <button
-                  className="inv-action-btn inv-btn-pay"
-                  style={{ backgroundColor: '#0284c7', color: '#fff' }}
-                  onClick={() => confirmWorkflowAction(record, 'process', 'Start Processing', '#0284c7')}
-                >
-                  <InboxOutlined />
-                </button>
-              </Tooltip>
-            )}
             {['confirmed', 'processing'].includes(s) && canUpdate && (
               <Tooltip title="Plan Production (MRP Requirement)">
                 <button
@@ -2098,51 +2120,20 @@ const SalesOrderManagement: React.FC = () => {
                 </button>
               </Tooltip>
             )}
-            {['confirmed', 'processing'].includes(s) && canUpdate && (
-              <Tooltip title="Create Delivery Note / Loading Advice (Dispatch)">
+            {isAdmin && ['delivered', 'shipped', 'closed'].includes(s) && (
+              <Tooltip title="Revert to Processing (Admin Undo)">
                 <button
+                  type="button"
                   className="inv-action-btn"
-                  style={{ backgroundColor: '#059669', color: '#fff' }}
-                  onClick={() => handleOpenCreateDelivery(record)}
+                  aria-label="Revert to Processing"
+                  style={{ backgroundColor: '#d97706', color: '#fff' }}
+                  onClick={() => confirmWorkflowAction(record, 'revert-delivery', 'Revert to Processing', '#d97706')}
                 >
-                  <SendOutlined />
+                  <RollbackOutlined />
                 </button>
               </Tooltip>
             )}
-            {s === 'processing' && canApprove && (
-              <Tooltip title="Ship Order">
-                <button
-                  className="inv-action-btn inv-btn-pay"
-                  style={{ backgroundColor: '#3b82f6', color: '#fff' }}
-                  onClick={() => confirmWorkflowAction(record, 'ship', 'Ship Order', '#3b82f6')}
-                >
-                  <CarOutlined />
-                </button>
-              </Tooltip>
-            )}
-            {s === 'shipped' && canApprove && (
-              <Tooltip title="Mark Delivered">
-                <button
-                  className="inv-action-btn inv-btn-pay"
-                  style={{ backgroundColor: '#10b981', color: '#fff' }}
-                  onClick={() => confirmWorkflowAction(record, 'deliver', 'Mark Delivered', '#10b981')}
-                >
-                  <CheckCircleOutlined />
-                </button>
-              </Tooltip>
-            )}
-            {s === 'delivered' && canApprove && (
-              <Tooltip title="Close Order">
-                <button
-                  className="inv-action-btn inv-btn-pay"
-                  style={{ backgroundColor: '#16a34a', color: '#fff' }}
-                  onClick={() => confirmWorkflowAction(record, 'close', 'Close Order', '#16a34a')}
-                >
-                  <CheckOutlined />
-                </button>
-              </Tooltip>
-            )}
-            {s !== 'cancelled' && s !== 'closed' && canApprove && (
+            {!['cancelled', 'closed', 'delivered', 'shipped'].includes(s) && canApprove && (
               <Tooltip title="Cancel Order">
                 <button
                   className="inv-action-btn inv-btn-cancel"
@@ -3468,7 +3459,7 @@ const SalesOrderManagement: React.FC = () => {
         open={detailVisible}
         onCancel={() => setDetailVisible(false)}
         footer={[
-          ['confirmed', 'processing'].includes((detailItem?.status || '').toLowerCase()) && (
+          ['confirmed', 'processing'].includes((detailItem?.status || '').toLowerCase()) && canUpdate && (
             <Button
               key="planProd"
               icon={<BuildOutlined />}
@@ -3478,15 +3469,17 @@ const SalesOrderManagement: React.FC = () => {
               Plan Production
             </Button>
           ),
-          ['confirmed', 'processing'].includes((detailItem?.status || '').toLowerCase()) && (
+          isAdmin && ['delivered', 'shipped', 'closed'].includes((detailItem?.status || '').toLowerCase()) && (
             <Button
-              key="createDel"
-              type="primary"
-              icon={<SendOutlined />}
-              style={{ backgroundColor: '#059669', borderColor: '#059669' }}
-              onClick={() => detailItem && handleOpenCreateDelivery(detailItem)}
+              key="revertDelivery"
+              icon={<RollbackOutlined />}
+              style={{ backgroundColor: '#d97706', borderColor: '#d97706', color: '#fff', fontWeight: 600 }}
+              onClick={() =>
+                detailItem &&
+                confirmWorkflowAction(detailItem, 'revert-delivery', 'Revert to Processing', '#d97706')
+              }
             >
-              Create Delivery Note
+              Revert to Processing
             </Button>
           ),
           <Button key="print" icon={<PrinterOutlined />} type="default" onClick={() => detailItem && printSalesOrderDocument(detailItem)}>
@@ -4138,7 +4131,11 @@ const SalesOrderManagement: React.FC = () => {
       <DraggableResizableModal
         title={
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <CheckCircleOutlined style={{ color: confirmTarget?.color || '#2563eb', fontSize: 18 }} />
+            {confirmTarget?.action === 'revert-delivery' ? (
+              <RollbackOutlined style={{ color: confirmTarget?.color || '#d97706', fontSize: 18 }} />
+            ) : (
+              <CheckCircleOutlined style={{ color: confirmTarget?.color || '#2563eb', fontSize: 18 }} />
+            )}
             <span>{confirmTarget?.actionLabel}: Order #{confirmTarget?.record.orderNumber}</span>
           </div>
         }
@@ -4184,6 +4181,14 @@ const SalesOrderManagement: React.FC = () => {
       >
         {confirmTarget && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {confirmTarget.action === 'revert-delivery' && (
+              <Alert
+                type="warning"
+                showIcon
+                message="Administrator Recovery: Undo Premature Delivery Status"
+                description="This action reverts the order from Delivered/Shipped and recalculates each line item's shipped and remaining balance strictly from actual confirmed Sales Deliveries (Gate Passes). The order will return to Processing (when partial deliveries exist) or Confirmed (when zero deliveries exist) so remaining items can be dispatched through Sales -> Deliveries."
+              />
+            )}
             <div style={{ fontSize: 13, color: token.colorTextSecondary }}>
               Please verify line items, rates, and tax breakdown below before confirming{' '}
               <strong style={{ color: token.colorText }}>{confirmTarget.actionLabel}</strong>:

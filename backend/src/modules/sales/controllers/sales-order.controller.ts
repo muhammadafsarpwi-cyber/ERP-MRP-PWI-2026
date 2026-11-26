@@ -202,6 +202,23 @@ export class SalesOrderController {
     return { success: true, data: order, message: 'Sales order delivered' };
   }
 
+  @Patch(':id/revert-delivery')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('admin.users.view')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Admin-only: Revert a Delivered or Shipped sales order back to Processing or Confirmed' })
+  async revertDelivery(@Req() req: any, @Param('id') id: string) {
+    const userId = req.user?.id;
+    const companyId = req.erpUser?.defaultCompanyId;
+    const order = await this.service.revertDeliveredOrder(id, userId, companyId, this.divisionScope(req));
+    return {
+      success: true,
+      data: order,
+      message: `Sales order reverted to ${order.status}`,
+    };
+  }
+
   @Patch(':id/close')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()

@@ -83,10 +83,28 @@ export class PostOpeningStockDto {
   @IsOptional()
   transactionDate?: Date;
 
+  @ApiPropertyOptional({ description: 'Entry source (MANUAL or IMPORT)' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(30)
+  source?: string;
+
+  @ApiPropertyOptional({ description: 'Batch notes' })
+  @IsString()
+  @IsOptional()
+  notes?: string;
+
   @ApiProperty({ description: 'Opening stock lines', type: [OpeningStockLineDto] })
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => OpeningStockLineDto)
   @IsNotEmpty()
   lines: OpeningStockLineDto[];
+}
+
+export class OpeningStockBatchActionDto {
+  @ApiPropertyOptional({ description: 'Warehouse ID to disambiguate batch reference' })
+  @IsUUID()
+  @IsOptional()
+  warehouseId?: string;
 }

@@ -253,7 +253,16 @@ export class ProductionRoutingService {
   async getEffectiveRouteForItem(itemId: string, companyId: string): Promise<ProductionRouting> {
     const item = await this.itemRepo.findOne({
       where: { id: itemId, companyId },
-      relations: ['department', 'baseUom'],
+      relations: [
+        'department',
+        'baseUom',
+        'productionInItem',
+        'productionInItem.baseUom',
+        'productionInItem2',
+        'productionInItem2.baseUom',
+        'productionInItem3',
+        'productionInItem3.baseUom',
+      ],
     });
     if (!item) {
       throw new NotFoundException(`Item not found with id ${itemId} for this company`);
@@ -261,8 +270,30 @@ export class ProductionRoutingService {
     const routing = await this.findByProduct(itemId, companyId);
     if (routing) return routing;
 
-    // Synthesize effective single-stage routing from Item Master configuration
-    if (item.productionInItemId) {
+    // Synthesize effective single-stage routing from Item Master configuration (1..3 inputs)
+    const inputCandidates = [
+      { id: item.productionInItemId, item: item.productionInItem },
+      { id: item.productionInItemId2, item: item.productionInItem2 },
+      { id: item.productionInItemId3, item: item.productionInItem3 },
+    ].filter((c) => !!c.id);
+    if (inputCandidates.length > 0) {
+      const seenInputIds = new Set<string>();
+      const syntheticInputs: any[] = [];
+      for (const c of inputCandidates) {
+        if (!c.id || seenInputIds.has(c.id)) continue;
+        seenInputIds.add(c.id);
+        const idx = syntheticInputs.length;
+        syntheticInputs.push({
+          id: `opin-syn-${item.id}-${idx + 1}`,
+          itemId: c.id,
+          item: c.item ?? null,
+          quantity: 1,
+          uomId: c.item?.baseUomId ?? null,
+          scrapBasis: RoutingInputScrapBasis.WITH_SCRAP,
+          isPrimary: idx === 0,
+          lineNumber: (idx + 1) * 10,
+        });
+      }
       const deptName = item.department?.name || 'Manufacturing';
       const opName = deptName;
       const syntheticOp: any = {
@@ -273,7 +304,7 @@ export class ProductionRoutingService {
         operationName: opName,
         departmentId: item.departmentId,
         department: item.department,
-        inputItemId: item.productionInItemId,
+        inputItemId: syntheticInputs[0]?.itemId ?? item.productionInItemId,
         outputItemId: item.id,
         inputQuantity: 1,
         outputQuantity: 1,
@@ -283,18 +314,7 @@ export class ProductionRoutingService {
         scrapPercentage: 0,
         machineRequired: false,
         status: 'ACTIVE',
-        inputs: [
-          {
-            id: `opin-syn-${item.id}`,
-            itemId: item.productionInItemId,
-            item: item.productionInItem ?? null,
-            quantity: 1,
-            uomId: item.productionInItem?.baseUomId ?? null,
-            scrapBasis: RoutingInputScrapBasis.WITH_SCRAP,
-            isPrimary: true,
-            lineNumber: 10,
-          },
-        ],
+        inputs: syntheticInputs,
         outputs: [
           {
             id: `opout-syn-${item.id}`,

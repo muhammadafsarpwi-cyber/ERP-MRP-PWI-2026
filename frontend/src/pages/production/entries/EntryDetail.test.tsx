@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { App } from 'antd';
@@ -293,6 +293,156 @@ describe('EntryDetail — coil size + real inventory reconciliation (TASK #41 Pa
     const status = screen.getByTestId('reconciliation-status');
     expect(status).toHaveTextContent('No movements expected');
     expect(screen.queryByText(/Reconciliation Mismatch/)).not.toBeInTheDocument();
+  });
+});
+
+describe('EntryDetail — multi-component Spiral Core WIP-CS-006 (PE-2026-04231)', () => {
+  const WIP_OUT_ID = 'item-wip-cs-006';
+  const STRIP5_ID = 'item-strip-5';
+  const STRIP6_ID = 'item-strip-6';
+  const WH_FT022_ID = 'wh-ft-022';
+
+  const wipEntry = {
+    ...entry,
+    id: 'entry-1',
+    entryNumber: 'PE-2026-04231',
+    entryDate: '2026-11-25',
+    itemId: WIP_OUT_ID,
+    rawMaterialWarehouseId: WH_FT022_ID,
+    rawMaterialWarehouse: { id: WH_FT022_ID, name: 'Flattening WIP Store (CCD-FT-022)', warehouseCode: 'CCD-FT-022' },
+    warehouseId: OUT_WH,
+    warehouse: { id: OUT_WH, name: 'Main Warehouse' },
+    inventoryReferenceId: 'inv-ref-4231',
+    targetQuantity: 1050,
+    actualQuantity: 1050,
+    scrapQuantity: 10.98,
+    uom: { code: 'M', symbol: 'm' },
+    item: {
+      id: WIP_OUT_ID,
+      itemCode: 'WIP-CS-006',
+      name: 'Spiral Core 5.75 mm DS',
+      weightPerMeter: 0.082,
+      baseUom: { code: 'M', symbol: 'm' },
+      productionInItem: {
+        id: STRIP5_ID,
+        itemCode: 'FLAT-STRIP-005',
+        name: 'Flat Strip T 0.80 x W 1.85 mm',
+        weightPerMeter: 0.037,
+        baseUom: { code: 'KG', symbol: 'kg' },
+      },
+      productionInItem2: {
+        id: STRIP6_ID,
+        itemCode: 'FLAT-STRIP-006',
+        name: 'Flat Strip T 0.95 x W 2.10 mm',
+        weightPerMeter: 0.045,
+        baseUom: { code: 'KG', symbol: 'kg' },
+      },
+    },
+  };
+
+  function setupWipMocks(ledgerMovements: any[]) {
+    apiMock.get.mockImplementation(async (url: any, params?: any) => {
+      const u = String(url);
+      if (u === '/production/entries/entry-1') return { success: true, data: wipEntry };
+      if (u === '/inventory/reports/ledger') return { data: ledgerMovements };
+      if (u === '/inventory/balances') {
+        if (params?.itemId === STRIP5_ID) {
+          return {
+            data: [{
+              id: 'b-s5',
+              warehouse: { id: WH_FT022_ID, name: 'Flattening WIP Store (CCD-FT-022)' },
+              onHand: 100,
+              reserved: 0,
+              available: 100,
+              uom: { id: 'u-kg', code: 'KG', name: 'Kilogram' },
+            }],
+          };
+        }
+        if (params?.itemId === STRIP6_ID) {
+          return {
+            data: [{
+              id: 'b-s6',
+              warehouse: { id: WH_FT022_ID, name: 'Flattening WIP Store (CCD-FT-022)' },
+              onHand: 200,
+              reserved: 0,
+              available: 200,
+              uom: { id: 'u-kg', code: 'KG', name: 'Kilogram' },
+            }],
+          };
+        }
+        if (params?.itemId === WIP_OUT_ID) {
+          return {
+            data: [{
+              id: 'b-out',
+              warehouse: { id: OUT_WH, name: 'Main Warehouse' },
+              onHand: 1050,
+              reserved: 0,
+              available: 1050,
+              uom: { id: 'u-m', code: 'M', name: 'Meter' },
+            }],
+          };
+        }
+      }
+      return { data: [] };
+    });
+  }
+
+  it('M1: renders both FLAT-STRIP-005 and FLAT-STRIP-006 cards in Tab 3 Material Flow and reconciles 87.000 KG in Tab 4', async () => {
+    setupWipMocks([
+      { id: 'm1', transactionDate: '2026-11-25T10:00:00', transactionType: 'PRODUCTION_RECEIPT', direction: 'IN', quantity: 1050, itemId: WIP_OUT_ID, item: { id: WIP_OUT_ID, itemCode: 'WIP-CS-006', name: 'Spiral Core 5.75 mm DS' }, warehouse: { id: OUT_WH, name: 'Main Warehouse' }, uom: { code: 'M' } },
+      { id: 'm2', transactionDate: '2026-11-25T10:00:00', transactionType: 'PRODUCTION_SCRAP', direction: 'OUT', quantity: 10.98, itemId: WIP_OUT_ID, item: { id: WIP_OUT_ID, itemCode: 'WIP-CS-006', name: 'Spiral Core 5.75 mm DS' }, warehouse: { id: OUT_WH, name: 'Main Warehouse' }, uom: { code: 'M' } },
+      { id: 'm3', transactionDate: '2026-11-25T10:00:00', transactionType: 'PRODUCTION_CONSUMPTION', direction: 'OUT', quantity: 39.2563, itemId: STRIP5_ID, item: { id: STRIP5_ID, itemCode: 'FLAT-STRIP-005', name: 'Flat Strip T 0.80 x W 1.85 mm' }, warehouseId: WH_FT022_ID, warehouse: { id: WH_FT022_ID, name: 'Flattening WIP Store (CCD-FT-022)' }, uom: { code: 'KG' } },
+      { id: 'm4', transactionDate: '2026-11-25T10:00:00', transactionType: 'PRODUCTION_CONSUMPTION', direction: 'OUT', quantity: 47.7441, itemId: STRIP6_ID, item: { id: STRIP6_ID, itemCode: 'FLAT-STRIP-006', name: 'Flat Strip T 0.95 x W 2.10 mm' }, warehouseId: WH_FT022_ID, warehouse: { id: WH_FT022_ID, name: 'Flattening WIP Store (CCD-FT-022)' }, uom: { code: 'KG' } },
+    ]);
+
+    render(
+      <App>
+        <MemoryRouter initialEntries={['/production/entries/entry-1']}>
+          <Routes>
+            <Route path="/production/entries/:id" element={<EntryDetail />} />
+          </Routes>
+        </MemoryRouter>
+      </App>,
+    );
+
+    expect((await screen.findAllByText(/FLAT-STRIP-005/)).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/FLAT-STRIP-006/).length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByText(/Material Flow & Store Balances/i));
+    expect(await screen.findByText(/INPUT 1 \(RAW MATERIAL\)/)).toBeInTheDocument();
+    expect(screen.getByText(/INPUT 2 \(RAW MATERIAL\)/)).toBeInTheDocument();
+    expect(screen.getAllByText(/39\.256/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/47\.744/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/87\.000/).length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByText(/Stock Ledger Movements & Reconciliation/i));
+    expect(await screen.findByTestId('reconciliation-status')).toHaveTextContent('Inventory Reconciled');
+    expect(screen.getByText(/87\.000 KG demanded/)).toBeInTheDocument();
+    expect(screen.getByText(/87\.000 KG in ledger/)).toBeInTheDocument();
+  });
+
+  it('M2: flags Reconciliation Mismatch when broken ledger holds duplicated 87.0004 + 87.0004 (174.001 KG) instead of 87.000 KG', async () => {
+    setupWipMocks([
+      { id: 'm1', transactionDate: '2026-11-25T10:00:00', transactionType: 'PRODUCTION_RECEIPT', direction: 'IN', quantity: 1050, itemId: WIP_OUT_ID, item: { id: WIP_OUT_ID, itemCode: 'WIP-CS-006', name: 'Spiral Core 5.75 mm DS' }, warehouse: { id: OUT_WH, name: 'Main Warehouse' }, uom: { code: 'M' } },
+      { id: 'm2', transactionDate: '2026-11-25T10:00:00', transactionType: 'PRODUCTION_SCRAP', direction: 'OUT', quantity: 10.98, itemId: WIP_OUT_ID, item: { id: WIP_OUT_ID, itemCode: 'WIP-CS-006', name: 'Spiral Core 5.75 mm DS' }, warehouse: { id: OUT_WH, name: 'Main Warehouse' }, uom: { code: 'M' } },
+      { id: 'm3', transactionDate: '2026-11-25T10:00:00', transactionType: 'PRODUCTION_CONSUMPTION', direction: 'OUT', quantity: 87.0004, itemId: STRIP5_ID, item: { id: STRIP5_ID, itemCode: 'FLAT-STRIP-005', name: 'Flat Strip T 0.80 x W 1.85 mm' }, warehouseId: WH_FT022_ID, warehouse: { id: WH_FT022_ID, name: 'Flattening WIP Store (CCD-FT-022)' }, uom: { code: 'KG' } },
+      { id: 'm4', transactionDate: '2026-11-25T10:00:00', transactionType: 'PRODUCTION_CONSUMPTION', direction: 'OUT', quantity: 87.0004, itemId: STRIP6_ID, item: { id: STRIP6_ID, itemCode: 'FLAT-STRIP-006', name: 'Flat Strip T 0.95 x W 2.10 mm' }, warehouseId: WH_FT022_ID, warehouse: { id: WH_FT022_ID, name: 'Flattening WIP Store (CCD-FT-022)' }, uom: { code: 'KG' } },
+    ]);
+
+    render(
+      <App>
+        <MemoryRouter initialEntries={['/production/entries/entry-1']}>
+          <Routes>
+            <Route path="/production/entries/:id" element={<EntryDetail />} />
+          </Routes>
+        </MemoryRouter>
+      </App>,
+    );
+
+    fireEvent.click(await screen.findByText(/Stock Ledger Movements & Reconciliation/i));
+    expect(await screen.findByTestId('reconciliation-status')).toHaveTextContent('Reconciliation Mismatch');
+    expect(screen.getByText(/87\.000 KG demanded/)).toBeInTheDocument();
+    expect(screen.getByText(/174\.001 KG in ledger/)).toBeInTheDocument();
   });
 });
 

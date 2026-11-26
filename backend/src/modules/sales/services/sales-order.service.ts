@@ -515,6 +515,158 @@ export class SalesOrderService implements OnModuleInit {
     return this.generateOrderNumber(companyId, prefixType);
   }
 
+  private normalizeSocKey(raw?: string | null): string {
+    const cleaned = String(raw || '').trim().toUpperCase();
+    if (!cleaned) return '';
+    const match = cleaned.match(/^([A-Z]+)-(\d{4})-0*(\d+)$/);
+    if (match) {
+      return `${match[1]}-${match[2]}-${match[3]}`;
+    }
+    return cleaned;
+  }
+
+  private extractLineSocTag(description?: string | null): string | null {
+    const match = String(description || '').match(/\[\s*SOC\s*:\s*([^\]]+)\]/i);
+    return match && match[1] ? match[1].trim() : null;
+  }
+
+  private async resolveOrderDeliveriesAndFulfillment(order: SalesOrder): Promise<{
+    linkedDeliveries: SalesDelivery[];
+    confirmedDeliveryCount: number;
+    deliveredByOrderItemId: Map<string, number>;
+    totalConfirmedDeliveredQty: number;
+  }> {
+    const byId = new Map<string, SalesDelivery>();
+
+    try {
+      const direct = await this.deliveryRepo.find({
+        where: {
+          salesOrderId: order.id,
+          ...(order.companyId ? { companyId: order.companyId } : {}),
+        },
+        relations: ['lines'],
+        order: { createdAt: 'DESC' },
+      });
+      for (const dn of direct || []) {
+        if (dn?.id) byId.set(dn.id, dn);
+      }
+    } catch {
+      // Ignore lookup failure and fall back cleanly
+    }
+
+    const targetSocKey = this.normalizeSocKey(order.orderNumber);
+    const numericSuffixMatch = String(order.orderNumber || '').trim().match(/0*(\d+)$/);
+    const numericSuffix = numericSuffixMatch ? numericSuffixMatch[1] : '';
+
+    if (targetSocKey && numericSuffix && this.repo.manager?.query) {
+      try {
+        const params: any[] = [order.id, `%${numericSuffix}%`];
+        let companyClause = '';
+        if (order.companyId) {
+          params.push(order.companyId);
+          companyClause = ` AND sd.company_id = $${params.length}`;
+        }
+        const extraRows = await this.repo.manager.query(
+          `SELECT DISTINCT sd.id
+             FROM erp_sales.sales_deliveries sd
+             INNER JOIN erp_sales.sales_delivery_lines sdl ON sdl.delivery_id = sd.id
+            WHERE sd.deleted_at IS NULL
+              AND sd.sales_order_id IS DISTINCT FROM $1
+              AND sdl.description ILIKE '%SOC:%'
+              AND sdl.description ILIKE $2${companyClause}`,
+          params,
+        );
+        const extraIds = (extraRows || [])
+          .map((r: any) => r?.id)
+          .filter((id: string) => id && !byId.has(id));
+        if (extraIds.length > 0) {
+          const extraDeliveries = await this.deliveryRepo.find({
+            where: { id: In(extraIds) },
+            relations: ['lines'],
+          });
+          for (const dn of extraDeliveries || []) {
+            if (!dn?.id) continue;
+            const hasMatchingSocLine = (dn.lines || []).some((line: any) => {
+              const tagged = this.extractLineSocTag(line?.description);
+              return tagged ? this.normalizeSocKey(tagged) === targetSocKey : false;
+            });
+            if (hasMatchingSocLine) {
+              byId.set(dn.id, dn);
+            }
+          }
+        }
+      } catch {
+        // Ignore raw multi-SOC lookup failure in unit-test or degraded environments
+      }
+    }
+
+    const linkedDeliveries = Array.from(byId.values()).sort((a, b) => {
+      const aTime = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const bTime = b?.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return bTime - aTime;
+    });
+
+    const confirmedStatuses = new Set(['CONFIRMED', 'SHIPPED', 'DELIVERED']);
+    const deliveredByOrderItemId = new Map<string, number>();
+    for (const item of order.items || []) {
+      deliveredByOrderItemId.set(item.id, 0);
+    }
+
+    let confirmedDeliveryCount = 0;
+    let totalConfirmedDeliveredQty = 0;
+
+    for (const dn of linkedDeliveries) {
+      const dnStatus = String(dn?.status || '').trim().toUpperCase();
+      if (!confirmedStatuses.has(dnStatus)) continue;
+
+      let dnContributedToOrder = false;
+      for (const line of dn.lines || []) {
+        const lineQty = Number(line?.quantity || 0);
+        if (lineQty <= 0) continue;
+
+        const taggedSoc = this.extractLineSocTag(line?.description);
+        const belongsToThisOrder = taggedSoc
+          ? Boolean(targetSocKey && this.normalizeSocKey(taggedSoc) === targetSocKey)
+          : dn.salesOrderId === order.id;
+
+        if (!belongsToThisOrder) continue;
+        dnContributedToOrder = true;
+        totalConfirmedDeliveredQty += lineQty;
+
+        const matchingItems = (order.items || []).filter((it) => it.itemId === line.itemId);
+        if (matchingItems.length === 0) continue;
+
+        let remainingToAllocate = lineQty;
+        for (let idx = 0; idx < matchingItems.length; idx++) {
+          const targetItem = matchingItems[idx];
+          const current = deliveredByOrderItemId.get(targetItem.id) || 0;
+          const ordered = Number(targetItem.quantity || 0);
+          if (idx === matchingItems.length - 1) {
+            deliveredByOrderItemId.set(targetItem.id, Math.round((current + remainingToAllocate) * 10000) / 10000);
+            remainingToAllocate = 0;
+          } else {
+            const room = Math.max(0, ordered - current);
+            const alloc = Math.min(room, remainingToAllocate);
+            deliveredByOrderItemId.set(targetItem.id, Math.round((current + alloc) * 10000) / 10000);
+            remainingToAllocate -= alloc;
+          }
+          if (remainingToAllocate <= 0) break;
+        }
+      }
+
+      if (dnContributedToOrder || (dn.salesOrderId === order.id && (!dn.lines || dn.lines.length === 0))) {
+        confirmedDeliveryCount += 1;
+      }
+    }
+
+    return {
+      linkedDeliveries,
+      confirmedDeliveryCount,
+      deliveredByOrderItemId,
+      totalConfirmedDeliveredQty: Math.round(totalConfirmedDeliveredQty * 10000) / 10000,
+    };
+  }
+
   async findOne(id: string, companyId?: string, allowedDivisionIds?: DivisionAccess): Promise<any> {
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
       throw new BadRequestException(`Invalid ID format: ${id}`);
@@ -546,23 +698,17 @@ export class SalesOrderService implements OnModuleInit {
       }
     }
 
-    let linkedDeliveries: any[] = [];
-    try {
-      linkedDeliveries = await this.deliveryRepo.find({
-        where: { salesOrderId: order.id, companyId: order.companyId },
-        relations: ['lines'],
-        order: { createdAt: 'DESC' },
-      });
-    } catch {
-      linkedDeliveries = [];
-    }
+    const {
+      linkedDeliveries,
+      deliveredByOrderItemId,
+    } = await this.resolveOrderDeliveriesAndFulfillment(order);
 
     let linkedInvoices: any[] = [];
     try {
-      linkedInvoices = await this.invoiceRepo.find({
+      linkedInvoices = (await this.invoiceRepo.find({
         where: { salesOrderId: order.id, companyId: order.companyId },
         order: { createdAt: 'DESC' },
-      });
+      })) || [];
     } catch {
       linkedInvoices = [];
     }
@@ -572,14 +718,14 @@ export class SalesOrderService implements OnModuleInit {
       const orderItemIds = (order.items || []).map((it) => it.id);
       const productIds = (order.items || []).map((it) => it.itemId).filter(Boolean) as string[];
       if (orderItemIds.length > 0 || productIds.length > 0) {
-        linkedProductionOrders = await this.productionOrderRepo.find({
+        linkedProductionOrders = (await this.productionOrderRepo.find({
           where: [
             ...(orderItemIds.length > 0 ? [{ salesOrderItemId: In(orderItemIds), companyId: order.companyId }] : []),
             ...(productIds.length > 0 ? [{ productId: In(productIds), demandSource: ProductionDemandSource.CUSTOMER_ORDER, companyId: order.companyId }] : []),
           ],
           select: ['id', 'orderNumber', 'productId', 'salesOrderItemId', 'plannedQuantity', 'completedQuantity', 'scrappedQuantity', 'status', 'dueDate', 'createdAt'],
           order: { createdAt: 'DESC' },
-        });
+        })) || [];
       }
     } catch {
       linkedProductionOrders = [];
@@ -599,14 +745,8 @@ export class SalesOrderService implements OnModuleInit {
         );
         let produced = matchingPOs.reduce((acc, po) => acc + Number(po.completedQuantity || 0), 0);
 
-        // Delivered from confirmed deliveries or item shippedQuantity
-        let delivered = linkedDeliveries
-          .filter((d) => d.status === 'DELIVERED' || d.status === 'CONFIRMED' || d.status === 'SHIPPED')
-          .reduce((acc, d) => {
-            const line = (d.lines || []).find((l: any) => l.itemId === item.itemId);
-            return acc + (line ? Number(line.quantity) : 0);
-          }, 0);
-
+        // Delivered strictly from confirmed deliveries for this SOC or item shippedQuantity
+        let delivered = deliveredByOrderItemId.get(item.id) || 0;
         delivered = Math.max(delivered, Number(item.shippedQuantity) || 0);
 
         // Real FG stock available
@@ -862,9 +1002,33 @@ export class SalesOrderService implements OnModuleInit {
     return this.repo.save(order);
   }
 
+  private detachHydratedOrderRelations(order: SalesOrder): void {
+    delete (order as any).items;
+    delete (order as any).customer;
+    delete (order as any).division;
+    delete (order as any).section;
+    delete (order as any).quotation;
+    delete (order as any).creator;
+    delete (order as any).updater;
+    delete (order as any).relatedQuotation;
+    delete (order as any).linkedProductionOrders;
+    delete (order as any).linkedDeliveries;
+    delete (order as any).linkedInvoices;
+    delete (order as any).itemFulfillment;
+  }
+
   async ship(id: string, userId?: string, companyId?: string, allowedDivisionIds?: DivisionAccess): Promise<SalesOrder> {
     const order = await this.findOne(id, companyId, allowedDivisionIds);
     if (order.status !== 'Processing') throw new BadRequestException('Can only ship orders in Processing status');
+
+    const { confirmedDeliveryCount } = await this.resolveOrderDeliveriesAndFulfillment(order);
+    if (confirmedDeliveryCount <= 0) {
+      throw new BadRequestException(
+        'Orders cannot be marked Shipped directly from Sales Orders without a confirmed Sales Delivery (Gate Pass). Please dispatch through Sales -> Deliveries.',
+      );
+    }
+
+    this.detachHydratedOrderRelations(order);
     order.status = 'Shipped';
     order.updatedBy = userId || null;
     return this.repo.save(order);
@@ -873,20 +1037,100 @@ export class SalesOrderService implements OnModuleInit {
   async deliver(id: string, userId?: string, companyId?: string, allowedDivisionIds?: DivisionAccess): Promise<SalesOrder> {
     const order = await this.findOne(id, companyId, allowedDivisionIds);
     if (order.status !== 'Shipped') throw new BadRequestException('Can only deliver orders in Shipped status');
+
+    const { confirmedDeliveryCount, deliveredByOrderItemId } = await this.resolveOrderDeliveriesAndFulfillment(order);
+    if (confirmedDeliveryCount <= 0) {
+      throw new BadRequestException(
+        'Orders cannot be marked Delivered directly from Sales Orders without confirmed Sales Deliveries (Gate Pass). Please dispatch through Sales -> Deliveries.',
+      );
+    }
+
+    const orderItems: SalesOrderItem[] = Array.isArray(order.items) ? [...order.items] : [];
+    const unfulfilledItems = orderItems.filter((it) => {
+      const ordered = Number(it.quantity || 0);
+      const confirmedDelivered = deliveredByOrderItemId.get(it.id) || 0;
+      return ordered > 0 && confirmedDelivered < ordered - 0.001;
+    });
+    if (unfulfilledItems.length > 0) {
+      throw new BadRequestException(
+        'Orders cannot be marked Delivered until 100% of ordered item quantities have confirmed Sales Deliveries (Gate Pass) in Sales -> Deliveries.',
+      );
+    }
+
+    this.detachHydratedOrderRelations(order);
     order.status = 'Delivered';
     order.updatedBy = userId || null;
     const saved = await this.repo.save(order);
 
-    // Cascade delivered status and fulfilled quantities to all child item rows
-    if (order.items && order.items.length > 0) {
-      for (const it of order.items) {
-        it.status = 'Delivered';
-        it.shippedQuantity = it.quantity;
-        await this.itemRepo.save(it);
-      }
+    for (const it of orderItems) {
+      const confirmedDelivered = deliveredByOrderItemId.get(it.id) ?? Number(it.quantity || 0);
+      it.status = 'Delivered';
+      it.shippedQuantity = Math.min(Number(it.quantity || 0), confirmedDelivered);
+      await this.itemRepo.save(it);
     }
 
     return saved;
+  }
+
+  /**
+   * Admin-only recovery action: reverts a prematurely Delivered / Shipped / Closed
+   * Sales Order back to Processing (when confirmed deliveries exist) or Confirmed
+   * (when zero confirmed deliveries exist), recalculating each line's shippedQuantity
+   * and status strictly from actual non-cancelled confirmed Sales Deliveries.
+   */
+  async revertDeliveredOrder(
+    id: string,
+    userId?: string,
+    companyId?: string,
+    allowedDivisionIds?: DivisionAccess,
+  ): Promise<SalesOrder> {
+    const order = await this.findOne(id, companyId, allowedDivisionIds);
+    const currentStatus = String(order.status || '').trim().toLowerCase();
+    if (!['delivered', 'shipped', 'closed'].includes(currentStatus)) {
+      throw new BadRequestException(
+        `Only Delivered, Shipped, or Closed orders can be reverted (current status: ${order.status || 'Unknown'}).`,
+      );
+    }
+
+    const {
+      confirmedDeliveryCount,
+      deliveredByOrderItemId,
+      totalConfirmedDeliveredQty,
+    } = await this.resolveOrderDeliveriesAndFulfillment(order);
+
+    const orderItems: SalesOrderItem[] = Array.isArray(order.items) ? [...order.items] : [];
+    for (const it of orderItems) {
+      const orderedQty = Number(it.quantity || 0);
+      const actualDelivered = Math.max(0, deliveredByOrderItemId.get(it.id) || 0);
+      const cappedShipped = orderedQty > 0 ? Math.min(orderedQty, actualDelivered) : actualDelivered;
+      const nextItemStatus =
+        cappedShipped <= 0.0001
+          ? 'Pending'
+          : orderedQty > 0 && cappedShipped >= orderedQty - 0.001
+            ? 'Delivered'
+            : 'Partial';
+
+      it.shippedQuantity = Math.round(cappedShipped * 10000) / 10000;
+      it.status = nextItemStatus;
+      delete (it as any).item;
+      delete (it as any).uom;
+      delete (it as any).salesOrder;
+      delete (it as any).producedQuantity;
+      delete (it as any).deliveredQuantity;
+      delete (it as any).availableStock;
+      delete (it as any).remainingDeliveryQuantity;
+      await this.itemRepo.save(it);
+    }
+
+    const nextOrderStatus =
+      confirmedDeliveryCount > 0 || totalConfirmedDeliveredQty > 0.0001 ? 'Processing' : 'Confirmed';
+
+    this.detachHydratedOrderRelations(order);
+    order.status = nextOrderStatus;
+    order.updatedBy = userId || null;
+    await this.repo.save(order);
+
+    return this.findOne(id, companyId, allowedDivisionIds);
   }
 
   async close(id: string, userId?: string, companyId?: string, allowedDivisionIds?: DivisionAccess): Promise<SalesOrder> {

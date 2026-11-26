@@ -16,7 +16,6 @@ import {
   Col,
   Tooltip,
   Modal,
-  Spin,
   Tag,
   Alert,
   theme,
@@ -45,15 +44,16 @@ import autoTable from 'jspdf-autotable';
 import apiService from '../../services/api';
 import dashboardService, { FilterOption } from '../../services/dashboardService';
 import OpeningStockHistoryModal from './OpeningStockHistoryModal';
+import OpeningStockTemplateModal from './OpeningStockTemplateModal';
+import OpeningStockImportWizardModal from './OpeningStockImportWizardModal';
+import { type TemplateItemRecord } from '../../utils/openingStockSpreadsheet';
 import { usePermission } from '../../hooks/usePermission';
 import { useHeaderActions } from '../../components/layout/headerActionsStore';
 import { ConfirmAndSuccessModal, type ConfirmAndSuccessPhase } from '../../components/shared';
 
 const { Text } = Typography;
 
-interface ItemOption {
-  id: string;
-  name: string;
+interface ItemOption extends TemplateItemRecord {
   code?: string;
   item_code?: string;
   base_uom_id?: string;
@@ -69,6 +69,7 @@ interface WarehouseOption {
   id: string;
   name: string;
   code?: string;
+  warehouseCode?: string;
   warehouse_code?: string;
   division_id?: string;
   divisionId?: string;
@@ -93,6 +94,42 @@ interface OpeningStockLine {
   notes?: string;
 }
 
+const LOOKUP_CACHE_TTL_MS = 5 * 60 * 1000;
+let openingStockLookupCache: {
+  ts: number;
+  divisions: FilterOption[];
+  warehouses: WarehouseOption[];
+  uoms: UomOption[];
+  allItems: ItemOption[];
+} | null = null;
+
+const normalizeItemOption = (it: any, divNameMap: Map<string, string>): ItemOption => {
+  const code = it.itemCode || it.code || it.item_code || '';
+  const uomCode = it.baseUomCode || it.baseUom?.code || it.uomCode || '';
+  const uomId = it.baseUomId || it.base_uom_id || it.uomId || it.uom_id || '';
+  const divisionId = it.divisionId || it.division_id || undefined;
+  return {
+    ...it,
+    id: it.id,
+    itemCode: code,
+    code,
+    item_code: code,
+    name: it.name || '',
+    categoryName: it.categoryName || it.category?.name || null,
+    itemType: it.itemType || null,
+    uomId,
+    base_uom_id: uomId,
+    uom_id: uomId,
+    uomCode,
+    divisionId,
+    divisionName: divisionId ? divNameMap.get(divisionId) || null : null,
+    costPrice: it.costPrice ?? it.cost_price ?? it.standardCost ?? it.standard_cost ?? 0,
+    cost_price: it.costPrice ?? it.cost_price ?? 0,
+    standard_cost: it.standardCost ?? it.standard_cost ?? 0,
+    isStoreItem: Boolean(it.isStoreItem ?? it.is_store_item),
+  };
+};
+
 const fmt = (num?: number | null, decimals = 2) => {
   if (num === null || num === undefined || Number.isNaN(Number(num))) return '0';
   return Number(num).toLocaleString('en-US', {
@@ -105,17 +142,21 @@ const OpeningStock: React.FC = () => {
   const { message } = App.useApp();
   const { token } = theme.useToken();
   const navigate = useNavigate();
-  const { can } = usePermission();
-  const canCreate = can('inventory.opening_stock.create') || can('store.view');
+  usePermission();
 
   const [form] = Form.useForm();
   const selectedWarehouseId = Form.useWatch('warehouseId', form);
+  const selectedDateValue = Form.useWatch('transactionDate', form);
+  const selectedReferenceValue = Form.useWatch('referenceNumber', form);
   const [lines, setLines] = useState<OpeningStockLine[]>([
     { key: 'line-init-1', itemId: '', uomId: '', quantity: 1, unitCost: 0 },
   ]);
   const [submitting, setSubmitting] = useState(false);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
-  const [historyOpen, setHistoryOpen] = useState(false);
+  const [activeModal, setActiveModal] = useState<'none' | 'template' | 'import' | 'history'>('none');
+  const historyOpen = activeModal === 'history';
+  const templateModalOpen = activeModal === 'template';
+  const importWizardOpen = activeModal === 'import';
   const [balanceRefreshTick, setBalanceRefreshTick] = useState(0);
   const [feedbackPhase, setFeedbackPhase] = useState<ConfirmAndSuccessPhase>('idle');
   const [postedSummary, setPostedSummary] = useState<{
@@ -126,35 +167,60 @@ const OpeningStock: React.FC = () => {
     errorMessage?: string;
   }>({ lineCount: 0, refNum: '', totalQty: 0, totalVal: 0 });
 
-  const [divisions, setDivisions] = useState<FilterOption[]>([]);
+  const [divisions, setDivisions] = useState<FilterOption[]>(() => openingStockLookupCache?.divisions || []);
   const [selectedDivisionId, setSelectedDivisionId] = useState<string | undefined>(undefined);
-  const [warehouses, setWarehouses] = useState<WarehouseOption[]>([]);
-  const [items, setItems] = useState<ItemOption[]>([]);
-  const [uoms, setUoms] = useState<UomOption[]>([]);
+  const [warehouses, setWarehouses] = useState<WarehouseOption[]>(() => openingStockLookupCache?.warehouses || []);
+  const [allItems, setAllItems] = useState<ItemOption[]>(() => openingStockLookupCache?.allItems || []);
+  const [uoms, setUoms] = useState<UomOption[]>(() => openingStockLookupCache?.uoms || []);
   const [loadingDropdowns, setLoadingDropdowns] = useState(false);
   const [warehouseBalances, setWarehouseBalances] = useState<Map<string, number>>(new Map());
 
-  const [loadingItems, setLoadingItems] = useState(false);
+  // 1. Fetch & cache Division, Warehouse, UOM, and Item lookups ONCE with zero-lag switching
+  const fetchDropdowns = useCallback(async (force = false) => {
+    const now = Date.now();
+    if (!force && openingStockLookupCache && now - openingStockLookupCache.ts < LOOKUP_CACHE_TTL_MS) {
+      setDivisions(openingStockLookupCache.divisions);
+      setWarehouses(openingStockLookupCache.warehouses);
+      setUoms(openingStockLookupCache.uoms);
+      setAllItems(openingStockLookupCache.allItems);
+      return;
+    }
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // 1. Fetch dropdown data on mount (items are loaded per division below)
-  const fetchDropdowns = useCallback(async () => {
     setLoadingDropdowns(true);
     try {
-      const [divRes, warehouseRes, uomRes] = await Promise.all([
+      const [divRes, warehouseRes, uomRes, itemRes] = await Promise.all([
         dashboardService.getFilterDivisions().catch(() => ({ data: [] })),
         apiService.get<any>('/warehouses', { limit: 200 }).catch(() => ({ data: [] })),
         apiService.get<any>('/master-data/uom', { limit: 100 }).catch(() => ({ data: [] })),
+        apiService.get<any>('/master-data/items/lookup').catch(() => ({ data: [] })),
       ]);
 
-      setDivisions(Array.isArray(divRes?.data) ? divRes.data : []);
+      const nextDivs: FilterOption[] = Array.isArray(divRes?.data) ? divRes.data : [];
+      const divNameMap = new Map<string, string>(nextDivs.map((d) => [d.id, d.name]));
 
       const rawWarehouses = warehouseRes?.data?.warehouses || warehouseRes?.data || [];
-      setWarehouses(Array.isArray(rawWarehouses) ? rawWarehouses : []);
+      const nextWhs: WarehouseOption[] = Array.isArray(rawWarehouses) ? rawWarehouses : [];
 
       const rawUoms = uomRes?.data?.uoms || uomRes?.data || [];
-      setUoms(Array.isArray(rawUoms) ? rawUoms : []);
+      const nextUoms: UomOption[] = Array.isArray(rawUoms) ? rawUoms : [];
+
+      const rawItems: any[] = Array.isArray(itemRes) ? itemRes : itemRes?.data?.items || itemRes?.data || [];
+      const nextItems = rawItems
+        .filter((it) => Boolean(it?.id))
+        .map((it) => normalizeItemOption(it, divNameMap));
+
+      openingStockLookupCache = {
+        ts: Date.now(),
+        divisions: nextDivs,
+        warehouses: nextWhs,
+        uoms: nextUoms,
+        allItems: nextItems,
+      };
+
+      setDivisions(nextDivs);
+      setWarehouses(nextWhs);
+      setUoms(nextUoms);
+      setAllItems(nextItems);
     } catch (err: any) {
       console.error('Failed to load dropdown data:', err);
       message.error('Failed to load initial master data');
@@ -167,43 +233,13 @@ const OpeningStock: React.FC = () => {
     fetchDropdowns();
   }, [fetchDropdowns]);
 
-  // Load ONLY the items that belong to the selected division
-  useEffect(() => {
-    if (!selectedDivisionId) {
-      setItems([]);
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      setLoadingItems(true);
-      try {
-        const res = await apiService.get<any>('/master-data/items/lookup', { divisionId: selectedDivisionId });
-        const raw: any[] = Array.isArray(res) ? res : res?.data?.items || res?.data || [];
-        const normalized: ItemOption[] = raw
-          .filter((it) => it?.id && (!it.divisionId || it.divisionId === selectedDivisionId))
-          .map((it) => ({
-            ...it,
-            code: it.itemCode || it.code || it.item_code || '',
-            item_code: it.itemCode || it.item_code || it.code || '',
-            base_uom_id: it.baseUomId || it.base_uom_id,
-            uom_id: it.uomId || it.uom_id,
-            uomCode: it.baseUom?.code || it.uomCode,
-          }));
-        if (!cancelled) setItems(normalized);
-      } catch (err) {
-        console.error('Failed to load division items:', err);
-        if (!cancelled) {
-          setItems([]);
-          message.error('Failed to load items for the selected division');
-        }
-      } finally {
-        if (!cancelled) setLoadingItems(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedDivisionId, message]);
+  // Zero-lag synchronously filtered items for the active Division (derived from cached master lookup)
+  const items = useMemo(() => {
+    if (!selectedDivisionId) return [];
+    return allItems.filter((it) => !it.divisionId || it.divisionId === selectedDivisionId);
+  }, [allItems, selectedDivisionId]);
+
+  const loadingItems = loadingDropdowns && allItems.length === 0;
 
   // Warehouses strictly belonging to the selected division
   const filteredWarehouses = useMemo(() => {
@@ -348,25 +384,8 @@ const OpeningStock: React.FC = () => {
     [lines]
   );
 
-  // 4. CSV Template Download
-  const downloadCsvTemplate = () => {
-    const headers = ['Item Code', 'Quantity', 'Unit Cost', 'Batch Number', 'Serial Number', 'Notes'];
-    const sampleRows = [
-      ['RM-WIRE-001', '100', '150.00', 'BATCH-01', '', 'Opening raw material stock'],
-      ['PKG-001', '50', '45.00', '', '', 'Packaging boxes opening stock'],
-    ];
-
-    const csvContent = [headers.join(','), ...sampleRows.map((r) => r.map((c) => `"${c}"`).join(','))].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', 'opening_stock_template.csv');
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    message.success('Opening stock CSV template downloaded');
-  };
+  // 4. Smart Template Download (delegated to OpeningStockTemplateModal — mutually exclusive)
+  const openTemplateModal = () => setActiveModal('template');
 
   // 5. Export Current Lines to CSV
   const exportToCsv = () => {
@@ -406,109 +425,13 @@ const OpeningStock: React.FC = () => {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
     message.success(`Exported ${lines.length} lines to CSV`);
   };
 
-  // 6. Import from CSV
-  const handleImportCsv = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const text = e.target?.result as string;
-        if (!text) return;
-
-        const rawRows = text
-          .split(/\r?\n/)
-          .map((r) => r.trim())
-          .filter((r) => r.length > 0);
-
-        if (rawRows.length < 2) {
-          message.error('CSV file is empty or missing headers');
-          return;
-        }
-
-        // Header parsing
-        const headers = rawRows[0]
-          .split(',')
-          .map((h) => h.replace(/["']/g, '').trim().toLowerCase());
-
-        const codeIdx = headers.findIndex((h) => h.includes('item') || h.includes('code') || h === 'sku');
-        const qtyIdx = headers.findIndex((h) => h.includes('qty') || h.includes('quantity'));
-        const costIdx = headers.findIndex((h) => h.includes('cost') || h.includes('price') || h.includes('rate'));
-        const batchIdx = headers.findIndex((h) => h.includes('batch'));
-        const serialIdx = headers.findIndex((h) => h.includes('serial'));
-        const notesIdx = headers.findIndex((h) => h.includes('note') || h.includes('remark'));
-
-        if (codeIdx === -1 || qtyIdx === -1) {
-          message.error('CSV must contain "Item Code" and "Quantity" columns');
-          return;
-        }
-
-        const newLines: OpeningStockLine[] = [];
-        let notFoundCount = 0;
-
-        for (let i = 1; i < rawRows.length; i++) {
-          const cols = rawRows[i].split(',').map((c) => c.replace(/^"|"$/g, '').trim());
-          const codeVal = cols[codeIdx]?.trim();
-          if (!codeVal) continue;
-
-          // Match item
-          const matchedItem = items.find(
-            (item) =>
-              (item.code || item.item_code || '').toLowerCase() === codeVal.toLowerCase() ||
-              (item.name || '').toLowerCase() === codeVal.toLowerCase()
-          );
-
-          if (!matchedItem) {
-            notFoundCount++;
-            continue;
-          }
-
-          const qty = Number(cols[qtyIdx]) || 1;
-          const cost =
-            costIdx !== -1 && cols[costIdx] !== undefined && cols[costIdx] !== ''
-              ? Number(cols[costIdx]) || 0
-              : Number(matchedItem.cost_price || matchedItem.standard_cost) || 0;
-
-          const batch = batchIdx !== -1 ? cols[batchIdx] : '';
-          const serial = serialIdx !== -1 ? cols[serialIdx] : '';
-          const notes = notesIdx !== -1 ? cols[notesIdx] : '';
-
-          newLines.push({
-            key: `imported-${Date.now()}-${i}`,
-            itemId: matchedItem.id,
-            itemCode: matchedItem.code || matchedItem.item_code || '',
-            itemName: matchedItem.name,
-            uomId: matchedItem.base_uom_id || matchedItem.uom_id || uoms[0]?.id || '',
-            quantity: qty,
-            unitCost: cost,
-            batchNumber: batch,
-            serialNumber: serial,
-            notes,
-          });
-        }
-
-        if (newLines.length === 0) {
-          message.warning('No valid items found in CSV matching ERP item codes');
-          return;
-        }
-
-        setLines((prev) => [...prev, ...newLines]);
-        message.success(
-          `Successfully imported ${newLines.length} lines from CSV!${notFoundCount > 0 ? ` (${notFoundCount} items not found)` : ''
-          }`
-        );
-      } catch (err: any) {
-        message.error('Failed to parse CSV file: ' + err.message);
-      } finally {
-        if (fileInputRef.current) fileInputRef.current.value = '';
-      }
-    };
-    reader.readAsText(file);
-  };
+  // 6. Smart Import Wizard & Batch History (mutually exclusive)
+  const openImportWizard = () => setActiveModal('import');
+  const openHistoryModal = () => setActiveModal('history');
 
   // 6b. Export to Excel (.xls SpreadsheetML)
   const handleExportExcel = () => {
@@ -773,6 +696,7 @@ const OpeningStock: React.FC = () => {
         warehouseId: values.warehouseId,
         referenceNumber: values.referenceNumber,
         transactionDate: values.transactionDate ? values.transactionDate.toISOString() : new Date().toISOString(),
+        source: 'MANUAL',
         lines: lines.map((l) => ({
           itemId: l.itemId,
           uomId: l.uomId,
@@ -786,6 +710,7 @@ const OpeningStock: React.FC = () => {
 
       await apiService.post('/inventory/opening-stock', payload);
       setLines([]);
+      setBalanceRefreshTick((t) => t + 1);
 
       const todayStr = dayjs().format('YYYYMMDD');
       const randomSuffix = Math.floor(100 + Math.random() * 900);
@@ -813,17 +738,17 @@ const OpeningStock: React.FC = () => {
     }
   };
 
-  // Mount Import / Export / Print actions on the Main ERP Header
+  // Mount Import / Template / Export / Print actions on the Main ERP Header
   const headerActionsRef = useRef({
-    downloadCsvTemplate,
-    triggerImport: () => fileInputRef.current?.click(),
+    openTemplateModal,
+    openImportWizard,
     exportToCsv,
     handleExportExcel,
     handlePrintPdf,
   });
   headerActionsRef.current = {
-    downloadCsvTemplate,
-    triggerImport: () => fileInputRef.current?.click(),
+    openTemplateModal,
+    openImportWizard,
     exportToCsv,
     handleExportExcel,
     handlePrintPdf,
@@ -833,21 +758,21 @@ const OpeningStock: React.FC = () => {
   useEffect(() => {
     setHeaderActions([
       {
-        key: 'os-csv-template',
+        key: 'os-template-modal',
         node: (
-          <Tooltip title="Download CSV template format with sample rows">
-            <Button size="small" icon={<DownloadOutlined />} onClick={() => headerActionsRef.current.downloadCsvTemplate()}>
-              CSV Template
+          <Tooltip title="Download pre-filled Division Excel (.xlsx) or CSV template">
+            <Button size="small" icon={<DownloadOutlined />} onClick={() => headerActionsRef.current.openTemplateModal()}>
+              Download Template
             </Button>
           </Tooltip>
         ),
       },
       {
-        key: 'os-import-csv',
+        key: 'os-import-wizard',
         node: (
-          <Tooltip title="Import bulk items from CSV file">
-            <Button size="small" icon={<UploadOutlined />} onClick={() => headerActionsRef.current.triggerImport()}>
-              Import CSV
+          <Tooltip title="Open 3-step Excel / CSV Opening Stock Import Wizard">
+            <Button size="small" type="primary" ghost icon={<UploadOutlined />} onClick={() => headerActionsRef.current.openImportWizard()}>
+              Import Excel / CSV
             </Button>
           </Tooltip>
         ),
@@ -915,22 +840,25 @@ const OpeningStock: React.FC = () => {
     {
       title: '#',
       key: 'index',
-      width: 45,
+      width: 44,
       align: 'center',
-      render: (_: unknown, __, idx) => <span style={{ color: '#888' }}>{idx + 1}</span>,
+      render: (_: unknown, __, idx) => (
+        <Text type="secondary" style={{ fontVariantNumeric: 'tabular-nums' }}>{idx + 1}</Text>
+      ),
     },
     {
       title: 'Item',
       dataIndex: 'itemId',
       key: 'itemId',
-      width: 380,
+      width: 340,
       render: (_: unknown, record) => (
-        <div>
+        <Tooltip title={record.itemName ? `${record.itemCode || ''} — ${record.itemName}` : undefined}>
           <Select
+            size="small"
             showSearch
             optionFilterProp="searchValue"
             popupMatchSelectWidth={false}
-            dropdownStyle={{ minWidth: 640, maxWidth: 'min(880px, 94vw)' }}
+            styles={{ popup: { root: { minWidth: 640, maxWidth: 'min(880px, 94vw)' } } }}
             listHeight={360}
             loading={loadingItems}
             disabled={!selectedDivisionId}
@@ -952,34 +880,29 @@ const OpeningStock: React.FC = () => {
             optionRender={(option) => (
               <div style={{ padding: '4px 2px', display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
                 <div style={{ lineHeight: 1.4, whiteSpace: 'normal' }}>
-                  <span style={{ fontFamily: 'monospace', fontWeight: 700, color: 'var(--theme-primary)', marginRight: 8 }}>
+                  <span style={{ fontFamily: 'monospace', fontWeight: 700, color: token.colorPrimary, marginRight: 8 }}>
                     {option.data.code}
                   </span>
-                  <span style={{ color: 'var(--theme-text)' }}>{option.data.name}</span>
+                  <span>{option.data.name}</span>
                 </div>
-                <div style={{ whiteSpace: 'nowrap', fontSize: 11, color: 'var(--theme-text-muted)' }}>
+                <div style={{ whiteSpace: 'nowrap', fontSize: 11, opacity: 0.75 }}>
                   {option.data.itemType ? String(option.data.itemType).replace(/_/g, ' ') : ''}
                   {option.data.uomCode ? ` · ${option.data.uomCode}` : ''}
                 </div>
               </div>
             )}
           />
-          {record.itemId && record.itemName && (
-            <div style={{ fontSize: 12, marginTop: 4, lineHeight: 1.3, color: 'var(--theme-text-secondary)' }}>
-              {record.itemCode ? `${record.itemCode} — ` : ''}
-              {record.itemName}
-            </div>
-          )}
-        </div>
+        </Tooltip>
       ),
     },
     {
       title: 'UOM',
       dataIndex: 'uomId',
       key: 'uomId',
-      width: 120,
+      width: 105,
       render: (_: unknown, record) => (
         <Select
+          size="small"
           placeholder="UOM"
           value={record.uomId || undefined}
           onChange={(v) => updateLine(record.key, 'uomId', v)}
@@ -989,9 +912,9 @@ const OpeningStock: React.FC = () => {
       ),
     },
     {
-      title: 'Current Stock (In Hand)',
+      title: 'Current Stock',
       key: 'currentStock',
-      width: 170,
+      width: 165,
       align: 'right',
       render: (_: unknown, record) => {
         if (!record.itemId) {
@@ -999,13 +922,19 @@ const OpeningStock: React.FC = () => {
         }
         const currentStock = warehouseBalances.get(record.itemId) || 0;
         return (
-          <Space direction="vertical" size={2} style={{ alignItems: 'flex-end', width: '100%' }}>
-            <Text strong style={{ fontVariantNumeric: 'tabular-nums', color: currentStock > 0 ? '#d97706' : token.colorTextSecondary }}>
+          <Space size={6} style={{ whiteSpace: 'nowrap' }}>
+            <Text
+              strong
+              style={{
+                fontVariantNumeric: 'tabular-nums',
+                color: currentStock > 0 ? token.colorWarning : token.colorTextSecondary,
+              }}
+            >
               {fmt(currentStock, 2)}
             </Text>
             {currentStock > 0 && (
               <Tag color="warning" style={{ margin: 0, fontSize: 10, lineHeight: '16px' }}>
-                Already Has Stock
+                In Stock
               </Tag>
             )}
           </Space>
@@ -1013,12 +942,13 @@ const OpeningStock: React.FC = () => {
       },
     },
     {
-      title: 'Quantity',
+      title: 'Opening Qty',
       dataIndex: 'quantity',
       key: 'quantity',
-      width: 130,
+      width: 120,
       render: (_: unknown, record) => (
         <InputNumber
+          size="small"
           controls={false}
           min={0}
           value={record.quantity === 0 ? null : record.quantity}
@@ -1035,12 +965,12 @@ const OpeningStock: React.FC = () => {
       title: 'Unit Cost (PKR)',
       dataIndex: 'unitCost',
       key: 'unitCost',
-      width: 170,
+      width: 135,
       render: (_: unknown, record) => (
         <InputNumber
+          size="small"
           controls={false}
           min={0}
-          size="middle"
           value={record.unitCost === 0 ? null : record.unitCost}
           placeholder="0"
           onFocus={(e) => e.target.select()}
@@ -1052,12 +982,12 @@ const OpeningStock: React.FC = () => {
       ),
     },
     {
-      title: 'Total Cost',
+      title: 'Total Cost (PKR)',
       key: 'totalCost',
-      width: 150,
+      width: 135,
       align: 'right',
       render: (_: unknown, record) => (
-        <Text strong style={{ color: '#1677ff' }}>
+        <Text strong style={{ color: token.colorPrimary, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
           {fmt((Number(record.quantity) || 0) * (Number(record.unitCost) || 0))}
         </Text>
       ),
@@ -1066,9 +996,10 @@ const OpeningStock: React.FC = () => {
       title: 'Batch #',
       dataIndex: 'batchNumber',
       key: 'batchNumber',
-      width: 140,
+      width: 120,
       render: (_: unknown, record) => (
         <Input
+          size="small"
           placeholder="Optional"
           value={record.batchNumber}
           onChange={(e) => updateLine(record.key, 'batchNumber', e.target.value)}
@@ -1079,9 +1010,10 @@ const OpeningStock: React.FC = () => {
       title: 'Serial #',
       dataIndex: 'serialNumber',
       key: 'serialNumber',
-      width: 140,
+      width: 120,
       render: (_: unknown, record) => (
         <Input
+          size="small"
           placeholder="Optional"
           value={record.serialNumber}
           onChange={(e) => updateLine(record.key, 'serialNumber', e.target.value)}
@@ -1092,9 +1024,10 @@ const OpeningStock: React.FC = () => {
       title: 'Notes',
       dataIndex: 'notes',
       key: 'notes',
-      width: 160,
+      width: 150,
       render: (_: unknown, record) => (
         <Input
+          size="small"
           placeholder="Notes / Remarks"
           value={record.notes}
           onChange={(e) => updateLine(record.key, 'notes', e.target.value)}
@@ -1104,7 +1037,7 @@ const OpeningStock: React.FC = () => {
     {
       title: '',
       key: 'actions',
-      width: 45,
+      width: 40,
       align: 'center',
       render: (_: unknown, record) => (
         <Tooltip title="Remove Line">
@@ -1122,32 +1055,30 @@ const OpeningStock: React.FC = () => {
 
   return (
     <div style={{ padding: '16px 24px 32px' }}>
-      {/* Hidden file input for CSV Import */}
-      <input
-        type="file"
-        ref={fileInputRef}
-        style={{ display: 'none' }}
-        accept=".csv"
-        onChange={handleImportCsv}
-      />
+      <style>{`
+        .opening-stock-compact-table .ant-table-cell {
+          white-space: nowrap;
+          font-variant-numeric: tabular-nums;
+        }
+      `}</style>
 
       {/* Page Header */}
       <div style={{ marginBottom: 20 }}>
         <Space align="center" size={12}>
           <div style={{
             width: 40, height: 40, borderRadius: 10,
-            background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
+            background: `linear-gradient(135deg, ${token.colorPrimary} 0%, ${token.colorInfo} 100%)`,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            boxShadow: '0 2px 8px rgba(37, 99, 235, 0.25)',
+            boxShadow: token.boxShadowSecondary,
           }}>
             <DatabaseOutlined style={{ fontSize: 20, color: '#fff' }} />
           </div>
           <div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--theme-text, #1e293b)', lineHeight: 1.2 }}>
+            <div style={{ fontSize: 20, fontWeight: 700, color: token.colorText, lineHeight: 1.2 }}>
               Store Opening Stock
             </div>
-            <div style={{ fontSize: 12.5, color: 'var(--theme-text-muted, #64748b)', marginTop: 2 }}>
-              Post initial stock balances and migration inventory for items into plant warehouses
+            <div style={{ fontSize: 12.5, color: token.colorTextSecondary, marginTop: 2 }}>
+              Post initial stock balances, bulk import pre-filled Division templates, and manage batch history
             </div>
           </div>
         </Space>
@@ -1172,7 +1103,7 @@ const OpeningStock: React.FC = () => {
                 height: '100%',
               }}>
                 <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: token.colorTextTertiary, marginBottom: 4 }}>
-                  <ApartmentOutlined style={{ marginRight: 5, color: '#eab308' }} />
+                  <ApartmentOutlined style={{ marginRight: 5, color: token.colorWarning }} />
                   Division
                 </div>
                 <Select
@@ -1184,7 +1115,6 @@ const OpeningStock: React.FC = () => {
                   onChange={(val) => {
                     setSelectedDivisionId(val);
                     form.setFieldValue('warehouseId', undefined);
-                    // Items belong to a division: reset lines so no foreign-division item remains
                     setLines([{ key: `line-${Date.now()}`, itemId: '', uomId: '', quantity: 1, unitCost: 0 }]);
                   }}
                   options={divisions.map((d) => ({
@@ -1205,7 +1135,7 @@ const OpeningStock: React.FC = () => {
                 height: '100%',
               }}>
                 <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: token.colorTextTertiary, marginBottom: 4 }}>
-                  <ShopOutlined style={{ marginRight: 5, color: '#0284c7' }} />
+                  <ShopOutlined style={{ marginRight: 5, color: token.colorInfo }} />
                   Warehouse <span style={{ color: token.colorError }}>*</span>
                 </div>
                 <Form.Item
@@ -1240,7 +1170,7 @@ const OpeningStock: React.FC = () => {
                 height: '100%',
               }}>
                 <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: token.colorTextTertiary, marginBottom: 4 }}>
-                  <NumberOutlined style={{ marginRight: 5, color: '#a855f7' }} />
+                  <NumberOutlined style={{ marginRight: 5, color: token.colorPrimary }} />
                   Reference # <span style={{ color: token.colorError }}>*</span>
                 </div>
                 <Form.Item
@@ -1262,7 +1192,7 @@ const OpeningStock: React.FC = () => {
                 height: '100%',
               }}>
                 <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: token.colorTextTertiary, marginBottom: 4 }}>
-                  <CalendarOutlined style={{ marginRight: 5, color: '#10b981' }} />
+                  <CalendarOutlined style={{ marginRight: 5, color: token.colorSuccess }} />
                   Posting Date
                 </div>
                 <Form.Item
@@ -1290,7 +1220,7 @@ const OpeningStock: React.FC = () => {
             <div style={{ fontSize: 11, color: token.colorTextSecondary, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>
               Total Line Items
             </div>
-            <div style={{ fontSize: 26, fontWeight: 700, color: token.colorText, marginTop: 2 }}>
+            <div style={{ fontSize: 26, fontWeight: 700, color: token.colorText, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
               <DatabaseOutlined style={{ fontSize: 16, marginRight: 8, color: token.colorPrimary }} />
               {lines.length}
             </div>
@@ -1300,14 +1230,14 @@ const OpeningStock: React.FC = () => {
           <div style={{
             background: `var(--theme-surface, ${token.colorBgContainer})`,
             border: `1px solid var(--theme-border, ${token.colorBorderSecondary})`,
-            borderTop: '3px solid #10b981',
+            borderTop: `3px solid ${token.colorSuccess}`,
             borderRadius: 10,
             padding: '14px 18px',
           }}>
             <div style={{ fontSize: 11, color: token.colorTextSecondary, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>
               Total Quantity
             </div>
-            <div style={{ fontSize: 26, fontWeight: 700, color: '#10b981', marginTop: 2 }}>
+            <div style={{ fontSize: 26, fontWeight: 700, color: token.colorSuccess, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
               {fmt(totalQuantity, 2)}
             </div>
           </div>
@@ -1316,38 +1246,34 @@ const OpeningStock: React.FC = () => {
           <div style={{
             background: `var(--theme-surface, ${token.colorBgContainer})`,
             border: `1px solid var(--theme-border, ${token.colorBorderSecondary})`,
-            borderTop: '3px solid #0284c7',
+            borderTop: `3px solid ${token.colorInfo}`,
             borderRadius: 10,
             padding: '14px 18px',
           }}>
             <div style={{ fontSize: 11, color: token.colorTextSecondary, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>
               Total Value (PKR)
             </div>
-            <div style={{ fontSize: 26, fontWeight: 700, color: '#0284c7', marginTop: 2 }}>
+            <div style={{ fontSize: 26, fontWeight: 700, color: token.colorInfo, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
               {fmt(totalValue, 2)}
             </div>
           </div>
         </Col>
       </Row>
 
-      {/* Table Card — Clear All & Add Line stay here; Import/Export/PDF are in Main Header */}
+      {/* Table Card */}
       <Card
         style={{
           borderRadius: 12,
-          boxShadow: '0 1px 4px rgba(0,0,0,0.05)',
+          boxShadow: token.boxShadowTertiary,
         }}
-        styles={{ header: { borderBottom: '1px solid var(--theme-border, #e2e8f0)' } }}
+        styles={{ header: { borderBottom: `1px solid ${token.colorBorderSecondary}` } }}
         title={
           <Space size={10}>
-            <FileTextOutlined style={{ color: '#2563eb' }} />
+            <FileTextOutlined style={{ color: token.colorPrimary }} />
             <span style={{ fontWeight: 600, fontSize: 14 }}>Opening Stock Lines</span>
-            <span style={{
-              fontSize: 11.5, color: '#fff', fontWeight: 500,
-              background: lines.length > 0 ? '#2563eb' : '#94a3b8',
-              borderRadius: 10, padding: '1px 10px',
-            }}>
+            <Tag color={lines.length > 0 ? 'blue' : 'default'} style={{ margin: 0, borderRadius: 10, fontWeight: 600 }}>
               {lines.length} {lines.length === 1 ? 'item' : 'items'}
-            </span>
+            </Tag>
           </Space>
         }
         extra={
@@ -1355,7 +1281,7 @@ const OpeningStock: React.FC = () => {
             <Button
               size="small"
               icon={<HistoryOutlined />}
-              onClick={() => setHistoryOpen(true)}
+              onClick={openHistoryModal}
             >
               Opening Stock History
             </Button>
@@ -1364,7 +1290,6 @@ const OpeningStock: React.FC = () => {
                 Clear All
               </Button>
             )}
-
             <Button type="primary" size="small" icon={<PlusOutlined />} onClick={addLine}>
               Add Line
             </Button>
@@ -1372,27 +1297,30 @@ const OpeningStock: React.FC = () => {
         }
       >
         <Table
+          className="opening-stock-compact-table"
           dataSource={lines}
           columns={lineColumns}
           rowKey="key"
           pagination={false}
-          size="middle"
-          locale={{ emptyText: 'No opening stock lines added. Click "Add Line" or "Import CSV" to begin.' }}
-          scroll={{ x: 1250 }}
+          size="small"
+          locale={{ emptyText: 'No opening stock lines added. Click "Add Line" or "Import Excel / CSV" to begin.' }}
+          scroll={{ x: 'max-content' }}
         />
 
         {lines.length > 0 && (
           <div style={{
-            marginTop: 20,
+            marginTop: 16,
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: 10,
             padding: '12px 16px',
-            background: 'var(--theme-bg-subtle, #f8fafc)',
+            background: token.colorFillAlter,
             borderRadius: 8,
-            border: '1px solid var(--theme-border, #e2e8f0)',
+            border: `1px solid ${token.colorBorderSecondary}`,
           }}>
-            <Text type="secondary" style={{ fontSize: 13 }}>
+            <Text type="secondary" style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
               Items: <strong>{lines.length}</strong> &nbsp;|&nbsp; Total Qty: <strong>{fmt(totalQuantity, 2)}</strong> &nbsp;|&nbsp; Total Value: <strong>PKR {fmt(totalValue, 2)}</strong>
             </Text>
             <Button
@@ -1404,8 +1332,6 @@ const OpeningStock: React.FC = () => {
               style={{
                 borderRadius: 8,
                 fontWeight: 600,
-                background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
-                boxShadow: '0 2px 6px rgba(37, 99, 235, 0.3)',
               }}
             >
               Post Opening Stock
@@ -1471,9 +1397,79 @@ const OpeningStock: React.FC = () => {
         onOk={() => setFeedbackPhase('idle')}
       />
 
+      <OpeningStockTemplateModal
+        open={templateModalOpen}
+        onClose={() => setActiveModal((cur) => (cur === 'template' ? 'none' : cur))}
+        divisions={divisions}
+        warehouses={warehouses}
+        selectedDivisionId={selectedDivisionId}
+        selectedWarehouseId={selectedWarehouseId}
+        allItems={allItems}
+        warehouseBalances={warehouseBalances}
+        onOpenImportWizard={openImportWizard}
+        onSelectScope={(divId, whId) => {
+          if (divId && divId !== selectedDivisionId) {
+            setSelectedDivisionId(divId);
+          }
+          if (whId) {
+            form.setFieldValue('warehouseId', whId);
+          }
+        }}
+      />
+
+      <OpeningStockImportWizardModal
+        open={importWizardOpen}
+        onClose={() => setActiveModal((cur) => (cur === 'import' ? 'none' : cur))}
+        divisions={divisions}
+        warehouses={warehouses}
+        allItems={allItems}
+        uoms={uoms}
+        warehouseBalances={warehouseBalances}
+        initialDivisionId={selectedDivisionId}
+        initialWarehouseId={selectedWarehouseId}
+        initialDate={selectedDateValue}
+        initialReference={selectedReferenceValue}
+        onOpenTemplateModal={openTemplateModal}
+        onCopyToLinesGrid={(importedLines, divId, whId) => {
+          if (divId && divId !== selectedDivisionId) {
+            setSelectedDivisionId(divId);
+          }
+          if (whId) {
+            form.setFieldValue('warehouseId', whId);
+          }
+          const nextLines: OpeningStockLine[] = importedLines.map((il, i) => ({
+            key: `wizard-${Date.now()}-${i}`,
+            itemId: il.itemId,
+            itemCode: il.itemCode,
+            itemName: il.itemName,
+            uomId: il.uomId,
+            quantity: il.quantity,
+            unitCost: il.unitCost,
+            batchNumber: il.batchNumber,
+            serialNumber: il.serialNumber,
+            notes: il.notes,
+          }));
+          setLines((prev) => {
+            const nonEmpty = prev.filter((l) => l.itemId);
+            return [...nonEmpty, ...nextLines];
+          });
+        }}
+        onBatchPosted={() => {
+          setBalanceRefreshTick((t) => t + 1);
+          const todayStr = dayjs().format('YYYYMMDD');
+          const randomSuffix = Math.floor(100 + Math.random() * 900);
+          form.setFieldsValue({
+            referenceNumber: `OPN-${todayStr}-${randomSuffix}`,
+            transactionDate: dayjs(),
+          });
+        }}
+        onViewHistory={openHistoryModal}
+      />
+
       <OpeningStockHistoryModal
         open={historyOpen}
-        onClose={() => setHistoryOpen(false)}
+        onClose={() => setActiveModal((cur) => (cur === 'history' ? 'none' : cur))}
+        divisions={divisions}
         warehouses={warehouses}
         onHistoryChanged={() => setBalanceRefreshTick((t) => t + 1)}
       />

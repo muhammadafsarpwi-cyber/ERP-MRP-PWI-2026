@@ -914,4 +914,61 @@ describe('ItemWiseProductionLedger — Inner-Only / Outer-Only Packing Split & M
       });
     });
   });
+
+  describe('CCD-FGR-011 multi-strip Spiral Core (WIP-CS-006 + FLAT-STRIP-005 / 006)', () => {
+    it('preserves Closing KG totalWeight while populating @ 0.0370 kg/m and @ 0.0450 kg/m perMeterWeight specs on FLAT-STRIP rows', () => {
+      const ccdChain = {
+        key: 'CCD-FGR-011',
+        fgItemCode: 'CCD-FGR-011',
+        label: 'Control Cable Outer 5.75mm DS — CCD-FGR-011',
+        rows: [
+          { order: 1, stage: 'RM', stageLabel: 'RM Stage', itemCode: 'RM-WIRE-002', itemLabel: 'Steel Wire Rod' },
+          { order: 2, stage: 'FT', stageLabel: 'Flattening Stage', itemCode: 'FLAT-STRIP-005', itemLabel: 'Flat Strip T 0.80 × W 1.85 mm' },
+          { order: 3, stage: 'FT', stageLabel: 'Flattening Stage', itemCode: 'FLAT-STRIP-006', itemLabel: 'Flat Strip T 0.95 × W 2.10 mm' },
+          { order: 4, stage: 'CS', stageLabel: 'Spiral Stage', itemCode: 'WIP-CS-006', itemLabel: 'Spiral Core 5.75 mm DS' },
+          { order: 5, stage: 'FG', stageLabel: 'FG Stage', itemCode: 'CCD-FGR-011', itemLabel: 'Finished Outer Casing' },
+        ],
+      } as any;
+
+      const dayRows = [
+        { ...reportRow('RM-WIRE-002', 'KG', 500, 0, 200), itemType: 'RAW_MATERIAL' },
+        { ...reportRow('FLAT-STRIP-005', 'KG', 100, 50, 74.37), weightPerMeter: 0.037 },
+        { ...reportRow('FLAT-STRIP-006', 'KG', 120, 60, 90.45), weightPerMeter: 0.045 },
+        { ...reportRow('WIP-CS-006', 'M', 0, 2010, 0), weightPerMeter: 0.082 },
+        { ...reportRow('CCD-FGR-011', 'M', 0, 0, 0), itemType: 'FINISHED_GOOD', finishedWeightPerMeter: 0.11 },
+      ];
+
+      const grid = buildChainGrid(ccdChain, dayRows as any, {}, {
+        'FLAT-STRIP-005': 0.037,
+        'FLAT-STRIP-006': 0.045,
+        'WIP-CS-006': 0.082,
+        'CCD-FGR-011': 0.11,
+      });
+
+      const rm = grid.rows.find((r) => r.itemCode === 'RM-WIRE-002')!;
+      const s5 = grid.rows.find((r) => r.itemCode === 'FLAT-STRIP-005')!;
+      const s6 = grid.rows.find((r) => r.itemCode === 'FLAT-STRIP-006')!;
+      const cs = grid.rows.find((r) => r.itemCode === 'WIP-CS-006')!;
+
+      // Raw material coil has no per-meter strip spec (stays 1.0000)
+      expect(rm.perMeterWeight).toBeNull();
+
+      // FLAT-STRIP-005: 100 + 50 - 74.37 = 75.63 KG closing (× 1 = 75.63 KG totalWeight), perMeterWeight = 0.0370 kg/m
+      expect(s5.issuance).toBe(74.37);
+      expect(s5.closingPieces).toBe(75.63);
+      expect(s5.totalWeight).toBe(75.63);
+      expect(s5.perMeterWeight).toBe(0.037);
+
+      // FLAT-STRIP-006: 120 + 60 - 90.45 = 89.55 KG closing (× 1 = 89.55 KG totalWeight), perMeterWeight = 0.0450 kg/m
+      expect(s6.issuance).toBe(90.45);
+      expect(s6.closingPieces).toBe(89.55);
+      expect(s6.totalWeight).toBe(89.55);
+      expect(s6.perMeterWeight).toBe(0.045);
+
+      // WIP-CS-006: 2,010 M × 0.0820 kg/m = 164.82 KG (= 74.37 + 90.45 KG!)
+      expect(cs.production).toBe(2010);
+      expect(cs.perPieceWeight).toBe(0.082);
+      expect(cs.totalWeight).toBe(164.82);
+    });
+  });
 });

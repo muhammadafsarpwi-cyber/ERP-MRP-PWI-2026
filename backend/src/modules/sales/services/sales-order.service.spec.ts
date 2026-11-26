@@ -158,18 +158,147 @@ describe('SalesOrderService', () => {
       expect(result.status).toBe('Processing');
     });
 
-    it('Processing -> Shipped', async () => {
-      repo.findOne.mockResolvedValue({ ...mockOrder, status: 'Processing' });
+    it('blocks Processing -> Shipped when no confirmed Sales Deliveries exist', async () => {
+      repo.findOne.mockResolvedValue({ ...mockOrder, status: 'Processing', items: [] });
+      await expect(service.ship(UUID_SO, UUID_USER)).rejects.toThrow(BadRequestException);
+    });
+
+    it('allows Processing -> Shipped when a confirmed Sales Delivery exists', async () => {
+      const deliveryRepo = (service as any).deliveryRepo as jest.Mocked<Repository<SalesDelivery>>;
+      repo.findOne.mockResolvedValue({ ...mockOrder, status: 'Processing', items: [] });
+      deliveryRepo.find.mockResolvedValue([
+        {
+          id: 'd0000000-0000-0000-0000-000000000001',
+          salesOrderId: UUID_SO,
+          status: 'CONFIRMED',
+          lines: [],
+        } as any,
+      ]);
       repo.save.mockResolvedValue({ ...mockOrder, status: 'Shipped' });
       const result = await service.ship(UUID_SO, UUID_USER);
       expect(result.status).toBe('Shipped');
     });
 
-    it('Shipped -> Delivered', async () => {
-      repo.findOne.mockResolvedValue({ ...mockOrder, status: 'Shipped' });
+    it('blocks Shipped -> Delivered when ordered items are not 100% covered by confirmed deliveries', async () => {
+      const deliveryRepo = (service as any).deliveryRepo as jest.Mocked<Repository<SalesDelivery>>;
+      const itemRepo = (service as any).itemRepo as jest.Mocked<Repository<SalesOrderItem>>;
+      const item1: any = { id: 'i-1', itemId: 'prod-1', quantity: 144500, shippedQuantity: 25500, status: 'Partial' };
+      repo.findOne.mockResolvedValue({ ...mockOrder, status: 'Shipped', items: [item1] });
+      deliveryRepo.find.mockResolvedValue([
+        {
+          id: 'd0000000-0000-0000-0000-000000000002',
+          salesOrderId: UUID_SO,
+          status: 'CONFIRMED',
+          lines: [{ id: 'dl-1', itemId: 'prod-1', quantity: 25500, description: '[SOC: SO-2026-00001]' }],
+        } as any,
+      ]);
+
+      await expect(service.deliver(UUID_SO, UUID_USER)).rejects.toThrow(BadRequestException);
+      expect(itemRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('allows Shipped -> Delivered when confirmed Sales Deliveries fulfill 100% of ordered items', async () => {
+      const deliveryRepo = (service as any).deliveryRepo as jest.Mocked<Repository<SalesDelivery>>;
+      const itemRepo = (service as any).itemRepo as jest.Mocked<Repository<SalesOrderItem>>;
+      const item1: any = { id: 'i-1', itemId: 'prod-1', quantity: 24500, shippedQuantity: 24500, status: 'Partial' };
+      repo.findOne.mockResolvedValue({ ...mockOrder, status: 'Shipped', items: [item1] });
+      deliveryRepo.find.mockResolvedValue([
+        {
+          id: 'd0000000-0000-0000-0000-000000000003',
+          salesOrderId: UUID_SO,
+          status: 'CONFIRMED',
+          lines: [{ id: 'dl-1', itemId: 'prod-1', quantity: 24500, description: '[SOC: SO-2026-00001]' }],
+        } as any,
+      ]);
       repo.save.mockResolvedValue({ ...mockOrder, status: 'Delivered' });
       const result = await service.deliver(UUID_SO, UUID_USER);
       expect(result.status).toBe('Delivered');
+      expect(itemRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'i-1', shippedQuantity: 24500, status: 'Delivered' }),
+      );
+    });
+
+    it('revertDeliveredOrder restores prematurely Delivered order to Processing and recalculates multi-SOC item shipped balances', async () => {
+      const deliveryRepo = (service as any).deliveryRepo as jest.Mocked<Repository<SalesDelivery>>;
+      const itemRepo = (service as any).itemRepo as jest.Mocked<Repository<SalesOrderItem>>;
+      const itemFull: any = { id: 'soi-1', itemId: 'ccd-fgr-001', quantity: 24500, shippedQuantity: 24500, status: 'Delivered' };
+      const itemCorrupted: any = { id: 'soi-2', itemId: 'ccd-fgr-011', quantity: 144500, shippedQuantity: 144500, status: 'Delivered' };
+
+      const deliveredSoc: SalesOrder = {
+        ...mockOrder,
+        orderNumber: 'SOC-2026-05298',
+        status: 'Delivered',
+        items: [itemFull, itemCorrupted],
+      };
+
+      repo.findOne
+        .mockResolvedValueOnce(deliveredSoc)
+        .mockResolvedValueOnce({
+          ...deliveredSoc,
+          status: 'Processing',
+          items: [
+            { ...itemFull, shippedQuantity: 24500, status: 'Delivered' },
+            { ...itemCorrupted, shippedQuantity: 25500, status: 'Partial' },
+          ],
+        });
+
+      deliveryRepo.find.mockResolvedValue([
+        {
+          id: 'dn-52',
+          salesOrderId: UUID_SO,
+          status: 'CONFIRMED',
+          lines: [
+            { id: 'l-1', itemId: 'ccd-fgr-001', quantity: 24500, description: '5 MM PVC [SOC: SOC-2026-05298]' },
+            { id: 'l-2', itemId: 'ccd-fgr-001', quantity: 5500, description: '5 MM PVC [SOC: SOC-2026-05555]' },
+          ],
+        } as any,
+        {
+          id: 'dn-69',
+          salesOrderId: UUID_SO,
+          status: 'CONFIRMED',
+          lines: [
+            { id: 'l-3', itemId: 'ccd-fgr-011', quantity: 25500, description: '7 MM PVC [SOC: SOC-2026-5298]' },
+          ],
+        } as any,
+      ]);
+      repo.save.mockImplementation(async (o: any) => o);
+      itemRepo.save.mockImplementation(async (it: any) => it);
+
+      const reverted = await service.revertDeliveredOrder(UUID_SO, UUID_USER, UUID_COMPANY);
+
+      expect(reverted.status).toBe('Processing');
+      expect(itemRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'soi-1', shippedQuantity: 24500, status: 'Delivered' }),
+      );
+      expect(itemRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'soi-2', shippedQuantity: 25500, status: 'Partial' }),
+      );
+      expect(repo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ id: UUID_SO, status: 'Processing', updatedBy: UUID_USER }),
+      );
+    });
+
+    it('revertDeliveredOrder restores zero-delivery Delivered order to Confirmed with 0 shipped quantities', async () => {
+      const deliveryRepo = (service as any).deliveryRepo as jest.Mocked<Repository<SalesDelivery>>;
+      const itemRepo = (service as any).itemRepo as jest.Mocked<Repository<SalesOrderItem>>;
+      const item1: any = { id: 'soi-zero', itemId: 'prod-1', quantity: 1000, shippedQuantity: 1000, status: 'Delivered' };
+
+      repo.findOne
+        .mockResolvedValueOnce({ ...mockOrder, status: 'Delivered', items: [item1] })
+        .mockResolvedValueOnce({
+          ...mockOrder,
+          status: 'Confirmed',
+          items: [{ ...item1, shippedQuantity: 0, status: 'Pending' }],
+        });
+      deliveryRepo.find.mockResolvedValue([]);
+      repo.save.mockImplementation(async (o: any) => o);
+      itemRepo.save.mockImplementation(async (it: any) => it);
+
+      const reverted = await service.revertDeliveredOrder(UUID_SO, UUID_USER, UUID_COMPANY);
+      expect(reverted.status).toBe('Confirmed');
+      expect(itemRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'soi-zero', shippedQuantity: 0, status: 'Pending' }),
+      );
     });
 
     it('Delivered -> Closed', async () => {

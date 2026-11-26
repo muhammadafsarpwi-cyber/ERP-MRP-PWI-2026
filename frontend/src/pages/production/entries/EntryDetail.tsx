@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  Card, Descriptions, Tag, Button, Space, App, Typography, Divider, Popconfirm, Row, Col, Table, Alert, Skeleton,
+  Card, Descriptions, Tag, Button, Space, App, Typography, Divider, Popconfirm, Row, Col, Table, Alert, Skeleton, theme,
 } from 'antd';
 import {
   ArrowLeftOutlined, EditOutlined, DeleteOutlined, ArrowRightOutlined,
@@ -38,14 +38,58 @@ interface DowntimeDetail {
 interface ProductionItemDetail {
   id: string;
   lineNumber: number;
+  entryKind?: string | null;
   itemId: string | null;
-  item?: { itemCode: string; name: string; wireSizeMm?: number | null; weightPerPiece?: number | null; weightPerMeter?: number | null } | null;
-  uom?: { code: string; symbol: string } | null;
+  item?: {
+    id?: string;
+    itemCode: string;
+    name: string;
+    wireSizeMm?: number | null;
+    weightPerPiece?: number | null;
+    weightPerMeter?: number | null;
+    piecesPerKg?: number | null;
+    itemType?: string | null;
+    baseUomId?: string | null;
+    baseUom?: { id?: string; code?: string; symbol?: string } | null;
+  } | null;
+  uom?: { id?: string; code: string; symbol: string } | null;
+  sourceWarehouseId?: string | null;
+  sourceWarehouse?: { id?: string; name?: string; warehouseCode?: string } | null;
   targetQuantity: number | string;
   actualQuantity: number | string;
   scrapQuantity: number | string;
   runningHours: number | string;
   remarks: string | null;
+}
+
+interface InputComponentItemRef {
+  id: string;
+  itemCode?: string;
+  name?: string;
+  wireSizeMm?: number | null;
+  weightPerMeter?: number | null;
+  weightPerPiece?: number | null;
+  piecesPerKg?: number | null;
+  itemType?: string | null;
+  baseUomId?: string | null;
+  baseUom?: { id?: string; code?: string; symbol?: string } | null;
+}
+
+interface ResolvedInputComponent {
+  itemId: string;
+  itemCode: string;
+  itemName: string;
+  itemType?: string | null;
+  wireSizeMm?: number | null;
+  weightPerMeter?: number | null;
+  weightPerPiece?: number | null;
+  piecesPerKg?: number | null;
+  baseUomId?: string | null;
+  uomCode?: string | null;
+  sourceWarehouseId?: string | null;
+  sourceWarehouseName?: string | null;
+  auditQty?: number;
+  perUnitQty?: number;
 }
 
 interface StockBalance {
@@ -89,10 +133,13 @@ interface DetailData {
   coilSize: string | null;
   itemId: string;
   item?: {
-    itemCode: string; name: string; wireSizeMm?: number | null; baseUom?: { code: string; symbol?: string } | null;
-    weightPerPiece?: number | null; weightPerMeter?: number | null;
-    /** TASK #34B: the exact input material consumed by the current item's production stage. */
-    productionInItem?: { id: string; itemCode: string; name: string; wireSizeMm?: number | null; itemType?: string | null } | null;
+    id?: string;
+    itemCode: string; name: string; wireSizeMm?: number | null; baseUomId?: string | null; baseUom?: { code: string; symbol?: string } | null;
+    weightPerPiece?: number | null; weightPerMeter?: number | null; piecesPerKg?: number | null;
+    /** TASK #34B: the exact input material(s) consumed by the current item's production stage. */
+    productionInItem?: InputComponentItemRef | null;
+    productionInItem2?: InputComponentItemRef | null;
+    productionInItem3?: InputComponentItemRef | null;
   };
   uom?: { code: string; symbol: string };
   targetQuantity: number | string;
@@ -113,11 +160,28 @@ interface DetailData {
   downtime?: { plannedHours: number } | null;
   downtimes?: DowntimeDetail[];
   items?: ProductionItemDetail[];
+  componentItems?: ProductionItemDetail[];
   warehouseId?: string | null;
   rawMaterialWarehouseId?: string | null;
+  rawMaterialWarehouse?: { id?: string; name?: string; warehouseCode?: string } | null;
+  warehouse?: { id?: string; name?: string; warehouseCode?: string } | null;
   route?: {
     routingCode?: string; name?: string;
-    operations?: Array<{ sequenceNo: number; operationName?: string; department?: { name?: string } | null }>;
+    operations?: Array<{
+      sequenceNo: number;
+      operationName?: string;
+      outputItemId?: string | null;
+      department?: { name?: string } | null;
+      inputs?: Array<{
+        itemId?: string;
+        quantity?: number | string;
+        uomId?: string | null;
+        sourceWarehouseId?: string | null;
+        item?: InputComponentItemRef | null;
+        uom?: { code?: string; symbol?: string } | null;
+      }>;
+      outputs?: Array<{ itemId?: string }>;
+    }>;
   } | null;
 }
 
@@ -190,9 +254,21 @@ const KpiCell: React.FC<{
   </Col>
 );
 
-/** 2-Line Material Flow & Inventory Balance Impact Report (Before vs Movement vs After) */
+interface InventoryImpactInputLine {
+  key: string;
+  itemCode?: string;
+  itemName?: string;
+  storeName?: string;
+  before: number;
+  consumed: number;
+  after: number;
+  uom: string;
+}
+
+/** Multi-Line Material Flow & Inventory Balance Impact Report (Before vs Movement vs After) */
 const InventoryImpactReport: React.FC<{
   posted: boolean;
+  inputs?: InventoryImpactInputLine[];
   rawItemCode?: string;
   rawItemName?: string;
   rawStoreName?: string;
@@ -211,193 +287,418 @@ const InventoryImpactReport: React.FC<{
   outCompanyTotal?: number;
 }> = ({
   posted,
+  inputs,
   rawItemCode, rawItemName, rawStoreName, rawBefore, rawConsumed, rawAfter, rawUom,
   outItemCode, outItemName, outStoreName, outBefore, outProduced, outAfter, outUom,
   outCompanyBefore, outCompanyTotal,
-}) => (
-  <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 14 }}>
-    {/* LINE 1: INPUT (RAW MATERIAL INFLOW & DEDUCTION) */}
-    <div style={{
-      background: 'var(--theme-card-bg, rgba(15, 23, 42, 0.6))',
-      border: '1px solid rgba(239, 68, 68, 0.3)',
-      borderRadius: 8,
-      padding: '12px 14px',
-      boxShadow: '0 2px 8px rgba(0,0,0,0.05)',
-    }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 6 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <span style={{
-            background: 'var(--theme-danger-soft, rgba(239, 68, 68, 0.15))',
-            color: '#ef4444',
-            border: '1px solid rgba(239, 68, 68, 0.35)',
-            fontWeight: 700, fontSize: 11, borderRadius: 4, padding: '3px 8px', letterSpacing: 0.3,
-            display: 'inline-flex', alignItems: 'center', gap: 4,
-          }}>
-            <ArrowDownOutlined style={{ fontSize: 11 }} /> INPUT (RAW MATERIAL)
-          </span>
-          <Text strong style={{ fontSize: 13, color: 'var(--theme-text, #f8fafc)' }}>
-            {rawItemCode ? `${rawItemCode} — ` : ''}{rawItemName ?? 'Raw Material'}
-          </Text>
-        </div>
-        <span style={{ fontSize: 12, color: 'var(--theme-text-muted, #94a3b8)', background: 'var(--theme-surface-alt, rgba(255, 255, 255, 0.05))', padding: '3px 10px', borderRadius: 4, border: '1px solid var(--theme-border, rgba(148, 163, 184, 0.2))' }}>
-          Source: <strong style={{ color: 'var(--theme-text, #f8fafc)' }}>{rawStoreName ?? '—'}</strong>
-        </span>
-      </div>
+}) => {
+  const { token } = theme.useToken();
+  const inputLines: InventoryImpactInputLine[] =
+    inputs && inputs.length > 0
+      ? inputs
+      : [{
+          key: 'primary',
+          itemCode: rawItemCode,
+          itemName: rawItemName,
+          storeName: rawStoreName,
+          before: rawBefore,
+          consumed: rawConsumed,
+          after: rawAfter,
+          uom: rawUom,
+        }];
+  const totalInputConsumed = inputLines.reduce((s, l) => s + l.consumed, 0);
+  const combinedInputUom = inputLines[0]?.uom || rawUom;
+  const allSameInputUom = inputLines.every((l) => l.uom === combinedInputUom);
 
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: '1fr auto 1fr auto 1fr',
-        gap: 8,
-        alignItems: 'center',
-        textAlign: 'center',
-      }}>
-        {/* Before */}
-        <div style={{
-          background: 'var(--theme-surface-alt, rgba(255, 255, 255, 0.04))',
-          border: '1px solid var(--theme-border, rgba(148, 163, 184, 0.2))',
-          borderRadius: 8,
-          padding: '8px 10px',
-        }}>
-          <span style={{ fontSize: 11, textTransform: 'uppercase', color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 700, display: 'block', marginBottom: 2 }}>
-            {posted ? 'Opening Available' : 'Current Available'}
-          </span>
-          <span style={{ fontSize: 15, fontWeight: 800, color: 'var(--theme-text, #f8fafc)', fontVariantNumeric: 'tabular-nums' }}>
-            {formatNumber(rawBefore, 3)} <span style={{ fontSize: 12, fontWeight: 600 }}>{rawUom}</span>
-          </span>
-        </div>
-        <span style={{ fontSize: 20, fontWeight: 800, color: '#ef4444' }}>−</span>
-        {/* Consumed */}
-        <div style={{
-          background: 'var(--theme-danger-soft, rgba(239, 68, 68, 0.12))',
-          border: '1px solid rgba(239, 68, 68, 0.35)',
-          borderRadius: 8,
-          padding: '8px 10px',
-        }}>
-          <span style={{ fontSize: 11, textTransform: 'uppercase', color: '#f87171', fontWeight: 700, display: 'block', marginBottom: 2 }}>
-            Consumed (Out)
-          </span>
-          <span style={{ fontSize: 15, fontWeight: 800, color: '#ef4444', fontVariantNumeric: 'tabular-nums' }}>
-            −{formatNumber(rawConsumed, 3)} <span style={{ fontSize: 12, fontWeight: 600 }}>{rawUom}</span>
-          </span>
-        </div>
-        <span style={{ fontSize: 20, fontWeight: 800, color: 'var(--theme-text-muted, #94a3b8)' }}>=</span>
-        {/* After */}
-        <div style={{
-          background: 'var(--theme-success-soft, rgba(16, 185, 129, 0.12))',
-          border: '1px solid rgba(16, 185, 129, 0.35)',
-          borderRadius: 8,
-          padding: '8px 10px',
-        }}>
-          <span style={{ fontSize: 11, textTransform: 'uppercase', color: '#34d399', fontWeight: 700, display: 'block', marginBottom: 2 }}>
-            {posted ? 'Remaining Balance' : 'Projected Balance'}
-          </span>
-          <span style={{ fontSize: 15, fontWeight: 800, color: '#10b981', fontVariantNumeric: 'tabular-nums' }}>
-            {formatNumber(rawAfter, 3)} <span style={{ fontSize: 12, fontWeight: 600 }}>{rawUom}</span>
-          </span>
-        </div>
-      </div>
-    </div>
-
-    {/* LINE 2: OUTPUT (GOOD PRODUCTION OUTFLOW & ADDITION) */}
-    <div style={{
-      background: 'var(--theme-card-bg, rgba(15, 23, 42, 0.6))',
-      border: '1px solid rgba(16, 185, 129, 0.3)',
-      borderRadius: 8,
-      padding: '12px 14px',
-      boxShadow: '0 2px 8px rgba(0,0,0,0.05)',
-    }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 6 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <span style={{
-            background: 'var(--theme-success-soft, rgba(16, 185, 129, 0.15))',
-            color: '#10b981',
-            border: '1px solid rgba(16, 185, 129, 0.35)',
-            fontWeight: 700, fontSize: 11, borderRadius: 4, padding: '3px 8px', letterSpacing: 0.3,
-            display: 'inline-flex', alignItems: 'center', gap: 4,
-          }}>
-            <ArrowUpOutlined style={{ fontSize: 11 }} /> OUTPUT (GOOD PRODUCTION)
-          </span>
-          <Text strong style={{ fontSize: 13, color: 'var(--theme-text, #f8fafc)' }}>
-            {outItemCode ? `${outItemCode} — ` : ''}{outItemName ?? 'Produced Item'}
-          </Text>
-        </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 12, color: 'var(--theme-text-muted, #94a3b8)', background: 'var(--theme-surface-alt, rgba(255, 255, 255, 0.05))', padding: '3px 10px', borderRadius: 4, border: '1px solid var(--theme-border, rgba(148, 163, 184, 0.2))' }}>
-            Receipt: <strong style={{ color: 'var(--theme-text, #f8fafc)' }}>{outStoreName ?? '—'}</strong>
-          </span>
-          {outCompanyBefore != null && outCompanyBefore > outBefore && (
-            <span style={{ fontSize: 11, color: '#38bdf8', background: 'rgba(56, 189, 248, 0.12)', padding: '3px 8px', borderRadius: 4, border: '1px solid rgba(56, 189, 248, 0.35)', fontWeight: 600 }}>
-              Company Prior: {formatNumber(outCompanyBefore, 3)} {outUom}
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 14 }}>
+      {/* INPUT CARDS: ONE PER CONSUMED COMPONENT */}
+      {inputLines.map((inp, idx) => (
+        <div
+          key={inp.key || idx}
+          style={{
+            background: 'var(--theme-surface, ' + token.colorBgContainer + ')',
+            border: `1px solid ${token.colorErrorBorder}`,
+            borderRadius: 8,
+            padding: '12px 14px',
+            boxShadow: token.boxShadowTertiary,
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{
+                background: token.colorErrorBg,
+                color: token.colorError,
+                border: `1px solid ${token.colorErrorBorder}`,
+                fontWeight: 700, fontSize: 11, borderRadius: 4, padding: '3px 8px', letterSpacing: 0.3,
+                display: 'inline-flex', alignItems: 'center', gap: 4,
+              }}>
+                <ArrowDownOutlined style={{ fontSize: 11 }} /> {inputLines.length > 1 ? `INPUT ${idx + 1} (RAW MATERIAL)` : 'INPUT (RAW MATERIAL)'}
+              </span>
+              <Text strong style={{ fontSize: 13, color: token.colorText }}>
+                {inp.itemCode ? `${inp.itemCode} — ` : ''}{inp.itemName ?? 'Raw Material'}
+              </Text>
+            </div>
+            <span style={{
+              fontSize: 12,
+              color: token.colorTextSecondary,
+              background: token.colorFillAlter,
+              padding: '3px 10px',
+              borderRadius: 4,
+              border: `1px solid ${token.colorBorderSecondary}`,
+            }}>
+              Source: <strong style={{ color: token.colorText }}>{inp.storeName ?? '—'}</strong>
             </span>
-          )}
-        </div>
-      </div>
+          </div>
 
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: '1fr auto 1fr auto 1fr',
-        gap: 8,
-        alignItems: 'center',
-        textAlign: 'center',
-      }}>
-        {/* Before */}
-        <div style={{
-          background: 'var(--theme-surface-alt, rgba(255, 255, 255, 0.04))',
-          border: '1px solid var(--theme-border, rgba(148, 163, 184, 0.2))',
-          borderRadius: 8,
-          padding: '8px 10px',
-        }}>
-          <span style={{ fontSize: 11, textTransform: 'uppercase', color: 'var(--theme-text-muted, #94a3b8)', fontWeight: 700, display: 'block', marginBottom: 2 }}>
-            {posted ? 'Opening Balance' : 'Current Balance'}
-          </span>
-          <span style={{ fontSize: 15, fontWeight: 800, color: 'var(--theme-text, #f8fafc)', fontVariantNumeric: 'tabular-nums' }}>
-            {formatNumber(outBefore, 3)} <span style={{ fontSize: 12, fontWeight: 600 }}>{outUom}</span>
-          </span>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr auto 1fr auto 1fr',
+            gap: 8,
+            alignItems: 'center',
+            textAlign: 'center',
+          }}>
+            {/* Before */}
+            <div style={{
+              background: token.colorFillAlter,
+              border: `1px solid ${token.colorBorderSecondary}`,
+              borderRadius: 8,
+              padding: '8px 10px',
+            }}>
+              <span style={{ fontSize: 11, textTransform: 'uppercase', color: token.colorTextSecondary, fontWeight: 700, display: 'block', marginBottom: 2 }}>
+                {posted ? 'Opening Available' : 'Current Available'}
+              </span>
+              <span style={{ fontSize: 15, fontWeight: 800, color: token.colorText, fontVariantNumeric: 'tabular-nums' }}>
+                {formatNumber(inp.before, 3)} <span style={{ fontSize: 12, fontWeight: 600 }}>{inp.uom}</span>
+              </span>
+            </div>
+            <span style={{ fontSize: 20, fontWeight: 800, color: token.colorError }}>−</span>
+            {/* Consumed */}
+            <div style={{
+              background: token.colorErrorBg,
+              border: `1px solid ${token.colorErrorBorder}`,
+              borderRadius: 8,
+              padding: '8px 10px',
+            }}>
+              <span style={{ fontSize: 11, textTransform: 'uppercase', color: token.colorError, fontWeight: 700, display: 'block', marginBottom: 2 }}>
+                Consumed (Out)
+              </span>
+              <span style={{ fontSize: 15, fontWeight: 800, color: token.colorError, fontVariantNumeric: 'tabular-nums' }}>
+                −{formatNumber(inp.consumed, 3)} <span style={{ fontSize: 12, fontWeight: 600 }}>{inp.uom}</span>
+              </span>
+            </div>
+            <span style={{ fontSize: 20, fontWeight: 800, color: token.colorTextSecondary }}>=</span>
+            {/* After */}
+            <div style={{
+              background: token.colorSuccessBg,
+              border: `1px solid ${token.colorSuccessBorder}`,
+              borderRadius: 8,
+              padding: '8px 10px',
+            }}>
+              <span style={{ fontSize: 11, textTransform: 'uppercase', color: token.colorSuccess, fontWeight: 700, display: 'block', marginBottom: 2 }}>
+                {posted ? 'Remaining Balance' : 'Projected Balance'}
+              </span>
+              <span style={{ fontSize: 15, fontWeight: 800, color: token.colorSuccess, fontVariantNumeric: 'tabular-nums' }}>
+                {formatNumber(inp.after, 3)} <span style={{ fontSize: 12, fontWeight: 600 }}>{inp.uom}</span>
+              </span>
+            </div>
+          </div>
         </div>
-        <span style={{ fontSize: 20, fontWeight: 800, color: '#10b981' }}>+</span>
-        {/* Produced */}
+      ))}
+
+      {inputLines.length > 1 && (
         <div style={{
-          background: 'var(--theme-success-soft, rgba(16, 185, 129, 0.12))',
-          border: '1px solid rgba(16, 185, 129, 0.35)',
-          borderRadius: 8,
-          padding: '8px 10px',
+          padding: '6px 12px',
+          background: token.colorFillAlter,
+          border: `1px solid ${token.colorBorderSecondary}`,
+          borderRadius: 6,
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: 6,
+          fontSize: 12,
         }}>
-          <span style={{ fontSize: 11, textTransform: 'uppercase', color: '#34d399', fontWeight: 700, display: 'block', marginBottom: 2 }}>
-            Produced (In)
-          </span>
-          <span style={{ fontSize: 15, fontWeight: 800, color: '#10b981', fontVariantNumeric: 'tabular-nums' }}>
-            +{formatNumber(outProduced, 3)} <span style={{ fontSize: 12, fontWeight: 600 }}>{outUom}</span>
-          </span>
-        </div>
-        <span style={{ fontSize: 20, fontWeight: 800, color: 'var(--theme-text-muted, #94a3b8)' }}>=</span>
-        {/* After */}
-        <div style={{
-          background: 'var(--theme-success-soft, rgba(16, 185, 129, 0.18))',
-          border: '1px solid rgba(16, 185, 129, 0.45)',
-          borderRadius: 8,
-          padding: '8px 10px',
-        }}>
-          <span style={{ fontSize: 11, textTransform: 'uppercase', color: '#34d399', fontWeight: 700, display: 'block', marginBottom: 2 }}>
-            {posted ? 'New Balance in Store' : 'Projected Balance'}
-          </span>
-          <span style={{ fontSize: 15, fontWeight: 800, color: '#10b981', fontVariantNumeric: 'tabular-nums', textDecoration: 'underline' }}>
-            {formatNumber(outAfter, 3)} <span style={{ fontSize: 12, fontWeight: 600 }}>{outUom}</span>
-          </span>
-        </div>
-      </div>
-      {outCompanyBefore != null && outCompanyBefore > outBefore && (
-        <div style={{ marginTop: 8, padding: '6px 12px', background: 'rgba(2, 132, 199, 0.12)', borderRadius: 6, fontSize: 11.5, color: '#38bdf8', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6, border: '1px solid rgba(56, 189, 248, 0.3)' }}>
-          <span>
-            ℹ️ <strong>Store Notice:</strong> Store <em>{outStoreName}</em> had 0 {outUom} prior opening balance.
-          </span>
-          <span>
-            <strong>{formatNumber(outCompanyBefore, 3)} {outUom}</strong> is available in other active warehouse(s) (Total Company Stock: <strong>{formatNumber(outCompanyTotal ?? (outCompanyBefore + outProduced), 3)} {outUom}</strong>).
-          </span>
+          <Text type="secondary" strong>
+            Total Raw Material Consumed ({inputLines.length} input components)
+          </Text>
+          <Text strong style={{ color: token.colorError, fontVariantNumeric: 'tabular-nums' }}>
+            {allSameInputUom
+              ? `−${formatNumber(totalInputConsumed, 3)} ${combinedInputUom}`
+              : inputLines.map((l) => `−${formatNumber(l.consumed, 3)} ${l.uom}`).join(' + ')}
+          </Text>
         </div>
       )}
+
+      {/* OUTPUT (GOOD PRODUCTION INFLOW & ADDITION) */}
+      <div style={{
+        background: 'var(--theme-surface, ' + token.colorBgContainer + ')',
+        border: `1px solid ${token.colorSuccessBorder}`,
+        borderRadius: 8,
+        padding: '12px 14px',
+        boxShadow: token.boxShadowTertiary,
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span style={{
+              background: token.colorSuccessBg,
+              color: token.colorSuccess,
+              border: `1px solid ${token.colorSuccessBorder}`,
+              fontWeight: 700, fontSize: 11, borderRadius: 4, padding: '3px 8px', letterSpacing: 0.3,
+              display: 'inline-flex', alignItems: 'center', gap: 4,
+            }}>
+              <ArrowUpOutlined style={{ fontSize: 11 }} /> OUTPUT (GOOD PRODUCTION)
+            </span>
+            <Text strong style={{ fontSize: 13, color: token.colorText }}>
+              {outItemCode ? `${outItemCode} — ` : ''}{outItemName ?? 'Produced Item'}
+            </Text>
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{
+              fontSize: 12,
+              color: token.colorTextSecondary,
+              background: token.colorFillAlter,
+              padding: '3px 10px',
+              borderRadius: 4,
+              border: `1px solid ${token.colorBorderSecondary}`,
+            }}>
+              Receipt: <strong style={{ color: token.colorText }}>{outStoreName ?? '—'}</strong>
+            </span>
+            {outCompanyBefore != null && outCompanyBefore > outBefore && (
+              <span style={{
+                fontSize: 11,
+                color: token.colorInfo,
+                background: token.colorInfoBg,
+                padding: '3px 8px',
+                borderRadius: 4,
+                border: `1px solid ${token.colorInfoBorder}`,
+                fontWeight: 600,
+              }}>
+                Company Prior: {formatNumber(outCompanyBefore, 3)} {outUom}
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr auto 1fr auto 1fr',
+          gap: 8,
+          alignItems: 'center',
+          textAlign: 'center',
+        }}>
+          {/* Before */}
+          <div style={{
+            background: token.colorFillAlter,
+            border: `1px solid ${token.colorBorderSecondary}`,
+            borderRadius: 8,
+            padding: '8px 10px',
+          }}>
+            <span style={{ fontSize: 11, textTransform: 'uppercase', color: token.colorTextSecondary, fontWeight: 700, display: 'block', marginBottom: 2 }}>
+              {posted ? 'Opening Balance' : 'Current Balance'}
+            </span>
+            <span style={{ fontSize: 15, fontWeight: 800, color: token.colorText, fontVariantNumeric: 'tabular-nums' }}>
+              {formatNumber(outBefore, 3)} <span style={{ fontSize: 12, fontWeight: 600 }}>{outUom}</span>
+            </span>
+          </div>
+          <span style={{ fontSize: 20, fontWeight: 800, color: token.colorSuccess }}>+</span>
+          {/* Produced */}
+          <div style={{
+            background: token.colorSuccessBg,
+            border: `1px solid ${token.colorSuccessBorder}`,
+            borderRadius: 8,
+            padding: '8px 10px',
+          }}>
+            <span style={{ fontSize: 11, textTransform: 'uppercase', color: token.colorSuccess, fontWeight: 700, display: 'block', marginBottom: 2 }}>
+              Produced (In)
+            </span>
+            <span style={{ fontSize: 15, fontWeight: 800, color: token.colorSuccess, fontVariantNumeric: 'tabular-nums' }}>
+              +{formatNumber(outProduced, 3)} <span style={{ fontSize: 12, fontWeight: 600 }}>{outUom}</span>
+            </span>
+          </div>
+          <span style={{ fontSize: 20, fontWeight: 800, color: token.colorTextSecondary }}>=</span>
+          {/* After */}
+          <div style={{
+            background: token.colorSuccessBg,
+            border: `1px solid ${token.colorSuccessBorder}`,
+            borderRadius: 8,
+            padding: '8px 10px',
+          }}>
+            <span style={{ fontSize: 11, textTransform: 'uppercase', color: token.colorSuccess, fontWeight: 700, display: 'block', marginBottom: 2 }}>
+              {posted ? 'New Balance in Store' : 'Projected Balance'}
+            </span>
+            <span style={{ fontSize: 15, fontWeight: 800, color: token.colorSuccess, fontVariantNumeric: 'tabular-nums', textDecoration: 'underline' }}>
+              {formatNumber(outAfter, 3)} <span style={{ fontSize: 12, fontWeight: 600 }}>{outUom}</span>
+            </span>
+          </div>
+        </div>
+        {outCompanyBefore != null && outCompanyBefore > outBefore && (
+          <div style={{
+            marginTop: 8,
+            padding: '6px 12px',
+            background: token.colorInfoBg,
+            borderRadius: 6,
+            fontSize: 11.5,
+            color: token.colorInfo,
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: 6,
+            border: `1px solid ${token.colorInfoBorder}`,
+          }}>
+            <span>
+              <strong>Store Notice:</strong> Store <em>{outStoreName}</em> had 0 {outUom} prior opening balance.
+            </span>
+            <span>
+              <strong>{formatNumber(outCompanyBefore, 3)} {outUom}</strong> is available in other active warehouse(s) (Total Company Stock: <strong>{formatNumber(outCompanyTotal ?? (outCompanyBefore + outProduced), 3)} {outUom}</strong>).
+            </span>
+          </div>
+        )}
+      </div>
     </div>
-  </div>
-);
+  );
+};
+
+function resolveInputComponents(entry: DetailData | null, movements: LedgerMovement[]): ResolvedInputComponent[] {
+  if (!entry) return [];
+  const map = new Map<string, ResolvedInputComponent>();
+  const orderedIds: string[] = [];
+
+  const upsert = (part: Partial<ResolvedInputComponent> & { itemId?: string | null }) => {
+    const id = part.itemId;
+    if (!id) return;
+    const existing = map.get(id);
+    if (!existing) {
+      orderedIds.push(id);
+      map.set(id, {
+        itemId: id,
+        itemCode: part.itemCode ?? '',
+        itemName: part.itemName ?? 'Input Material',
+        itemType: part.itemType ?? null,
+        wireSizeMm: part.wireSizeMm ?? null,
+        weightPerMeter: part.weightPerMeter ?? null,
+        weightPerPiece: part.weightPerPiece ?? null,
+        piecesPerKg: part.piecesPerKg ?? null,
+        baseUomId: part.baseUomId ?? null,
+        uomCode: part.uomCode ?? null,
+        sourceWarehouseId: part.sourceWarehouseId ?? null,
+        sourceWarehouseName: part.sourceWarehouseName ?? null,
+        auditQty: part.auditQty,
+        perUnitQty: part.perUnitQty,
+      });
+      return;
+    }
+    if (!existing.itemCode && part.itemCode) existing.itemCode = part.itemCode;
+    if ((!existing.itemName || existing.itemName === 'Input Material') && part.itemName) existing.itemName = part.itemName;
+    if (!existing.itemType && part.itemType) existing.itemType = part.itemType;
+    if (existing.wireSizeMm == null && part.wireSizeMm != null) existing.wireSizeMm = part.wireSizeMm;
+    if ((existing.weightPerMeter == null || toNum(existing.weightPerMeter) <= 0) && part.weightPerMeter != null && toNum(part.weightPerMeter) > 0) {
+      existing.weightPerMeter = part.weightPerMeter;
+    }
+    if ((existing.weightPerPiece == null || toNum(existing.weightPerPiece) <= 0) && part.weightPerPiece != null && toNum(part.weightPerPiece) > 0) {
+      existing.weightPerPiece = part.weightPerPiece;
+    }
+    if ((existing.piecesPerKg == null || toNum(existing.piecesPerKg) <= 0) && part.piecesPerKg != null && toNum(part.piecesPerKg) > 0) {
+      existing.piecesPerKg = part.piecesPerKg;
+    }
+    if (!existing.baseUomId && part.baseUomId) existing.baseUomId = part.baseUomId;
+    if (!existing.uomCode && part.uomCode) existing.uomCode = part.uomCode;
+    if (!existing.sourceWarehouseId && part.sourceWarehouseId) existing.sourceWarehouseId = part.sourceWarehouseId;
+    if (!existing.sourceWarehouseName && part.sourceWarehouseName) existing.sourceWarehouseName = part.sourceWarehouseName;
+    if (part.auditQty != null && part.auditQty > 0 && (existing.auditQty == null || existing.auditQty <= 0)) {
+      existing.auditQty = part.auditQty;
+    }
+    if (part.perUnitQty != null && part.perUnitQty > 0 && (existing.perUnitQty == null || existing.perUnitQty <= 0)) {
+      existing.perUnitQty = part.perUnitQty;
+    }
+  };
+
+  const addRef = (ref: InputComponentItemRef | null | undefined) => {
+    if (!ref?.id) return;
+    upsert({
+      itemId: ref.id,
+      itemCode: ref.itemCode,
+      itemName: ref.name,
+      itemType: ref.itemType,
+      wireSizeMm: ref.wireSizeMm,
+      weightPerMeter: ref.weightPerMeter,
+      weightPerPiece: ref.weightPerPiece,
+      piecesPerKg: ref.piecesPerKg,
+      baseUomId: ref.baseUomId,
+      uomCode: ref.baseUom?.code ?? null,
+    });
+  };
+
+  addRef(entry.item?.productionInItem);
+  addRef(entry.item?.productionInItem2);
+  addRef(entry.item?.productionInItem3);
+
+  const ops = entry.route?.operations ?? [];
+  const matchingOps = ops.filter(
+    (op) => op.outputItemId === entry.itemId || op.outputs?.some((o) => o.itemId === entry.itemId),
+  );
+  const routeOpsToUse = matchingOps.length > 0 ? matchingOps : (ops.length === 1 ? ops : []);
+  for (const op of routeOpsToUse) {
+    for (const inp of op.inputs ?? []) {
+      const id = inp.itemId || inp.item?.id;
+      const q = toNum(inp.quantity);
+      upsert({
+        itemId: id,
+        itemCode: inp.item?.itemCode,
+        itemName: inp.item?.name,
+        itemType: inp.item?.itemType,
+        wireSizeMm: inp.item?.wireSizeMm,
+        weightPerMeter: inp.item?.weightPerMeter,
+        weightPerPiece: inp.item?.weightPerPiece,
+        piecesPerKg: inp.item?.piecesPerKg,
+        baseUomId: inp.item?.baseUomId,
+        uomCode: inp.uom?.code || inp.item?.baseUom?.code || null,
+        sourceWarehouseId: inp.sourceWarehouseId ?? null,
+        perUnitQty: q > 0 ? q : undefined,
+      });
+    }
+  }
+
+  const inputLines = [...splitEntryItemLines(entry.items).inputs, ...(entry.componentItems ?? [])];
+  for (const line of inputLines) {
+    const id = line.itemId || line.item?.id;
+    const aq = toNum(line.actualQuantity);
+    upsert({
+      itemId: id,
+      itemCode: line.item?.itemCode,
+      itemName: line.item?.name,
+      itemType: line.item?.itemType,
+      wireSizeMm: line.item?.wireSizeMm,
+      weightPerMeter: line.item?.weightPerMeter,
+      weightPerPiece: line.item?.weightPerPiece,
+      piecesPerKg: line.item?.piecesPerKg,
+      baseUomId: line.item?.baseUomId,
+      uomCode: line.uom?.code || line.item?.baseUom?.code || null,
+      sourceWarehouseId: line.sourceWarehouseId ?? null,
+      sourceWarehouseName: line.sourceWarehouse?.name ?? null,
+      auditQty: aq > 0 ? aq : undefined,
+    });
+  }
+
+  for (const m of movements) {
+    if (m.transactionType === 'PRODUCTION_CONSUMPTION' && m.direction === 'OUT') {
+      const id = m.itemId || m.item?.id;
+      if (id) {
+        upsert({
+          itemId: id,
+          itemCode: m.item?.itemCode,
+          itemName: m.item?.name,
+          uomCode: m.uom?.code ?? null,
+          sourceWarehouseId: m.warehouseId ?? m.warehouse?.id ?? null,
+          sourceWarehouseName: m.warehouse?.name ?? null,
+        });
+      }
+    }
+  }
+
+  return orderedIds.map((id) => map.get(id)!).filter(Boolean);
+}
 
 type DetailStepKey = 'items' | 'downtime' | 'material' | 'ledger' | 'route' | 'coils' | 'audit';
 
@@ -417,6 +718,7 @@ export const EntryDetail: React.FC<EntryDetailProps> = ({
   onDeleted: onDeletedProp,
 }) => {
   const { message } = App.useApp();
+  const { token } = theme.useToken();
   const { id: paramId } = useParams<{ id: string }>();
   const id = propId || paramId;
   const navigate = useNavigate();
@@ -429,8 +731,8 @@ export const EntryDetail: React.FC<EntryDetailProps> = ({
   const [balancesLoading, setBalancesLoading] = useState(false);
   const [balancesError, setBalancesError] = useState<string | null>(null);
   // TASK #39 Part C: the ENTRY's own output-item balances are loaded above; the
-  // input material availability additionally queries the exact source store.
-  const [inputBalances, setInputBalances] = useState<StockBalance[]>([]);
+  // input material availability queries all resolved consumed input components.
+  const [inputBalancesByItem, setInputBalancesByItem] = useState<Record<string, StockBalance[]>>({});
   const [inputLoading, setInputLoading] = useState(false);
   const [inputError, setInputError] = useState<string | null>(null);
   // TASK #41 Part E/H: this entry's REAL stock-ledger movements (referenceId =
@@ -475,20 +777,32 @@ export const EntryDetail: React.FC<EntryDetailProps> = ({
     return () => { cancelled = true; };
   }, [entry?.itemId]);
 
-  // TASK #39 Part C: raw-material availability at the EXACT source store.
-  // The resource consumed by the current stage is the Item Master `productionInItemId`
-  // and its balance must be read from the entry's `rawMaterialWarehouseId` store —
-  // never fabricated and never guessed from the produced item's balance.
-  const productionInItemId = entry?.item?.productionInItem?.id ?? null;
+  const resolvedInputComponents = resolveInputComponents(entry, movements);
+  const inputItemIdsKey = resolvedInputComponents.map((c) => c.itemId).join(',');
   useEffect(() => {
-    if (!entry?.itemId || !productionInItemId) return;
+    const itemIds = inputItemIdsKey ? inputItemIdsKey.split(',').filter(Boolean) : [];
+    if (!entry?.itemId || itemIds.length === 0) {
+      setInputBalancesByItem({});
+      return;
+    }
     let cancelled = false;
     setInputLoading(true);
     setInputError(null);
     void (async () => {
       try {
-        const r = await apiService.get<{ data: StockBalance[] }>('/inventory/balances', { itemId: productionInItemId, limit: 100 });
-        if (!cancelled) setInputBalances(r.data || []);
+        const pairs = await Promise.all(
+          itemIds.map(async (compItemId) => {
+            const r = await apiService.get<{ data: StockBalance[] }>('/inventory/balances', { itemId: compItemId, limit: 100 });
+            return [compItemId, r.data || []] as const;
+          }),
+        );
+        if (!cancelled) {
+          const nextMap: Record<string, StockBalance[]> = {};
+          for (const [compItemId, rows] of pairs) {
+            nextMap[compItemId] = rows;
+          }
+          setInputBalancesByItem(nextMap);
+        }
       } catch {
         if (!cancelled) setInputError('Input material balances are unavailable (inventory.view permission required).');
       } finally {
@@ -496,7 +810,7 @@ export const EntryDetail: React.FC<EntryDetailProps> = ({
       }
     })();
     return () => { cancelled = true; };
-  }, [entry?.itemId, productionInItemId]);
+  }, [entry?.itemId, inputItemIdsKey]);
 
   // TASK #41 Part E/H: every stock-ledger row this entry posted. The backend
   // stamps referenceType=PRODUCTION_ENTRY + referenceId=entry.id on each IN/OUT
@@ -561,15 +875,17 @@ export const EntryDetail: React.FC<EntryDetailProps> = ({
     : toNum(entry.efficiencyPercentage);
   const wireSize = entry.item?.wireSizeMm != null ? `${formatDimension(entry.item.wireSizeMm)} mm` : '—';
   const productionInItem = entry.item?.productionInItem ?? null;
+  const productionInItemId = resolvedInputComponents[0]?.itemId ?? productionInItem?.id ?? null;
   const sourceStoreId = entry.rawMaterialWarehouseId ?? null;
-  const sourceStoreRow = inputBalances.find((b) => b.warehouse?.id === sourceStoreId) ?? null;
+  const primaryBalances = productionInItemId ? (inputBalancesByItem[productionInItemId] ?? []) : [];
+  const sourceStoreRow = primaryBalances.find((b) => b.warehouse?.id === sourceStoreId) ?? null;
   const sourceStoreAvail =
     sourceStoreRow != null ? toNum(sourceStoreRow.available) : null;
 
   // TASK #41 Part F: company-wide availability of the exact input material (sum
   // of every ACTIVE balance row) — the single check that caught the same item
   // stocked in ANOTHER store while the source store shows zero.
-  const aggregateInputAvail = inputBalances.reduce((s, b) => s + toNum(b.available), 0);
+  const aggregateInputAvail = primaryBalances.reduce((s, b) => s + toNum(b.available), 0);
 
   // ── TASK #41 Part E/H: real inventory reconciliation ─────────────────────
   const goodQty = toNum(entry.actualQuantity);
@@ -585,56 +901,177 @@ export const EntryDetail: React.FC<EntryDetailProps> = ({
     .filter((m) => m.transactionType === 'PRODUCTION_CONSUMPTION' && m.direction === 'OUT')
     .reduce((s, m) => s + toNum(m.quantity), 0);
 
+  const outputItemLines = splitEntryItemLines(entry.items).outputs;
+  const hasInputMaterial = resolvedInputComponents.length > 0;
   const rawItem = productionInItem;
-  // Resolve the actual UOM of the input material (ledger, store balance, or item base UOM)
+  // Resolve the actual UOM of the primary input material (ledger, store balance, or item base UOM)
   const consumptionLedger = movements.find((m) => m.transactionType === 'PRODUCTION_CONSUMPTION');
   const rawUom = consumptionLedger?.uom?.code
     || sourceStoreRow?.uom?.code
-    || inputBalances[0]?.uom?.code
+    || primaryBalances[0]?.uom?.code
+    || resolvedInputComponents[0]?.uomCode
     || (rawItem as any)?.baseUom?.code
     || (rawItem?.wireSizeMm != null && !entry.item?.weightPerPiece ? 'KG' : (entry.uom?.code ?? 'KG'));
 
-  // Derive raw material consumption (OUTPUT lines only — see entryLines.ts).
-  let calculatedRawDemand = 0;
-  const outputItemLines = splitEntryItemLines(entry.items).outputs;
-  if (outputItemLines.length > 0) {
-    for (const line of outputItemLines) {
-      const lineItem = line.item || entry.item;
-      const lGood = toNum(line.actualQuantity);
-      const lScrap = toNum(line.scrapQuantity);
-      const totalUnits = lGood + lScrap;
-      calculatedRawDemand += convertProductToComponentQty(totalUnits, lineItem, rawUom);
+  const computeComponentDemand = (
+    comp: ResolvedInputComponent,
+    compUom: string,
+    totalComponents: number,
+  ): number => {
+    if (comp.auditQty != null && comp.auditQty > 0) {
+      return Math.round(comp.auditQty * 10000) / 10000;
     }
-  }
-  if (calculatedRawDemand <= 0) {
-    calculatedRawDemand = convertProductToComponentQty(goodQty + scrapQty, entry.item, rawUom);
-  }
-  calculatedRawDemand = Math.round(calculatedRawDemand * 10000) / 10000;
+    let demand = 0;
+    const compUomUpper = (compUom || '').toUpperCase();
+    const isCompWeight = ['KG', 'KILOGRAM'].includes(compUomUpper) || !compUomUpper;
+    const compWpm = toNum(comp.weightPerMeter);
+    const compArg = {
+      weightPerMeter: comp.weightPerMeter,
+      weightPerPiece: comp.weightPerPiece,
+      piecesPerKg: comp.piecesPerKg,
+      uomCode: compUom,
+      baseUom: { code: compUom },
+    };
+
+    const calcForOutput = (
+      prodItem: DetailData['item'] | ProductionItemDetail['item'] | null | undefined,
+      prodUomCode: string | undefined,
+      qtyUnits: number,
+    ): number => {
+      if (qtyUnits <= 0) return 0;
+      const effUom = (prodUomCode || (prodItem as any)?.baseUom?.code || '').toUpperCase();
+      const prodArg = { ...(prodItem || {}), uomCode: effUom || undefined };
+      const isLengthOut = ['M', 'METER', 'METERS'].includes(effUom);
+      if (compWpm > 0 && isLengthOut && isCompWeight) {
+        return convertProductToComponentQty(qtyUnits, prodArg, compArg);
+      }
+      if (totalComponents > 1 && comp.perUnitQty != null && comp.perUnitQty > 0) {
+        return qtyUnits * comp.perUnitQty;
+      }
+      return convertProductToComponentQty(qtyUnits, prodArg, compArg);
+    };
+
+    if (outputItemLines.length > 0) {
+      for (const line of outputItemLines) {
+        const lineItem = line.item || entry.item;
+        const lTotal = toNum(line.actualQuantity) + toNum(line.scrapQuantity);
+        demand += calcForOutput(lineItem, line.uom?.code ?? entry.uom?.code, lTotal);
+      }
+    }
+    if (demand <= 0) {
+      demand = calcForOutput(entry.item, entry.uom?.code, goodQty + scrapQty);
+    }
+    return Math.round(demand * 10000) / 10000;
+  };
+
+  const componentMetrics = resolvedInputComponents.map((comp) => {
+    const compBalances = inputBalancesByItem[comp.itemId] ?? [];
+    const compStoreId = comp.sourceWarehouseId ?? sourceStoreId;
+    const compStoreRow = compStoreId ? (compBalances.find((b) => b.warehouse?.id === compStoreId) ?? null) : null;
+    const compStoreAvail = compStoreRow != null ? toNum(compStoreRow.available) : null;
+    const compAggregateAvail = compBalances.reduce((s, b) => s + toNum(b.available), 0);
+    const compConsMovements = movements.filter((m) =>
+      m.transactionType === 'PRODUCTION_CONSUMPTION' &&
+      m.direction === 'OUT' &&
+      (resolvedInputComponents.length === 1
+        ? ((!m.itemId && !m.item?.id && !m.item?.itemCode) ||
+          m.itemId === comp.itemId ||
+          m.item?.id === comp.itemId ||
+          (!!comp.itemCode && m.item?.itemCode === comp.itemCode))
+        : (m.itemId === comp.itemId ||
+          m.item?.id === comp.itemId ||
+          (!!comp.itemCode && m.item?.itemCode === comp.itemCode))),
+    );
+    const compUom = compConsMovements[0]?.uom?.code
+      || compStoreRow?.uom?.code
+      || compBalances[0]?.uom?.code
+      || comp.uomCode
+      || (comp.wireSizeMm != null && !entry.item?.weightPerPiece ? 'KG' : (entry.uom?.code ?? 'KG'));
+    const demanded = computeComponentDemand(comp, compUom, resolvedInputComponents.length);
+    const ledgerConsumed = Math.round(compConsMovements.reduce((s, m) => s + toNum(m.quantity), 0) * 10000) / 10000;
+    const consumed = ledgerConsumed > 0 ? ledgerConsumed : demanded;
+
+    const effectiveBalRow = compStoreRow
+      ?? (compConsMovements[0]?.warehouseId
+        ? compBalances.find((b) => b.warehouse?.id === compConsMovements[0].warehouseId) ?? null
+        : null);
+    const currentAvail = effectiveBalRow != null ? toNum(effectiveBalRow.available) : 0;
+    const before = posted ? currentAvail + consumed : currentAvail;
+    const after = posted ? currentAvail : Math.max(0, currentAvail - consumed);
+    const storeName = effectiveBalRow?.warehouse?.name
+      ?? comp.sourceWarehouseName
+      ?? compConsMovements[0]?.warehouse?.name
+      ?? (entry as any).rawMaterialWarehouse?.name
+      ?? 'Source Store';
+    const noBalances = compBalances.length === 0;
+    const srcShortage = posted && !!compStoreId && compStoreAvail !== null && compStoreAvail + 0.001 < demanded;
+    const aggShortage = posted && compAggregateAvail + 0.001 < demanded;
+
+    return {
+      ...comp,
+      balances: compBalances,
+      storeId: compStoreId,
+      storeRow: compStoreRow,
+      storeAvail: compStoreAvail,
+      aggregateAvail: compAggregateAvail,
+      noBalancesAnywhere: noBalances,
+      uom: compUom,
+      demanded,
+      ledgerConsumed,
+      consumed,
+      currentAvail,
+      before,
+      after,
+      storeName,
+      sourceShortage: srcShortage,
+      aggregateShortage: aggShortage,
+    };
+  });
+
+  const calculatedRawDemand = Math.round(
+    componentMetrics.reduce((s, c) => s + c.demanded, 0) * 10000,
+  ) / 10000;
 
   // The actual consumed raw material (authoritative from ledger if posted, or calculated)
   const rawConsumed = consumptionOutTotal > 0
     ? consumptionOutTotal
-    : (calculatedRawDemand > 0 ? calculatedRawDemand : (productionInItem ? 0 : goodQty + scrapQty));
+    : (calculatedRawDemand > 0 ? calculatedRawDemand : (hasInputMaterial ? 0 : goodQty + scrapQty));
 
-  const rawDemandTotal = consumptionOutTotal > 0 ? consumptionOutTotal : calculatedRawDemand;
+  const rawDemandTotal = calculatedRawDemand > 0 ? calculatedRawDemand : consumptionOutTotal;
   const demandTotal = rawDemandTotal; // backward-compat
 
   const near = (a: number, b: number) => Math.abs(a - b) <= 0.005;
-  const expectedConsumption = productionInItemId ? (calculatedRawDemand > 0 ? calculatedRawDemand : consumptionOutTotal) : 0;
+  const expectedConsumption = hasInputMaterial ? (calculatedRawDemand > 0 ? calculatedRawDemand : consumptionOutTotal) : 0;
+  const perComponentReconciled = calculatedRawDemand <= 0
+    || componentMetrics.length <= 1
+    || componentMetrics.every((c) => near(c.ledgerConsumed, c.demanded));
   const reconciliationOk =
     !posted ? movements.length === 0
-      : near(outputReceiptTotal, goodQty) && near(scrapOutTotal, scrapQty) && near(consumptionOutTotal, expectedConsumption);
+      : near(outputReceiptTotal, goodQty)
+        && near(scrapOutTotal, scrapQty)
+        && near(consumptionOutTotal, expectedConsumption)
+        && perComponentReconciled;
   const sourceShortage =
-    posted && productionInItemId && sourceStoreId && sourceStoreAvail !== null && sourceStoreAvail + 0.001 < rawDemandTotal;
+    posted && hasInputMaterial && componentMetrics.some((c) => c.sourceShortage);
   const aggregateShortage =
-    posted && productionInItemId && aggregateInputAvail + 0.001 < rawDemandTotal;
-  const noBalancesAnywhere = inputBalances.length === 0;
+    posted && hasInputMaterial && componentMetrics.some((c) => c.aggregateShortage);
+  const noBalancesAnywhere = componentMetrics.length === 0 || componentMetrics.every((c) => c.noBalancesAnywhere);
 
-  // ── Calculations for 2-Line Material Movement & Balance Impact Report ──
-  const rawStoreName = (entry as any).rawMaterialWarehouse?.name ?? sourceStoreRow?.warehouse?.name ?? 'Source Store';
-  const rawCurrentAvail = sourceStoreAvail ?? 0;
+  // ── Calculations for Material Movement & Balance Impact Report ──
+  const rawStoreName = componentMetrics[0]?.storeName ?? (entry as any).rawMaterialWarehouse?.name ?? sourceStoreRow?.warehouse?.name ?? 'Source Store';
+  const rawCurrentAvail = sourceStoreAvail ?? componentMetrics[0]?.currentAvail ?? 0;
   const rawBefore = posted ? rawCurrentAvail + rawConsumed : rawCurrentAvail;
   const rawAfter = posted ? rawCurrentAvail : Math.max(0, rawCurrentAvail - rawConsumed);
+  const componentFlowInputs: InventoryImpactInputLine[] = componentMetrics.map((c) => ({
+    key: c.itemId,
+    itemCode: c.itemCode,
+    itemName: c.itemName,
+    storeName: c.storeName,
+    before: c.before,
+    consumed: c.consumed,
+    after: c.after,
+    uom: c.uom,
+  }));
 
   const outItem = entry.item;
   const receiptStoreName = (entry as any).warehouse?.name ?? (movements.find(m => m.transactionType === 'PRODUCTION_RECEIPT')?.warehouse?.name) ?? balances[0]?.warehouse?.name ?? 'Receipt Store';
@@ -773,13 +1210,21 @@ export const EntryDetail: React.FC<EntryDetailProps> = ({
       </Descriptions.Item>
       <Descriptions.Item label="Wire Size"><Text strong>{wireSize}</Text></Descriptions.Item>
       {/* TASK #39: explicit "Not configured" state instead of a bare dash. */}
-      <Descriptions.Item label="Input Material" span={2}>
-        {productionInItem ? (
+      <Descriptions.Item label={componentMetrics.length > 1 ? 'Input Materials' : 'Input Material'} span={2}>
+        {componentMetrics.length === 0 ? (
+          <Text type="secondary">Input Material: Not configured</Text>
+        ) : componentMetrics.length === 1 ? (
           <span style={{ color: 'var(--theme-primary)' }}>
-            <Text strong>{productionInItem.name}</Text>{productionInItem.itemCode ? ` (${productionInItem.itemCode})` : ''}
+            <Text strong>{componentMetrics[0].itemName}</Text>{componentMetrics[0].itemCode ? ` (${componentMetrics[0].itemCode})` : ''}
           </span>
         ) : (
-          <Text type="secondary">Input Material: Not configured</Text>
+          <Space wrap size={[6, 4]}>
+            {componentMetrics.map((comp) => (
+              <Tag key={comp.itemId} color="blue" style={{ margin: 0 }}>
+                <Text strong>{comp.itemName}</Text>{comp.itemCode ? ` (${comp.itemCode})` : ''}
+              </Tag>
+            ))}
+          </Space>
         )}
       </Descriptions.Item>
       <Descriptions.Item label="Target Production">{formatNumber(entry.targetQuantity, 3)}</Descriptions.Item>
@@ -811,82 +1256,102 @@ export const EntryDetail: React.FC<EntryDetailProps> = ({
     </Descriptions>
   );
 
-  const inputTypeLabel =
-    productionInItem?.itemType && ITEM_TYPES.find((t) => t.value === productionInItem.itemType)?.label
-      ? ITEM_TYPES.find((t) => t.value === productionInItem.itemType)!.label
-      : productionInItem?.itemType ?? '';
-
   const sectionInputMaterial = (
-    <div>
-      {!productionInItem ? (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {componentMetrics.length === 0 ? (
         <Text type="secondary">Input Material: Not configured.</Text>
       ) : (
-        <div>
-          <Descriptions column={{ xs: 1, sm: 2, md: 3 }} size="small" bordered className="erp-detail-descriptions">
-            <Descriptions.Item label="Input Item" span={2}>
-              <Text strong>{productionInItem.name}</Text>{productionInItem.itemCode ? ` (${productionInItem.itemCode})` : ''}
-            </Descriptions.Item>
-            <Descriptions.Item label="Type">{inputTypeLabel || '—'}</Descriptions.Item>
-            <Descriptions.Item label="Wire Size">
-              {productionInItem.wireSizeMm != null ? `${formatDimension(productionInItem.wireSizeMm)} mm` : '—'}
-            </Descriptions.Item>
-            <Descriptions.Item
-              label={sourceStoreId ? 'Available at Source Store' : 'Available'}
-              contentStyle={sourceStoreAvail === 0 ? { background: 'var(--theme-warning-soft)' } : undefined}
-            >
-              {inputLoading ? <Skeleton active paragraph={{ rows: 1 }} /> : inputError ? (
-                <Alert type="warning" showIcon message={inputError} />
-              ) : sourceStoreAvail != null ? (
-                <Text strong style={{ color: sourceStoreAvail > 0 ? 'var(--theme-success)' : undefined }}>
-                  {formatNumber(sourceStoreAvail, 3)}
-                </Text>
-              ) : (
-                <Text type="secondary">No balance row</Text>
-              )}
-            </Descriptions.Item>
-          </Descriptions>
-          {sourceStoreId && sourceStoreRow?.warehouse?.name ? (
-            <div style={{ marginTop: 6 }}>
+        <>
+          {componentMetrics.map((comp, idx) => {
+            const compTypeLabel =
+              comp.itemType && ITEM_TYPES.find((t) => t.value === comp.itemType)?.label
+                ? ITEM_TYPES.find((t) => t.value === comp.itemType)!.label
+                : comp.itemType ?? '';
+            return (
+              <div key={comp.itemId || idx}>
+                <Descriptions column={{ xs: 1, sm: 2, md: 3 }} size="small" bordered className="erp-detail-descriptions">
+                  <Descriptions.Item label={componentMetrics.length > 1 ? `Input ${idx + 1}` : 'Input Item'} span={2}>
+                    <Text strong>{comp.itemName}</Text>{comp.itemCode ? ` (${comp.itemCode})` : ''}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Type">{compTypeLabel || '—'}</Descriptions.Item>
+                  <Descriptions.Item label="Wire Size">
+                    {comp.wireSizeMm != null ? `${formatDimension(comp.wireSizeMm)} mm` : '—'}
+                  </Descriptions.Item>
+                  <Descriptions.Item
+                    label={comp.storeId ? 'Available at Source Store' : 'Available'}
+                    contentStyle={comp.storeAvail === 0 ? { background: 'var(--theme-warning-soft)' } : undefined}
+                  >
+                    {inputLoading ? <Skeleton active paragraph={{ rows: 1 }} /> : inputError ? (
+                      <Alert type="warning" showIcon message={inputError} />
+                    ) : comp.storeAvail != null ? (
+                      <Text strong style={{ color: comp.storeAvail > 0 ? 'var(--theme-success)' : undefined }}>
+                        {formatNumber(comp.storeAvail, 3)}
+                      </Text>
+                    ) : (
+                      <Text type="secondary">No balance row</Text>
+                    )}
+                  </Descriptions.Item>
+                </Descriptions>
+                {comp.storeId && comp.storeRow?.warehouse?.name ? (
+                  <div style={{ marginTop: 6 }}>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      Source store: <Text strong>{comp.storeRow.warehouse.name}</Text> · on-hand{' '}
+                      {formatNumber(toNum(comp.storeRow.onHand), 3)} · reserved {formatNumber(toNum(comp.storeRow.reserved), 3)}
+                    </Text>
+                  </div>
+                ) : null}
+                {!inputLoading && !inputError && (
+                  <div style={{ marginTop: 6 }}>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      Aggregate available (all ACTIVE stores):{' '}
+                      <Text strong style={{ color: comp.noBalancesAnywhere ? undefined : (comp.aggregateAvail > 0 ? 'var(--theme-success)' : undefined) }}>
+                        {comp.noBalancesAnywhere ? 'no balance rows' : formatNumber(comp.aggregateAvail, 3)}
+                      </Text>{!comp.noBalancesAnywhere ? ` ${comp.uom}` : ''}
+                      <Text type="secondary"> · Demand this stage: <Text strong>{formatNumber(comp.demanded, 3)}</Text> {comp.uom}</Text>
+                    </Text>
+                    {comp.aggregateShortage && (
+                      <Alert
+                        type="error"
+                        showIcon
+                        style={{ marginTop: 6 }}
+                        data-testid={idx === 0 ? 'aggregate-shortage-alert' : `aggregate-shortage-alert-${idx}`}
+                        message={`Company-wide availability (${formatNumber(comp.aggregateAvail, 3)}) is below this stage's consumption demand (${formatNumber(comp.demanded, 3)}).`}
+                      />
+                    )}
+                    {!comp.aggregateShortage && comp.sourceShortage && (
+                      <Alert
+                        type="warning"
+                        showIcon
+                        style={{ marginTop: 6 }}
+                        data-testid={idx === 0 ? 'source-shortage-alert' : `source-shortage-alert-${idx}`}
+                        message={`Source store availability (${formatNumber(comp.storeAvail!, 3)}) is below this stage's consumption demand (${formatNumber(comp.demanded, 3)}), but ${formatNumber(comp.aggregateAvail, 3)} is available across other stores.`}
+                      />
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {componentMetrics.length > 1 && (
+            <div>
               <Text type="secondary" style={{ fontSize: 12 }}>
-                Source store: <Text strong>{sourceStoreRow.warehouse.name}</Text> · on-hand{' '}
-                {formatNumber(toNum(sourceStoreRow.onHand), 3)} · reserved {formatNumber(toNum(sourceStoreRow.reserved), 3)}
+                Total demand across {componentMetrics.length} input components:{' '}
+                <Text strong>{formatNumber(rawDemandTotal, 3)} {rawUom}</Text>
               </Text>
-            </div>
-          ) : null}
-          {!inputLoading && !inputError && (
-            <div style={{ marginTop: 6 }}>
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                Aggregate available (all ACTIVE stores):{' '}
-                <Text strong style={{ color: noBalancesAnywhere ? undefined : (aggregateInputAvail > 0 ? 'var(--theme-success)' : undefined) }}>
-                  {noBalancesAnywhere ? 'no balance rows' : formatNumber(aggregateInputAvail, 3)}
-                </Text>{!noBalancesAnywhere ? ` ${rawUom}` : ''}
-                <Text type="secondary"> · Demand this stage: <Text strong>{formatNumber(rawDemandTotal, 3)}</Text> {rawUom}</Text>
-              </Text>
-              {aggregateShortage && (
-                <Alert type="error" showIcon style={{ marginTop: 6 }} data-testid="aggregate-shortage-alert"
-                  message={`Company-wide availability (${formatNumber(aggregateInputAvail, 3)}) is below this stage's consumption demand (${formatNumber(rawDemandTotal, 3)}).`}
-                />
-              )}
-              {!aggregateShortage && sourceShortage && (
-                <Alert type="warning" showIcon style={{ marginTop: 6 }} data-testid="source-shortage-alert"
-                  message={`Source store availability (${formatNumber(sourceStoreAvail!, 3)}) is below this stage's consumption demand (${formatNumber(rawDemandTotal, 3)}), but ${formatNumber(aggregateInputAvail, 3)} is available across other stores.`}
-                />
-              )}
             </div>
           )}
-          <div style={{ marginTop: 6 }}>
+          <div>
             <Text type="secondary" style={{ fontSize: 12 }}>
-              The consumption basis for this stage is Good output converted to weight + Scrap in KG, deducted from this store by the backend.
+              The consumption basis for this stage is Good output + Scrap converted via Item Master weights, deducted from the source store(s) by the backend.
             </Text>
           </div>
-        </div>
+        </>
       )}
     </div>
   );
 
-  // Material flow (Part A redesign): the raw material consumed in this stage →
   // Material flow for all production output items:
-  // Each output item displays its own exact produced quantity and matched raw material consumption.
+  // Each output item displays its own exact produced quantity and all matched consumed input components.
   const activeOutputLines = outputItemLines.length > 0
     ? outputItemLines
     : [{ id: entry.id, item: entry.item, itemId: entry.itemId, actualQuantity: entry.actualQuantity, scrapQuantity: entry.scrapQuantity, uom: entry.uom }];
@@ -898,26 +1363,85 @@ export const EntryDetail: React.FC<EntryDetailProps> = ({
         const lineProdQty = toNum(line.actualQuantity);
         const lineScrapQty = toNum(line.scrapQuantity);
         const lineUomCode = line.uom?.code || entry.uom?.code || 'PCS';
-        const lineRawItem = (lineItem as any)?.productionInItem || (line.itemId === entry.itemId ? entry.item?.productionInItem : null);
 
-        // Match movements specifically for this raw material item
-        const itemConsumptions = movements.filter((m) =>
-          m.transactionType === 'PRODUCTION_CONSUMPTION' &&
-          m.direction === 'OUT' &&
-          (lineRawItem ? (m.itemId === lineRawItem.id || (m.item && (m.item as any).id === lineRawItem.id) || (m.item && m.item.itemCode === lineRawItem.itemCode)) : true)
-        );
-        const lineRawConsumed = itemConsumptions.length > 0
-          ? itemConsumptions.reduce((s, m) => s + toNum(m.quantity), 0)
-          : (lineProdQty + lineScrapQty);
-        const lineRawUom = itemConsumptions[0]?.uom?.code
-          || (lineRawItem as any)?.baseUom?.code
-          || rawUom;
+        let lineFlowInputs: InventoryImpactInputLine[] = [];
+        let linePillMeta: Array<{ key: string; itemCode?: string; itemName?: string; wireSizeMm?: number | null; consumed: number; uom: string }> = [];
 
-        let lineRawBefore = posted ? rawCurrentAvail + lineRawConsumed : rawCurrentAvail;
-        if (posted && lineRawBefore < lineRawConsumed) {
-          lineRawBefore = lineRawConsumed;
+        if (activeOutputLines.length === 1) {
+          lineFlowInputs = componentFlowInputs;
+          linePillMeta = componentMetrics.map((c) => ({
+            key: c.itemId,
+            itemCode: c.itemCode,
+            itemName: c.itemName,
+            wireSizeMm: c.wireSizeMm,
+            consumed: c.consumed,
+            uom: c.uom,
+          }));
+        } else {
+          const rawRefs: InputComponentItemRef[] = [
+            (lineItem as any)?.productionInItem,
+            (lineItem as any)?.productionInItem2,
+            (lineItem as any)?.productionInItem3,
+          ].filter((r): r is InputComponentItemRef => Boolean(r?.id));
+          if (rawRefs.length === 0 && line.itemId === entry.itemId) {
+            for (const c of componentMetrics) {
+              rawRefs.push({
+                id: c.itemId,
+                itemCode: c.itemCode,
+                name: c.itemName,
+                wireSizeMm: c.wireSizeMm,
+                weightPerMeter: c.weightPerMeter,
+                weightPerPiece: c.weightPerPiece,
+                piecesPerKg: c.piecesPerKg,
+                baseUom: c.uom ? { code: c.uom } : null,
+              });
+            }
+          }
+          for (const ref of rawRefs) {
+            const matchedMetric = componentMetrics.find((c) => c.itemId === ref.id);
+            const itemConsumptions = movements.filter((m) =>
+              m.transactionType === 'PRODUCTION_CONSUMPTION' &&
+              m.direction === 'OUT' &&
+              (m.itemId === ref.id || m.item?.id === ref.id || (!!ref.itemCode && m.item?.itemCode === ref.itemCode)),
+            );
+            const refUom = itemConsumptions[0]?.uom?.code || matchedMetric?.uom || ref.baseUom?.code || rawUom;
+            const computedQty = Math.round(
+              convertProductToComponentQty(
+                lineProdQty + lineScrapQty,
+                { ...(lineItem || {}), uomCode: lineUomCode },
+                { ...ref, uomCode: refUom, baseUom: { code: refUom } },
+              ) * 10000,
+            ) / 10000;
+            const refConsumed = itemConsumptions.length > 0 && rawRefs.length === componentMetrics.length
+              ? itemConsumptions.reduce((s, m) => s + toNum(m.quantity), 0)
+              : (computedQty > 0 ? computedQty : (lineProdQty + lineScrapQty));
+            const avail = matchedMetric?.currentAvail ?? rawCurrentAvail;
+            const refBefore = posted ? Math.max(avail + refConsumed, refConsumed) : avail;
+            const refAfter = posted ? Math.max(0, refBefore - refConsumed) : Math.max(0, avail - refConsumed);
+            lineFlowInputs.push({
+              key: ref.id,
+              itemCode: ref.itemCode,
+              itemName: ref.name,
+              storeName: matchedMetric?.storeName ?? rawStoreName,
+              before: refBefore,
+              consumed: refConsumed,
+              after: refAfter,
+              uom: refUom,
+            });
+            linePillMeta.push({
+              key: ref.id,
+              itemCode: ref.itemCode,
+              itemName: ref.name,
+              wireSizeMm: ref.wireSizeMm,
+              consumed: refConsumed,
+              uom: refUom,
+            });
+          }
         }
-        const lineRawAfter = posted ? Math.max(0, lineRawBefore - lineRawConsumed) : Math.max(0, rawCurrentAvail - lineRawConsumed);
+
+        const primaryInputLine = lineFlowInputs[0];
+        const lineTotalConsumed = Math.round(linePillMeta.reduce((s, p) => s + p.consumed, 0) * 10000) / 10000;
+        const linePrimaryUom = linePillMeta[0]?.uom || rawUom;
 
         const lineOutBal = balances.find((b) => b.warehouse?.name === receiptStoreName)?.available ?? balances[0]?.available ?? 0;
         const lineOutBefore = posted ? Math.max(0, toNum(lineOutBal) - lineProdQty) : toNum(lineOutBal);
@@ -928,20 +1452,21 @@ export const EntryDetail: React.FC<EntryDetailProps> = ({
             {activeOutputLines.length > 1 && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
                 <Tag color="cyan" style={{ fontWeight: 700, borderRadius: 4, margin: 0 }}>Item {idx + 1}</Tag>
-                <Text strong style={{ fontSize: 13, color: 'var(--theme-text)' }}>
+                <Text strong style={{ fontSize: 13, color: token.colorText }}>
                   {lineItem?.itemCode}{lineItem?.name ? ` — ${lineItem.name}` : ''}
                 </Text>
               </div>
             )}
             <InventoryImpactReport
               posted={posted}
-              rawItemCode={lineRawItem?.itemCode}
-              rawItemName={lineRawItem?.name}
-              rawStoreName={rawStoreName}
-              rawBefore={lineRawBefore}
-              rawConsumed={lineRawConsumed}
-              rawAfter={lineRawAfter}
-              rawUom={lineRawUom}
+              inputs={lineFlowInputs.length > 0 ? lineFlowInputs : undefined}
+              rawItemCode={primaryInputLine?.itemCode}
+              rawItemName={primaryInputLine?.itemName}
+              rawStoreName={primaryInputLine?.storeName ?? rawStoreName}
+              rawBefore={primaryInputLine?.before ?? rawBefore}
+              rawConsumed={primaryInputLine?.consumed ?? (lineProdQty + lineScrapQty)}
+              rawAfter={primaryInputLine?.after ?? rawAfter}
+              rawUom={primaryInputLine?.uom ?? rawUom}
               outItemCode={lineItem?.itemCode}
               outItemName={lineItem?.name}
               outStoreName={receiptStoreName}
@@ -952,35 +1477,43 @@ export const EntryDetail: React.FC<EntryDetailProps> = ({
               outCompanyBefore={outCompanyBefore}
               outCompanyTotal={outCompanyTotal}
             />
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 0, marginTop: 4 }}>
-              {lineRawItem && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 4 }}>
+              {linePillMeta.length > 0 && (
                 <React.Fragment>
-                  <div
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: 8,
-                      padding: '5px 8px', background: 'var(--theme-surface-alt)', borderRadius: 4,
-                      border: '1px solid var(--theme-border)',
-                    }}
-                  >
-                    <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 20, height: 20, borderRadius: 4, background: 'var(--theme-text-muted)', color: '#fff', fontSize: 11, fontWeight: 600, padding: '0 4px' }}>
-                      IN
-                    </span>
-                    <Text strong style={{ fontSize: 12 }}>{lineRawItem.itemCode}</Text>
-                    <Text type="secondary" style={{ fontSize: 12 }}>— {lineRawItem.name}</Text>
-                    {lineRawItem.wireSizeMm != null && (
-                      <Text type="secondary" style={{ fontSize: 12 }}>· {formatDimension(lineRawItem.wireSizeMm)} mm</Text>
-                    )}
-                  </div>
-                  <div style={{ textAlign: 'center', color: 'var(--theme-text-muted)', fontSize: 13, lineHeight: '18px', padding: '4px 0' }}>
-                    ▾ consumed <strong style={{ color: '#b91c1c' }}>{formatNumber(lineRawConsumed, 3)} {lineRawUom}</strong>{lineScrapQty > 0 ? ` (+ scrap ${formatNumber(lineScrapQty, 3)} KG)` : ''}
+                  {linePillMeta.map((p, pIdx) => (
+                    <div
+                      key={p.key || pIdx}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+                        padding: '5px 8px', background: token.colorFillAlter, borderRadius: 4,
+                        border: `1px solid ${token.colorBorderSecondary}`,
+                      }}
+                    >
+                      <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 20, height: 20, borderRadius: 4, background: 'var(--theme-text-muted)', color: '#fff', fontSize: 11, fontWeight: 600, padding: '0 4px' }}>
+                        {linePillMeta.length > 1 ? `IN ${pIdx + 1}` : 'IN'}
+                      </span>
+                      <Text strong style={{ fontSize: 12 }}>{p.itemCode}</Text>
+                      <Text type="secondary" style={{ fontSize: 12 }}>— {p.itemName}</Text>
+                      {p.wireSizeMm != null && (
+                        <Text type="secondary" style={{ fontSize: 12 }}>· {formatDimension(p.wireSizeMm)} mm</Text>
+                      )}
+                      {linePillMeta.length > 1 && (
+                        <Text type="secondary" style={{ fontSize: 12, marginLeft: 'auto' }}>
+                          <strong style={{ color: token.colorError }}>−{formatNumber(p.consumed, 3)} {p.uom}</strong>
+                        </Text>
+                      )}
+                    </div>
+                  ))}
+                  <div style={{ textAlign: 'center', color: token.colorTextSecondary, fontSize: 13, lineHeight: '18px', padding: '2px 0' }}>
+                    ▾ consumed <strong style={{ color: token.colorError }}>{formatNumber(lineTotalConsumed, 3)} {linePrimaryUom}</strong>{lineScrapQty > 0 ? ` (+ scrap ${formatNumber(lineScrapQty, 3)} ${lineUomCode})` : ''}
                   </div>
                 </React.Fragment>
               )}
               <div
                 style={{
-                  display: 'flex', alignItems: 'center', gap: 8,
-                  padding: '5px 8px', background: 'var(--theme-success-soft)', borderRadius: 4,
-                  border: '1px solid var(--theme-success)',
+                  display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+                  padding: '5px 8px', background: token.colorSuccessBg, borderRadius: 4,
+                  border: `1px solid ${token.colorSuccessBorder}`,
                 }}
               >
                 <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 20, height: 20, borderRadius: 4, background: 'var(--theme-success)', color: '#fff', fontSize: 11, fontWeight: 600, padding: '0 4px' }}>
@@ -992,7 +1525,7 @@ export const EntryDetail: React.FC<EntryDetailProps> = ({
                   <Text type="secondary" style={{ fontSize: 12 }}>· {formatDimension(lineItem.wireSizeMm)} mm</Text>
                 )}
                 <Text type="secondary" style={{ fontSize: 12 }}>
-                  → {formatNumber(lineProdQty, 3)} {lineUomCode}{lineScrapQty > 0 ? ` + scrap ${formatNumber(lineScrapQty, 3)}` : ''}
+                  → {formatNumber(lineProdQty, 3)} {lineUomCode}{lineScrapQty > 0 ? ` + scrap ${formatNumber(lineScrapQty, 3)} ${lineUomCode}` : ''}
                 </Text>
               </div>
             </div>
@@ -1072,6 +1605,7 @@ export const EntryDetail: React.FC<EntryDetailProps> = ({
       </div>
       <InventoryImpactReport
         posted={posted}
+        inputs={componentFlowInputs.length > 0 ? componentFlowInputs : undefined}
         rawItemCode={rawItem?.itemCode}
         rawItemName={rawItem?.name}
         rawStoreName={rawStoreName}
@@ -1162,12 +1696,27 @@ export const EntryDetail: React.FC<EntryDetailProps> = ({
               <Text strong>{formatNumber(scrapOutTotal, 3)}</Text>
               <Text type="secondary"> in ledger</Text>
             </Descriptions.Item>
-            {productionInItemId && (
+            {(hasInputMaterial || consumptionOutTotal > 0) && (
               <Descriptions.Item label="Raw Material Consumption (OUT)">
-                <Text strong>{formatNumber(rawDemandTotal, 3)} {rawUom}</Text>
-                <Text type="secondary"> demanded · </Text>
-                <Text strong>{formatNumber(consumptionOutTotal, 3)} {rawUom}</Text>
-                <Text type="secondary"> in ledger</Text>
+                <div>
+                  <Text strong>{formatNumber(rawDemandTotal, 3)} {rawUom}</Text>
+                  <Text type="secondary"> demanded · </Text>
+                  <Text strong>{formatNumber(consumptionOutTotal, 3)} {rawUom}</Text>
+                  <Text type="secondary"> in ledger</Text>
+                </div>
+                {componentMetrics.length > 1 && (
+                  <div style={{ marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {componentMetrics.map((comp) => (
+                      <Tag
+                        key={comp.itemId}
+                        color={near(comp.ledgerConsumed, comp.demanded) ? 'blue' : 'red'}
+                        style={{ margin: 0, fontSize: 11.5 }}
+                      >
+                        {comp.itemCode || comp.itemName}: {formatNumber(comp.demanded, 3)} {comp.uom} demanded · {formatNumber(comp.ledgerConsumed, 3)} {comp.uom} in ledger
+                      </Tag>
+                    ))}
+                  </div>
+                )}
               </Descriptions.Item>
             )}
           </Descriptions>
@@ -1622,7 +2171,9 @@ export const EntryDetail: React.FC<EntryDetailProps> = ({
                 </div>
                 <div>
                   <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>
-                    2-Line Material Movement & Balance Impact Analysis
+                    {componentMetrics.length > 1
+                      ? `Multi-Input Material Movement & Balance Impact Analysis (${componentMetrics.length} Inputs)`
+                      : '2-Line Material Movement & Balance Impact Analysis'}
                   </Text>
                   {sectionMaterialFlow}
                 </div>

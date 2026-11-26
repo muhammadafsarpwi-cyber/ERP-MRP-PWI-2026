@@ -66,6 +66,13 @@ interface ComponentRejectionLine {
   scrapReason?: string | null;
 }
 
+interface ComponentConsumptionOverride {
+  itemId: string;
+  quantity: number;
+  uomId?: string | null;
+  warehouseId?: string | null;
+}
+
 /** `production_entry_items` lines holding the posting path's raw-material consumption audit start here. */
 const INPUT_AUDIT_LINE_NUMBER = 1000;
 
@@ -860,8 +867,23 @@ export class ProductionEntryService {
     const entry = await this.entryRepo.findOne({
       where: { id, companyId },
       relations: [
-        'division', 'section', 'department', 'shift', 'item.productionInItem', 'uom',
-        'machine', 'downtimeReason', 'productionOrder', 'rawMaterialWarehouse', 'warehouse',
+        'division',
+        'section',
+        'department',
+        'shift',
+        'item.baseUom',
+        'item.productionInItem',
+        'item.productionInItem.baseUom',
+        'item.productionInItem2',
+        'item.productionInItem2.baseUom',
+        'item.productionInItem3',
+        'item.productionInItem3.baseUom',
+        'uom',
+        'machine',
+        'downtimeReason',
+        'productionOrder',
+        'rawMaterialWarehouse',
+        'warehouse',
       ],
     });
     if (!entry || !entry.isActive) {
@@ -2063,7 +2085,7 @@ addToDept(org, {
         await this.postInventoryAndConsume(
           manager, companyId, saved, resolved.warehouseId!, sourceStoreId,
           onlyOutputLines(dto.items) ?? [], userId, dto.componentWarehouses,
-          dto.componentRejections,
+          dto.componentRejections, dto.componentConsumptions,
         );
         return saved;
       });
@@ -2276,6 +2298,7 @@ addToDept(org, {
       || (dto.scrapQuantity !== undefined && Number(dto.scrapQuantity) !== prevScrap)
       || (dto.itemId !== undefined && dto.itemId !== prevItemId)
       || (dto.packingMode !== undefined && dto.packingMode !== prevPackingMode)
+      || (dto.componentConsumptions !== undefined && dto.componentConsumptions.length > 0)
       || (requestedItems !== undefined && requestedItems.length > 0);
     // Moving the receipt store or the consumption store is a stock change even
     // when every quantity is untouched: the postings must follow the document
@@ -2324,7 +2347,7 @@ addToDept(org, {
         if (quantityOrItemChanged) {
           await this.postInventoryAndConsume(
             manager, companyId, updated, resolved.warehouseId, merged.rawMaterialWarehouseId,
-            outputLines, userId, undefined, dto.componentRejections,
+            outputLines, userId, dto.componentWarehouses, dto.componentRejections, dto.componentConsumptions,
           );
         }
         return updated;
@@ -2333,7 +2356,7 @@ addToDept(org, {
       if (previous.reliable) {
         const plan = await this.planInventoryPostings(
           manager, companyId, updated, merged.rawMaterialWarehouseId, outputLines, userId,
-          undefined, dto.componentRejections,
+          dto.componentWarehouses, dto.componentRejections, dto.componentConsumptions,
         );
         await this.applyInventoryDelta(
           manager, companyId, updated, outputLines, resolved.warehouseId,
@@ -2342,7 +2365,7 @@ addToDept(org, {
       } else {
         await this.postInventoryAndConsume(
           manager, companyId, updated, resolved.warehouseId, merged.rawMaterialWarehouseId,
-          outputLines, userId, undefined, dto.componentRejections,
+          outputLines, userId, dto.componentWarehouses, dto.componentRejections, dto.componentConsumptions,
         );
       }
       return updated;
@@ -2633,6 +2656,7 @@ addToDept(org, {
     userId?: string,
     componentWarehouses?: Array<{ itemId: string; warehouseId: string }>,
     componentRejections?: ComponentRejectionLine[],
+    componentConsumptions?: ComponentConsumptionOverride[],
   ): Promise<{
     lines: Array<{ itemId: string; uomId: string | null; warehouseId: string; quantity: number }>;
     routingCode: string | null;
@@ -2640,6 +2664,10 @@ addToDept(org, {
     const routing = await this.safeGetEffectiveRouting(companyId, entry.itemId);
     const outputs = this.buildProductionOutputs(entry, lines);
     const planned: Array<{ itemId: string; uomId: string | null; warehouseId: string; quantity: number }> = [];
+    const activeOutputsCount = outputs.filter(
+      (o) => Number(o.actualQuantity) > 0 || Number(o.scrapQuantity || 0) > 0,
+    ).length;
+    const scopedComponentConsumptions = activeOutputsCount <= 1 ? componentConsumptions : undefined;
 
     for (const output of outputs) {
       if (Number(output.actualQuantity) <= 0 && Number(output.scrapQuantity || 0) <= 0) continue;
@@ -2649,7 +2677,7 @@ addToDept(org, {
       const configuredInputs = this.resolveRoutingInputsForOutput(outputRouting, output.itemId);
       const consumed = await this.consumeForProductionItem(
         manager, companyId, output, entry, sourceStoreId, configuredInputs, userId, componentWarehouses, true,
-        componentRejections,
+        componentRejections, scopedComponentConsumptions,
       );
       for (const line of consumed) {
         planned.push({ itemId: line.itemId, uomId: line.uomId, warehouseId: line.warehouseId, quantity: line.required });
@@ -3580,6 +3608,7 @@ addToDept(org, {
     userId?: string,
     componentWarehouses?: Array<{ itemId: string; warehouseId: string }>,
     componentRejections?: ComponentRejectionLine[],
+    componentConsumptions?: ComponentConsumptionOverride[],
   ): Promise<void> {
     // TASK #35/#37: idempotency guard — inventory movement happens EXACTLY ONCE per
     // production entry. When the receipt ledger id is already recorded this entry
@@ -3598,6 +3627,10 @@ addToDept(org, {
 
     // Each production item posts independently (input OUT → output IN).
     const outputs = this.buildProductionOutputs(entry, lines);
+    const activeOutputsCount = outputs.filter(
+      (o) => Number(o.actualQuantity) > 0 || Number(o.scrapQuantity || 0) > 0,
+    ).length;
+    const scopedComponentConsumptions = activeOutputsCount <= 1 ? componentConsumptions : undefined;
 
     const consumedInputs: Array<{ itemId: string; uomId: string | null; required: number; warehouseId: string; scrap?: number }> = [];
 
@@ -3614,7 +3647,7 @@ addToDept(org, {
       const configuredInputs = this.resolveRoutingInputsForOutput(outputRouting, output.itemId);
       const consumed = await this.consumeForProductionItem(
         manager, companyId, output, entry, sourceStoreId, configuredInputs, userId, componentWarehouses,
-        false, componentRejections,
+        false, componentRejections, scopedComponentConsumptions,
       );
       consumedInputs.push(...consumed);
 
@@ -3747,6 +3780,29 @@ addToDept(org, {
    * The consumption basis is the total output (good + scrap) — raw material is
    * consumed for the rejected output too.
    */
+  private buildExplicitConsumptionMap(
+    componentConsumptions?: ComponentConsumptionOverride[],
+  ): Map<string, ComponentConsumptionOverride> {
+    const map = new Map<string, ComponentConsumptionOverride>();
+    for (const cc of componentConsumptions || []) {
+      if (!cc?.itemId || !(Number(cc.quantity) > 0)) continue;
+      const prev = map.get(cc.itemId);
+      if (prev) {
+        prev.quantity = this.round4(Number(prev.quantity) + Number(cc.quantity));
+        if (!prev.warehouseId && cc.warehouseId) prev.warehouseId = cc.warehouseId;
+        if (!prev.uomId && cc.uomId) prev.uomId = cc.uomId;
+      } else {
+        map.set(cc.itemId, {
+          itemId: cc.itemId,
+          quantity: this.round4(Number(cc.quantity)),
+          uomId: cc.uomId ?? null,
+          warehouseId: cc.warehouseId ?? null,
+        });
+      }
+    }
+    return map;
+  }
+
   private async consumeForProductionItem(
     manager: EntityManager,
     companyId: string,
@@ -3758,29 +3814,38 @@ addToDept(org, {
     componentWarehouses?: Array<{ itemId: string; warehouseId: string }>,
     plan = false,
     componentRejections?: ComponentRejectionLine[],
+    componentConsumptions?: ComponentConsumptionOverride[],
   ): Promise<Array<{ itemId: string; uomId: string | null; required: number; warehouseId: string; scrap?: number }>> {
     // Routing-configured materials take precedence (exact Item IDs + source
     // warehouses from the operation's inputs, scaled by good + scrap).
     // Manual Hand Packing entries always use the BOM configuration per Finished Good carton.
     if (routingInputs && routingInputs.length && !this.isHandPackingRef(entryRef)) {
-      return this.consumeRoutingInputs(manager, companyId, output, entryRef, sourceStoreId, routingInputs, userId, plan);
+      return this.consumeRoutingInputs(
+        manager,
+        companyId,
+        output,
+        entryRef,
+        sourceStoreId,
+        routingInputs,
+        userId,
+        plan,
+        componentWarehouses,
+        componentConsumptions,
+      );
     }
 
+    const explicitConsumptionMap = this.buildExplicitConsumptionMap(componentConsumptions);
+    const compWarehouseMap = new Map((componentWarehouses || []).map((cw) => [cw.itemId, cw.warehouseId]));
     const product = await this.itemRepo.findOne({ where: { id: output.itemId }, relations: ['baseUom'] });
-    const authoritativeInItemId = product?.productionInItemId ?? null;
+    const authoritativeInItemIds = [
+      product?.productionInItemId,
+      (product as any)?.productionInItemId2,
+      (product as any)?.productionInItemId3,
+    ].filter((id): id is string => !!id);
+    const authoritativeInItemId = authoritativeInItemIds[0] ?? null;
 
     // ── MULTI-INPUT INVENTORY DEDUCTION HOOK FOR MULTI-WIRE ASSEMBLY (WIP-CS-006) ──
     if (product?.itemCode === 'WIP-CS-006') {
-      let ccdFtWh = await this.warehouseRepo.findOne({
-        where: { warehouseCode: 'CCD-FT-001', companyId },
-      });
-      const effectiveWh = ccdFtWh?.id || sourceStoreId;
-      if (!effectiveWh) {
-        throw new BadRequestException('Raw Material Source Warehouse (CCD-FT-001) could not be determined.');
-      }
-
-      // Input Material 1: FLAT-STRIP-005 (Flat Strip T 0.80 × W 1.85 mm)
-      // Input Material 2: FLAT-STRIP-006 (Flat Strip T 0.95 × W 2.10 mm)
       const strip005 = (product.productionInItemId
         ? await this.itemRepo.findOne({ where: { id: product.productionInItemId }, relations: ['baseUom'] })
         : null) || (await this.itemRepo.findOne({ where: { itemCode: 'FLAT-STRIP-005', companyId }, relations: ['baseUom'] }));
@@ -3793,17 +3858,54 @@ addToDept(org, {
         throw new BadRequestException('Dual raw materials for WIP-CS-006 (FLAT-STRIP-005 and FLAT-STRIP-006) could not be found.');
       }
 
-      const inputMeters = Number(output.actualQuantity) + Number(output.scrapQuantity || 0);
-      const wpm005 = Number(strip005.weightPerMeter || 0.0374);
-      const wpm006 = Number(strip006.weightPerMeter || 0.0434);
-      const req005 = this.round4(inputMeters * wpm005);
-      const req006 = this.round4(inputMeters * wpm006);
+      let fallbackWh = sourceStoreId;
+      if (!fallbackWh) {
+        const ccdFtWh = await this.warehouseRepo.findOne({
+          where: { warehouseCode: 'CCD-FT-001', companyId },
+        });
+        fallbackWh = ccdFtWh?.id ?? null;
+      }
+      const wh005 = explicitConsumptionMap.get(strip005.id)?.warehouseId || compWarehouseMap.get(strip005.id) || fallbackWh;
+      const wh006 = explicitConsumptionMap.get(strip006.id)?.warehouseId || compWarehouseMap.get(strip006.id) || fallbackWh;
+      if (!wh005 || !wh006) {
+        throw new BadRequestException('Raw Material Source Warehouse for WIP-CS-006 could not be determined.');
+      }
+
+      const rawOutputQty = Number(output.actualQuantity) + Number(output.scrapQuantity || 0);
+      const inputMeters = (product.baseUomId && output.uomId && output.uomId !== product.baseUomId)
+        ? await this.convertQty(output.uomId, product.baseUomId, rawOutputQty)
+        : rawOutputQty;
+      const activeBom = await this.findActiveBom(companyId, output.itemId);
+      const activeBomLines = activeBom ? await this.bomLineRepo.find({ where: { bomId: activeBom.id } }) : [];
+      const bomBaseQty = Math.max(1, Number(activeBom?.baseQuantity || 1));
+      const bom005 = activeBomLines.find((bl) => bl.itemId === strip005.id);
+      const bom006 = activeBomLines.find((bl) => bl.itemId === strip006.id);
+      const bomRatio005 = bom005 && Number(bom005.quantity) > 0 && Number(bom005.quantity) !== 1
+        ? Number(bom005.quantity) / bomBaseQty
+        : 0;
+      const bomRatio006 = bom006 && Number(bom006.quantity) > 0 && Number(bom006.quantity) !== 1
+        ? Number(bom006.quantity) / bomBaseQty
+        : 0;
+      const wpm005 = Number(strip005.weightPerMeter) > 0
+        ? Number(strip005.weightPerMeter)
+        : (bomRatio005 > 0 ? bomRatio005 : 0.037);
+      const wpm006 = Number(strip006.weightPerMeter) > 0
+        ? Number(strip006.weightPerMeter)
+        : (bomRatio006 > 0 ? bomRatio006 : 0.045);
+      const explicit005 = explicitConsumptionMap.get(strip005.id);
+      const explicit006 = explicitConsumptionMap.get(strip006.id);
+      const req005 = explicit005 && Number(explicit005.quantity) > 0
+        ? this.round4(Number(explicit005.quantity))
+        : this.round4(inputMeters * wpm005);
+      const req006 = explicit006 && Number(explicit006.quantity) > 0
+        ? this.round4(Number(explicit006.quantity))
+        : this.round4(inputMeters * wpm006);
 
       const avail005 = await this.inventoryBalanceService.getAvailableStock(
-        companyId, strip005.id, effectiveWh, undefined, undefined, manager,
+        companyId, strip005.id, wh005, undefined, undefined, manager,
       );
       const avail006 = await this.inventoryBalanceService.getAvailableStock(
-        companyId, strip006.id, effectiveWh, undefined, undefined, manager,
+        companyId, strip006.id, wh006, undefined, undefined, manager,
       );
 
       const requirements = [
@@ -3812,7 +3914,7 @@ addToDept(org, {
             id: `cs006-in-${strip005.id}`,
             itemId: strip005.id,
             quantity: 1,
-            uomId: strip005.baseUomId,
+            uomId: explicit005?.uomId || strip005.baseUomId,
             scrapFactor: 0,
             yieldPercentage: 100,
             lineNumber: 1,
@@ -3820,7 +3922,7 @@ addToDept(org, {
           required: req005,
           uomCode: strip005.baseUom?.code || 'KG',
           available: avail005,
-          warehouseId: effectiveWh,
+          warehouseId: wh005,
           scrapPcs: 0,
           scrapQty: 0,
           scrapRemarks: '',
@@ -3830,7 +3932,7 @@ addToDept(org, {
             id: `cs006-in-${strip006.id}`,
             itemId: strip006.id,
             quantity: 1,
-            uomId: strip006.baseUomId,
+            uomId: explicit006?.uomId || strip006.baseUomId,
             scrapFactor: 0,
             yieldPercentage: 100,
             lineNumber: 2,
@@ -3838,7 +3940,7 @@ addToDept(org, {
           required: req006,
           uomCode: strip006.baseUom?.code || 'KG',
           available: avail006,
-          warehouseId: effectiveWh,
+          warehouseId: wh006,
           scrapPcs: 0,
           scrapQty: 0,
           scrapRemarks: '',
@@ -3876,7 +3978,7 @@ addToDept(org, {
           companyId, r.line.itemId, r.warehouseId, null, null, targetUomId, r.required, 'OUT', manager,
         );
       }
-      return plan ? consumed : [];
+      return consumed;
     }
 
     const bom = await this.findActiveBom(companyId, output.itemId);
@@ -3896,7 +3998,6 @@ addToDept(org, {
       );
     }
 
-    const compWarehouseMap = new Map((componentWarehouses || []).map((cw) => [cw.itemId, cw.warehouseId]));
     // Component-wise packing scrap: itemId → rejected PCS to ADD to that
     // component's consumption (its source store loses Required + Rejected).
     // The packed FG output quantity is never reduced by component scrap.
@@ -4034,9 +4135,12 @@ addToDept(org, {
         continue;
       }
 
-      let required = isHandPacking
-        ? await this.computeHandPackingRequirement(line, handPackingCartons)
-        : await this.computeBomRequirement(companyId, output, bom!, line, productionQty);
+      const explicitLineOverride = !isHandPacking ? explicitConsumptionMap.get(line.itemId) : undefined;
+      let required = explicitLineOverride && Number(explicitLineOverride.quantity) > 0
+        ? this.round4(Number(explicitLineOverride.quantity))
+        : (isHandPacking
+            ? await this.computeHandPackingRequirement(line, handPackingCartons)
+            : await this.computeBomRequirement(companyId, output, bom!, line, productionQty));
 
       if (isHandPacking && ((isOnlyInner && isLineInner) || (isOnlyOuter && isLineOuter))) {
         // When packing only inner or only outer, the single spoke takes the full carton quantity (doubled)
@@ -4141,51 +4245,60 @@ addToDept(org, {
       requirements.push({ line, required, uomCode, available, warehouseId: effectiveWh, scrapPcs, scrapQty, scrapRemarks });
     }
 
-    // The exact IN Item is always consumed. When the ACTIVE BOM does not already
-    // deduct it, add a converted per-unit requirement (scrap in KG inclusive basis).
-    if (authoritativeInItemId && !(isHandPacking && bom) && !requirements.some((r) => r.line.itemId === authoritativeInItemId)) {
-      const component = await this.itemRepo.findOne({ where: { id: authoritativeInItemId }, relations: ['baseUom'] });
-      const compUom = (component?.baseUom?.code || '').toUpperCase();
-      const productBaseUomId = product?.baseUomId ?? output.uomId;
-      const goodQty = Number(output.actualQuantity);
-      const scrapQty = Number(output.scrapQuantity || 0);
-      const totalProdQty = goodQty + scrapQty;
-      const qtyInBase = output.uomId === productBaseUomId
-        ? totalProdQty
-        : await this.convertQty(output.uomId, productBaseUomId, totalProdQty);
-      const units = qtyInBase / Number(bom?.baseQuantity || 1);
-      const convertedRequired = await this.convertProductQtyToComponentUom(product, component, units);
-      const uomId = component?.baseUomId ?? output.uomId;
-      const uomCode = component?.baseUom?.code ?? '';
-      const effectiveInWh = compWarehouseMap.get(authoritativeInItemId) || sourceStoreId;
-      if (!effectiveInWh) {
-        throw new BadRequestException(
-          `Raw Material Source Warehouse could not be determined for authoritative IN item '${component?.itemCode ?? authoritativeInItemId}'.`,
+    // The exact Item Master IN items (productionInItemId, _2, _3) are consumed.
+    // When the ACTIVE BOM does not already deduct one of them, add its converted per-unit requirement.
+    if (!(isHandPacking && bom)) {
+      const seenAuthIds = new Set<string>();
+      for (const inItemId of authoritativeInItemIds) {
+        if (!inItemId || seenAuthIds.has(inItemId)) continue;
+        seenAuthIds.add(inItemId);
+        if (requirements.some((r) => r.line.itemId === inItemId)) continue;
+
+        const component = await this.itemRepo.findOne({ where: { id: inItemId }, relations: ['baseUom'] });
+        const productBaseUomId = product?.baseUomId ?? output.uomId;
+        const goodQty = Number(output.actualQuantity);
+        const scrapQty = Number(output.scrapQuantity || 0);
+        const totalProdQty = goodQty + scrapQty;
+        const qtyInBase = output.uomId === productBaseUomId
+          ? totalProdQty
+          : await this.convertQty(output.uomId, productBaseUomId, totalProdQty);
+        const units = qtyInBase / Number(bom?.baseQuantity || 1);
+        const explicitIn = explicitConsumptionMap.get(inItemId);
+        const convertedRequired = explicitIn && Number(explicitIn.quantity) > 0
+          ? Number(explicitIn.quantity)
+          : await this.convertProductQtyToComponentUom(product, component, units);
+        const uomId = explicitIn?.uomId ?? component?.baseUomId ?? output.uomId;
+        const uomCode = component?.baseUom?.code ?? '';
+        const effectiveInWh = explicitIn?.warehouseId || compWarehouseMap.get(inItemId) || sourceStoreId;
+        if (!effectiveInWh) {
+          throw new BadRequestException(
+            `Raw Material Source Warehouse could not be determined for authoritative IN item '${component?.itemCode ?? inItemId}'.`,
+          );
+        }
+        const available = await this.inventoryBalanceService.getAvailableStock(
+          companyId, inItemId, effectiveInWh, undefined, undefined, manager,
         );
+        requirements.push({
+          line: {
+            id: `auto-in-${inItemId}`,
+            itemId: inItemId,
+            quantity: 1,
+            uomId,
+            scrapFactor: 0,
+            yieldPercentage: 100,
+            lineNumber: 999,
+          } as BomLine,
+          required: this.round4(convertedRequired),
+          uomCode,
+          available,
+          warehouseId: effectiveInWh,
+          scrapPcs: 0,
+          scrapQty: 0,
+          // Single IN-item consumption path: component-level packing scrap is
+          // BOM-component based and never maps onto this legacy fallback row.
+          scrapRemarks: '',
+        });
       }
-      const available = await this.inventoryBalanceService.getAvailableStock(
-        companyId, authoritativeInItemId, effectiveInWh, undefined, undefined, manager,
-      );
-      requirements.push({
-        line: {
-          id: `auto-in-${authoritativeInItemId}`,
-          itemId: authoritativeInItemId,
-          quantity: 1,
-          uomId,
-          scrapFactor: 0,
-          yieldPercentage: 100,
-          lineNumber: 999,
-        } as BomLine,
-        required: this.round4(convertedRequired),
-        uomCode,
-        available,
-        warehouseId: effectiveInWh,
-        scrapPcs: 0,
-        scrapQty: 0,
-        // Single IN-item consumption path: component-level packing scrap is
-        // BOM-component based and never maps onto this legacy fallback row.
-        scrapRemarks: '',
-      });
     }
 
     // Validate ALL components before touching stock — never partial.
@@ -4275,30 +4388,92 @@ addToDept(org, {
     routingInputs: Array<{ itemId: string; uomId: string | null; quantity: number; sourceWarehouseId: string | null }>,
     userId?: string,
     plan = false,
+    componentWarehouses?: Array<{ itemId: string; warehouseId: string }>,
+    componentConsumptions?: ComponentConsumptionOverride[],
   ): Promise<Array<{ itemId: string; uomId: string | null; required: number; warehouseId: string }>> {
-    const productionQty = Number(output.actualQuantity) + Number(output.scrapQuantity || 0);
+    const compWarehouseMap = new Map((componentWarehouses || []).map((cw) => [cw.itemId, cw.warehouseId]));
+    const explicitConsumptionMap = this.buildExplicitConsumptionMap(componentConsumptions);
 
     const checks: Array<{ itemId: string; warehouseId: string; required: number; uomCode: string; available: number }> = [];
     const consumed: Array<{ itemId: string; uomId: string; required: number; warehouseId: string }> = [];
+    const product = await this.itemRepo.findOne({ where: { id: output.itemId }, relations: ['baseUom'] });
+    const activeBom = routingInputs.length > 1 ? await this.findActiveBom(companyId, output.itemId) : null;
+    const activeBomLines = activeBom ? await this.bomLineRepo.find({ where: { bomId: activeBom.id } }) : [];
+    const bomBaseQty = Math.max(1, Number(activeBom?.baseQuantity || 1));
+
+    const prodUom = (product?.baseUom?.code || '').toUpperCase();
+    const prodFamily = (product?.baseUom?.uomType || '').toUpperCase();
+    const isProdLength = prodFamily === 'LENGTH' || prodUom === 'M' || prodUom === 'METER';
+    const rawOutputQty = Number(output.actualQuantity) + Number(output.scrapQuantity || 0);
+    const totalProdQty = (product?.baseUomId && output.uomId && output.uomId !== product.baseUomId)
+      ? await this.convertQty(output.uomId, product.baseUomId, rawOutputQty)
+      : rawOutputQty;
+    const prodWpm = Number(product?.weightPerMeter || 0);
+
+    let cachedFtWhId: string | null | undefined;
     for (const inp of routingInputs) {
-      const warehouseId = inp.sourceWarehouseId ?? sourceStoreId;
+      const component = await this.itemRepo.findOne({ where: { id: inp.itemId }, relations: ['baseUom'] });
+      const compCodeUpper = (component?.itemCode || '').toUpperCase();
+      const explicitCons = explicitConsumptionMap.get(inp.itemId);
+      // Priority: explicit consumption store -> explicit component warehouse -> routing input store -> entry Raw Material store -> FT store fallback
+      let warehouseId =
+        explicitCons?.warehouseId ??
+        compWarehouseMap.get(inp.itemId) ??
+        inp.sourceWarehouseId ??
+        sourceStoreId ??
+        null;
+      if (!warehouseId && compCodeUpper.startsWith('FLAT-STRIP')) {
+        if (cachedFtWhId === undefined) {
+          const ftWh = await this.warehouseRepo.findOne({ where: { warehouseCode: 'CCD-FT-001', companyId } });
+          cachedFtWhId = ftWh?.id ?? null;
+        }
+        warehouseId = cachedFtWhId || null;
+      }
       if (!warehouseId) {
-        const componentForCode = await this.itemRepo.findOne({ where: { id: inp.itemId } });
         throw new BadRequestException(
-          `Raw Material Source Warehouse could not be determined for routing input '${componentForCode?.itemCode ?? inp.itemId}'. Assign an ACTIVE RAW MATERIAL warehouse, pass rawMaterialWarehouseId, or set a source warehouse on the routing input.`,
+          `Raw Material Source Warehouse could not be determined for routing input '${component?.itemCode ?? inp.itemId}'. Assign an ACTIVE RAW MATERIAL warehouse, pass rawMaterialWarehouseId, or set a source warehouse on the routing input.`,
         );
       }
-      const component = await this.itemRepo.findOne({ where: { id: inp.itemId }, relations: ['baseUom'] });
-      const product = await this.itemRepo.findOne({ where: { id: output.itemId }, relations: ['baseUom'] });
       const compUom = (component?.baseUom?.code || '').toUpperCase();
-      const goodQty = Number(output.actualQuantity);
-      const scrapQty = Number(output.scrapQuantity || 0);
-      const totalProdQty = goodQty + scrapQty;
+      const compFamily = (component?.baseUom?.uomType || '').toUpperCase();
+      const isCompWeight = compFamily === 'WEIGHT' || compUom === 'KG';
+      const inpQty = Number(inp.quantity || 1);
+      const compWpm = Number((component as any)?.weightPerMeter || 0);
+      const matchedBomLine = activeBomLines.find((bl) => bl.itemId === inp.itemId);
+      const bomRatio =
+        matchedBomLine && Number(matchedBomLine.quantity) > 0 && Number(matchedBomLine.quantity) !== 1
+          ? Number(matchedBomLine.quantity) / bomBaseQty
+          : 0;
+
+      const isStaleCombinedInpQty =
+        routingInputs.length > 1 &&
+        isProdLength &&
+        isCompWeight &&
+        compWpm > 0 &&
+        prodWpm > 0 &&
+        Math.abs(inpQty - prodWpm) < 0.0005 &&
+        Math.abs(inpQty - compWpm) > 0.0005;
+
       let required: number;
-      if (Number(inp.quantity || 1) === 1) {
-        required = this.round4(await this.convertProductQtyToComponentUom(product, component, totalProdQty));
+      if (explicitCons && Number(explicitCons.quantity) > 0) {
+        required = this.round4(Number(explicitCons.quantity));
+      } else if (routingInputs.length > 1 && isProdLength && isCompWeight && compWpm > 0 && (inpQty === 1 || inpQty <= 0 || isStaleCombinedInpQty)) {
+        // Authoritative per-component Item Master kg/m (e.g. FLAT-STRIP-005 = 0.037, FLAT-STRIP-006 = 0.045)
+        required = this.round4(totalProdQty * compWpm);
+      } else if (inpQty > 0 && inpQty !== 1) {
+        required = this.round4(inpQty * totalProdQty);
+      } else if (isProdLength && isCompWeight && compWpm > 0) {
+        required = this.round4(totalProdQty * compWpm);
+      } else if (bomRatio > 0) {
+        // Fallback to exact BOM line quantity_per_unit ratio
+        required = this.round4(totalProdQty * bomRatio);
+      } else if (routingInputs.length > 1 && isProdLength && isCompWeight && compCodeUpper.startsWith('FLAT-STRIP')) {
+        const knownStripWpm = compCodeUpper === 'FLAT-STRIP-005' ? 0.037 : compCodeUpper === 'FLAT-STRIP-006' ? 0.045 : 0;
+        required = knownStripWpm > 0
+          ? this.round4(totalProdQty * knownStripWpm)
+          : this.round4(await this.convertProductQtyToComponentUom(product, component, totalProdQty));
       } else {
-        required = this.round4(Number(inp.quantity || 1) * totalProdQty);
+        required = this.round4(await this.convertProductQtyToComponentUom(product, component, totalProdQty));
       }
       const uomCode = component?.baseUom?.code ?? '';
       const available = await this.inventoryBalanceService.getAvailableStock(
@@ -4307,7 +4482,7 @@ addToDept(org, {
       checks.push({ itemId: inp.itemId, warehouseId, required, uomCode, available });
       consumed.push({
         itemId: inp.itemId,
-        uomId: inp.uomId ?? component?.baseUomId ?? output.uomId,
+        uomId: explicitCons?.uomId ?? inp.uomId ?? component?.baseUomId ?? output.uomId,
         required,
         warehouseId,
       });
@@ -4546,14 +4721,17 @@ addToDept(org, {
       if (ppk > 0) return this.round4(quantity / ppk);
     }
 
-    // Product in METER/LENGTH and Component in KG/WEIGHT: qty × weightPerMeter (prefer product's kg/m)
+    // Product in METER/LENGTH and Component in KG/WEIGHT:
+    // Prefer component's own Item Master kg/m (e.g. FLAT-STRIP-005 = 0.037, FLAT-STRIP-006 = 0.045),
+    // falling back to product's kg/m only when the component itself has no per-meter weight (e.g. single raw wire RM-WIRE-*).
     if (isProdLength && isCompWeight) {
-      const wpm = Number(
+      const compWpm = Number((component as any)?.weightPerMeter || 0);
+      const prodWpm = Number(
         product.weightPerMeter ||
           (product as any).finishedWeightPerMeter ||
-          (component as any)?.weightPerMeter ||
           0,
       );
+      const wpm = compWpm > 0 ? compWpm : prodWpm;
       if (wpm > 0) return this.round4(quantity * wpm);
     }
 

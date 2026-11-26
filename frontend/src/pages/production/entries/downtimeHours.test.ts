@@ -285,6 +285,19 @@ describe('downtimeHours — convertProductToComponentQty (Raw Material conversio
     expect(convertProductToComponentQty(1000, product, rawMaterial)).toBe(50);
   });
 
+  it('computes per-component KG consumption for 2,010 M of WIP-CS-006 (0.0820 kg/m) using each strip unitWeight (74.37 KG & 90.45 KG)', () => {
+    const wipCs006 = { uomType: 'LENGTH', uomCode: 'M', weightPerMeter: 0.0820 };
+    const flatStrip005 = { uomType: 'WEIGHT', uomCode: 'KG', weightPerMeter: 0.037 };
+    const flatStrip006 = { uomType: 'WEIGHT', uomCode: 'KG', weightPerMeter: 0.045 };
+
+    const req005 = convertProductToComponentQty(2010, wipCs006, flatStrip005);
+    const req006 = convertProductToComponentQty(2010, wipCs006, flatStrip006);
+
+    expect(req005).toBe(74.37);
+    expect(req006).toBe(90.45);
+    expect(Math.round((req005 + req006) * 100) / 100).toBe(164.82);
+  });
+
   it('leaves KG to KG unchanged (1:1 conversion)', () => {
     const product = { uomType: 'WEIGHT', uomCode: 'KG' };
     const rawMaterial = { uomType: 'WEIGHT', uomCode: 'KG' };

@@ -113,6 +113,23 @@ export class ProductionEntryDowntimeDto {
   remarks?: string | null;
 }
 
+export class ComponentConsumptionDto {
+  @IsUUID('loose')
+  itemId!: string;
+
+  @IsNumber({ maxDecimalPlaces: 4 })
+  @Min(0)
+  quantity!: number;
+
+  @IsOptional()
+  @IsUUID('loose')
+  uomId?: string | null;
+
+  @IsOptional()
+  @IsUUID('loose')
+  warehouseId?: string | null;
+}
+
 export class CreateProductionEntryDto {
   @IsOptional()
   @IsUUID('loose')
@@ -278,6 +295,13 @@ export class CreateProductionEntryDto {
   @IsOptional()
   @IsArray()
   componentWarehouses?: Array<{ itemId: string; warehouseId: string }>;
+
+  /** Explicit per-component raw-material consumption quantities computed on the Entry Form. */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ComponentConsumptionDto)
+  componentConsumptions?: ComponentConsumptionDto[];
 
   /**
    * Component-wise packing rejections / scrap (Hand Packing). Each entry adds
@@ -467,6 +491,17 @@ export class UpdateProductionEntryDto {
   @IsOptional()
   @IsUUID('loose')
   warehouseId?: string | null;
+
+  @IsOptional()
+  @IsArray()
+  componentWarehouses?: Array<{ itemId: string; warehouseId: string }>;
+
+  /** Explicit per-component raw-material consumption quantities computed on the Entry Form. */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ComponentConsumptionDto)
+  componentConsumptions?: ComponentConsumptionDto[];
 
   /**
    * Component-wise packing rejections / scrap (Hand Packing) — resend on edit
