@@ -11,14 +11,14 @@ import {
   CalendarOutlined, NumberOutlined, ShopOutlined, FileTextOutlined,
   BranchesOutlined, SafetyCertificateOutlined, ApartmentOutlined, WarningFilled,
   CloseOutlined, ClearOutlined, DeleteOutlined, CheckCircleOutlined,
-  LoadingOutlined, RollbackOutlined,
+  LoadingOutlined, RollbackOutlined, WhatsAppOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
 import { formatDecimal, formatSmartCurrency } from '../../utils/numberFormat';
 import { ERPLineItems, ERPLine, DraggableResizableModal, PreConfirmVerificationCard, TableColumnSelector, useColumnVisibility } from '../../components/shared';
 import { resolveEffectiveTaxPercent, summarizeLinesTaxVerification } from '../../utils/salesTaxVerification';
-import { matchesTabRefresh, TAB_REFRESH_EVENT, triggerTabRefresh } from '../../services/tabSessionCache';
+import { matchesTabRefresh, TAB_REFRESH_EVENT, tabSessionCache, triggerTabRefresh } from '../../services/tabSessionCache';
 import {
   getLookupsSnapshot,
   prefetchAllLookups,
@@ -30,6 +30,10 @@ import isSameOrBefore from 'dayjs/plugin/isSameOrBefore';
 import isSameOrAfter from 'dayjs/plugin/isSameOrAfter';
 import './SalesInvoiceManagement.css';
 import { printDeliveryNoteDocument, printTableList, printGatePassDocument } from '../../utils/printTemplates';
+import {
+  DEFAULT_COMPANY_NAME,
+  openWhatsAppWithTemplate,
+} from '../../utils/whatsappTemplateRenderer';
 
 dayjs.extend(isSameOrBefore);
 dayjs.extend(isSameOrAfter);
@@ -47,8 +51,10 @@ interface SalesDelivery {
     divisionId?: string;
     division?: { id?: string; name?: string; divisionCode?: string };
     section?: { id?: string; name?: string; sectionCode?: string };
+    items?: any[];
   };
   divisionId?: string;
+  divisionCode?: string | null;
   divisionName?: string;
   sectionName?: string;
   customerId: string;
@@ -66,13 +72,19 @@ interface SalesDelivery {
   status: string;
   notes?: string;
   lines?: any[];
+  primaryUom?: string;
+  primaryPackagingUnit?: string;
   totalDispatchQuantity?: number;
   totalDispatchCartons?: number;
   totalOrderQuantity?: number;
   totalOrderCartons?: number;
+  totalPreviousQuantity?: number;
+  totalPreviousCartons?: number;
   totalDeliveredQuantity?: number;
+  totalDeliveredCartons?: number;
   totalBalanceQuantity?: number;
   totalBalanceCartons?: number;
+  completionPercent?: number;
   isCompleted?: boolean;
   salesOrderNumbers?: string[];
   salesOrdersSummary?: any[];
@@ -83,15 +95,19 @@ interface SalesDelivery {
     socNumber?: string;
     orderedQuantity: number;
     orderedCartons: number;
+    previousDispatchedQuantity?: number;
+    previousDispatchedCartons?: number;
     dispatchedQuantity: number;
     dispatchedCartons: number;
     totalShippedQuantity: number;
     totalShippedCartons: number;
     balanceQuantity: number;
     balanceCartons: number;
+    completionPercent?: number;
     isCompleted: boolean;
     uom?: string;
     packagingUnit?: string;
+    packagingSize?: number;
   }>;
   relatedInvoices?: Array<{
     id: string;
@@ -161,11 +177,779 @@ const initialConfirmModalState: DeliveryActionConfirmState = {
   errorMessage: null,
 };
 
+const LEGACY_DELIVERIES_CACHE_KEY = '/sales/deliveries';
+const LEGACY_ORDERS_MODAL_CACHE_KEY = '/sales/deliveries:sales-orders';
+const SALES_DELIVERIES_CACHE_KEY = '/sales/deliveries:v2';
+const SALES_ORDERS_MODAL_CACHE_KEY = '/sales/deliveries:sales-orders:v2';
+
 const STATUS_OPTIONS = ['All statuses', 'DRAFT', 'SHIPPED', 'DELIVERED', 'CONFIRMED', 'CANCELLED'];
 
-const isMeterUomCode = (uom?: string | null): boolean => {
-  const u = String(uom || '').toUpperCase().trim();
-  return u === 'M' || u === 'MTR' || u === 'METER' || u === 'METRE' || u === 'METERS' || u === 'METRES';
+const normalizeSalesUomCode = (raw?: string | null): string => {
+  const upper = String(raw || '').toUpperCase().trim();
+  if (!upper) return '';
+  if (['M', 'MTR', 'METER', 'METRE', 'METERS', 'METRES'].includes(upper)) return 'M';
+  if (['GRS', 'GROSS'].includes(upper)) return 'GRS';
+  if (['KG', 'KGS', 'KILOGRAM', 'KILOGRAMS'].includes(upper)) return 'KG';
+  if (['PC', 'PCS', 'PIECE', 'PIECES'].includes(upper)) return 'PCS';
+  if (['COIL', 'COILS'].includes(upper)) return 'COILS';
+  if (['CTN', 'CARTON', 'CARTONS'].includes(upper)) return 'CTN';
+  if (['SET', 'SETS'].includes(upper)) return 'SET';
+  if (['ROLL', 'ROLLS'].includes(upper)) return 'ROLL';
+  return upper;
+};
+
+const isMeterUomCode = (uom?: string | null): boolean => normalizeSalesUomCode(uom) === 'M';
+
+const resolveDivisionDefaultUom = (divisionCode?: string | null, divisionName?: string | null): string => {
+  const divHint = `${divisionCode || ''} ${divisionName || ''}`.trim();
+  if (/DIV-002|CCD|CABLE/i.test(divHint)) return 'M';
+  if (/DIV-003|WRD|WIRE/i.test(divHint)) return 'KG';
+  return 'GRS';
+};
+
+const formatPkgUnitLabel = (rawPkgUnit?: string | null, uomCode?: string, singular?: boolean): string => {
+  const raw = String(rawPkgUnit || '').trim();
+  if (/^(ctn|carton|cartons)$/i.test(raw)) return singular ? 'Carton' : 'CTN';
+  if (/^(coil|coils)$/i.test(raw)) return singular ? 'Coil' : 'Coils';
+  if (/^(roll|rolls)$/i.test(raw)) return singular ? 'Roll' : 'Rolls';
+  if (/^(bag|bags)$/i.test(raw)) return singular ? 'Bag' : 'Bags';
+  if (/^(bundle|bundles)$/i.test(raw)) return singular ? 'Bundle' : 'Bundles';
+  if (raw) return raw;
+  const normUom = normalizeSalesUomCode(uomCode);
+  if (normUom === 'M' || normUom === 'KG') return singular ? 'Coil' : 'Coils';
+  return singular ? 'Carton' : 'CTN';
+};
+
+const formatQtyClean = (val?: number | null): string => {
+  const n = Number(val);
+  if (!Number.isFinite(n)) return '0';
+  if (Math.abs(n - Math.round(n)) < 0.005) {
+    return Math.round(n).toLocaleString('en-US');
+  }
+  return Number(n.toFixed(2)).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+};
+
+const resolveDeliveryUnits = (
+  record: Partial<SalesDelivery> | null | undefined,
+  divisionsList: Array<{ id: string; divisionCode: string; name: string }>,
+  singularPkg = false,
+): { uom: string; pkgUnit: string; defaultPkgSize: number } => {
+  const divId = record?.divisionId || record?.salesOrder?.divisionId || record?.salesOrder?.division?.id;
+  const matchedDiv = divId ? divisionsList.find((d) => d.id === divId) : undefined;
+  const divCode = record?.divisionCode || record?.salesOrder?.division?.divisionCode || matchedDiv?.divisionCode;
+  const divName = record?.divisionName || record?.salesOrder?.division?.name || matchedDiv?.name;
+
+  const firstSummary = (record?.itemsSummary || []).find((i) => Boolean(i?.uom || i?.packagingUnit));
+  const firstLine = (record?.lines || []).find((l: any) => Boolean(l));
+
+  const resolvedUom =
+    normalizeSalesUomCode(record?.primaryUom) ||
+    normalizeSalesUomCode(firstSummary?.uom) ||
+    normalizeSalesUomCode(
+      firstLine?.uom?.code ||
+        firstLine?.uomCode ||
+        firstLine?.item?.salesUom?.code ||
+        firstLine?.item?.baseUom?.code,
+    ) ||
+    resolveDivisionDefaultUom(divCode, divName);
+
+  const rawPkg =
+    record?.primaryPackagingUnit ||
+    firstSummary?.packagingUnit ||
+    firstLine?.packagingUnit ||
+    firstLine?.item?.packagingUnit ||
+    null;
+
+  const pkgUnit = formatPkgUnitLabel(rawPkg, resolvedUom, singularPkg);
+  const explicitSize = Number(firstSummary?.packagingSize || firstLine?.packagingSize || firstLine?.item?.packagingSize) || 0;
+  const defaultPkgSize =
+    explicitSize > 1
+      ? explicitSize
+      : resolvedUom === 'M'
+        ? 250
+        : resolvedUom === 'KG'
+          ? 1
+          : 10;
+
+  return { uom: resolvedUom, pkgUnit, defaultPkgSize };
+};
+
+const computeDeliveryQuantities = (
+  record: SalesDelivery,
+  divisionsList: Array<{ id: string; divisionCode: string; name: string }>,
+) => {
+  const units = resolveDeliveryUnits(record, divisionsList);
+  const scaleCtn = (qty: number, explicitCtn?: number | null): number => {
+    if (explicitCtn !== undefined && explicitCtn !== null && Number.isFinite(Number(explicitCtn))) {
+      return Number(explicitCtn);
+    }
+    if (units.defaultPkgSize > 1) {
+      return Number((qty / units.defaultPkgSize).toFixed(2));
+    }
+    return Number(qty.toFixed(2));
+  };
+
+  const dispQty = Number(record.totalDispatchQuantity ?? 0);
+  const dispCtn = scaleCtn(dispQty, record.totalDispatchCartons);
+  const orderQty = Number(record.totalOrderQuantity ?? 0);
+  const orderCtn = scaleCtn(orderQty, record.totalOrderCartons);
+  const balQty = Number(record.totalBalanceQuantity ?? (orderQty > 0 ? Math.max(0, orderQty - dispQty) : 0));
+  const balCtn = scaleCtn(balQty, record.totalBalanceCartons);
+  const cumQty = Number(
+    record.totalDeliveredQuantity ?? (orderQty > 0 ? Math.max(0, orderQty - balQty) : dispQty),
+  );
+  const cumCtn = scaleCtn(cumQty, record.totalDeliveredCartons);
+  const prevQty = Number(record.totalPreviousQuantity ?? Math.max(0, cumQty - dispQty));
+  const prevCtn = scaleCtn(prevQty, record.totalPreviousCartons);
+  const isDone = Boolean(record.isCompleted) || (orderQty > 0 && balQty <= 0.001);
+  const pct =
+    record.completionPercent != null
+      ? Number(record.completionPercent)
+      : orderQty > 0
+        ? Math.min(100, Math.round((cumQty / orderQty) * 100))
+        : 100;
+
+  return {
+    ...units,
+    orderQty,
+    orderCtn,
+    prevQty,
+    prevCtn,
+    dispQty,
+    dispCtn,
+    cumQty,
+    cumCtn,
+    balQty,
+    balCtn,
+    isDone,
+    pct,
+  };
+};
+
+interface NormalizedSocOrderItem {
+  itemId?: string;
+  itemCode?: string;
+  itemName?: string;
+  quantity: number;
+  uomCode: string;
+  packagingSize: number;
+  packagingUnit: string;
+  packageQuantity: number;
+}
+
+interface NormalizedSocOrderMeta {
+  id?: string;
+  orderNumber?: string;
+  customerPo?: string | null;
+  divisionCode?: string | null;
+  divisionName?: string | null;
+  items: NormalizedSocOrderItem[];
+}
+
+const roundDelivery2 = (n: number): number => Math.round((Number(n) || 0) * 100) / 100;
+
+const inferCleanPackagingSize = (
+  rawSize: any,
+  uomCode: string,
+  itemName?: string | null,
+  qty?: number,
+  explicitPkgCount?: any,
+): number => {
+  const numericSize = Number(rawSize);
+  if (Number.isFinite(numericSize) && numericSize > 1) return numericSize;
+  const q = Number(qty) || 0;
+  const exp = Number(explicitPkgCount);
+  if (q > 0 && Number.isFinite(exp) && exp > 0) {
+    // Guard against legacy /10 carton bug on meter cable items
+    const looksLikeLegacyDiv10 = uomCode === 'M' && q >= 50 && Math.abs(exp - q / 10) < 0.02;
+    if (!looksLikeLegacyDiv10) {
+      const ratio = q / exp;
+      if (ratio > 1.01) return Math.round(ratio * 1000) / 1000;
+    }
+  }
+  if (uomCode === 'M') {
+    const lower = String(itemName || '').toLowerCase();
+    return lower.includes('5 mm') || lower.includes('6 mm') ? 500 : 250;
+  }
+  if (uomCode === 'KG') return 1;
+  return 10;
+};
+
+const calcCleanPackageCount = (
+  qty: number,
+  pkgSize: number,
+  uomCode: string,
+  explicitPkg?: any,
+): number => {
+  const q = Number(qty) || 0;
+  if (q <= 0) return 0;
+  if (pkgSize > 1) return roundDelivery2(q / pkgSize);
+  const exp = Number(explicitPkg);
+  if (Number.isFinite(exp) && exp > 0) {
+    const looksLikeLegacyDiv10 = uomCode === 'M' && q >= 50 && Math.abs(exp - q / 10) < 0.02;
+    if (!looksLikeLegacyDiv10) return roundDelivery2(exp);
+  }
+  if (uomCode === 'GRS') return roundDelivery2(q / 10);
+  return roundDelivery2(q);
+};
+
+const extractSocTokenFromText = (raw?: string | null): string | undefined => {
+  if (!raw) return undefined;
+  const bracketMatch = String(raw).match(/\[SOC:\s*([^\]]+)\]/i);
+  if (bracketMatch?.[1]) return bracketMatch[1].trim();
+  const inlineMatch = String(raw).match(/\bSOC[:\s]+(SOC-[A-Za-z0-9-]+|[A-Za-z0-9-]+)\b/i);
+  if (inlineMatch?.[1]) return inlineMatch[1].trim();
+  return undefined;
+};
+
+/**
+ * Computes strict chronological point-in-time cumulative progress per SOC and per item
+ * across all non-cancelled deliveries (sorted ascending by deliveryDate, then deliveryNumber),
+ * never relying on retroactive final order balances.
+ */
+const reconcileDeliveriesPointInTime = (
+  rawDeliveries: SalesDelivery[],
+  salesOrdersList: any[],
+  divisionsList: Array<{ id: string; divisionCode: string; name: string }>,
+): SalesDelivery[] => {
+  if (!Array.isArray(rawDeliveries) || rawDeliveries.length === 0) return [];
+
+  const socOrderByNum = new Map<string, NormalizedSocOrderMeta>();
+  const socOrderById = new Map<string, NormalizedSocOrderMeta>();
+
+  const registerSocOrder = (so: any, fallbackDiv?: { divisionCode?: string | null; name?: string | null }) => {
+    if (!so) return;
+    const orderNum = so.orderNumber ? String(so.orderNumber).trim() : '';
+    const soId = so.id ? String(so.id).trim() : '';
+    if (!orderNum && !soId) return;
+
+    const existing = (orderNum ? socOrderByNum.get(orderNum.toUpperCase()) : undefined) || (soId ? socOrderById.get(soId) : undefined);
+    const rawItems = Array.isArray(so.items) ? so.items : [];
+    if (existing && existing.items.length > 0 && rawItems.length === 0) return;
+
+    const soDivId = so.divisionId || so.division_id || so.division?.id;
+    const matchedDiv = soDivId ? divisionsList.find((d) => d.id === soDivId) : undefined;
+    const divCode = so.division?.divisionCode || matchedDiv?.divisionCode || fallbackDiv?.divisionCode || null;
+    const divName = so.division?.name || matchedDiv?.name || fallbackDiv?.name || null;
+    const defaultDivUom = resolveDivisionDefaultUom(divCode, divName);
+
+    const normalizedItems: NormalizedSocOrderItem[] = rawItems.map((oi: any) => {
+      const itemObj = oi.item || {};
+      const itemName = oi.itemName || itemObj.name || oi.description || 'Item';
+      const uomCode =
+        normalizeSalesUomCode(
+          oi.uomCode || oi.uom?.code || itemObj.salesUom?.code || itemObj.baseUom?.code,
+        ) || defaultDivUom;
+      const qty = roundDelivery2(Number(oi.quantity ?? oi.order_qty ?? 0));
+      const pkgSize = inferCleanPackagingSize(
+        oi.packagingSize ?? itemObj.packagingSize ?? itemObj.packaging_size,
+        uomCode,
+        itemName,
+        qty,
+        oi.packageQuantity,
+      );
+      const pkgUnit = formatPkgUnitLabel(
+        oi.packagingUnit ?? itemObj.packagingUnit ?? itemObj.packaging_unit,
+        uomCode,
+      );
+      const pkgQty = calcCleanPackageCount(qty, pkgSize, uomCode, oi.packageQuantity);
+      return {
+        itemId: oi.itemId || oi.item_id || itemObj.id || undefined,
+        itemCode: oi.itemCode || itemObj.itemCode || itemObj.item_code || undefined,
+        itemName,
+        quantity: qty,
+        uomCode,
+        packagingSize: pkgSize,
+        packagingUnit: pkgUnit,
+        packageQuantity: pkgQty,
+      };
+    });
+
+    const meta: NormalizedSocOrderMeta = {
+      id: soId || existing?.id,
+      orderNumber: orderNum || existing?.orderNumber,
+      customerPo: so.customerPo ?? existing?.customerPo ?? null,
+      divisionCode: divCode,
+      divisionName: divName,
+      items: normalizedItems.length > 0 ? normalizedItems : (existing?.items || []),
+    };
+
+    if (orderNum) socOrderByNum.set(orderNum.toUpperCase(), meta);
+    if (soId) socOrderById.set(soId, meta);
+  };
+
+  (salesOrdersList || []).forEach((so) => registerSocOrder(so));
+  rawDeliveries.forEach((d) => {
+    if (d.salesOrder) {
+      registerSocOrder(d.salesOrder, { divisionCode: d.divisionCode, name: d.divisionName });
+    }
+  });
+
+  interface PreparedLine {
+    lineIdx: number;
+    socKey: string;
+    socDisplay: string;
+    itemId?: string;
+    itemCode?: string;
+    itemName: string;
+    uomCode: string;
+    packagingSize: number;
+    packagingUnit: string;
+    dispatchedQty: number;
+    dispatchedPkg: number;
+    fallbackOrderedQty: number;
+    fallbackOrderedPkg: number;
+    fallbackPrevQty?: number;
+  }
+
+  const preparedLinesByDelivery = new Map<string, PreparedLine[]>();
+  const headerSocKeyByDelivery = new Map<string, { socKey: string; socDisplay: string }>();
+
+  for (const d of rawDeliveries) {
+    const units = resolveDeliveryUnits(d, divisionsList);
+    const soFromId = d.salesOrderId ? socOrderById.get(d.salesOrderId) : undefined;
+    const rawHeaderSoc =
+      d.salesOrder?.orderNumber ||
+      soFromId?.orderNumber ||
+      (Array.isArray(d.salesOrderNumbers) && d.salesOrderNumbers.length > 0 ? d.salesOrderNumbers[0] : undefined) ||
+      (d.salesOrderNumber ? String(d.salesOrderNumber).split(',')[0].trim() : undefined);
+
+    const headerSocDisplay = rawHeaderSoc ? String(rawHeaderSoc).trim() : '';
+    const headerSocKey = headerSocDisplay
+      ? headerSocDisplay.toUpperCase()
+      : (d.salesOrderId ? `ID:${d.salesOrderId}` : '');
+
+    if (headerSocKey) {
+      headerSocKeyByDelivery.set(d.id, {
+        socKey: headerSocKey,
+        socDisplay: headerSocDisplay || headerSocKey,
+      });
+    }
+
+    const rawLines = Array.isArray(d.lines) ? d.lines : [];
+    const rawSummary = Array.isArray(d.itemsSummary) ? d.itemsSummary : [];
+    const count = Math.max(rawLines.length, rawSummary.length);
+    const prepared: PreparedLine[] = [];
+
+    for (let idx = 0; idx < count; idx++) {
+      const ln: any = rawLines[idx];
+      const sm: any =
+        rawSummary[idx] ||
+        (ln
+          ? rawSummary.find(
+              (s) =>
+                (ln.itemId && s.itemId === ln.itemId) ||
+                (ln.item?.itemCode && s.itemCode === ln.item.itemCode),
+            )
+          : undefined);
+
+      const lineSocRaw =
+        sm?.socNumber ||
+        ln?.socNumber ||
+        ln?.salesOrderNumber ||
+        extractSocTokenFromText(ln?.description) ||
+        headerSocDisplay;
+      const socDisplay = lineSocRaw ? String(lineSocRaw).trim() : '';
+      const socKey = socDisplay ? socDisplay.toUpperCase() : headerSocKey;
+
+      const rawName = sm?.itemName || ln?.item?.name || ln?.itemName || ln?.description || `Item ${idx + 1}`;
+      const cleanName = String(rawName)
+        .replace(/\s*\[SOC:\s*[^\]]+\]/gi, '')
+        .replace(/\s*\(\d+(?:\.\d+)?\s*(?:CTN|Carton|Coil|Coils)[^)]*\)/gi, '')
+        .trim();
+
+      const itemId = sm?.itemId || ln?.itemId || ln?.item?.id || undefined;
+      const itemCode = sm?.itemCode || ln?.item?.itemCode || ln?.itemCode || undefined;
+      const uomCode =
+        normalizeSalesUomCode(
+          sm?.uom || ln?.uom?.code || ln?.uomCode || ln?.item?.salesUom?.code || ln?.item?.baseUom?.code,
+        ) || units.uom;
+      const dispatchedQty = roundDelivery2(Number(ln?.quantity ?? sm?.dispatchedQuantity ?? 0));
+      const explicitDispPkg = sm?.dispatchedCartons ?? ln?.cartons ?? ln?.packageQuantity;
+      const pkgSize = inferCleanPackagingSize(
+        sm?.packagingSize ?? ln?.packagingSize ?? ln?.item?.packagingSize,
+        uomCode,
+        cleanName,
+        dispatchedQty,
+        explicitDispPkg,
+      );
+      const pkgUnit = formatPkgUnitLabel(
+        sm?.packagingUnit || ln?.packagingUnit || ln?.item?.packagingUnit,
+        uomCode,
+      );
+      const dispatchedPkg = calcCleanPackageCount(dispatchedQty, pkgSize, uomCode, explicitDispPkg);
+      const fallbackOrderedQty = roundDelivery2(Number(sm?.orderedQuantity ?? ln?.orderQuantity ?? 0));
+      const fallbackOrderedPkg =
+        fallbackOrderedQty > 0
+          ? calcCleanPackageCount(fallbackOrderedQty, pkgSize, uomCode, sm?.orderedCartons ?? ln?.orderCartons)
+          : 0;
+
+      prepared.push({
+        lineIdx: idx,
+        socKey,
+        socDisplay,
+        itemId,
+        itemCode,
+        itemName: cleanName || 'Item',
+        uomCode,
+        packagingSize: pkgSize,
+        packagingUnit: pkgUnit,
+        dispatchedQty,
+        dispatchedPkg,
+        fallbackOrderedQty,
+        fallbackOrderedPkg,
+        fallbackPrevQty:
+          sm?.previousDispatchedQuantity !== undefined
+            ? Number(sm.previousDispatchedQuantity)
+            : undefined,
+      });
+    }
+
+    preparedLinesByDelivery.set(d.id, prepared);
+  }
+
+  // Group non-cancelled deliveries per SOC and sort chronologically (deliveryDate ASC, deliveryNumber ASC)
+  const deliveriesBySoc = new Map<string, SalesDelivery[]>();
+  const seenDelivPerSoc = new Map<string, Set<string>>();
+
+  for (const d of rawDeliveries) {
+    if (String(d.status || '').toUpperCase() === 'CANCELLED') continue;
+    const pLines = preparedLinesByDelivery.get(d.id) || [];
+    const headerMeta = headerSocKeyByDelivery.get(d.id);
+    const socKeys = new Set<string>();
+    pLines.forEach((pl) => {
+      if (pl.socKey) socKeys.add(pl.socKey);
+    });
+    if (socKeys.size === 0 && headerMeta?.socKey) {
+      socKeys.add(headerMeta.socKey);
+    }
+    socKeys.forEach((socKey) => {
+      let seen = seenDelivPerSoc.get(socKey);
+      if (!seen) {
+        seen = new Set();
+        seenDelivPerSoc.set(socKey, seen);
+      }
+      if (!seen.has(d.id)) {
+        seen.add(d.id);
+        const list = deliveriesBySoc.get(socKey) || [];
+        list.push(d);
+        deliveriesBySoc.set(socKey, list);
+      }
+    });
+  }
+
+  for (const [socKey, list] of deliveriesBySoc.entries()) {
+    list.sort((a, b) => {
+      const da = String(a.deliveryDate || '').slice(0, 10);
+      const db = String(b.deliveryDate || '').slice(0, 10);
+      if (da !== db) return da.localeCompare(db);
+      const na = String(a.deliveryNumber || '');
+      const nb = String(b.deliveryNumber || '');
+      if (na !== nb) return na.localeCompare(nb, undefined, { numeric: true, sensitivity: 'base' });
+      const ca = String((a as any).createdAt || a.id || '');
+      const cb = String((b as any).createdAt || b.id || '');
+      return ca.localeCompare(cb);
+    });
+    deliveriesBySoc.set(socKey, list);
+  }
+
+  // Per-(deliveryId, lineIdx) and per-(deliveryId, socKey) point-in-time results
+  const computedItemByDelivLine = new Map<string, NonNullable<SalesDelivery['itemsSummary']>[number]>();
+  const computedSocByDeliv = new Map<string, any[]>();
+
+  for (const [socKey, sortedDelivs] of deliveriesBySoc.entries()) {
+    const firstDeliv = sortedDelivs[0];
+    const socOrder =
+      socOrderByNum.get(socKey) ||
+      (firstDeliv?.salesOrderId ? socOrderById.get(firstDeliv.salesOrderId) : undefined);
+
+    const firstUnits = resolveDeliveryUnits(firstDeliv, divisionsList);
+    const origFirstSocSummary = (firstDeliv?.salesOrdersSummary || []).find(
+      (s: any) => String(s?.socNumber || '').trim().toUpperCase() === socKey,
+    );
+
+    let socOrderQty = 0;
+    let socOrderPkg = 0;
+    if (socOrder && socOrder.items.length > 0) {
+      socOrderQty = roundDelivery2(socOrder.items.reduce((acc, oi) => acc + oi.quantity, 0));
+      socOrderPkg = roundDelivery2(socOrder.items.reduce((acc, oi) => acc + oi.packageQuantity, 0));
+    } else {
+      socOrderQty = roundDelivery2(
+        Number(origFirstSocSummary?.totalOrderQuantity ?? firstDeliv?.totalOrderQuantity ?? 0),
+      );
+      const rawOrderPkg = origFirstSocSummary?.totalOrderCartons ?? firstDeliv?.totalOrderCartons;
+      socOrderPkg = calcCleanPackageCount(
+        socOrderQty,
+        firstUnits.defaultPkgSize,
+        firstUnits.uom,
+        rawOrderPkg,
+      );
+    }
+
+    // Seed baseline prior dispatch ONLY if the earliest loaded delivery in window explicitly carries prior history
+    let runningSocQty =
+      firstDeliv?.totalPreviousQuantity != null && Number(firstDeliv.totalPreviousQuantity) > 0
+        ? roundDelivery2(Number(firstDeliv.totalPreviousQuantity))
+        : 0;
+    let runningSocPkg =
+      firstDeliv?.totalPreviousCartons != null && Number(firstDeliv.totalPreviousCartons) > 0
+        ? roundDelivery2(Number(firstDeliv.totalPreviousCartons))
+        : 0;
+
+    const runningItemQty = new Map<string, number>();
+    const runningItemPkg = new Map<string, number>();
+
+    sortedDelivs.forEach((deliv, seqIdx) => {
+      const pLines = (preparedLinesByDelivery.get(deliv.id) || []).filter((pl) => pl.socKey === socKey);
+      const socPrevQty = roundDelivery2(runningSocQty);
+      const socPrevPkg = roundDelivery2(runningSocPkg);
+
+      let thisSocQty = 0;
+      let thisSocPkg = 0;
+      let primarySocUom = firstUnits.uom;
+      let primarySocPkgUnit = firstUnits.pkgUnit;
+
+      pLines.forEach((pl, idxInSoc) => {
+        const matchedSoi = socOrder?.items.find(
+          (oi) =>
+            (oi.itemId && pl.itemId && oi.itemId === pl.itemId) ||
+            (oi.itemCode && pl.itemCode && oi.itemCode.toUpperCase() === pl.itemCode.toUpperCase()),
+        );
+
+        const resolvedUom = matchedSoi?.uomCode || pl.uomCode || firstUnits.uom;
+        const resolvedPkgSize = matchedSoi?.packagingSize || pl.packagingSize || firstUnits.defaultPkgSize;
+        const resolvedPkgUnit = matchedSoi?.packagingUnit || pl.packagingUnit || firstUnits.pkgUnit;
+
+        if (idxInSoc === 0) {
+          primarySocUom = resolvedUom;
+          primarySocPkgUnit = resolvedPkgUnit;
+        }
+
+        const itemTrackKey =
+          matchedSoi?.itemId ||
+          pl.itemId ||
+          (matchedSoi?.itemCode || pl.itemCode
+            ? `CODE:${String(matchedSoi?.itemCode || pl.itemCode).toUpperCase()}`
+            : `NAME:${pl.itemName.toUpperCase()}`);
+
+        if (seqIdx === 0 && !runningItemQty.has(itemTrackKey) && pl.fallbackPrevQty && pl.fallbackPrevQty > 0) {
+          runningItemQty.set(itemTrackKey, roundDelivery2(pl.fallbackPrevQty));
+          runningItemPkg.set(
+            itemTrackKey,
+            calcCleanPackageCount(pl.fallbackPrevQty, resolvedPkgSize, resolvedUom),
+          );
+        }
+
+        const prevQty = roundDelivery2(runningItemQty.get(itemTrackKey) || 0);
+        const prevPkg = roundDelivery2(runningItemPkg.get(itemTrackKey) || 0);
+        const dispQty = pl.dispatchedQty;
+        const dispPkg = calcCleanPackageCount(dispQty, resolvedPkgSize, resolvedUom, pl.dispatchedPkg);
+        const cumQty = roundDelivery2(prevQty + dispQty);
+        const cumPkg = roundDelivery2(prevPkg + dispPkg);
+
+        runningItemQty.set(itemTrackKey, cumQty);
+        runningItemPkg.set(itemTrackKey, cumPkg);
+
+        thisSocQty = roundDelivery2(thisSocQty + dispQty);
+        thisSocPkg = roundDelivery2(thisSocPkg + dispPkg);
+
+        const ordQty = matchedSoi ? matchedSoi.quantity : pl.fallbackOrderedQty;
+        const ordPkg = matchedSoi ? matchedSoi.packageQuantity : pl.fallbackOrderedPkg;
+        const balQty = ordQty > 0 ? Math.max(0, roundDelivery2(ordQty - cumQty)) : 0;
+        const balPkg = ordPkg > 0 ? Math.max(0, roundDelivery2(ordPkg - cumPkg)) : 0;
+        const pct =
+          ordQty > 0
+            ? Math.min(100, Math.round((cumQty / ordQty) * 100))
+            : dispQty > 0
+              ? 100
+              : 0;
+        const isDone = ordQty > 0 && balQty <= 0.001;
+
+        computedItemByDelivLine.set(`${deliv.id}:${pl.lineIdx}`, {
+          itemId: pl.itemId || matchedSoi?.itemId,
+          itemCode: pl.itemCode || matchedSoi?.itemCode,
+          itemName: pl.itemName || matchedSoi?.itemName || 'Item',
+          socNumber: pl.socDisplay || socOrder?.orderNumber || undefined,
+          orderedQuantity: ordQty,
+          orderedCartons: ordPkg,
+          previousDispatchedQuantity: prevQty,
+          previousDispatchedCartons: prevPkg,
+          dispatchedQuantity: dispQty,
+          dispatchedCartons: dispPkg,
+          totalShippedQuantity: cumQty,
+          totalShippedCartons: cumPkg,
+          balanceQuantity: balQty,
+          balanceCartons: balPkg,
+          completionPercent: pct,
+          isCompleted: isDone,
+          uom: resolvedUom,
+          packagingUnit: resolvedPkgUnit,
+          packagingSize: resolvedPkgSize,
+        });
+      });
+
+      if (pLines.length === 0) {
+        const delivUnits = resolveDeliveryUnits(deliv, divisionsList);
+        thisSocQty = roundDelivery2(Number(deliv.totalDispatchQuantity ?? 0));
+        thisSocPkg = calcCleanPackageCount(
+          thisSocQty,
+          delivUnits.defaultPkgSize,
+          delivUnits.uom,
+          deliv.totalDispatchCartons,
+        );
+      }
+
+      const socCumQty = roundDelivery2(socPrevQty + thisSocQty);
+      const socCumPkg = roundDelivery2(socPrevPkg + thisSocPkg);
+      runningSocQty = socCumQty;
+      runningSocPkg = socCumPkg;
+
+      const socBalQty = socOrderQty > 0 ? Math.max(0, roundDelivery2(socOrderQty - socCumQty)) : 0;
+      const socBalPkg = socOrderPkg > 0 ? Math.max(0, roundDelivery2(socOrderPkg - socCumPkg)) : 0;
+      const socPct =
+        socOrderQty > 0
+          ? Math.min(100, Math.round((socCumQty / socOrderQty) * 100))
+          : socOrderPkg > 0
+            ? Math.min(100, Math.round((socCumPkg / socOrderPkg) * 100))
+            : 100;
+      const socDone =
+        (socOrderQty > 0 && socBalQty <= 0.001) ||
+        (socOrderQty === 0 && socOrderPkg > 0 && socBalPkg <= 0.001);
+
+      const socDisplayLabel =
+        socOrder?.orderNumber ||
+        pLines[0]?.socDisplay ||
+        headerSocKeyByDelivery.get(deliv.id)?.socDisplay ||
+        socKey;
+
+      const listForDeliv = computedSocByDeliv.get(deliv.id) || [];
+      listForDeliv.push({
+        socNumber: socDisplayLabel,
+        salesOrderId: socOrder?.id || deliv.salesOrderId || null,
+        uom: primarySocUom,
+        packagingUnit: primarySocPkgUnit,
+        dispatchOrdinal: seqIdx + 1,
+        totalSocDispatches: sortedDelivs.length,
+        isFinalDispatch: socDone,
+        previousQuantity: socPrevQty,
+        previousCartons: socPrevPkg,
+        previousDispatchedQuantity: socPrevQty,
+        previousDispatchedCartons: socPrevPkg,
+        thisDeliveryQuantity: thisSocQty,
+        thisDeliveryCartons: thisSocPkg,
+        totalOrderQuantity: socOrderQty,
+        totalOrderCartons: socOrderPkg,
+        totalShippedQuantity: socCumQty,
+        totalShippedCartons: socCumPkg,
+        balanceQuantity: socBalQty,
+        balanceCartons: socBalPkg,
+        completionPercent: socPct,
+        isCompleted: socDone,
+      });
+      computedSocByDeliv.set(deliv.id, listForDeliv);
+    });
+  }
+
+  // Assemble reconciled delivery records
+  return rawDeliveries.map((d) => {
+    const units = resolveDeliveryUnits(d, divisionsList);
+    const isCancelled = String(d.status || '').toUpperCase() === 'CANCELLED';
+    const pLines = preparedLinesByDelivery.get(d.id) || [];
+    const itemsSummary = pLines.map((pl) => {
+      const fromTimeline = computedItemByDelivLine.get(`${d.id}:${pl.lineIdx}`);
+      if (fromTimeline) return fromTimeline;
+      return {
+        itemId: pl.itemId,
+        itemCode: pl.itemCode,
+        itemName: pl.itemName,
+        socNumber: pl.socDisplay || undefined,
+        orderedQuantity: pl.fallbackOrderedQty,
+        orderedCartons: pl.fallbackOrderedPkg,
+        previousDispatchedQuantity: 0,
+        previousDispatchedCartons: 0,
+        dispatchedQuantity: pl.dispatchedQty,
+        dispatchedCartons: pl.dispatchedPkg,
+        totalShippedQuantity: isCancelled ? 0 : pl.dispatchedQty,
+        totalShippedCartons: isCancelled ? 0 : pl.dispatchedPkg,
+        balanceQuantity:
+          pl.fallbackOrderedQty > 0
+            ? Math.max(0, roundDelivery2(pl.fallbackOrderedQty - (isCancelled ? 0 : pl.dispatchedQty)))
+            : 0,
+        balanceCartons:
+          pl.fallbackOrderedPkg > 0
+            ? Math.max(0, roundDelivery2(pl.fallbackOrderedPkg - (isCancelled ? 0 : pl.dispatchedPkg)))
+            : 0,
+        completionPercent:
+          pl.fallbackOrderedQty > 0
+            ? Math.min(100, Math.round(((isCancelled ? 0 : pl.dispatchedQty) / pl.fallbackOrderedQty) * 100))
+            : 100,
+        isCompleted: false,
+        uom: pl.uomCode,
+        packagingUnit: pl.packagingUnit,
+        packagingSize: pl.packagingSize,
+      };
+    });
+
+    const socSummaries = computedSocByDeliv.get(d.id);
+    if (!socSummaries || socSummaries.length === 0) {
+      const dispQty =
+        itemsSummary.length > 0
+          ? roundDelivery2(itemsSummary.reduce((acc, it) => acc + it.dispatchedQuantity, 0))
+          : roundDelivery2(Number(d.totalDispatchQuantity ?? 0));
+      const dispPkg =
+        itemsSummary.length > 0
+          ? roundDelivery2(itemsSummary.reduce((acc, it) => acc + it.dispatchedCartons, 0))
+          : calcCleanPackageCount(dispQty, units.defaultPkgSize, units.uom, d.totalDispatchCartons);
+      return {
+        ...d,
+        primaryUom: itemsSummary[0]?.uom || units.uom,
+        primaryPackagingUnit: itemsSummary[0]?.packagingUnit || units.pkgUnit,
+        totalDispatchQuantity: dispQty,
+        totalDispatchCartons: dispPkg,
+        itemsSummary: itemsSummary.length > 0 ? itemsSummary : d.itemsSummary,
+      };
+    }
+
+    const totalOrderQuantity = roundDelivery2(socSummaries.reduce((s, x) => s + x.totalOrderQuantity, 0));
+    const totalOrderCartons = roundDelivery2(socSummaries.reduce((s, x) => s + x.totalOrderCartons, 0));
+    const totalPreviousQuantity = roundDelivery2(socSummaries.reduce((s, x) => s + x.previousQuantity, 0));
+    const totalPreviousCartons = roundDelivery2(socSummaries.reduce((s, x) => s + x.previousCartons, 0));
+    const totalDispatchQuantity = roundDelivery2(socSummaries.reduce((s, x) => s + x.thisDeliveryQuantity, 0));
+    const totalDispatchCartons = roundDelivery2(socSummaries.reduce((s, x) => s + x.thisDeliveryCartons, 0));
+    const totalDeliveredQuantity = roundDelivery2(socSummaries.reduce((s, x) => s + x.totalShippedQuantity, 0));
+    const totalDeliveredCartons = roundDelivery2(socSummaries.reduce((s, x) => s + x.totalShippedCartons, 0));
+    const totalBalanceQuantity = roundDelivery2(socSummaries.reduce((s, x) => s + x.balanceQuantity, 0));
+    const totalBalanceCartons = roundDelivery2(socSummaries.reduce((s, x) => s + x.balanceCartons, 0));
+    const completionPercent =
+      totalOrderQuantity > 0
+        ? Math.min(100, Math.round((totalDeliveredQuantity / totalOrderQuantity) * 100))
+        : totalOrderCartons > 0
+          ? Math.min(100, Math.round((totalDeliveredCartons / totalOrderCartons) * 100))
+          : 100;
+    const isCompleted =
+      (totalOrderQuantity > 0 && totalBalanceQuantity <= 0.001) ||
+      (totalOrderQuantity === 0 && totalOrderCartons > 0 && totalBalanceCartons <= 0.001);
+
+    return {
+      ...d,
+      primaryUom: itemsSummary[0]?.uom || socSummaries[0]?.uom || units.uom,
+      primaryPackagingUnit: itemsSummary[0]?.packagingUnit || socSummaries[0]?.packagingUnit || units.pkgUnit,
+      salesOrdersSummary: socSummaries,
+      itemsSummary,
+      totalOrderQuantity,
+      totalOrderCartons,
+      totalPreviousQuantity,
+      totalPreviousCartons,
+      totalDispatchQuantity,
+      totalDispatchCartons,
+      totalDeliveredQuantity,
+      totalDeliveredCartons,
+      totalBalanceQuantity,
+      totalBalanceCartons,
+      completionPercent,
+      isCompleted,
+    };
+  });
 };
 
 const SalesDeliveryManagement: React.FC = () => {
@@ -180,10 +964,17 @@ const SalesDeliveryManagement: React.FC = () => {
     return () => store.releaseActionsSlot(routeTabId);
   }, [routeTabId]);
 
-  const [data, setData] = useState<SalesDelivery[]>([]);
-  const [nextGatePassSuggestion, setNextGatePassSuggestion] = useState<string>('GP-0001');
+  const initialDeliveriesCache = useMemo(
+    () => tabSessionCache.get<{ data: SalesDelivery[]; total: number; nextGatePassNumber?: string }>(SALES_DELIVERIES_CACHE_KEY),
+    [],
+  );
+
+  const [data, setData] = useState<SalesDelivery[]>(() => initialDeliveriesCache?.data || []);
+  const [nextGatePassSuggestion, setNextGatePassSuggestion] = useState<string>(
+    () => initialDeliveriesCache?.nextGatePassNumber || 'GP-0001',
+  );
   const [loading, setLoading] = useState(false);
-  const [total, setTotal] = useState(0);
+  const [total, setTotal] = useState(() => initialDeliveriesCache?.total || 0);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
 
@@ -245,13 +1036,40 @@ const SalesDeliveryManagement: React.FC = () => {
   // Modal Division Filter state
   const [modalDivisionId, setModalDivisionId] = useState<string | undefined>(undefined);
 
-  // Sales Orders & PO Cascade state
-  const [allSalesOrders, setAllSalesOrders] = useState<any[]>([]);
+  // Sales Orders & PO Cascade state (lazy-loaded on modal open instead of page mount)
+  const [allSalesOrders, setAllSalesOrders] = useState<any[]>(
+    () => tabSessionCache.get<any[]>(SALES_ORDERS_MODAL_CACHE_KEY) || [],
+  );
   const [customerSalesOrders, setCustomerSalesOrders] = useState<any[]>([]);
   const [customerPos, setCustomerPos] = useState<string[]>([]);
   const [selectedSoInfo, setSelectedSoInfo] = useState<{ orderNumber: string; customerPo?: string; pendingCount: number } | null>(null);
 
+  const hydratedSocIdsRef = React.useRef<Set<string>>(new Set());
+
+  const ensureSalesOrdersLoaded = useCallback(async (forceRefresh = false): Promise<any[]> => {
+    if (!forceRefresh) {
+      if (allSalesOrders.length > 0) return allSalesOrders;
+      const cached = tabSessionCache.get<any[]>(SALES_ORDERS_MODAL_CACHE_KEY);
+      if (Array.isArray(cached) && cached.length > 0) {
+        setAllSalesOrders(cached);
+        return cached;
+      }
+    }
+    try {
+      const soRes = await apiService.get<any>('/sales/orders', { limit: 300 }, { useEtag: !forceRefresh });
+      const list = Array.isArray(soRes) ? soRes : (soRes?.data || []);
+      setAllSalesOrders(list);
+      tabSessionCache.set(SALES_ORDERS_MODAL_CACHE_KEY, list);
+      return list;
+    } catch {
+      return allSalesOrders;
+    }
+  }, [allSalesOrders]);
+
   useEffect(() => {
+    // Evict legacy v1 session cache keys so stale un-enriched payloads never persist
+    tabSessionCache.remove(LEGACY_DELIVERIES_CACHE_KEY);
+    tabSessionCache.remove(LEGACY_ORDERS_MODAL_CACHE_KEY);
     const erpUser = localStorage.getItem('erp_user');
     if (erpUser) {
       try { const p = JSON.parse(erpUser); if (p?.defaultCompanyId) setCompanyId(p.defaultCompanyId); } catch { /* ignore */ }
@@ -330,11 +1148,6 @@ const SalesDeliveryManagement: React.FC = () => {
 
         setCustomers(Array.from(combinedMap.values()));
       } catch { /* ignore */ }
-      try {
-        const soRes = await apiService.get<any>('/sales/orders', { limit: 100 }, { useEtag: true });
-        const list = Array.isArray(soRes) ? soRes : (soRes?.data || []);
-        setAllSalesOrders(list);
-      } catch { /* ignore */ }
     })();
   }, []);
 
@@ -375,63 +1188,153 @@ const SalesDeliveryManagement: React.FC = () => {
     return record.customerId || 'Customer';
   }, [customers]);
 
-  const fetchData = useCallback(async (_pageNum?: number, _currentLimit?: number) => {
+  const fetchData = useCallback(async (opts?: { forceRefresh?: boolean }) => {
+    const forceRefresh = Boolean(opts?.forceRefresh);
+    if (!forceRefresh && tabSessionCache.has(SALES_DELIVERIES_CACHE_KEY)) {
+      const cached = tabSessionCache.get<{ data: SalesDelivery[]; total: number; nextGatePassNumber?: string }>(SALES_DELIVERIES_CACHE_KEY);
+      if (cached) {
+        setData(cached.data || []);
+        setTotal(cached.total || (cached.data || []).length);
+        if (cached.nextGatePassNumber) {
+          setNextGatePassSuggestion(cached.nextGatePassNumber);
+        }
+        return;
+      }
+    }
+    if (forceRefresh) {
+      tabSessionCache.remove(SALES_DELIVERIES_CACHE_KEY);
+    }
     setLoading(true);
     try {
       const params: any = { page: 1, limit: 300 };
-      if (search) params.search = search;
-      if (filterCustomer) params.customerId = filterCustomer;
-      if (filterStatus && filterStatus !== 'All statuses') params.status = filterStatus;
-      const response = await apiService.get<{ data: SalesDelivery[]; total: number; nextGatePassNumber?: string }>('/sales/deliveries', params);
+      const response = await apiService.get<{ data: SalesDelivery[]; total: number; nextGatePassNumber?: string }>(
+        '/sales/deliveries',
+        params,
+        { useEtag: !forceRefresh },
+      );
       const items = response.data || [];
+      const resolvedTotal = response.total || items.length;
       setData(items);
-      setTotal(response.total || items.length);
+      setTotal(resolvedTotal);
       if (response.nextGatePassNumber) {
         setNextGatePassSuggestion(response.nextGatePassNumber);
       }
+      tabSessionCache.set(SALES_DELIVERIES_CACHE_KEY, {
+        data: items,
+        total: resolvedTotal,
+        nextGatePassNumber: response.nextGatePassNumber,
+      });
     } catch {
       message.error('Failed to fetch deliveries');
     } finally {
       setLoading(false);
     }
-  }, [search, filterCustomer, filterStatus, message]);
+  }, [message]);
 
   useEffect(() => {
-    fetchData(page, pageSize);
-  }, [page, pageSize, fetchData]);
+    void fetchData({ forceRefresh: false });
+  }, [fetchData]);
 
   // Global header tab refresh
   useEffect(() => {
     const handleGlobalRefresh = (e: Event) => {
       if (matchesTabRefresh(e, '/sales/deliveries')) {
-        void fetchData(page, pageSize);
+        void fetchData({ forceRefresh: true });
       }
     };
     window.addEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
     return () => window.removeEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
-  }, [fetchData, page, pageSize]);
+  }, [fetchData]);
+
+  // Auto-hydrate linked SOC items if backend/gateway list omitted `salesOrder.items` / item-level `orderedQuantity`
+  useEffect(() => {
+    if (data.length === 0) return;
+    const missingDeliveries = data.filter((d) => {
+      if (String(d.status || '').toUpperCase() === 'CANCELLED') return false;
+      const hasLinkedSoc = Boolean(d.salesOrderId || d.salesOrderNumber || d.salesOrder?.orderNumber);
+      if (!hasLinkedSoc) return false;
+      const hasEmbeddedOrderItems = Array.isArray(d.salesOrder?.items) && d.salesOrder!.items!.length > 0;
+      const hasItemOrderedQtys =
+        Array.isArray(d.itemsSummary) &&
+        d.itemsSummary.length > 0 &&
+        d.itemsSummary.every((it) => Number(it.orderedQuantity) > 0);
+      if (hasEmbeddedOrderItems || hasItemOrderedQtys) return false;
+      const key = d.salesOrderId || d.salesOrder?.orderNumber || d.salesOrderNumber || '';
+      if (!key || hydratedSocIdsRef.current.has(key)) return false;
+      const alreadyInState = allSalesOrders.some(
+        (so: any) =>
+          (d.salesOrderId && so.id === d.salesOrderId) ||
+          (d.salesOrder?.orderNumber && so.orderNumber === d.salesOrder.orderNumber) ||
+          (d.salesOrderNumber && so.orderNumber === d.salesOrderNumber),
+      );
+      return !alreadyInState;
+    });
+
+    if (missingDeliveries.length === 0) return;
+    missingDeliveries.forEach((d) => {
+      const key = d.salesOrderId || d.salesOrder?.orderNumber || d.salesOrderNumber || '';
+      if (key) hydratedSocIdsRef.current.add(key);
+    });
+
+    void (async () => {
+      const loadedList = await ensureSalesOrdersLoaded(false);
+      const loadedIds = new Set((loadedList || []).map((so: any) => so.id).filter(Boolean));
+      const stillMissingIds = Array.from(
+        new Set(
+          missingDeliveries
+            .map((d) => d.salesOrderId)
+            .filter((id): id is string => Boolean(id && !loadedIds.has(id))),
+        ),
+      ).slice(0, 5);
+
+      if (stillMissingIds.length > 0) {
+        const fetched = await Promise.all(
+          stillMissingIds.map((id) =>
+            apiService.get<any>(`/sales/orders/${id}`).then((r) => r?.data || r).catch(() => null),
+          ),
+        );
+        const validExtras = fetched.filter((so) => so && so.id);
+        if (validExtras.length > 0) {
+          setAllSalesOrders((prev) => {
+            const byId = new Map(prev.map((o: any) => [o.id, o]));
+            validExtras.forEach((o: any) => byId.set(o.id, o));
+            const merged = Array.from(byId.values());
+            tabSessionCache.set(SALES_ORDERS_MODAL_CACHE_KEY, merged);
+            return merged;
+          });
+        }
+      }
+    })();
+  }, [data, allSalesOrders, ensureSalesOrdersLoaded]);
+
+  // Strict point-in-time chronological cumulative reconciliation across all loaded deliveries
+  const reconciledData = useMemo(
+    () => reconcileDeliveriesPointInTime(data, allSalesOrders, divisions),
+    [data, allSalesOrders, divisions],
+  );
 
   // Chevron status counts
   const chevronCounts = useMemo(() => {
     return {
-      all: data.length,
-      draft: data.filter(d => (d.status || '').toUpperCase() === 'DRAFT').length,
-      shipped: data.filter(d => (d.status || '').toUpperCase() === 'SHIPPED').length,
-      delivered: data.filter(d => ['DELIVERED', 'CONFIRMED'].includes((d.status || '').toUpperCase())).length,
-      cancelled: data.filter(d => (d.status || '').toUpperCase() === 'CANCELLED').length,
+      all: reconciledData.length,
+      draft: reconciledData.filter(d => (d.status || '').toUpperCase() === 'DRAFT').length,
+      shipped: reconciledData.filter(d => (d.status || '').toUpperCase() === 'SHIPPED').length,
+      delivered: reconciledData.filter(d => ['DELIVERED', 'CONFIRMED'].includes((d.status || '').toUpperCase())).length,
+      cancelled: reconciledData.filter(d => (d.status || '').toUpperCase() === 'CANCELLED').length,
     };
-  }, [data]);
+  }, [reconciledData]);
 
   // Available carriers from data
   const availableCarriers = useMemo(() => {
     const set = new Set<string>();
-    data.forEach(d => { if (d.carrier) set.add(d.carrier); });
+    reconciledData.forEach(d => { if (d.carrier) set.add(d.carrier); });
     return Array.from(set);
-  }, [data]);
+  }, [reconciledData]);
 
-  // Client-side filtering
+  // Instantaneous 0ms client-side filtering (no keystroke server refetches)
   const displayedDeliveries = useMemo(() => {
-    return data.filter(d => {
+    const searchTerm = search.trim().toLowerCase();
+    return reconciledData.filter(d => {
       const status = (d.status || '').toUpperCase();
       // Chevron filter
       if (activeChevron === 'DRAFT' && status !== 'DRAFT') return false;
@@ -440,7 +1343,12 @@ const SalesDeliveryManagement: React.FC = () => {
       if (activeChevron === 'CANCELLED' && status !== 'CANCELLED') return false;
 
       // Division filter
-      if (filterDivision && d.divisionId !== filterDivision && d.divisionName !== filterDivision && (d as any).salesOrder?.divisionId !== filterDivision) return false;
+      if (filterDivision) {
+        const divId = d.divisionId || (d as any).salesOrder?.divisionId || d.salesOrder?.division?.id;
+        if (divId !== filterDivision && d.divisionName !== filterDivision && d.divisionCode !== filterDivision) {
+          return false;
+        }
+      }
 
       // Carrier filter
       if (filterCarrier && d.carrier?.toLowerCase() !== filterCarrier.toLowerCase()) return false;
@@ -455,11 +1363,37 @@ const SalesDeliveryManagement: React.FC = () => {
       if (filterDateFrom && d.deliveryDate && dayjs(d.deliveryDate).isBefore(dayjs(filterDateFrom), 'day')) return false;
       if (filterDateTo && d.deliveryDate && dayjs(d.deliveryDate).isAfter(dayjs(filterDateTo), 'day')) return false;
 
+      // Free-text instant search across DN#, GP#, SOC#, PO#, customer, carrier, tracking, SKU
+      if (searchTerm) {
+        const socTokens = Array.isArray(d.salesOrderNumbers) ? d.salesOrderNumbers.join(' ') : '';
+        const itemTokens = (d.itemsSummary || [])
+          .map((it) => `${it.itemCode || ''} ${it.itemName || ''} ${it.socNumber || ''}`)
+          .join(' ');
+        const haystack = [
+          d.deliveryNumber,
+          d.gatePassNumber,
+          d.salesOrderNumber,
+          d.salesOrder?.orderNumber,
+          socTokens,
+          d.customerPo,
+          d.salesOrder?.customerPo,
+          d.companyName,
+          getCustomerDisplayName(d),
+          d.carrier,
+          d.trackingNumber,
+          itemTokens,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        if (!haystack.includes(searchTerm)) return false;
+      }
+
       return true;
     });
-  }, [data, activeChevron, filterDivision, filterCarrier, filterCustomer, filterStatus, filterDateFrom, filterDateTo]);
+  }, [reconciledData, activeChevron, filterDivision, filterCarrier, filterCustomer, filterStatus, filterDateFrom, filterDateTo, search, getCustomerDisplayName]);
 
-  // Clear all filters handler
+  // Clear all filters handler (zero network traffic)
   const handleClearAll = () => {
     setActiveChevron('ALL');
     setFilterDivision(undefined);
@@ -470,7 +1404,6 @@ const SalesDeliveryManagement: React.FC = () => {
     setFilterDateTo(undefined);
     setSearch('');
     setPage(1);
-    void fetchData(1, pageSize);
     message.info('All filters reset');
   };
 
@@ -729,11 +1662,13 @@ const SalesDeliveryManagement: React.FC = () => {
         bal = Math.max(0, orderQty - priorShipped);
       }
 
-      const uom = it.uom?.code || it.uomCode || it.uom || 'GRS';
+      const recUnits = resolveDeliveryUnits(record, divisions, true);
+      const uom =
+        normalizeSalesUomCode(it.uom?.code || it.uomCode || it.uom || it.item?.salesUom?.code || it.item?.baseUom?.code) ||
+        recUnits.uom;
       const isMeter = isMeterUomCode(uom);
-      const rawPkgUnit = it.packagingUnit || it.item?.packagingUnit || (isMeter ? 'Coil' : 'Carton');
-      const pkgUnit = /^(ctn|carton|cartons)$/i.test(rawPkgUnit) ? 'Carton' : rawPkgUnit;
-      const pkgSize = Number(it.packagingSize || it.item?.packagingSize) || (isMeter ? 0 : 10);
+      const pkgUnit = formatPkgUnitLabel(it.packagingUnit || it.item?.packagingUnit, uom, true);
+      const pkgSize = Number(it.packagingSize || it.item?.packagingSize) || (isMeter ? 250 : uom === 'KG' ? 1 : 10);
       const pkgQty = it.packageQuantity != null
         ? Number(it.packageQuantity)
         : (pkgSize > 1 ? Number((currentQty / pkgSize).toFixed(2)) : undefined);
@@ -749,7 +1684,7 @@ const SalesDeliveryManagement: React.FC = () => {
       const rawItemName = it.item?.name || it.itemName || it.description || `Delivered Product ${idx + 1}`;
       const cleanItemName = String(rawItemName)
         .replace(/\s*\[SOC:\s*[^\]]+\]/gi, '')
-        .replace(/\s*\(\d+(?:\.\d+)?\s*(?:CTN|Carton)[^)]*\)/gi, '')
+        .replace(/\s*\(\d+(?:\.\d+)?\s*(?:CTN|Carton|Coil|Coils)[^)]*\)/gi, '')
         .trim();
 
       const seqMeta = lineSoc ? socSeqLookup.get(lineSoc.toUpperCase()) : undefined;
@@ -777,7 +1712,7 @@ const SalesDeliveryManagement: React.FC = () => {
         packageQuantity: pkgQty,
         packagingUnit: pkgUnit,
         packagingSize: pkgSize > 0 ? pkgSize : undefined,
-        packaging: pkgQty != null && pkgQty > 0 ? `${pkgQty} ${pkgUnit}` : (it.packaging || (isMeter ? `${currentQty} M` : `${Number((currentQty / 10).toFixed(1))} Carton`)),
+        packaging: pkgQty != null && pkgQty > 0 ? `${formatQtyClean(pkgQty)} ${pkgUnit}` : (it.packaging || `${formatQtyClean(currentQty)} ${uom}`),
         weightKg: meterWeightKg,
         weightPerMeter: effectiveWpm > 0 ? effectiveWpm : undefined,
         remarks: it.remarks || it.notes || '-',
@@ -843,14 +1778,10 @@ const SalesDeliveryManagement: React.FC = () => {
     setLineItems([]);
     setModalVisible(true);
     try {
-      const [soRes, gpRes] = await Promise.all([
-        apiService.get<any>('/sales/orders', { limit: 100 }).catch(() => null),
+      const [, gpRes] = await Promise.all([
+        ensureSalesOrdersLoaded(false),
         apiService.get<any>('/sales/deliveries/next-gate-pass').catch(() => null),
       ]);
-      if (soRes) {
-        const list = Array.isArray(soRes) ? soRes : (soRes?.data || []);
-        setAllSalesOrders(list);
-      }
       const suggestedGp = gpRes?.data?.nextGatePassNumber || gpRes?.nextGatePassNumber;
       if (suggestedGp) {
         setNextGatePassSuggestion(suggestedGp);
@@ -860,7 +1791,7 @@ const SalesDeliveryManagement: React.FC = () => {
         }
       }
     } catch { /* ignore */ }
-  }, [form, filterDivision, nextGatePassSuggestion]);
+  }, [ensureSalesOrdersLoaded, form, filterDivision, nextGatePassSuggestion]);
 
   // Register action buttons into Main Header (Top Application Header)
   useEffect(() => {
@@ -884,7 +1815,7 @@ const SalesDeliveryManagement: React.FC = () => {
           <Button
             className="btn-inv-white"
             icon={<ReloadOutlined />}
-            onClick={() => fetchData(page, pageSize)}
+            onClick={() => void fetchData({ forceRefresh: true })}
           >
             Refresh
           </Button>
@@ -919,7 +1850,7 @@ const SalesDeliveryManagement: React.FC = () => {
     return () => {
       clearHeaderActions(routeTabId);
     };
-  }, [routeTabId, page, pageSize, handleCreate, handleExportCsv, handlePrint, fetchData]);
+  }, [routeTabId, handleCreate, handleExportCsv, handlePrint, fetchData]);
 
   const handleModalDivisionChange = (divisionId?: string) => {
     setModalDivisionId(divisionId);
@@ -1044,18 +1975,24 @@ const SalesDeliveryManagement: React.FC = () => {
           const itemObj = it.item || {};
           const itemName = itemObj.name || it.description || 'Product';
           const itemCodeStr = String(itemObj.itemCode ?? itemObj.item_code ?? it.itemCode ?? '');
+          const matchedOrderDiv = divisions.find((d) => d.id === (order.divisionId || order.division?.id || modalDivisionId));
+          const fallbackDivUom = resolveDivisionDefaultUom(
+            matchedOrderDiv?.divisionCode || order.division?.divisionCode,
+            matchedOrderDiv?.name || order.division?.name,
+          );
+          const uomCodeStr =
+            normalizeSalesUomCode(it.uom?.code ?? it.uom?.name ?? itemObj.salesUom?.code ?? itemObj.baseUom?.code) ||
+            fallbackDivUom;
+          const isMeter = isMeterUomCode(uomCodeStr);
           const isCsItem = /\(cs\)/i.test(itemName) || /spk-011|spk-012/i.test(itemCodeStr);
-          const defaultCtnGross = isCsItem ? 10.556 : 10;
-          let pkgSize = Number(itemObj.packagingSize ?? itemObj.packaging_size) || defaultCtnGross;
-          if (pkgSize <= 1) {
+          const defaultPkgGross = isMeter ? 250 : uomCodeStr === 'KG' ? 1 : (isCsItem ? 10.556 : 10);
+          let pkgSize = Number(itemObj.packagingSize ?? itemObj.packaging_size) || defaultPkgGross;
+          if (pkgSize <= 1 && isMeter) {
             const lower = itemName.toLowerCase();
             if (lower.includes('5 mm') || lower.includes('6 mm')) pkgSize = 500;
             else if (lower.includes('7 mm') || lower.includes('8 mm')) pkgSize = 250;
-            else pkgSize = defaultCtnGross;
           }
-          const uomCodeStr = it.uom?.code ?? it.uom?.name ?? 'GRS';
-          const isMeter = isMeterUomCode(uomCodeStr);
-          const pkgUnit = itemObj.packagingUnit ?? itemObj.packaging_unit ?? (isMeter ? 'Coil' : 'CTN');
+          const pkgUnit = formatPkgUnitLabel(itemObj.packagingUnit ?? itemObj.packaging_unit, uomCodeStr);
           const pkgQty = pkgSize > 1 ? Number((balance / pkgSize).toFixed(2)) : balance;
           const unitPrice = Number(it.unitPrice ?? it.unit_price) || 0;
           const rawTaxRate = it.taxRate ?? it.tax_rate;
@@ -1224,21 +2161,26 @@ const SalesDeliveryManagement: React.FC = () => {
   const handleEdit = async (record: SalesDelivery) => {
     setEditingItem(record);
     let fullDelivery = record;
+    let loadedOrders = allSalesOrders;
     try {
-      const response = await apiService.get<any>(`/sales/deliveries/${record.id}`);
+      const [response, soList] = await Promise.all([
+        apiService.get<any>(`/sales/deliveries/${record.id}`),
+        ensureSalesOrdersLoaded(false),
+      ]);
       fullDelivery = (response as any)?.data || response;
+      if (Array.isArray(soList) && soList.length > 0) loadedOrders = soList;
     } catch {
       // fallback to record
     }
 
     const matchedCustomer = customers.find(c => c.id === fullDelivery.customerId);
     const matchedWh = warehouses.find(w => w.id === fullDelivery.warehouseId);
-    const matchedOrder = allSalesOrders.find((o: any) => o.id === fullDelivery.salesOrderId);
+    const matchedOrder = loadedOrders.find((o: any) => o.id === fullDelivery.salesOrderId);
     const resolvedDivId = (fullDelivery as any).divisionId || matchedCustomer?.divisionId || (matchedOrder?.divisionId || matchedOrder?.division?.id) || matchedWh?.divisionId;
     setModalDivisionId(resolvedDivId || undefined);
 
     if (fullDelivery.customerId) {
-      const orders = allSalesOrders.filter((o: any) => {
+      const orders = loadedOrders.filter((o: any) => {
         if (o.customerId !== fullDelivery.customerId) return false;
         if (resolvedDivId) {
           const soDiv = o.divisionId || o.division_id || o.division?.id;
@@ -1251,7 +2193,6 @@ const SalesDeliveryManagement: React.FC = () => {
       setCustomerPos(pos);
     }
     if (fullDelivery.salesOrderId) {
-      const matchedOrder = allSalesOrders.find((o: any) => o.id === fullDelivery.salesOrderId);
       if (matchedOrder) {
         setSelectedSoInfo({
           orderNumber: matchedOrder.orderNumber,
@@ -1278,22 +2219,25 @@ const SalesDeliveryManagement: React.FC = () => {
       notes: fullDelivery.notes,
     });
     if (fullDelivery.lines && Array.isArray(fullDelivery.lines) && fullDelivery.lines.length > 0) {
+      const editUnits = resolveDeliveryUnits(fullDelivery, divisions);
       setLineItems(fullDelivery.lines.map((l: any, idx: number) => {
         const descSocMatch = String(l.description || '').match(/\[SOC:\s*([^\]]+)\]/i);
         const lineSocNo = l.salesOrderNumber || l.salesOrder?.orderNumber || descSocMatch?.[1]?.trim() || matchedOrder?.orderNumber;
-        const lineOrder = (lineSocNo ? allSalesOrders.find((o: any) => o.orderNumber === lineSocNo) : undefined) || matchedOrder;
+        const lineOrder = (lineSocNo ? loadedOrders.find((o: any) => o.orderNumber === lineSocNo) : undefined) || matchedOrder;
         const lineOrderItem = lineOrder?.items?.find((oi: any) =>
           (l.itemId && oi.itemId === l.itemId) || (l.item?.itemCode && oi.item?.itemCode === l.item.itemCode)
         );
         const rawItemName = l.item?.name || l.description || 'Item';
         const cleanItemName = String(rawItemName)
           .replace(/\s*\[SOC:\s*[^\]]+\]/gi, '')
-          .replace(/\s*\(\d+(?:\.\d+)?\s*(?:CTN|Carton)[^)]*\)/gi, '')
+          .replace(/\s*\(\d+(?:\.\d+)?\s*(?:CTN|Carton|Coil|Coils)[^)]*\)/gi, '')
           .trim();
-        const resolvedUom = l.uom?.code || l.uomCode || l.item?.baseUom?.code || 'GRS';
+        const resolvedUom =
+          normalizeSalesUomCode(l.uom?.code || l.uomCode || l.item?.salesUom?.code || l.item?.baseUom?.code) ||
+          editUnits.uom;
         const resolvedQty = Number(l.quantity) || 1;
-        const pkgSize = Number(l.item?.packagingSize || l.packagingSize) || (isMeterUomCode(resolvedUom) ? 0 : 10);
-        const pkgUnit = l.item?.packagingUnit || (isMeterUomCode(resolvedUom) ? 'Coil' : 'Carton');
+        const pkgSize = Number(l.item?.packagingSize || l.packagingSize) || (isMeterUomCode(resolvedUom) ? 250 : resolvedUom === 'KG' ? 1 : 10);
+        const pkgUnit = formatPkgUnitLabel(l.item?.packagingUnit || l.packagingUnit, resolvedUom, true);
         const pkgQty = pkgSize > 1 ? Number((resolvedQty / pkgSize).toFixed(2)) : undefined;
         const lineOrderQty = l.orderQuantity != null
           ? Number(l.orderQuantity)
@@ -1415,7 +2359,8 @@ const SalesDeliveryManagement: React.FC = () => {
       setPendingFormValues(null);
       setPendingExcessWarnings([]);
       setModalVisible(false);
-      fetchData(page, pageSize);
+      tabSessionCache.remove(SALES_ORDERS_MODAL_CACHE_KEY);
+      await fetchData({ forceRefresh: true });
     } catch (error: any) {
       const resp = error?.response?.data;
       if (resp?.code === 'CREDIT_POLICY_VIOLATION') {
@@ -1944,7 +2889,8 @@ const SalesDeliveryManagement: React.FC = () => {
           ? { creditOverride: true, creditOverrideReason: overrideOptions.creditOverrideReason }
           : undefined;
         await apiService.patch(`/sales/deliveries/${record.id}/${actionKey}`, patchBody);
-        await fetchData(page, pageSize);
+        tabSessionCache.remove(SALES_ORDERS_MODAL_CACHE_KEY);
+        await fetchData({ forceRefresh: true });
         if (detailVisible && detailItem?.id === record.id) {
           handleViewDetail(record);
         }
@@ -1972,7 +2918,8 @@ const SalesDeliveryManagement: React.FC = () => {
         const createdInvoiceNo = createdInvoice?.invoiceNo || 'created';
         triggerTabRefresh('/sales/invoices');
         triggerTabRefresh('/dashboard');
-        await fetchData(page, pageSize);
+        tabSessionCache.remove(SALES_ORDERS_MODAL_CACHE_KEY);
+        await fetchData({ forceRefresh: true });
         if (detailVisible && detailItem?.id === record.id) {
           handleViewDetail(record);
         }
@@ -1991,7 +2938,8 @@ const SalesDeliveryManagement: React.FC = () => {
           loadingStep: `Deleting Delivery Note ${record.deliveryNumber}...`,
         }));
         await apiService.delete(`/sales/deliveries/${record.id}`);
-        await fetchData(page, pageSize);
+        tabSessionCache.remove(SALES_ORDERS_MODAL_CACHE_KEY);
+        await fetchData({ forceRefresh: true });
         if (detailVisible && detailItem?.id === record.id) {
           setDetailVisible(false);
         }
@@ -2043,7 +2991,7 @@ const SalesDeliveryManagement: React.FC = () => {
           setDetailItem(updated);
         }
       }
-      await fetchData(page, pageSize);
+      await fetchData({ forceRefresh: true });
       message.success(`Standard 18% Tax applied to ${rec.deliveryNumber}`);
     } catch (err: any) {
       const msg = err?.response?.data?.message || err?.message || 'Failed to apply 18% tax';
@@ -2061,7 +3009,8 @@ const SalesDeliveryManagement: React.FC = () => {
     }
     try {
       await apiService.patch(`/sales/deliveries/${id}/${action}`);
-      fetchData(page, pageSize);
+      tabSessionCache.remove(SALES_ORDERS_MODAL_CACHE_KEY);
+      await fetchData({ forceRefresh: true });
     } catch (error: any) {
       const resp = error?.response?.data;
       const msg = resp?.message || error?.message;
@@ -2126,6 +3075,8 @@ const SalesDeliveryManagement: React.FC = () => {
                   {socList.map((soc: string, sIdx: number) => {
                     const summary = soSummaryList.find((s: any) => s.socNumber === soc);
                     const isMulti = socList.length > 1;
+                    const recUnits = resolveDeliveryUnits(record, divisions);
+                    const socPkgLabel = formatPkgUnitLabel(summary?.packagingUnit, recUnits.uom);
                     return (
                       <span
                         key={sIdx}
@@ -2146,7 +3097,7 @@ const SalesDeliveryManagement: React.FC = () => {
                         <BranchesOutlined style={{ marginRight: 2 }} /> {soc}
                         {summary && isMulti && (
                           <span style={{ fontSize: 10, fontWeight: 800, color: sIdx === 0 ? '#0369a1' : '#7c3aed', marginLeft: 2 }}>
-                            ({summary.thisDeliveryCartons} CTN)
+                            ({formatQtyClean(summary.thisDeliveryCartons)} {socPkgLabel})
                           </span>
                         )}
                       </span>
@@ -2274,77 +3225,151 @@ const SalesDeliveryManagement: React.FC = () => {
         </span>
       ),
       key: 'quantities',
-      width: 250,
+      width: 265,
       render: (_, record) => {
         const soSummaryList: any[] = (record as any).salesOrdersSummary || [];
-        const orderCtn = record.totalOrderCartons ?? (record.totalOrderQuantity ? Number((record.totalOrderQuantity / 10).toFixed(1)) : 0);
-        const orderQty = record.totalOrderQuantity ?? (orderCtn * 10);
-        const dispCtn = record.totalDispatchCartons ?? (record.totalDispatchQuantity ? Number((record.totalDispatchQuantity / 10).toFixed(1)) : 0);
-        const dispQty = record.totalDispatchQuantity ?? (dispCtn * 10);
-        const balCtn = record.totalBalanceCartons ?? (record.totalBalanceQuantity ? Number((record.totalBalanceQuantity / 10).toFixed(1)) : 0);
-        const balQty = record.totalBalanceQuantity ?? (balCtn * 10);
-        const isDone = record.isCompleted || (orderQty > 0 && balQty <= 0);
-        const pct = orderQty > 0 ? Math.min(100, Math.round(((orderQty - balQty) / orderQty) * 100)) : 100;
+        const q = computeDeliveryQuantities(record, divisions);
 
         const popoverContent = (
-          <div style={{ maxWidth: 380, padding: 4 }}>
-            {soSummaryList.length > 1 && (
-              <div style={{ marginBottom: 12 }}>
-                <div style={{ fontWeight: 800, fontSize: 13, marginBottom: 6, color: '#0369a1' }}>
-                  Per-SOC Breakdown ({soSummaryList.length} Orders in this Delivery)
+          <div style={{ maxWidth: 420, padding: 4 }}>
+            {soSummaryList.length > 0 && (
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ fontWeight: 700, fontSize: 12.5, marginBottom: 6, color: token.colorPrimary }}>
+                  {soSummaryList.length > 1
+                    ? `Per-SOC Breakdown (${soSummaryList.length} Orders in this Delivery)`
+                    : 'Cumulative Dispatch Progress (As of This Delivery)'}
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {soSummaryList.map((soc: any, sIdx: number) => (
-                    <div key={sIdx} style={{ padding: '6px 8px', background: '#f0f9ff', borderRadius: 6, border: '1px solid #bae6fd' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontWeight: 800, fontSize: 12, color: sIdx === 0 ? '#0284c7' : '#7c3aed' }}>
-                          <BranchesOutlined style={{ marginRight: 3 }} /> {soc.socNumber}
-                        </span>
-                        <span style={{ fontWeight: 700, fontSize: 11, color: soc.isCompleted ? '#16a34a' : '#ea580c' }}>
-                          {soc.isCompleted ? '✅ Complete' : `Bal: ${soc.balanceCartons} CTN`}
-                        </span>
+                  {soSummaryList.map((soc: any, sIdx: number) => {
+                    const socUom = normalizeSalesUomCode(soc.uom) || q.uom;
+                    const socPkg = formatPkgUnitLabel(soc.packagingUnit, socUom);
+                    const sOrdCtn = Number(soc.totalOrderCartons ?? 0);
+                    const sOrdQty = Number(soc.totalOrderQuantity ?? 0);
+                    const sPrevCtn = Number(soc.previousCartons ?? Math.max(0, Number(soc.totalShippedCartons ?? 0) - Number(soc.thisDeliveryCartons ?? 0)));
+                    const sDispCtn = Number(soc.thisDeliveryCartons ?? 0);
+                    const sDispQty = Number(soc.thisDeliveryQuantity ?? 0);
+                    const sCumCtn = Number(soc.totalShippedCartons ?? sDispCtn);
+                    const sCumQty = Number(soc.totalShippedQuantity ?? sDispQty);
+                    const sBalCtn = Number(soc.balanceCartons ?? Math.max(0, sOrdCtn - sCumCtn));
+                    const sBalQty = Number(soc.balanceQuantity ?? Math.max(0, sOrdQty - sCumQty));
+                    const sPct = soc.completionPercent ?? (sOrdQty > 0 ? Math.min(100, Math.round((sCumQty / sOrdQty) * 100)) : 100);
+                    const sDone = Boolean(soc.isCompleted) || (sOrdQty > 0 && sBalQty <= 0.001);
+                    return (
+                      <div
+                        key={sIdx}
+                        style={{
+                          padding: '6px 8px',
+                          background: token.colorFillAlter,
+                          borderRadius: 6,
+                          border: `1px solid ${token.colorBorderSecondary}`,
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                          <span style={{ fontWeight: 700, fontSize: 12, color: token.colorPrimary }}>
+                            <BranchesOutlined style={{ marginRight: 3 }} /> {soc.socNumber}
+                          </span>
+                          <span style={{ fontWeight: 700, fontSize: 11, color: sDone ? token.colorSuccess : token.colorWarning }}>
+                            {sDone ? (
+                              <span>
+                                <CheckCircleOutlined style={{ marginRight: 3 }} /> 0 {socPkg} (0 {socUom}) · Complete
+                              </span>
+                            ) : (
+                              `Bal After: ${formatQtyClean(sBalCtn)} ${socPkg} (${formatQtyClean(sBalQty)} ${socUom})`
+                            )}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginTop: 4, color: token.colorTextSecondary, gap: 6, flexWrap: 'wrap' }}>
+                          <span>Ord: <b style={{ color: token.colorText }}>{formatQtyClean(sOrdCtn)} {socPkg}</b> ({formatQtyClean(sOrdQty)} {socUom})</span>
+                          <span>Prev: <b>{formatQtyClean(sPrevCtn)} {socPkg}</b></span>
+                          <span style={{ color: token.colorPrimary }}>This Disp: <b>{formatQtyClean(sDispCtn)} {socPkg}</b></span>
+                          <span style={{ color: token.colorSuccess }}>
+                            Cumulative: <b>{formatQtyClean(sCumCtn)} / {formatQtyClean(sOrdCtn)} {socPkg} ({sDone ? '100% Complete' : `${sPct}%`})</b>
+                          </span>
+                        </div>
                       </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginTop: 4, color: '#475569' }}>
-                        <span>Ord: <b>{soc.totalOrderCartons} CTN</b></span>
-                        <span style={{ color: '#2563eb' }}>This Disp: <b>{soc.thisDeliveryCartons} CTN</b></span>
-                        <span style={{ color: '#059669' }}>Shipped: <b>{soc.totalShippedCartons} CTN</b></span>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
-            <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8, color: '#1e293b' }}>
+            <div style={{ fontWeight: 700, fontSize: 12.5, marginBottom: 8, color: token.colorText }}>
               Itemized Delivery Breakdown
             </div>
             {record.itemsSummary && record.itemsSummary.length > 0 ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {record.itemsSummary.map((item, idx) => (
-                  <div key={idx} style={{ padding: '6px 8px', background: '#f8fafc', borderRadius: 6, border: '1px solid #e2e8f0' }}>
-                    <div style={{ fontWeight: 600, fontSize: 12, color: '#0f172a', display: 'flex', justifyContent: 'space-between' }}>
-                      <span>{item.itemCode ? `[${item.itemCode}] ` : ''}{item.itemName || 'Item'}</span>
-                      {item.socNumber && (
-                        <Tag color="purple" style={{ margin: 0, fontSize: 10, fontWeight: 700 }}>
-                          {item.socNumber}
-                        </Tag>
-                      )}
+                {record.itemsSummary.map((item, idx) => {
+                  const iUom = normalizeSalesUomCode(item.uom) || q.uom;
+                  const iPkgUnit = formatPkgUnitLabel(item.packagingUnit, iUom);
+                  const iPkgSize = Number(item.packagingSize) > 0
+                    ? Number(item.packagingSize)
+                    : (iUom === 'M' ? 250 : iUom === 'KG' ? 1 : 10);
+                  const scaleItemPkg = (qtyVal: number, explicitPkg?: number | null) =>
+                    explicitPkg != null && Number.isFinite(Number(explicitPkg))
+                      ? Number(explicitPkg)
+                      : (iPkgSize > 1 ? Number((qtyVal / iPkgSize).toFixed(2)) : Number(qtyVal.toFixed(2)));
+                  const iOrdQty = Number(item.orderedQuantity ?? 0);
+                  const iOrdCtn = scaleItemPkg(iOrdQty, item.orderedCartons);
+                  const iDispQty = Number(item.dispatchedQuantity ?? 0);
+                  const iDispCtn = scaleItemPkg(iDispQty, item.dispatchedCartons);
+                  const iCumQty = Number(item.totalShippedQuantity ?? iDispQty);
+                  const iCumCtn = scaleItemPkg(iCumQty, item.totalShippedCartons);
+                  const iPrevQty = Number(item.previousDispatchedQuantity ?? Math.max(0, iCumQty - iDispQty));
+                  const iPrevCtn = scaleItemPkg(iPrevQty, item.previousDispatchedCartons);
+                  const iBalQty = Number(item.balanceQuantity ?? Math.max(0, iOrdQty - iCumQty));
+                  const iBalCtn = scaleItemPkg(iBalQty, item.balanceCartons);
+                  const iPct = item.completionPercent ?? (iOrdQty > 0 ? Math.min(100, Math.round((iCumQty / iOrdQty) * 100)) : 100);
+                  const iDone = Boolean(item.isCompleted) || (iOrdQty > 0 && iBalQty <= 0.001);
+                  return (
+                    <div
+                      key={idx}
+                      style={{
+                        padding: '6px 8px',
+                        background: token.colorFillAlter,
+                        borderRadius: 6,
+                        border: `1px solid ${token.colorBorderSecondary}`,
+                      }}
+                    >
+                      <div style={{ fontWeight: 600, fontSize: 12, color: token.colorText, display: 'flex', justifyContent: 'space-between', gap: 6 }}>
+                        <span>{item.itemCode ? `[${item.itemCode}] ` : ''}{item.itemName || 'Item'}</span>
+                        {item.socNumber && (
+                          <Tag color="purple" style={{ margin: 0, fontSize: 10, fontWeight: 700 }}>
+                            {item.socNumber}
+                          </Tag>
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginTop: 4, color: token.colorTextSecondary, gap: 8 }}>
+                        <span>
+                          Ordered: <b style={{ color: token.colorText }}>{iOrdQty > 0 ? `${formatQtyClean(iOrdCtn)} ${iPkgUnit}` : '—'}</b>
+                          {iOrdQty > 0 ? ` (${formatQtyClean(iOrdQty)} ${iUom})` : ''}
+                        </span>
+                        <span style={{ color: token.colorPrimary }}>
+                          This Disp: <b>{formatQtyClean(iDispCtn)} {iPkgUnit}</b> ({formatQtyClean(iDispQty)} {iUom})
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginTop: 2, gap: 8, color: token.colorTextSecondary }}>
+                        <span>
+                          Prev: <b>{formatQtyClean(iPrevCtn)} {iPkgUnit}</b> · Cum:{' '}
+                          <b style={{ color: token.colorSuccess }}>
+                            {formatQtyClean(iCumCtn)}{iOrdCtn > 0 ? ` / ${formatQtyClean(iOrdCtn)}` : ''} {iPkgUnit} ({iPct}%)
+                          </b>
+                        </span>
+                        <span style={{ fontWeight: 700, color: iDone ? token.colorSuccess : token.colorWarning }}>
+                          {iDone ? (
+                            <span>
+                              <CheckCircleOutlined style={{ marginRight: 3 }} /> Bal: 0 {iPkgUnit} (0 {iUom})
+                            </span>
+                          ) : (
+                            `Bal: ${formatQtyClean(iBalCtn)} ${iPkgUnit} (${formatQtyClean(iBalQty)} ${iUom})`
+                          )}
+                        </span>
+                      </div>
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginTop: 4, color: '#475569' }}>
-                      <span>Ordered: <b>{item.orderedCartons} CTN</b> ({item.orderedQuantity} GRS)</span>
-                      <span style={{ color: '#2563eb' }}>This Disp: <b>{item.dispatchedCartons} CTN</b></span>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginTop: 2 }}>
-                      <span style={{ color: '#059669' }}>Total Shipped: <b>{item.totalShippedCartons} CTN</b></span>
-                      <span style={{ fontWeight: 700, color: item.isCompleted ? '#16a34a' : '#d97706' }}>
-                        {item.isCompleted ? '✅ Complete' : `Bal: ${item.balanceCartons} CTN`}
-                      </span>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
-              <div style={{ fontSize: 12, color: '#64748b' }}>
-                Dispatch: {dispCtn} CTN ({dispQty} GRS)
+              <div style={{ fontSize: 12, color: token.colorTextSecondary }}>
+                Dispatch: {formatQtyClean(q.dispCtn)} {q.pkgUnit} ({formatQtyClean(q.dispQty)} {q.uom})
               </div>
             )}
           </div>
@@ -2353,63 +3378,87 @@ const SalesDeliveryManagement: React.FC = () => {
         return (
           <Popover content={popoverContent} title={null} trigger="hover">
             <div style={{ display: 'flex', flexDirection: 'column', gap: 3, cursor: 'pointer' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: 11, color: '#64748b', fontWeight: 500 }}>Ordered:</span>
-                <span style={{ fontSize: 12, fontWeight: 700, color: '#1e293b' }}>
-                  {orderCtn > 0 ? `${orderCtn} CTN` : '-'} <span style={{ fontSize: 10, color: '#64748b', fontWeight: 'normal' }}>({orderQty} GRS)</span>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 11, color: token.colorTextSecondary, fontWeight: 500 }}>Ordered:</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: token.colorText }}>
+                  {q.orderCtn > 0 ? `${formatQtyClean(q.orderCtn)} ${q.pkgUnit}` : '-'}{' '}
+                  <span style={{ fontSize: 10, color: token.colorTextSecondary, fontWeight: 'normal' }}>
+                    ({formatQtyClean(q.orderQty)} {q.uom})
+                  </span>
                 </span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: 11, color: '#2563eb', fontWeight: 600 }}>Dispatched:</span>
-                <span style={{ fontSize: 12, fontWeight: 700, color: '#2563eb' }}>
-                  {dispCtn} CTN <span style={{ fontSize: 10, color: '#3b82f6', fontWeight: 'normal' }}>({dispQty} GRS)</span>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 11, color: token.colorPrimary, fontWeight: 600 }}>Dispatched:</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: token.colorPrimary }}>
+                  {formatQtyClean(q.dispCtn)} {q.pkgUnit}{' '}
+                  <span style={{ fontSize: 10, color: token.colorPrimary, fontWeight: 'normal', opacity: 0.85 }}>
+                    ({formatQtyClean(q.dispQty)} {q.uom})
+                  </span>
                 </span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: 11, color: isDone ? '#16a34a' : '#d97706', fontWeight: 600 }}>Balance:</span>
-                <span style={{ fontSize: 12, fontWeight: 800, color: isDone ? '#16a34a' : '#ea580c' }}>
-                  {isDone ? (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 11, color: q.isDone ? token.colorSuccess : token.colorWarning, fontWeight: 600 }}>
+                  Balance After:
+                </span>
+                <span style={{ fontSize: 12, fontWeight: 800, color: q.isDone ? token.colorSuccess : token.colorWarning }}>
+                  {q.isDone ? (
                     <Tag color="success" style={{ margin: 0, fontWeight: 700 }}>
-                      <CheckCircleOutlined style={{ marginRight: 3 }} /> Complete (0 Bal)
+                      <CheckCircleOutlined style={{ marginRight: 3 }} /> 0 {q.pkgUnit} (0 {q.uom})
                     </Tag>
                   ) : (
-                    `${balCtn} CTN (${balQty} GRS)`
+                    `${formatQtyClean(q.balCtn)} ${q.pkgUnit} (${formatQtyClean(q.balQty)} ${q.uom})`
                   )}
                 </span>
               </div>
-              {soSummaryList.length > 1 && (
-                <div style={{ marginTop: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  {soSummaryList.map((soc: any, sIdx: number) => (
-                    <div
-                      key={sIdx}
-                      style={{
-                        fontSize: 10,
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        color: '#334155',
-                        background: sIdx === 0 ? 'rgba(56, 189, 248, 0.08)' : 'rgba(192, 132, 252, 0.1)',
-                        border: `1px solid ${sIdx === 0 ? 'rgba(56, 189, 248, 0.25)' : 'rgba(192, 132, 252, 0.25)'}`,
-                        padding: '1px 5px',
-                        borderRadius: 4,
-                      }}
-                    >
-                      <span style={{ fontWeight: 700, color: sIdx === 0 ? '#0284c7' : '#7c3aed' }}>
-                        {soc.socNumber}:
-                      </span>
-                      <span>
-                        Disp: <b>{soc.thisDeliveryCartons}</b> | Bal: <b style={{ color: soc.isCompleted ? '#16a34a' : '#ea580c' }}>{soc.balanceCartons}</b> CTN
-                      </span>
-                    </div>
-                  ))}
+              {q.orderQty > 0 && (
+                <div style={{ fontSize: 10.5, color: token.colorTextSecondary, display: 'flex', justifyContent: 'space-between' }}>
+                  <span>Cumulative:</span>
+                  <span style={{ fontWeight: 700, color: q.isDone ? token.colorSuccess : token.colorText }}>
+                    {formatQtyClean(q.cumCtn)} / {formatQtyClean(q.orderCtn)} {q.pkgUnit} ({q.isDone ? '100% Complete' : `${q.pct}%`})
+                  </span>
                 </div>
               )}
-              {orderQty > 0 && (
+              {soSummaryList.length > 1 && (
+                <div style={{ marginTop: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  {soSummaryList.map((soc: any, sIdx: number) => {
+                    const socUom = normalizeSalesUomCode(soc.uom) || q.uom;
+                    const socPkg = formatPkgUnitLabel(soc.packagingUnit, socUom);
+                    return (
+                      <div
+                        key={sIdx}
+                        style={{
+                          fontSize: 10,
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          color: token.colorText,
+                          background: sIdx === 0 ? 'rgba(56, 189, 248, 0.08)' : 'rgba(192, 132, 252, 0.1)',
+                          border: `1px solid ${sIdx === 0 ? 'rgba(56, 189, 248, 0.25)' : 'rgba(192, 132, 252, 0.25)'}`,
+                          padding: '1px 5px',
+                          borderRadius: 4,
+                        }}
+                      >
+                        <span style={{ fontWeight: 700, color: sIdx === 0 ? token.colorPrimary : '#7c3aed' }}>
+                          {soc.socNumber}:
+                        </span>
+                        <span>
+                          Disp: <b>{formatQtyClean(soc.thisDeliveryCartons)}</b> | Bal:{' '}
+                          <b style={{ color: soc.isCompleted ? token.colorSuccess : token.colorWarning }}>
+                            {formatQtyClean(soc.balanceCartons)}
+                          </b>{' '}
+                          {socPkg}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {q.orderQty > 0 && (
                 <Progress
-                  percent={pct}
+                  percent={q.pct}
                   size="small"
-                  status={isDone ? 'success' : 'active'}
-                  strokeColor={isDone ? '#16a34a' : '#2563eb'}
+                  status={q.isDone ? 'success' : 'active'}
+                  strokeColor={q.isDone ? token.colorSuccess : token.colorPrimary}
                   style={{ margin: 0 }}
                 />
               )}
@@ -2528,6 +3577,58 @@ const SalesDeliveryManagement: React.FC = () => {
                 onClick={() => requestActionConfirmation(record, 'gate_pass')}
               >
                 <SafetyCertificateOutlined />
+              </button>
+            </Tooltip>
+            <Tooltip title="Share Delivery / Gate Pass via WhatsApp">
+              <button
+                className="inv-action-btn inv-btn-wa"
+                onClick={() => {
+                  const cust = customers.find((c) => c.id === record.customerId);
+                  const custName =
+                    record.companyName ||
+                    (cust as any)?.name ||
+                    (cust as any)?.companyName ||
+                    'Customer';
+                  const q = computeDeliveryQuantities(record, divisions);
+                  const itemLines = Array.isArray(record.itemsSummary) && record.itemsSummary.length > 0
+                    ? record.itemsSummary
+                        .slice(0, 8)
+                        .map(
+                          (it, idx) =>
+                            `${idx + 1}. *${it.itemCode || ''} ${it.itemName || 'Item'}*: ${formatQtyClean(Number(it.dispatchedQuantity || 0))} ${normalizeSalesUomCode(it.uom) || q.uom}`,
+                        )
+                        .join('\n')
+                    : Array.isArray(record.lines) && record.lines.length > 0
+                      ? record.lines
+                          .slice(0, 8)
+                          .map(
+                            (ln: any, idx: number) =>
+                              `${idx + 1}. *${ln.description || ln.item?.name || 'Item'}*: ${formatQtyClean(Number(ln.quantity || 0))} ${normalizeSalesUomCode(ln.uom?.code || ln.uomCode) || q.uom}`,
+                          )
+                          .join('\n')
+                      : 'See Delivery Challan details.';
+                  openWhatsAppWithTemplate(
+                    '[DN-GP]',
+                    {
+                      company: DEFAULT_COMPANY_NAME,
+                      customer: custName,
+                      doc_no: record.deliveryNumber || '',
+                      gate_pass_no: record.gatePassNumber || '—',
+                      soc_no: record.salesOrderNumber || record.salesOrder?.orderNumber || '—',
+                      customer_po: record.customerPo || record.salesOrder?.customerPo || '—',
+                      date: record.deliveryDate || '—',
+                      division: record.divisionName || record.salesOrder?.division?.name || '—',
+                      carrier: record.carrier || '—',
+                      vehicle_no: record.trackingNumber || '—',
+                      total_qty: `${formatQtyClean(q.dispQty)} ${q.uom}`,
+                      total_cartons: q.dispCtn > 0 ? `${formatQtyClean(q.dispCtn)} ${q.pkgUnit}` : '—',
+                      items: itemLines,
+                    },
+                    (cust as any)?.phone,
+                  );
+                }}
+              >
+                <WhatsAppOutlined />
               </button>
             </Tooltip>
             <Tooltip title="Edit Delivery">
@@ -2663,7 +3764,7 @@ const SalesDeliveryManagement: React.FC = () => {
     return displayedDeliveries.slice(start, start + pageSize);
   }, [displayedDeliveries, page, pageSize]);
 
-  // Active Sheet KPI Summary Metrics
+  // Active Sheet KPI Summary Metrics (Division / UOM Aware)
   const activeSheetMetrics = useMemo(() => {
     let totalGross = 0;
     let totalCartons = 0;
@@ -2672,16 +3773,19 @@ const SalesDeliveryManagement: React.FC = () => {
     const itemSet = new Set<string>();
     const carrierSet = new Set<string>();
     const customerSet = new Set<string>();
+    const uomBuckets = new Map<string, number>();
+    const pkgBuckets = new Map<string, number>();
 
     displayedDeliveries.forEach(del => {
-      const dispCtn = del.totalDispatchCartons ?? (del.totalDispatchQuantity ? Number((del.totalDispatchQuantity / 10).toFixed(1)) : 0);
-      const dispQty = del.totalDispatchQuantity ?? (dispCtn * 10);
-      const ordQty = del.totalOrderQuantity ?? (dispQty);
+      const q = computeDeliveryQuantities(del, divisions);
 
-      totalGross += Number(dispQty) || 0;
-      totalCartons += Number(dispCtn) || 0;
+      totalGross += q.dispQty;
+      totalCartons += q.dispCtn;
       totalValue += Number(del.totalAmount) || 0;
-      totalOrderGross += Number(ordQty) || 0;
+      totalOrderGross += q.orderQty || q.dispQty;
+
+      uomBuckets.set(q.uom, (uomBuckets.get(q.uom) || 0) + q.dispQty);
+      pkgBuckets.set(q.pkgUnit, (pkgBuckets.get(q.pkgUnit) || 0) + q.dispCtn);
 
       if (del.carrier) carrierSet.add(del.carrier);
       if (del.customerId) customerSet.add(del.customerId);
@@ -2704,6 +3808,24 @@ const SalesDeliveryManagement: React.FC = () => {
     const distinctCarriersCount = carrierSet.size;
     const distinctCustomersCount = customerSet.size;
 
+    const uomKeys = Array.from(uomBuckets.keys());
+    const pkgKeys = Array.from(pkgBuckets.keys());
+    const primaryUomLabel = uomKeys.length === 1 ? uomKeys[0] : (uomKeys.length > 1 ? 'Mixed Units' : 'GRS');
+    const primaryPkgLabel = pkgKeys.length === 1 ? pkgKeys[0] : (pkgKeys.length > 1 ? pkgKeys.join(' / ') : 'CTN');
+    const pkgNoun = pkgKeys.length === 1 ? (pkgKeys[0] === 'CTN' ? 'Cartons' : pkgKeys[0]) : 'Packages';
+    const uomBreakdownSub =
+      uomKeys.length > 1
+        ? Array.from(uomBuckets.entries())
+            .map(([u, qty]) => `${formatQtyClean(qty)} ${u}`)
+            .join(' · ')
+        : undefined;
+    const pkgBreakdownSub =
+      pkgKeys.length > 1
+        ? Array.from(pkgBuckets.entries())
+            .map(([p, qty]) => `${formatQtyClean(qty)} ${p}`)
+            .join(' · ')
+        : undefined;
+
     return {
       totalNotes,
       totalGross,
@@ -2713,10 +3835,21 @@ const SalesDeliveryManagement: React.FC = () => {
       distinctItemsCount,
       distinctCarriersCount,
       distinctCustomersCount,
+      primaryUomLabel,
+      primaryPkgLabel,
+      pkgNoun,
+      uomBreakdownSub,
+      pkgBreakdownSub,
     };
-  }, [displayedDeliveries]);
+  }, [displayedDeliveries, divisions]);
 
   const currentSheetConfig = useMemo(() => {
+    const qtyValStr = formatQtyClean(activeSheetMetrics.totalGross);
+    const pkgValStr = formatQtyClean(activeSheetMetrics.totalCartons);
+    const uomUnit = activeSheetMetrics.primaryUomLabel;
+    const pkgUnit = activeSheetMetrics.primaryPkgLabel;
+    const pkgNoun = activeSheetMetrics.pkgNoun;
+
     switch (activeChevron) {
       case 'DRAFT':
         return {
@@ -2734,19 +3867,21 @@ const SalesDeliveryManagement: React.FC = () => {
             icon: <EditOutlined />,
           },
           card2: {
-            title: 'Draft Dispatched Gross',
-            value: `${activeSheetMetrics.totalGross.toLocaleString()}`,
-            unit: 'GRS',
-            sub: 'Packaged quantity ready in store',
+            title: `Draft Dispatched Qty (${uomUnit})`,
+            value: qtyValStr,
+            unit: uomUnit,
+            sub: activeSheetMetrics.uomBreakdownSub || 'Packaged quantity ready in store',
             bg: 'linear-gradient(135deg, rgba(16, 185, 129, 0.2) 0%, rgba(6, 95, 70, 0.32) 100%)',
             glow: '#10b981',
             icon: <InboxOutlined />,
           },
           card3: {
-            title: 'Draft Cartons & SKUs',
-            value: `${activeSheetMetrics.totalCartons.toLocaleString()}`,
-            unit: 'CTN',
-            sub: `${activeSheetMetrics.distinctItemsCount} Product lines queued`,
+            title: `Draft ${pkgNoun} & SKUs`,
+            value: pkgValStr,
+            unit: pkgUnit,
+            sub: activeSheetMetrics.pkgBreakdownSub
+              ? `${activeSheetMetrics.pkgBreakdownSub} | ${activeSheetMetrics.distinctItemsCount} SKUs`
+              : `${activeSheetMetrics.distinctItemsCount} Product lines queued`,
             bg: 'linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(30, 58, 138, 0.32) 100%)',
             glow: '#3b82f6',
             icon: <ShopOutlined />,
@@ -2778,19 +3913,21 @@ const SalesDeliveryManagement: React.FC = () => {
             icon: <CarOutlined />,
           },
           card2: {
-            title: 'Dispatched Gross en Route',
-            value: `${activeSheetMetrics.totalGross.toLocaleString()}`,
-            unit: 'GRS',
-            sub: 'Consignments currently in transit',
+            title: `Dispatched Qty en Route (${uomUnit})`,
+            value: qtyValStr,
+            unit: uomUnit,
+            sub: activeSheetMetrics.uomBreakdownSub || 'Consignments currently in transit',
             bg: 'linear-gradient(135deg, rgba(16, 185, 129, 0.2) 0%, rgba(6, 95, 70, 0.32) 100%)',
             glow: '#10b981',
             icon: <InboxOutlined />,
           },
           card3: {
-            title: 'En-Route Cartons & SKUs',
-            value: `${activeSheetMetrics.totalCartons.toLocaleString()}`,
-            unit: 'CTN',
-            sub: `${activeSheetMetrics.distinctItemsCount} Product lines in vehicle`,
+            title: `En-Route ${pkgNoun} & SKUs`,
+            value: pkgValStr,
+            unit: pkgUnit,
+            sub: activeSheetMetrics.pkgBreakdownSub
+              ? `${activeSheetMetrics.pkgBreakdownSub} | ${activeSheetMetrics.distinctItemsCount} SKUs`
+              : `${activeSheetMetrics.distinctItemsCount} Product lines in vehicle`,
             bg: 'linear-gradient(135deg, rgba(232, 154, 36, 0.2) 0%, rgba(180, 83, 9, 0.32) 100%)',
             glow: '#e89a24',
             icon: <ShopOutlined />,
@@ -2822,19 +3959,21 @@ const SalesDeliveryManagement: React.FC = () => {
             icon: <CheckCircleOutlined />,
           },
           card2: {
-            title: 'Delivered Gross Volume',
-            value: `${activeSheetMetrics.totalGross.toLocaleString()}`,
-            unit: 'GRS',
-            sub: 'Physical volume delivered to clients',
+            title: `Delivered Volume (${uomUnit})`,
+            value: qtyValStr,
+            unit: uomUnit,
+            sub: activeSheetMetrics.uomBreakdownSub || 'Physical volume delivered to clients',
             bg: 'linear-gradient(135deg, rgba(14, 165, 233, 0.2) 0%, rgba(3, 105, 161, 0.32) 100%)',
             glow: '#0ea5e9',
             icon: <InboxOutlined />,
           },
           card3: {
-            title: 'Delivered Cartons & SKUs',
-            value: `${activeSheetMetrics.totalCartons.toLocaleString()}`,
-            unit: 'CTN',
-            sub: `${activeSheetMetrics.distinctItemsCount} Product SKUs delivered`,
+            title: `Delivered ${pkgNoun} & SKUs`,
+            value: pkgValStr,
+            unit: pkgUnit,
+            sub: activeSheetMetrics.pkgBreakdownSub
+              ? `${activeSheetMetrics.pkgBreakdownSub} | ${activeSheetMetrics.distinctItemsCount} SKUs`
+              : `${activeSheetMetrics.distinctItemsCount} Product SKUs delivered`,
             bg: 'linear-gradient(135deg, rgba(232, 154, 36, 0.2) 0%, rgba(180, 83, 9, 0.32) 100%)',
             glow: '#e89a24',
             icon: <ShopOutlined />,
@@ -2866,18 +4005,18 @@ const SalesDeliveryManagement: React.FC = () => {
             icon: <StopOutlined />,
           },
           card2: {
-            title: 'Cancelled Gross Volume',
-            value: `${activeSheetMetrics.totalGross.toLocaleString()}`,
-            unit: 'GRS',
-            sub: 'Restored back to finished stock',
+            title: `Cancelled Volume (${uomUnit})`,
+            value: qtyValStr,
+            unit: uomUnit,
+            sub: activeSheetMetrics.uomBreakdownSub || 'Restored back to finished stock',
             bg: 'linear-gradient(135deg, rgba(232, 154, 36, 0.2) 0%, rgba(180, 83, 9, 0.32) 100%)',
             glow: '#e89a24',
             icon: <InboxOutlined />,
           },
           card3: {
-            title: 'Cancelled Cartons',
-            value: `${activeSheetMetrics.totalCartons.toLocaleString()}`,
-            unit: 'CTN',
+            title: `Cancelled ${pkgNoun}`,
+            value: pkgValStr,
+            unit: pkgUnit,
             sub: `${activeSheetMetrics.distinctItemsCount} Product lines unassigned`,
             bg: 'linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(30, 58, 138, 0.32) 100%)',
             glow: '#3b82f6',
@@ -2910,19 +4049,21 @@ const SalesDeliveryManagement: React.FC = () => {
             icon: <CarOutlined />,
           },
           card2: {
-            title: 'Dispatched Gross Quantity',
-            value: `${activeSheetMetrics.totalGross.toLocaleString()}`,
-            unit: 'GRS',
-            sub: 'Total quantity dispatched in pipeline',
+            title: `Dispatched Quantity (${uomUnit})`,
+            value: qtyValStr,
+            unit: uomUnit,
+            sub: activeSheetMetrics.uomBreakdownSub || 'Total quantity dispatched in pipeline',
             bg: 'linear-gradient(135deg, rgba(16, 185, 129, 0.2) 0%, rgba(6, 95, 70, 0.32) 100%)',
             glow: '#10b981',
             icon: <InboxOutlined />,
           },
           card3: {
-            title: 'Total Cartons & SKUs',
-            value: `${activeSheetMetrics.totalCartons.toLocaleString()}`,
-            unit: 'CTN',
-            sub: `${activeSheetMetrics.distinctItemsCount} Items | ${activeSheetMetrics.distinctCarriersCount} Carriers`,
+            title: `Total ${pkgNoun} & SKUs`,
+            value: pkgValStr,
+            unit: pkgUnit,
+            sub: activeSheetMetrics.pkgBreakdownSub
+              ? `${activeSheetMetrics.pkgBreakdownSub} | ${activeSheetMetrics.distinctItemsCount} Items`
+              : `${activeSheetMetrics.distinctItemsCount} Items | ${activeSheetMetrics.distinctCarriersCount} Carriers`,
             bg: 'linear-gradient(135deg, rgba(232, 154, 36, 0.2) 0%, rgba(180, 83, 9, 0.32) 100%)',
             glow: '#e89a24',
             icon: <ShopOutlined />,
@@ -3080,8 +4221,11 @@ const SalesDeliveryManagement: React.FC = () => {
                 placeholder="Search by DN#, Gate Pass#, SOC#, Customer, Carrier or Tracking..."
                 prefix={<SearchOutlined className="delivery-search-icon" />}
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                onPressEnter={() => fetchData(1, pageSize)}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setPage(1);
+                }}
+                onPressEnter={() => setPage(1)}
                 allowClear
               />
             </div>
@@ -3151,7 +4295,7 @@ const SalesDeliveryManagement: React.FC = () => {
             </Button>
             <Button
               icon={<ReloadOutlined spin={loading} />}
-              onClick={() => fetchData(page, pageSize)}
+              onClick={() => void fetchData({ forceRefresh: true })}
               className="delivery-tool-action-btn"
               title="Refresh Data"
             />
@@ -3330,7 +4474,7 @@ const SalesDeliveryManagement: React.FC = () => {
                   type="primary"
                   icon={<FilterOutlined />}
                   onClick={() => {
-                    fetchData(1, pageSize);
+                    setPage(1);
                     setFiltersCollapsed(true);
                   }}
                   loading={loading}
@@ -3350,7 +4494,8 @@ const SalesDeliveryManagement: React.FC = () => {
           rowKey="id"
           loading={loading}
           pagination={false}
-          className="inv-custom-table"
+          size="small"
+          className="inv-custom-table dn-compact-table"
           scroll={{ x: 'max-content' }}
         />
 
@@ -4418,7 +5563,19 @@ const SalesDeliveryManagement: React.FC = () => {
                           );
                         },
                       },
-                      { title: 'QTY', dataIndex: 'quantity', key: 'quantity', width: 100, align: 'right', render: (v: any) => formatDecimal(v) },
+                      {
+                        title: 'QTY',
+                        dataIndex: 'quantity',
+                        key: 'quantity',
+                        width: 120,
+                        align: 'right',
+                        render: (v: any, row: any) => {
+                          const rowUom =
+                            normalizeSalesUomCode(row?.uom?.code || row?.uomCode || row?.item?.salesUom?.code || row?.item?.baseUom?.code) ||
+                            resolveDeliveryUnits(detailItem, divisions).uom;
+                          return `${formatQtyClean(v)} ${rowUom}`;
+                        },
+                      },
                       { title: 'RATE', dataIndex: 'unitPrice', key: 'unitPrice', width: 120, align: 'right', render: (v: any) => `Rs ${formatDecimal(v)}` },
                       { title: 'TAX', dataIndex: 'taxAmount', key: 'taxAmount', width: 110, align: 'right', render: (v: any) => `Rs ${formatDecimal(v || 0)}` },
                       { title: 'AMOUNT', dataIndex: 'lineTotal', key: 'lineTotal', width: 130, align: 'right', render: (v: any) => <strong>Rs ${formatDecimal(v)}</strong> },

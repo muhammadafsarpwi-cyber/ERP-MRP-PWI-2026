@@ -117,4 +117,286 @@ describe('SalesDeliveryService — Per-SOC Dispatch Sequence Calculation', () =>
     expect(enriched.lines[1].balanceQuantity).toBe(0);
     expect(enriched.lines[1].isFinalDispatch).toBe(true);
   });
+
+  it('computes point-in-time cumulative progress and true Coils/M units for Control Cable Division (DN-00086, 00087, 00088)', async () => {
+    const SO_CCD = 'so-05882';
+    const ITEM_CCD = 'item-ccd-001';
+    const divCcd = { id: 'div-ccd', divisionCode: 'DIV-002-CCD', name: 'Control Cable Division' };
+
+    const makeDn = (id: string, num: string, date: string, qty: number) => ({
+      id,
+      companyId: COMP,
+      deliveryNumber: num,
+      status: 'CONFIRMED',
+      deliveryDate: date,
+      salesOrderId: SO_CCD,
+      salesOrder: { id: SO_CCD, orderNumber: 'SOC-2026-05882', divisionId: 'div-ccd', division: divCcd },
+      lines: [
+        {
+          id: `line-${num}`,
+          itemId: ITEM_CCD,
+          item: {
+            id: ITEM_CCD,
+            itemCode: 'CCD-FGR-001',
+            name: 'Control Cable 2 Core 2.5mm',
+            packagingSize: 250,
+            packagingUnit: null, // verify dynamic Coils/M resolution without CTN/GRS fallback
+            baseUom: { id: 'u-m', code: 'M' },
+          },
+          uom: null, // simulate missing line uomId that used to leak GRS/CTN
+          quantity: qty,
+          description: 'Control Cable 2 Core 2.5mm [SOC: SOC-2026-05882]',
+        },
+      ],
+    });
+
+    const dn86 = makeDn('dn-86', 'DN-2026-00086', '2026-11-10', 10000);
+    const dn87 = makeDn('dn-87', 'DN-2026-00087', '2026-11-12', 13000);
+    const dn88 = makeDn('dn-88', 'DN-2026-00088', '2026-11-15', 10000);
+
+    const managerQuery = jest.fn(async (sql: string) => {
+      if (sql.includes('FROM erp_sales.sales_orders so')) {
+        return [
+          {
+            id: SO_CCD,
+            order_number: 'SOC-2026-05882',
+            customer_po: 'PO-CCD-1',
+            division_id: 'div-ccd',
+            division_code: 'DIV-002-CCD',
+            division_name: 'Control Cable Division',
+            item_id: ITEM_CCD,
+            order_qty: 33000,
+            uom_code: 'M',
+            packaging_size: 250,
+            packaging_unit: null,
+            item_code: 'CCD-FGR-001',
+            item_name: 'Control Cable 2 Core 2.5mm',
+            base_uom_code: 'M',
+            sales_uom_code: 'M',
+          },
+        ];
+      }
+      if (sql.includes('FROM erp_sales.sales_deliveries sd')) {
+        return [
+          { delivery_id: 'dn-86', delivery_number: 'DN-2026-00086', status: 'CONFIRMED', delivery_date: '2026-11-10', item_id: ITEM_CCD, line_qty: 10000, description: '[SOC: SOC-2026-05882]', header_soc: 'SOC-2026-05882', packaging_size: 250 },
+          { delivery_id: 'dn-87', delivery_number: 'DN-2026-00087', status: 'CONFIRMED', delivery_date: '2026-11-12', item_id: ITEM_CCD, line_qty: 13000, description: '[SOC: SOC-2026-05882]', header_soc: 'SOC-2026-05882', packaging_size: 250 },
+          { delivery_id: 'dn-88', delivery_number: 'DN-2026-00088', status: 'CONFIRMED', delivery_date: '2026-11-15', item_id: ITEM_CCD, line_qty: 10000, description: '[SOC: SOC-2026-05882]', header_soc: 'SOC-2026-05882', packaging_size: 250 },
+        ];
+      }
+      if (sql.includes('FROM erp_sales.sales_invoices')) return [];
+      return [{ gate_pass_number: 'GP-15000' }];
+    });
+
+    const deliveryRepo: any = {
+      createQueryBuilder: jest.fn(() => makeQbMock([dn88, dn87, dn86])),
+      manager: { query: managerQuery },
+    };
+
+    const service = new SalesDeliveryService(
+      deliveryRepo,
+      {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any,
+    );
+
+    const res = await service.findAll({ companyId: COMP, page: 1, limit: 50 });
+    const byNum = new Map(res.data.map((d: any) => [d.deliveryNumber, d]));
+
+    const d86 = byNum.get('DN-2026-00086');
+    expect(d86.primaryUom).toBe('M');
+    expect(d86.primaryPackagingUnit).toBe('Coils');
+    expect(d86.totalOrderQuantity).toBe(33000);
+    expect(d86.totalOrderCartons).toBe(132);
+    expect(d86.totalPreviousQuantity).toBe(0);
+    expect(d86.totalDispatchQuantity).toBe(10000);
+    expect(d86.totalDispatchCartons).toBe(40);
+    expect(d86.totalDeliveredQuantity).toBe(10000);
+    expect(d86.totalDeliveredCartons).toBe(40);
+    expect(d86.totalBalanceQuantity).toBe(23000);
+    expect(d86.totalBalanceCartons).toBe(92);
+    expect(d86.completionPercent).toBe(30);
+    expect(d86.isCompleted).toBe(false);
+    expect(d86.itemsSummary[0]).toMatchObject({
+      uom: 'M',
+      packagingUnit: 'Coils',
+      orderedQuantity: 33000,
+      orderedCartons: 132,
+      previousDispatchedQuantity: 0,
+      previousDispatchedCartons: 0,
+      dispatchedQuantity: 10000,
+      dispatchedCartons: 40,
+      totalShippedQuantity: 10000,
+      totalShippedCartons: 40,
+      balanceQuantity: 23000,
+      balanceCartons: 92,
+      isCompleted: false,
+      completionPercent: 30,
+    });
+
+    const d87 = byNum.get('DN-2026-00087');
+    expect(d87.totalDispatchCartons).toBe(52);
+    expect(d87.totalPreviousCartons).toBe(40);
+    expect(d87.totalDeliveredCartons).toBe(92);
+    expect(d87.totalBalanceCartons).toBe(40);
+    expect(d87.totalBalanceQuantity).toBe(10000);
+    expect(d87.completionPercent).toBe(70);
+    expect(d87.isCompleted).toBe(false);
+
+    const d88 = byNum.get('DN-2026-00088');
+    expect(d88.totalDispatchCartons).toBe(40);
+    expect(d88.totalPreviousCartons).toBe(92);
+    expect(d88.totalDeliveredCartons).toBe(132);
+    expect(d88.totalBalanceCartons).toBe(0);
+    expect(d88.totalBalanceQuantity).toBe(0);
+    expect(d88.completionPercent).toBe(100);
+    expect(d88.isCompleted).toBe(true);
+  });
+
+  it('resolves exact multi-item Ordered, Prev, Cum (30% / 82% / 100%), and Bal from joined salesOrder.items (40 / 68 / 24 Coils)', async () => {
+    const SO_CCD = 'so-05882-multi';
+    const divCcd = { id: 'div-ccd', divisionCode: 'DIV-002-CCD', name: 'Control Cable Division' };
+    const mkItem = (id: string, code: string, name: string) => ({
+      id,
+      itemCode: code,
+      name,
+      packagingSize: 250,
+      packagingUnit: 'Coils',
+      baseUom: { id: 'u-m', code: 'M' },
+      salesUom: { id: 'u-m', code: 'M' },
+    });
+
+    const item3 = mkItem('id-003', 'CCD-FGR-003', 'Clutch Cable CD-70');
+    const item2 = mkItem('id-002', 'CCD-FGR-002', 'Front Brake Cable CD-70');
+    const item11 = mkItem('id-011', 'CCD-FGR-011', 'Throttle Cable CG-125');
+    const item1 = mkItem('id-001', 'CCD-FGR-001', 'Speedometer Cable CD-70');
+
+    // Total SOC Ordered = 40 + 36 + 32 + 24 = 132 Coils (33,000 M)
+    const joinedSalesOrder = {
+      id: SO_CCD,
+      orderNumber: 'SOC-2026-05882',
+      customerPo: 'PO-5882',
+      divisionId: 'div-ccd',
+      division: divCcd,
+      items: [
+        { id: 'soi-3', itemId: item3.id, item: item3, quantity: 10000, uom: { id: 'u-m', code: 'M' } }, // 40 Coils
+        { id: 'soi-2', itemId: item2.id, item: item2, quantity: 9000, uom: { id: 'u-m', code: 'M' } },  // 36 Coils
+        { id: 'soi-11', itemId: item11.id, item: item11, quantity: 8000, uom: { id: 'u-m', code: 'M' } }, // 32 Coils
+        { id: 'soi-1', itemId: item1.id, item: item1, quantity: 6000, uom: { id: 'u-m', code: 'M' } },  // 24 Coils
+      ],
+    };
+
+    // DN-86 = 40 Coils (16 + 12 + 12 + 0), DN-87 = 68 Coils (24 + 16 + 16 + 12), DN-88 = 24 Coils (0 + 8 + 4 + 12)
+    const dn86 = {
+      id: 'dn-m-86',
+      companyId: COMP,
+      deliveryNumber: 'DN-2026-00086',
+      status: 'CONFIRMED',
+      deliveryDate: '2026-11-20',
+      salesOrderId: SO_CCD,
+      salesOrder: joinedSalesOrder,
+      lines: [
+        { id: 'l86-3', itemId: item3.id, item: item3, quantity: 4000, description: 'Clutch Cable [SOC: SOC-2026-05882]' },
+        { id: 'l86-2', itemId: item2.id, item: item2, quantity: 3000, description: 'Brake Cable [SOC: SOC-2026-05882]' },
+        { id: 'l86-11', itemId: item11.id, item: item11, quantity: 3000, description: 'Throttle Cable [SOC: SOC-2026-05882]' },
+      ],
+    };
+    const dn87 = {
+      id: 'dn-m-87',
+      companyId: COMP,
+      deliveryNumber: 'DN-2026-00087',
+      status: 'CONFIRMED',
+      deliveryDate: '2026-11-21',
+      salesOrderId: SO_CCD,
+      salesOrder: joinedSalesOrder,
+      lines: [
+        { id: 'l87-3', itemId: item3.id, item: item3, quantity: 6000, description: 'Clutch Cable [SOC: SOC-2026-05882]' },
+        { id: 'l87-2', itemId: item2.id, item: item2, quantity: 4000, description: 'Brake Cable [SOC: SOC-2026-05882]' },
+        { id: 'l87-11', itemId: item11.id, item: item11, quantity: 4000, description: 'Throttle Cable [SOC: SOC-2026-05882]' },
+        { id: 'l87-1', itemId: item1.id, item: item1, quantity: 3000, description: 'Speedo Cable [SOC: SOC-2026-05882]' },
+      ],
+    };
+    const dn88 = {
+      id: 'dn-m-88',
+      companyId: COMP,
+      deliveryNumber: 'DN-2026-00088',
+      status: 'CONFIRMED',
+      deliveryDate: '2026-11-22',
+      salesOrderId: SO_CCD,
+      salesOrder: joinedSalesOrder,
+      lines: [
+        { id: 'l88-2', itemId: item2.id, item: item2, quantity: 2000, description: 'Brake Cable [SOC: SOC-2026-05882]' },
+        { id: 'l88-11', itemId: item11.id, item: item11, quantity: 1000, description: 'Throttle Cable [SOC: SOC-2026-05882]' },
+        { id: 'l88-1', itemId: item1.id, item: item1, quantity: 3000, description: 'Speedo Cable [SOC: SOC-2026-05882]' },
+      ],
+    };
+
+    // Return empty SQL arrays for SO/chrono to prove joined `salesOrder.items` + rawDeliveries supplement alone works 100%
+    const managerQuery = jest.fn(async (sql: string) => {
+      if (sql.includes('FROM erp_sales.sales_orders so')) return [];
+      if (sql.includes('FROM erp_sales.sales_deliveries sd')) return [];
+      if (sql.includes('FROM erp_sales.sales_invoices')) return [];
+      return [{ gate_pass_number: 'GP-15001' }];
+    });
+
+    const deliveryRepo: any = {
+      createQueryBuilder: jest.fn(() => makeQbMock([dn88, dn87, dn86])),
+      manager: { query: managerQuery },
+    };
+
+    const service = new SalesDeliveryService(
+      deliveryRepo,
+      {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any,
+    );
+
+    const res = await service.findAll({ companyId: COMP, page: 1, limit: 50 });
+    const byNum = new Map(res.data.map((d: any) => [d.deliveryNumber, d]));
+
+    const r86 = byNum.get('DN-2026-00086');
+    expect(r86.salesOrder.items).toHaveLength(4);
+    expect(r86.totalDispatchCartons).toBe(40);
+    expect(r86.totalDeliveredCartons).toBe(40);
+    expect(r86.totalBalanceCartons).toBe(92);
+    expect(r86.completionPercent).toBe(30);
+    expect(r86.isCompleted).toBe(false);
+
+    const r87 = byNum.get('DN-2026-00087');
+    expect(r87.totalPreviousCartons).toBe(40);
+    expect(r87.totalDispatchCartons).toBe(68);
+    expect(r87.totalDeliveredCartons).toBe(108);
+    expect(r87.totalBalanceCartons).toBe(24);
+    expect(r87.totalBalanceQuantity).toBe(6000);
+    expect(r87.completionPercent).toBe(82);
+    expect(r87.isCompleted).toBe(false);
+
+    // Itemized breakdown on DN-2026-00087 has exact Ordered, Prev, This Disp, Cum, %, and Bal
+    const ccd003 = r87.itemsSummary.find((x: any) => x.itemCode === 'CCD-FGR-003');
+    expect(ccd003).toMatchObject({
+      orderedQuantity: 10000,
+      orderedCartons: 40,
+      previousDispatchedCartons: 16,
+      dispatchedCartons: 24,
+      totalShippedCartons: 40,
+      balanceCartons: 0,
+      completionPercent: 100,
+      isCompleted: true,
+    });
+    const ccd002 = r87.itemsSummary.find((x: any) => x.itemCode === 'CCD-FGR-002');
+    expect(ccd002).toMatchObject({
+      orderedQuantity: 9000,
+      orderedCartons: 36,
+      previousDispatchedCartons: 12,
+      dispatchedCartons: 16,
+      totalShippedCartons: 28,
+      balanceCartons: 8,
+      balanceQuantity: 2000,
+      completionPercent: 78,
+      isCompleted: false,
+    });
+
+    const r88 = byNum.get('DN-2026-00088');
+    expect(r88.totalPreviousCartons).toBe(108);
+    expect(r88.totalDispatchCartons).toBe(24);
+    expect(r88.totalDeliveredCartons).toBe(132);
+    expect(r88.totalBalanceCartons).toBe(0);
+    expect(r88.completionPercent).toBe(100);
+    expect(r88.isCompleted).toBe(true);
+  });
 });

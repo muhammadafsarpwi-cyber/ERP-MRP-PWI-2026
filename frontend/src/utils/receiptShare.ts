@@ -1,9 +1,19 @@
 import { formatNameWithCode } from './formatEntityLabel';
 import {
+  DEFAULT_COMPANY_NAME,
+  DEFAULT_RM_RECEIPT_ITEM_LINE_TEMPLATE,
+  DEFAULT_RM_RECEIPT_TEMPLATE,
+  DEFAULT_RM_RETURN_TEMPLATE,
   formatWhatsAppPhoneWithCountryCode,
+  renderWhatsAppRepeatingLines,
   renderWhatsAppTemplate,
-  resolveWhatsAppTemplate,
-} from './whatsappSettingsStore';
+} from './whatsappTemplateRenderer';
+
+export {
+  DEFAULT_RM_RECEIPT_TEMPLATE,
+  DEFAULT_RM_RECEIPT_ITEM_LINE_TEMPLATE,
+  DEFAULT_RM_RETURN_TEMPLATE,
+};
 
 export interface ShareLine {
   itemCode?: string;
@@ -37,167 +47,94 @@ export interface ShareReceiptInfo {
 
 /** Formats a number with commas and up to 2 decimal places */
 function fmt(val: number): string {
-  return Number(val || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return Number(val || 0).toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 }
 
-export const DEFAULT_RM_RECEIPT_TEMPLATE = `*{company}*
-*RAW MATERIAL RECEIPT (GATE PASS)*
-━━━━━━━━━━━━━━━━━━━━━━━━━
-*Receipt Date:* {date}
-*Receipt Code:* {receipt_code}
-*Gate Pass No:* {gate_pass_no}
-*Source / DC No:* {source_no}
-*Heat Number:* {heat_number}
-*Warehouse:* {warehouse}
-*Division:* {division}
-*Section:* {section}
-━━━━━━━━━━━━━━━━━━━━━━━━━
-{items}
-━━━━━━━━━━━━━━━━━━━━━━━━━
-*RECEIPT SUMMARY TOTALS:*
-• Total Gate Pass Qty: {total_gp_qty}
-• Total Received Qty: {total_rcv_qty}
-• Net Variance: {net_variance}
-━━━━━━━━━━━━━━━━━━━━━━━━━
-_Generated via PWI ERP System_`;
-
 /**
- * Formats item lines for the WhatsApp receipt message.
- * Clean executive layout without box/icon clutter.
+ * Formats item lines for `[RM-GP]` using the centrally controlled
+ * `[RM-GP-LINE]` (`rmReceiptItemLine`) sub-template in Settings -> WhatsApp Messages,
+ * with zero hardcoded emojis/icons.
  */
 export function formatReceiptItemLines(lines: ShareLine[]): string {
-  if (!lines || lines.length === 0) return '';
-  const out: string[] = [];
-  out.push(`*MATERIAL ITEMS (${lines.length} Line${lines.length > 1 ? 's' : ''}):*`);
+  if (!lines || lines.length === 0) return 'No material lines.';
 
-  lines.forEach((line, idx) => {
-    // Name FIRST, Code in brackets
+  const rows = lines.map((line, idx) => {
     const itemTitle = formatNameWithCode(line.itemName, line.itemCode);
-    const uom = line.uomCode ? ` ${line.uomCode}` : '';
-    const gpQty = fmt(line.gatePassQuantity);
-    const rcvQty = fmt(line.receivedQuantity);
+    const uom = line.uomCode ? line.uomCode.trim() : '';
+    const uomSuffix = uom ? ` ${uom}` : '';
+    const gpQty = `${fmt(line.gatePassQuantity)}${uomSuffix}`;
+    const rcvQty = `${fmt(line.receivedQuantity)}${uomSuffix}`;
     const diffVal = Number(line.difference || 0);
 
-    let statusText = '✓ Balanced';
+    let variance = `0.00${uomSuffix}`;
+    let statusText = 'Balanced';
     if (diffVal < 0) {
-      statusText = `➕ Excess (+${fmt(Math.abs(diffVal))}${uom})`;
+      variance = `+${fmt(Math.abs(diffVal))}${uomSuffix}`;
+      statusText = `Excess (${variance})`;
     } else if (diffVal > 0) {
-      statusText = `➖ Shortage (-${fmt(diffVal)}${uom})`;
+      variance = `-${fmt(diffVal)}${uomSuffix}`;
+      statusText = `Shortage (${variance})`;
     }
 
-    out.push(`\n*${idx + 1}. ${itemTitle}*`);
-    out.push(`   • Gate Pass Qty: ${gpQty}${uom}`);
-    out.push(`   • Received Qty: ${rcvQty}${uom}`);
-    out.push(`   • Status: ${statusText}`);
+    return {
+      index: idx + 1,
+      item: itemTitle,
+      item_name: line.itemName || line.itemCode || 'Material',
+      item_code: line.itemCode || '—',
+      uom: uom || 'KG',
+      gp_qty: gpQty,
+      rcv_qty: rcvQty,
+      variance,
+      status: statusText,
+    };
   });
 
-  return out.join('\n');
+  return renderWhatsAppRepeatingLines('[RM-GP-LINE]', rows, '\n\n');
 }
-
-/** Check if user configured a custom Raw Material WhatsApp template in Company Settings */
-function getStoredRmReceiptTemplate(): string | null {
-  const custom = resolveWhatsAppTemplate('rmReceipt', '');
-  return custom || null;
-}
-
-export const DEFAULT_RM_RETURN_TEMPLATE = `*{company}*
-*RAW MATERIAL RETURN*
-━━━━━━━━━━━━━━━━━━━━━━━━━
-*Return Date:* {date}
-*Return Code:* {return_code}
-*Source / DC No:* {source_no}
-*Ref Gate Pass:* {ref_receipt}
-*Return Warehouse:* {warehouse}
-*Division:* {division}
-*Section:* {section}
-*Reason:* {reason}
-━━━━━━━━━━━━━━━━━━━━━━━━━
-{items}
-━━━━━━━━━━━━━━━━━━━━━━━━━
-*RETURN SUMMARY TOTAL:*
-• Total Returned Qty: {total_qty}
-━━━━━━━━━━━━━━━━━━━━━━━━━
-_Generated via PWI ERP System_`;
 
 /**
- * Rich, professional WhatsApp share message built from real receipt data.
- * Adheres strictly to the user requirement:
- * 1. Clean names for Warehouse, Division, Section without codes in brackets.
- * 2. Department line removed.
- * 3. ➖ Shortage and ➕ Excess without ugly cross (❌) mark.
- * 4. Item Name FIRST, with Code in brackets: "Packed Spoke 14G (FGR-SPP-001)"
- * 5. Uses Company Settings WhatsApp message template if configured by user.
+ * Builds the `[RM-GP]` Raw Material Receipt (Gate Pass) WhatsApp message strictly
+ * from Settings -> WhatsApp Messages (`rmReceipt` + `rmReceiptItemLine`).
  */
 export function buildReceiptWhatsAppMessage(info: ShareReceiptInfo): string {
-  const date = info.receiptDate || '';
+  const date = info.receiptDate || '—';
   const netDiff = Number(info.differenceTotal || 0);
-  let netStatus = '✓ Balanced';
+  let netStatus = 'Balanced';
   let netVarianceStr = `${fmt(0)} KG`;
   if (netDiff > 0) {
-    netStatus = '➖ Shortage';
+    netStatus = 'Shortage';
     netVarianceStr = `-${fmt(netDiff)} KG`;
   } else if (netDiff < 0) {
-    netStatus = '➕ Excess';
+    netStatus = 'Excess';
     netVarianceStr = `+${fmt(Math.abs(netDiff))} KG`;
   }
 
-  const warehouseDisplay = info.warehouseName?.trim() || info.warehouseCode?.trim() || '';
-  const divisionDisplay = info.divisionName?.trim() || info.divisionCode?.trim() || '';
-  const sectionDisplay = info.sectionName?.trim() || info.sectionCode?.trim() || '';
+  const warehouseDisplay = info.warehouseName?.trim() || info.warehouseCode?.trim() || '—';
+  const divisionDisplay = info.divisionName?.trim() || info.divisionCode?.trim() || '—';
+  const sectionDisplay = info.sectionName?.trim() || info.sectionCode?.trim() || '—';
+  const lineCountLabel = `${info.lines?.length || 0} Line${(info.lines?.length || 0) === 1 ? '' : 's'}`;
 
-  // Check for custom template configured in Company Settings -> WhatsApp Messages
-  const customTemplate = getStoredRmReceiptTemplate();
-  if (customTemplate) {
-    return customTemplate
-      .replace(/{company}/g, 'Pakistan Wire Industries (Pvt.) LTD')
-      .replace(/{receipt_code}/g, info.receiptCode || '')
-      .replace(/{gate_pass_no}/g, info.gatePassNo || '—')
-      .replace(/{po_no}/g, info.poCode || '—')
-      .replace(/{source_no}/g, info.sourceNo || '—')
-      .replace(/{doc_no}/g, info.gatePassNo || info.receiptCode || '')
-      .replace(/{heat_number}/g, info.heatNumber || '—')
-      .replace(/{date}/g, date)
-      .replace(/{warehouse}/g, warehouseDisplay || '—')
-      .replace(/{division}/g, divisionDisplay || '—')
-      .replace(/{section}/g, sectionDisplay || '—')
-      .replace(/{items}/g, formatReceiptItemLines(info.lines))
-      .replace(/{total_gp_qty}/g, fmt(info.gatePassTotal))
-      .replace(/{total_rcv_qty}/g, fmt(info.receivedTotal))
-      .replace(/{net_variance}/g, `${netVarianceStr} (${netStatus})`);
-  }
-
-  const lines: string[] = [];
-  lines.push('*Pakistan Wire Industries (Pvt.) LTD*');
-  lines.push('*RAW MATERIAL RECEIPT (GATE PASS)*');
-  lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━');
-  if (date) lines.push(`*Receipt Date:* ${date}`);
-  lines.push(`*Receipt Code:* ${info.receiptCode}`);
-  if (info.gatePassNo) lines.push(`*Gate Pass No:* ${info.gatePassNo}`);
-  if (info.poCode) lines.push(`*PO Number:* ${info.poCode}`);
-  if (info.sourceNo) lines.push(`*Source / DC No:* ${info.sourceNo}`);
-  if (info.heatNumber) lines.push(`*Heat Number:* ${info.heatNumber}`);
-
-  // Display only clean entity names without bracketed codes
-  if (warehouseDisplay) lines.push(`*Warehouse:* ${warehouseDisplay}`);
-  if (divisionDisplay) lines.push(`*Division:* ${divisionDisplay}`);
-  if (sectionDisplay) lines.push(`*Section:* ${sectionDisplay}`);
-  // Department line removed as requested
-
-  if (info.lines.length > 0) {
-    lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━');
-    lines.push(formatReceiptItemLines(info.lines));
-
-    lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━');
-    lines.push('*RECEIPT SUMMARY TOTALS:*');
-    lines.push(`• Total Gate Pass Qty: ${fmt(info.gatePassTotal)}`);
-    lines.push(`• Total Received Qty: ${fmt(info.receivedTotal)}`);
-    lines.push(`• Net Variance: ${netVarianceStr} (${netStatus})`);
-  }
-
-  lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━');
-  lines.push('_Generated via PWI ERP System_');
-
-  return lines.join('\n');
+  return renderWhatsAppTemplate('[RM-GP]', {
+    company: DEFAULT_COMPANY_NAME,
+    receipt_code: info.receiptCode || '—',
+    gate_pass_no: info.gatePassNo || '—',
+    po_no: info.poCode || '—',
+    source_no: info.sourceNo || '—',
+    doc_no: info.gatePassNo || info.receiptCode || '—',
+    heat_number: info.heatNumber || '—',
+    date,
+    warehouse: warehouseDisplay,
+    division: divisionDisplay,
+    section: sectionDisplay,
+    lines_count: lineCountLabel,
+    items: formatReceiptItemLines(info.lines),
+    total_gp_qty: fmt(info.gatePassTotal),
+    total_rcv_qty: fmt(info.receivedTotal),
+    net_variance: `${netVarianceStr} (${netStatus})`,
+  });
 }
 
 export interface ShareReturnLine {
@@ -226,14 +163,18 @@ export interface ShareReturnInfo {
   quantityTotal: number;
 }
 
+/**
+ * Builds the `[RM-RET]` Raw Material Return WhatsApp message strictly
+ * from Settings -> WhatsApp Messages (`rmReturn`).
+ */
 export function buildReturnWhatsAppMessage(info: ShareReturnInfo): string {
-  const date = info.returnDate || '';
+  const date = info.returnDate || '—';
   const warehouseDisplay = info.warehouseName?.trim() || info.warehouseCode?.trim() || '—';
   const divisionDisplay = info.divisionName?.trim() || info.divisionCode?.trim() || '—';
   const sectionDisplay = info.sectionName?.trim() || info.sectionCode?.trim() || '—';
 
   const itemLines: string[] = [];
-  if (info.lines.length > 0) {
+  if (info.lines && info.lines.length > 0) {
     itemLines.push(`*RETURNED ITEMS (${info.lines.length} Line${info.lines.length > 1 ? 's' : ''}):*`);
     info.lines.forEach((line, idx) => {
       const itemTitle = formatNameWithCode(line.itemName, line.itemCode);
@@ -244,50 +185,19 @@ export function buildReturnWhatsAppMessage(info: ShareReturnInfo): string {
     });
   }
 
-  const customTemplate = resolveWhatsAppTemplate('rmReturn', '');
-  if (customTemplate) {
-    return renderWhatsAppTemplate(customTemplate, {
-      '{company}': 'Pakistan Wire Industries (Pvt.) LTD',
-      '{return_code}': info.returnCode || '',
-      '{date}': date,
-      '{source_no}': info.sourceNo || '—',
-      '{ref_receipt}': info.referenceReceiptCode || '—',
-      '{warehouse}': warehouseDisplay,
-      '{division}': divisionDisplay,
-      '{section}': sectionDisplay,
-      '{reason}': info.reason || '—',
-      '{items}': itemLines.join('\n') || 'No items.',
-      '{total_qty}': fmt(info.quantityTotal),
-    });
-  }
-
-  const lines: string[] = [];
-
-  lines.push('*Pakistan Wire Industries (Pvt.) LTD*');
-  lines.push('*RAW MATERIAL RETURN*');
-  lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━');
-  if (date) lines.push(`*Return Date:* ${date}`);
-  lines.push(`*Return Code:* ${info.returnCode}`);
-  if (info.sourceNo) lines.push(`*Source / DC No:* ${info.sourceNo}`);
-  if (info.referenceReceiptCode) lines.push(`*Ref Gate Pass:* ${info.referenceReceiptCode}`);
-
-  if (warehouseDisplay !== '—') lines.push(`*Return Warehouse:* ${warehouseDisplay}`);
-  if (divisionDisplay !== '—') lines.push(`*Division:* ${divisionDisplay}`);
-  if (sectionDisplay !== '—') lines.push(`*Section:* ${sectionDisplay}`);
-  if (info.reason) lines.push(`*Reason:* ${info.reason}`);
-
-  if (info.lines.length > 0) {
-    lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━');
-    lines.push(...itemLines);
-    lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━');
-    lines.push('*RETURN SUMMARY TOTAL:*');
-    lines.push(`• Total Returned Qty: ${fmt(info.quantityTotal)}`);
-  }
-
-  lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━');
-  lines.push('_Generated via PWI ERP System_');
-
-  return lines.join('\n');
+  return renderWhatsAppTemplate('[RM-RET]', {
+    company: DEFAULT_COMPANY_NAME,
+    return_code: info.returnCode || '—',
+    date,
+    source_no: info.sourceNo || '—',
+    ref_receipt: info.referenceReceiptCode || '—',
+    warehouse: warehouseDisplay,
+    division: divisionDisplay,
+    section: sectionDisplay,
+    reason: info.reason || '—',
+    items: itemLines.join('\n') || 'No returned items.',
+    total_qty: fmt(info.quantityTotal),
+  });
 }
 
 /**

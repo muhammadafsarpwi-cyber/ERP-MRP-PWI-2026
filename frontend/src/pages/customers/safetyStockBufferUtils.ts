@@ -103,7 +103,148 @@ export interface SafetyBufferDockSummary {
   packageTotals: BufferSummaryTotals[];
 }
 
+export const SPOKE_DIVISION_DEFAULT_ID = 'd1000000-0000-0000-0000-000000000001';
+export const SPOKE_DIVISION_DEFAULT_CODE = 'DIV-001-SPI';
+
 const normCodeKey = (val: string): string => (val || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+export function isSpokeDivisionRecord(
+  division?: { id?: string | null; divisionCode?: string | null; name?: string | null } | null,
+): boolean {
+  if (!division) return false;
+  const code = String(division.divisionCode || '').trim().toUpperCase();
+  const name = String(division.name || '').trim().toLowerCase();
+  return (
+    division.id === SPOKE_DIVISION_DEFAULT_ID ||
+    code === 'DIV-001-SPI' ||
+    code === 'DIV-SPD' ||
+    code.includes('SPI') ||
+    name.includes('spoke')
+  );
+}
+
+export function resolveDefaultAnalyticsDivision(
+  divisions: DivisionOptionRecord[],
+): DivisionOptionRecord | null {
+  const list = divisions || [];
+  if (list.length === 0) return null;
+  return (
+    list.find((d) => String(d.divisionCode || '').trim().toUpperCase() === SPOKE_DIVISION_DEFAULT_CODE) ||
+    list.find((d) => d.id === SPOKE_DIVISION_DEFAULT_ID) ||
+    list.find((d) => isSpokeDivisionRecord(d)) ||
+    list[0] ||
+    null
+  );
+}
+
+export function resolveDivisionPrimaryUom(
+  division?: { id?: string | null; divisionCode?: string | null; name?: string | null } | null,
+): string {
+  if (!division) return '';
+  const code = String(division.divisionCode || '').trim().toUpperCase();
+  const name = String(division.name || '').trim().toLowerCase();
+  if (isSpokeDivisionRecord(division)) return 'GRS';
+  if (code.includes('CCD') || name.includes('control cable') || name.includes('cable')) return 'M';
+  if (code.includes('WRD') || name.includes('wrd') || name.includes('wire')) return 'KG';
+  return '';
+}
+
+export function resolveDivisionDefaultPackagingUnit(
+  division?: { id?: string | null; divisionCode?: string | null; name?: string | null } | null,
+): string {
+  const uom = resolveDivisionPrimaryUom(division);
+  if (uom === 'GRS') return 'CTN';
+  if (uom === 'M') return 'COIL';
+  if (uom === 'KG') return 'ROLL';
+  return 'PKG';
+}
+
+export function matchesDivisionFilter(
+  recordDivision: { divisionId?: string | null; divisionCode?: string | null; divisionName?: string | null },
+  selectedDivisionId: string,
+  divisions: DivisionOptionRecord[] = [],
+): boolean {
+  if (!selectedDivisionId || selectedDivisionId === 'ALL') return true;
+  if (recordDivision.divisionId && recordDivision.divisionId === selectedDivisionId) return true;
+  if (recordDivision.divisionCode && recordDivision.divisionCode === selectedDivisionId) return true;
+
+  const selectedDiv = divisions.find(
+    (d) => d.id === selectedDivisionId || d.divisionCode === selectedDivisionId,
+  );
+  if (!selectedDiv) return false;
+
+  if (
+    selectedDiv.divisionCode &&
+    recordDivision.divisionCode &&
+    normCodeKey(selectedDiv.divisionCode) === normCodeKey(recordDivision.divisionCode)
+  ) {
+    return true;
+  }
+  if (
+    selectedDiv.name &&
+    recordDivision.divisionName &&
+    normCodeKey(selectedDiv.name) === normCodeKey(recordDivision.divisionName)
+  ) {
+    return true;
+  }
+  if (isSpokeDivisionRecord(selectedDiv) && isSpokeDivisionRecord(recordDivision)) {
+    return true;
+  }
+  return false;
+}
+
+export interface AnalyticsUomBucket {
+  unitCode: string;
+  value: number;
+  decimals: number;
+}
+
+export function summarizeUomBuckets(
+  entries: Array<{ unitCode?: string | null; qty: number }>,
+): AnalyticsUomBucket[] {
+  const totals = new Map<string, number>();
+  for (const e of entries || []) {
+    const qty = Number(e.qty) || 0;
+    const unit = normalizeUomCode(e.unitCode);
+    if (!unit || qty <= 0) continue;
+    totals.set(unit, (totals.get(unit) || 0) + qty);
+  }
+  const priority = ['GRS', 'M', 'KG', 'PCS', 'FT'];
+  return Array.from(totals.entries())
+    .sort((a, b) => {
+      const ia = priority.indexOf(a[0]);
+      const ib = priority.indexOf(b[0]);
+      if (ia !== -1 && ib !== -1) return ia - ib;
+      if (ia !== -1) return -1;
+      if (ib !== -1) return 1;
+      return a[0].localeCompare(b[0]);
+    })
+    .map(([unitCode, total]) => {
+      const clean = cleanDisplayNumber(total);
+      return { unitCode, value: clean.value, decimals: clean.decimals };
+    });
+}
+
+export function formatUomBreakdownDisplay(
+  buckets: AnalyticsUomBucket[],
+  fmt: (val: number, decimals?: number) => string,
+  fallbackUnit = '',
+): { text: string; suffix?: string } {
+  const nonEmpty = (buckets || []).filter((b) => b.value > 0);
+  if (nonEmpty.length === 0) {
+    return { text: '0', suffix: fallbackUnit || undefined };
+  }
+  if (nonEmpty.length === 1) {
+    return {
+      text: fmt(nonEmpty[0].value, nonEmpty[0].decimals),
+      suffix: nonEmpty[0].unitCode,
+    };
+  }
+  return {
+    text: nonEmpty.map((b) => `${fmt(b.value, b.decimals)} ${b.unitCode}`).join(' · '),
+    suffix: undefined,
+  };
+}
 
 export function normalizeUomCode(code?: string | null): string {
   const clean = String(code || '').trim().toUpperCase();
@@ -115,6 +256,39 @@ export function normalizeUomCode(code?: string | null): string {
   if (clean === 'COILS') return 'COIL';
   if (clean === 'ROLLS') return 'ROLL';
   return clean;
+}
+
+/**
+ * Canonicalizes Sales Order Contract numbers so legacy 4-digit references
+ * (`SOC-2026-5810`, `soc20265810`) match 5-digit padded contracts (`SOC-2026-05810`).
+ */
+export function canonicalizeSocKey(raw?: string | null): string {
+  const trimmed = String(raw || '').trim().toUpperCase();
+  if (!trimmed || trimmed === '—' || trimmed === 'NULL' || trimmed === 'UNDEFINED') return '';
+  const m = trimmed.match(/SOC[-_\s]*(\d{2,4})[-_\s]*0*(\d+)/i);
+  if (m) return `SOC-${m[1]}-${m[2]}`;
+  return trimmed.replace(/[^A-Z0-9]/g, '');
+}
+
+/**
+ * Returns true when `raw` names a concrete Sales Order / SOC identifier rather than
+ * empty/placeholder/Safety Stock buffer markers (`SAFETY_STOCK`, `—`, etc.).
+ */
+export function isExplicitRealSocToken(raw?: string | null): boolean {
+  const trimmed = String(raw || '').trim();
+  if (!trimmed || trimmed === '—') return false;
+  const upper = trimmed.toUpperCase();
+  if (
+    upper.includes('SAFETY') ||
+    upper.includes('BUFFER') ||
+    upper.includes('UNALLOCATED') ||
+    upper === 'GENERAL' ||
+    upper === 'NONE' ||
+    upper === 'N/A'
+  ) {
+    return false;
+  }
+  return /SOC[-_\s]*\d{2,4}[-_\s]*\d+/i.test(trimmed) || /^SOC[-_\s]*[A-Z0-9-]+/i.test(trimmed);
 }
 
 export function toPackagingShortCode(packagingUnit?: string | null, packagingType?: string | null): string {
@@ -628,6 +802,12 @@ export interface ReconcilableSocItemInput {
   pcsPerCarton: number;
   grossPerCarton: number;
   isOrderItem?: boolean;
+  primaryUom?: string;
+  packagingUnitCode?: string;
+  isGrossUnit?: boolean;
+  orderedQtyRaw?: number;
+  packedQtyRaw?: number;
+  dispatchedQtyRaw?: number;
 }
 
 export interface ReconciledSocItemOutput {
@@ -656,6 +836,9 @@ export interface ReconciledSocItemOutput {
   grossPerCarton: number;
   fulfillmentPct: number;
   isOrderItem?: boolean;
+  primaryUom?: string;
+  packagingUnitCode?: string;
+  isGrossUnit?: boolean;
 }
 
 export interface ReconcilableSocInput {
@@ -664,6 +847,8 @@ export interface ReconcilableSocInput {
   orderDate?: string;
   status: string;
   isOfficialOrder?: boolean;
+  primaryUom?: string;
+  packagingUnitCode?: string;
   items: ReconcilableSocItemInput[];
 }
 
@@ -673,6 +858,8 @@ export interface ReconciledSocOutput {
   orderDate?: string;
   status: string;
   isOfficialOrder?: boolean;
+  primaryUom?: string;
+  packagingUnitCode?: string;
   totalOrderedQty: number;
   totalOrderedPcs: number;
   totalOrderedCartons: number;
@@ -699,36 +886,83 @@ export interface ReconciledSocOutput {
  * Reconciles a customer's SOC contracts across shared FG items so that when an earlier
  * Delivered/dispatched SOC consumed stock from Opening Stock or another SOC of the same
  * customer+item, that shortfall is transferred cleanly rather than double-counted.
- * Guarantees: Packed - Dispatched == physical Ready to Dispatch FG stock with exact integer PCS & CTN.
+ * Guarantees: Packed - Dispatched == physical Ready to Dispatch FG stock.
+ * Supports both GRS/PCS/CTN items and non-GRS metric/weight units (e.g. M/COIL, KG/ROLL).
  */
 export function reconcileCustomerSocContracts(rawSocs: ReconcilableSocInput[]): ReconciledSocOutput[] {
-  // Deep-clone working state so input is not mutated
+  // Deep-clone working state so input is not mutated.
+  // For non-GRS items (M, KG, etc.), convert native units to integer centi-units (* 100) for exact transfer math.
   const working = rawSocs.map((soc) => {
     const isDelivered =
       String(soc.status || '').toUpperCase() === 'DELIVERED' ||
       String(soc.status || '').toUpperCase() === 'CLOSED';
     const filteredItems = soc.isOfficialOrder
-      ? soc.items.filter((it) => it.isOrderItem || it.orderedPcs > 0)
-      : soc.items.filter((it) => it.orderedPcs > 0 || it.dispatchedPcs > 0 || it.packedPcs > 0);
+      ? soc.items.filter(
+          (it) =>
+            it.isOrderItem ||
+            it.orderedPcs > 0 ||
+            Number(it.orderedQtyRaw || 0) > 0,
+        )
+      : soc.items.filter(
+          (it) =>
+            it.orderedPcs > 0 ||
+            it.dispatchedPcs > 0 ||
+            it.packedPcs > 0 ||
+            Number(it.orderedQtyRaw || 0) > 0 ||
+            Number(it.dispatchedQtyRaw || 0) > 0 ||
+            Number(it.packedQtyRaw || 0) > 0,
+        );
     return {
       ...soc,
       isDelivered,
-      items: filteredItems.map((it) => ({
-        ...it,
-        orderedPcs: Math.round(it.orderedPcs || 0),
-        packedPcs: Math.round(it.packedPcs || 0),
-        dispatchedPcs: isDelivered
-          ? Math.max(Math.round(it.dispatchedPcs || 0), Math.round(it.orderedPcs || 0))
-          : Math.round(it.dispatchedPcs || 0),
-        pcsPerCarton: it.pcsPerCarton > 0 ? it.pcsPerCarton : resolveExactPcsPerCarton(it.grossPerCarton, it.itemCode, it.itemName),
-        grossPerCarton: it.grossPerCarton > 0 ? it.grossPerCarton : 10,
-      })),
+      items: filteredItems.map((it) => {
+        const uomUpper = normalizeUomCode(it.primaryUom || soc.primaryUom);
+        const isGross =
+          it.isGrossUnit !== undefined
+            ? it.isGrossUnit
+            : !uomUpper || uomUpper === 'GRS' || uomUpper === 'PCS';
+
+        if (isGross) {
+          const orderedUnits = Math.round(it.orderedPcs || 0);
+          const packedUnits = Math.round(it.packedPcs || 0);
+          const dispatchedUnits = isDelivered
+            ? Math.max(Math.round(it.dispatchedPcs || 0), orderedUnits)
+            : Math.round(it.dispatchedPcs || 0);
+          return {
+            ...it,
+            isGrossUnit: true,
+            primaryUom: uomUpper || 'GRS',
+            packagingUnitCode: normalizeUomCode(it.packagingUnitCode) || 'CTN',
+            orderedUnits,
+            packedUnits,
+            dispatchedUnits,
+            pcsPerCarton: it.pcsPerCarton > 0 ? it.pcsPerCarton : resolveExactPcsPerCarton(it.grossPerCarton, it.itemCode, it.itemName),
+            grossPerCarton: it.grossPerCarton > 0 ? it.grossPerCarton : 10,
+          };
+        }
+
+        const orderedUnits = Math.round(Number(it.orderedQtyRaw || 0) * 100);
+        const packedUnits = Math.round(Number(it.packedQtyRaw || 0) * 100);
+        const rawDispatchedUnits = Math.round(Number(it.dispatchedQtyRaw || 0) * 100);
+        const dispatchedUnits = isDelivered
+          ? Math.max(rawDispatchedUnits, orderedUnits)
+          : rawDispatchedUnits;
+        return {
+          ...it,
+          isGrossUnit: false,
+          primaryUom: uomUpper || 'UNIT',
+          packagingUnitCode: normalizeUomCode(it.packagingUnitCode) || 'PKG',
+          orderedUnits,
+          packedUnits,
+          dispatchedUnits,
+          pcsPerCarton: 0,
+          grossPerCarton: it.grossPerCarton > 0 ? it.grossPerCarton : 0,
+        };
+      }),
     };
   });
 
-  // Cross-SOC shortfall reallocation per item code:
-  // If an earlier Delivered or dispatched SOC has dispatchedPcs > packedPcs (e.g. stock shipped from Opening Stock tagged to another SOC),
-  // draw that shortfall from other SOCs of the same customer+item that have undispatched packed surplus.
+  // Cross-SOC shortfall reallocation per item code
   const itemCodes = new Set<string>();
   for (const soc of working) {
     for (const it of soc.items) {
@@ -747,83 +981,149 @@ export function reconcileCustomerSocContracts(rawSocs: ReconcilableSocInput[]): 
     }
     if (entries.length < 2) continue;
 
-    // Process Delivered / older SOCs needing packed stock first
     const needers = entries
-      .filter((e) => e.item.dispatchedPcs > e.item.packedPcs)
+      .filter((e) => e.item.dispatchedUnits > e.item.packedUnits)
       .sort((a, b) => Number(b.soc.isDelivered) - Number(a.soc.isDelivered));
 
     for (const needer of needers) {
-      let deficit = needer.item.dispatchedPcs - needer.item.packedPcs;
+      let deficit = needer.item.dispatchedUnits - needer.item.packedUnits;
       if (deficit <= 0) continue;
 
       for (const donor of entries) {
         if (donor === needer || deficit <= 0) continue;
-        const surplus = Math.max(0, donor.item.packedPcs - donor.item.dispatchedPcs);
+        const surplus = Math.max(0, donor.item.packedUnits - donor.item.dispatchedUnits);
         if (surplus <= 0) continue;
         const take = Math.min(deficit, surplus);
-        donor.item.packedPcs -= take;
-        needer.item.packedPcs += take;
+        donor.item.packedUnits -= take;
+        needer.item.packedUnits += take;
         deficit -= take;
       }
     }
   }
 
-  // Finalize exact GRS, CTN, PCS, Ready to Dispatch, and Remaining Order Balance
+  // Finalize exact quantities, packaging counts, Ready to Dispatch, and Remaining Order Balance
   const finalized: ReconciledSocOutput[] = working.map((soc) => {
     const items: ReconciledSocItemOutput[] = soc.items.map((it) => {
-      const orderedPcs = Math.max(0, Math.round(it.orderedPcs));
-      const dispatchedPcs = Math.max(0, Math.round(it.dispatchedPcs));
-      let packedPcs = Math.max(0, Math.round(it.packedPcs));
+      const orderedUnits = Math.max(0, Math.round(it.orderedUnits));
+      const dispatchedUnits = Math.max(0, Math.round(it.dispatchedUnits));
+      let packedUnits = Math.max(0, Math.round(it.packedUnits));
       if (soc.isDelivered) {
-        packedPcs = Math.max(packedPcs, dispatchedPcs, orderedPcs);
-      } else if (packedPcs < dispatchedPcs) {
-        // Physically dispatched goods must have been packed first
-        packedPcs = dispatchedPcs;
+        packedUnits = Math.max(packedUnits, dispatchedUnits, orderedUnits);
+      } else if (packedUnits < dispatchedUnits) {
+        packedUnits = dispatchedUnits;
       }
 
-      const readyToDispatchPcs = soc.isDelivered ? 0 : Math.max(0, packedPcs - dispatchedPcs);
-      const remainingPendingPcs = soc.isDelivered ? 0 : Math.max(0, orderedPcs - dispatchedPcs);
-      const toPackPcs = soc.isDelivered ? 0 : Math.max(0, orderedPcs - packedPcs);
-
-      const pcsPerCarton = it.pcsPerCarton > 0 ? it.pcsPerCarton : 1440;
-      const toGrs = (pcs: number) => Math.round((pcs / 144) * 100) / 100;
-      const toCtn = (pcs: number) => snapFloat(pcs / pcsPerCarton);
+      const readyUnits = soc.isDelivered ? 0 : Math.max(0, packedUnits - dispatchedUnits);
+      const remainingUnits = soc.isDelivered ? 0 : Math.max(0, orderedUnits - dispatchedUnits);
+      const toPackUnits = soc.isDelivered ? 0 : Math.max(0, orderedUnits - packedUnits);
 
       const itemPct =
-        orderedPcs > 0
-          ? Math.min(100, Math.round((dispatchedPcs / orderedPcs) * 100))
-          : dispatchedPcs > 0
+        orderedUnits > 0
+          ? Math.min(100, Math.round((dispatchedUnits / orderedUnits) * 100))
+          : dispatchedUnits > 0
           ? 100
           : 0;
+
+      if (it.isGrossUnit) {
+        const pcsPerCarton = it.pcsPerCarton > 0 ? it.pcsPerCarton : 1440;
+        const toGrs = (pcs: number) => Math.round((pcs / 144) * 100) / 100;
+        const round2 = (n: number) => Math.round(n * 100) / 100;
+        const toCtn = (pcs: number) => snapFloat(pcs / pcsPerCarton);
+
+        const hasRawOrdered = it.orderedQtyRaw !== undefined && Number(it.orderedQtyRaw) > 0;
+        const hasRawDispatched =
+          it.dispatchedQtyRaw !== undefined &&
+          (hasRawOrdered || Number(it.dispatchedQtyRaw) > 0);
+
+        const orderedQty = hasRawOrdered ? round2(Number(it.orderedQtyRaw)) : toGrs(orderedUnits);
+        const rawDispQty = hasRawDispatched
+          ? round2(Number(it.dispatchedQtyRaw || 0))
+          : toGrs(dispatchedUnits);
+        const dispatchedQty = soc.isDelivered ? Math.max(rawDispQty, orderedQty) : rawDispQty;
+        const readyToDispatchQty = toGrs(readyUnits);
+        const rawPackedGrs = toGrs(packedUnits);
+        const packedQty = soc.isDelivered
+          ? Math.max(rawPackedGrs, dispatchedQty, orderedQty)
+          : Math.max(rawPackedGrs, dispatchedQty);
+        const remainingPendingQty = soc.isDelivered
+          ? 0
+          : Math.max(0, round2(orderedQty - dispatchedQty));
+        const toPackQty = soc.isDelivered
+          ? 0
+          : hasRawOrdered
+          ? Math.max(0, round2(remainingPendingQty - readyToDispatchQty))
+          : toGrs(toPackUnits);
+
+        return {
+          key: it.key,
+          itemCode: it.itemCode,
+          itemName: it.itemName,
+          orderedQty,
+          orderedPcs: orderedUnits,
+          orderedCartons: toCtn(orderedUnits),
+          packedQty,
+          packedPcs: packedUnits,
+          packedCartons: toCtn(packedUnits),
+          dispatchedQty,
+          dispatchedPcs: dispatchedUnits,
+          dispatchedCartons: toCtn(dispatchedUnits),
+          readyToDispatchQty,
+          readyToDispatchPcs: readyUnits,
+          readyToDispatchCartons: toCtn(readyUnits),
+          remainingPendingQty,
+          remainingPendingPcs: remainingUnits,
+          remainingPendingCartons: toCtn(remainingUnits),
+          toPackQty,
+          toPackPcs: toPackUnits,
+          toPackCartons: toCtn(toPackUnits),
+          pcsPerCarton,
+          grossPerCarton: it.grossPerCarton,
+          fulfillmentPct: soc.isDelivered ? 100 : itemPct,
+          isOrderItem: it.isOrderItem,
+          primaryUom: it.primaryUom || 'GRS',
+          packagingUnitCode: it.packagingUnitCode || 'CTN',
+          isGrossUnit: true,
+        };
+      }
+
+      const toNative = (centi: number) => Math.round(centi) / 100;
+      const pkgSize = it.grossPerCarton > 0 ? it.grossPerCarton : 0;
+      const toPkg = (centi: number) => (pkgSize > 0 ? snapFloat((centi / 100) / pkgSize) : 0);
 
       return {
         key: it.key,
         itemCode: it.itemCode,
         itemName: it.itemName,
-        orderedQty: toGrs(orderedPcs),
-        orderedPcs,
-        orderedCartons: toCtn(orderedPcs),
-        packedQty: toGrs(packedPcs),
-        packedPcs,
-        packedCartons: toCtn(packedPcs),
-        dispatchedQty: toGrs(dispatchedPcs),
-        dispatchedPcs,
-        dispatchedCartons: toCtn(dispatchedPcs),
-        readyToDispatchQty: toGrs(readyToDispatchPcs),
-        readyToDispatchPcs,
-        readyToDispatchCartons: toCtn(readyToDispatchPcs),
-        remainingPendingQty: toGrs(remainingPendingPcs),
-        remainingPendingPcs,
-        remainingPendingCartons: toCtn(remainingPendingPcs),
-        toPackQty: toGrs(toPackPcs),
-        toPackPcs,
-        toPackCartons: toCtn(toPackPcs),
-        pcsPerCarton,
-        grossPerCarton: it.grossPerCarton,
+        orderedQty: toNative(orderedUnits),
+        orderedPcs: 0,
+        orderedCartons: toPkg(orderedUnits),
+        packedQty: toNative(packedUnits),
+        packedPcs: 0,
+        packedCartons: toPkg(packedUnits),
+        dispatchedQty: toNative(dispatchedUnits),
+        dispatchedPcs: 0,
+        dispatchedCartons: toPkg(dispatchedUnits),
+        readyToDispatchQty: toNative(readyUnits),
+        readyToDispatchPcs: 0,
+        readyToDispatchCartons: toPkg(readyUnits),
+        remainingPendingQty: toNative(remainingUnits),
+        remainingPendingPcs: 0,
+        remainingPendingCartons: toPkg(remainingUnits),
+        toPackQty: toNative(toPackUnits),
+        toPackPcs: 0,
+        toPackCartons: toPkg(toPackUnits),
+        pcsPerCarton: 0,
+        grossPerCarton: pkgSize,
         fulfillmentPct: soc.isDelivered ? 100 : itemPct,
         isOrderItem: it.isOrderItem,
+        primaryUom: it.primaryUom,
+        packagingUnitCode: it.packagingUnitCode,
+        isGrossUnit: false,
       };
     });
+
+    const socUom = soc.primaryUom || items[0]?.primaryUom || 'GRS';
+    const socPkgUom = soc.packagingUnitCode || items[0]?.packagingUnitCode || 'CTN';
 
     const totalOrderedPcs = items.reduce((s, i) => s + i.orderedPcs, 0);
     const totalPackedPcs = items.reduce((s, i) => s + i.packedPcs, 0);
@@ -839,19 +1139,26 @@ export function reconcileCustomerSocContracts(rawSocs: ReconcilableSocInput[]): 
     const totalPendingCartons = snapFloat(items.reduce((s, i) => s + i.remainingPendingCartons, 0));
     const totalToPackCartons = snapFloat(items.reduce((s, i) => s + i.toPackCartons, 0));
 
-    const toGrs = (pcs: number) => Math.round((pcs / 144) * 100) / 100;
-    const totalOrderedQty = toGrs(totalOrderedPcs);
-    const totalPackedQty = toGrs(totalPackedPcs);
-    const totalDispatchedQty = toGrs(totalDispatchedPcs);
-    const totalReadyToDispatchQty = toGrs(totalReadyToDispatchPcs);
-    const totalPendingQty = soc.isDelivered ? 0 : toGrs(totalPendingPcs);
-    const totalToPackQty = soc.isDelivered ? 0 : toGrs(totalToPackPcs);
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+
+    // Sum reconciled item quantities directly so SOC totals, customer totals, item totals,
+    // and top KPIs match down to the exact unit across CS (10.556), regular (10), and non-GRS items.
+    const totalOrderedQty = round2(items.reduce((s, i) => s + i.orderedQty, 0));
+    const totalPackedQty = round2(items.reduce((s, i) => s + i.packedQty, 0));
+    const totalDispatchedQty = round2(items.reduce((s, i) => s + i.dispatchedQty, 0));
+    const totalReadyToDispatchQty = round2(items.reduce((s, i) => s + i.readyToDispatchQty, 0));
+    const totalPendingQty = soc.isDelivered
+      ? 0
+      : round2(items.reduce((s, i) => s + i.remainingPendingQty, 0));
+    const totalToPackQty = soc.isDelivered
+      ? 0
+      : round2(items.reduce((s, i) => s + i.toPackQty, 0));
 
     const socPct = soc.isDelivered
       ? 100
-      : totalOrderedPcs > 0
-      ? Math.min(100, Math.round((totalDispatchedPcs / totalOrderedPcs) * 100))
-      : totalDispatchedPcs > 0
+      : totalOrderedQty > 0
+      ? Math.min(100, Math.round((totalDispatchedQty / totalOrderedQty) * 100))
+      : totalDispatchedQty > 0
       ? 100
       : 0;
 
@@ -861,6 +1168,8 @@ export function reconcileCustomerSocContracts(rawSocs: ReconcilableSocInput[]): 
       orderDate: soc.orderDate,
       status: soc.status,
       isOfficialOrder: soc.isOfficialOrder,
+      primaryUom: socUom,
+      packagingUnitCode: socPkgUom,
       totalOrderedQty,
       totalOrderedPcs,
       totalOrderedCartons,
@@ -886,4 +1195,258 @@ export function reconcileCustomerSocContracts(rawSocs: ReconcilableSocInput[]): 
 
   finalized.sort((a, b) => b.totalPendingQty - a.totalPendingQty);
   return finalized;
+}
+
+export interface UnifiedItemCustomerRef {
+  customerId: string;
+  customerName: string;
+  customerCode: string;
+}
+
+export interface UnifiedItemRollupRecord {
+  itemCode: string;
+  itemName: string;
+  totalGross: number;
+  totalPieces: number;
+  totalCartons: number;
+  totalOrderedKgs: number;
+  readyFgrGross: number;
+  readyFgrPieces: number;
+  readyFgrCartons: number;
+  readyFgrKgs: number;
+  balancePendingGross: number;
+  balancePendingPieces: number;
+  balancePendingCartons: number;
+  balancePendingKgs: number;
+  totalPackedGross: number;
+  totalPackedCartons: number;
+  totalDispatchedGross: number;
+  totalDispatchedCartons: number;
+  undispatchedGross: number;
+  undispatchedPieces: number;
+  undispatchedCartons: number;
+  undispatchedKgs: number;
+  weightPerPiece: number;
+  grossPerCarton: number;
+  customerCount: number;
+  customerNames: string[];
+  customers: UnifiedItemCustomerRef[];
+  primaryUom: string;
+  packagingUnitCode: string;
+  isGrossUnit: boolean;
+  warehouseFgrGross?: number;
+}
+
+/**
+ * Single Unified Item Rollup derived strictly from reconciled regular customer SOC items.
+ * Guarantees 100% mathematical parity across Top KPI Cards, Top Customers/Items Charts,
+ * Customer Cards, Item Cards, and SOC Modals.
+ */
+export function buildUnifiedItemRollupFromCustomers(params: {
+  regularCustomers: Array<{
+    id: string;
+    customerCode: string;
+    name: string;
+    socContracts?: ReconciledSocOutput[];
+  }>;
+  preSeedCatalog?: Array<{ itemCode: string; name: string; packagingSize?: number }>;
+  resolveStandardCode?: (code: string, name: string) => { code: string; name: string; packagingSize?: number };
+  resolveMeta?: (code: string, name: string) => {
+    weightPerPiece?: number;
+    packagingSize?: number;
+    matrixFgrGross?: number;
+    matrixFgrNative?: number;
+  } | undefined;
+  inferDefaultWpp?: (code: string, name: string) => number;
+}): UnifiedItemRollupRecord[] {
+  const {
+    regularCustomers,
+    preSeedCatalog = [],
+    resolveStandardCode,
+    resolveMeta,
+    inferDefaultWpp,
+  } = params;
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  const round1 = (n: number) => Math.round(n * 10) / 10;
+
+  const map = new Map<string, UnifiedItemRollupRecord & { _custIds: Set<string>; _dispatchedPieces: number }>();
+
+  const ensureEntry = (
+    itemCode: string,
+    itemName: string,
+    grossPerCarton: number,
+    primaryUom: string,
+    packagingUnitCode: string,
+    isGrossUnit: boolean,
+  ) => {
+    const res = resolveStandardCode ? resolveStandardCode(itemCode, itemName) : { code: itemCode, name: itemName };
+    const key = res.code || itemCode || itemName;
+    if (!map.has(key)) {
+      const meta = resolveMeta ? resolveMeta(key, res.name || itemName) : undefined;
+      const wpp =
+        Number(meta?.weightPerPiece) > 0
+          ? Number(meta?.weightPerPiece)
+          : isGrossUnit && inferDefaultWpp
+          ? inferDefaultWpp(key, res.name || itemName)
+          : 0;
+      const pkg =
+        grossPerCarton > 0
+          ? grossPerCarton
+          : Number(res.packagingSize) > 0
+          ? Number(res.packagingSize)
+          : Number(meta?.packagingSize) > 0
+          ? Number(meta?.packagingSize)
+          : isGrossUnit
+          ? 10
+          : 0;
+      const whFgr = isGrossUnit
+        ? round2(Number(meta?.matrixFgrGross || 0))
+        : round2(Number(meta?.matrixFgrNative || 0));
+
+      map.set(key, {
+        itemCode: key,
+        itemName: res.name || itemName,
+        totalGross: 0,
+        totalPieces: 0,
+        totalCartons: 0,
+        totalOrderedKgs: 0,
+        readyFgrGross: 0,
+        readyFgrPieces: 0,
+        readyFgrCartons: 0,
+        readyFgrKgs: 0,
+        balancePendingGross: 0,
+        balancePendingPieces: 0,
+        balancePendingCartons: 0,
+        balancePendingKgs: 0,
+        totalPackedGross: 0,
+        totalPackedCartons: 0,
+        totalDispatchedGross: 0,
+        totalDispatchedCartons: 0,
+        undispatchedGross: 0,
+        undispatchedPieces: 0,
+        undispatchedCartons: 0,
+        undispatchedKgs: 0,
+        weightPerPiece: wpp,
+        grossPerCarton: pkg,
+        customerCount: 0,
+        customerNames: [],
+        customers: [],
+        primaryUom: primaryUom || (isGrossUnit ? 'GRS' : 'UNIT'),
+        packagingUnitCode: packagingUnitCode || (isGrossUnit ? 'CTN' : 'PKG'),
+        isGrossUnit,
+        warehouseFgrGross: whFgr,
+        _custIds: new Set<string>(),
+        _dispatchedPieces: 0,
+      });
+    }
+    return map.get(key)!;
+  };
+
+  for (const std of preSeedCatalog) {
+    ensureEntry(std.itemCode, std.name, std.packagingSize || 10, 'GRS', 'CTN', true);
+  }
+
+  for (const cust of regularCustomers) {
+    for (const soc of cust.socContracts || []) {
+      for (const sIt of soc.items || []) {
+        const isGross = sIt.isGrossUnit !== false;
+        const entry = ensureEntry(
+          sIt.itemCode,
+          sIt.itemName,
+          sIt.grossPerCarton,
+          sIt.primaryUom || soc.primaryUom || (isGross ? 'GRS' : 'UNIT'),
+          sIt.packagingUnitCode || soc.packagingUnitCode || (isGross ? 'CTN' : 'PKG'),
+          isGross,
+        );
+        if (sIt.grossPerCarton > 0 && entry.grossPerCarton <= 0) {
+          entry.grossPerCarton = sIt.grossPerCarton;
+        }
+
+        entry.totalGross += Number(sIt.orderedQty || 0);
+        entry.totalPieces += Number(sIt.orderedPcs || 0);
+        entry.totalCartons += Number(sIt.orderedCartons || 0);
+
+        entry.totalPackedGross += Number(sIt.packedQty || 0);
+        entry.totalPackedCartons += Number(sIt.packedCartons || 0);
+
+        entry.totalDispatchedGross += Number(sIt.dispatchedQty || 0);
+        entry._dispatchedPieces += Number(sIt.dispatchedPcs || 0);
+        entry.totalDispatchedCartons += Number(sIt.dispatchedCartons || 0);
+
+        entry.readyFgrGross += Number(sIt.readyToDispatchQty || 0);
+        entry.readyFgrPieces += Number(sIt.readyToDispatchPcs || 0);
+        entry.readyFgrCartons += Number(sIt.readyToDispatchCartons || 0);
+
+        entry.undispatchedGross += Number(sIt.remainingPendingQty || 0);
+        entry.undispatchedPieces += Number(sIt.remainingPendingPcs || 0);
+        entry.undispatchedCartons += Number(sIt.remainingPendingCartons || 0);
+
+        entry.balancePendingGross += Number(sIt.toPackQty || 0);
+        entry.balancePendingPieces += Number(sIt.toPackPcs || 0);
+        entry.balancePendingCartons += Number(sIt.toPackCartons || 0);
+
+        const cid = cust.id || cust.name;
+        if (cid && !entry._custIds.has(cid)) {
+          entry._custIds.add(cid);
+          entry.customerCount += 1;
+          if (cust.name && !entry.customerNames.includes(cust.name)) {
+            entry.customerNames.push(cust.name);
+          }
+          entry.customers.push({
+            customerId: cid,
+            customerName: cust.name,
+            customerCode: cust.customerCode,
+          });
+        }
+      }
+    }
+  }
+
+  return Array.from(map.values())
+    .map(({ _custIds, _dispatchedPieces, ...entry }) => {
+      const wpp = entry.weightPerPiece || 0;
+      const totalGross = round2(entry.totalGross);
+      const totalDispatchedGross = round2(entry.totalDispatchedGross);
+      const totalPackedGross = round2(entry.totalPackedGross);
+      const readyFgrGross = round2(entry.readyFgrGross);
+      const undispatchedGross = round2(entry.undispatchedGross);
+      const balancePendingGross = round2(entry.balancePendingGross);
+
+      return {
+        ...entry,
+        totalGross,
+        totalCartons: snapFloat(entry.totalCartons),
+        totalOrderedKgs: entry.isGrossUnit
+          ? round1(entry.totalPieces * wpp)
+          : entry.primaryUom === 'KG'
+          ? totalGross
+          : 0,
+        totalPackedGross,
+        totalPackedCartons: snapFloat(entry.totalPackedCartons),
+        totalDispatchedGross,
+        totalDispatchedCartons: snapFloat(entry.totalDispatchedCartons),
+        readyFgrGross,
+        readyFgrCartons: snapFloat(entry.readyFgrCartons),
+        readyFgrKgs: entry.isGrossUnit
+          ? round1(entry.readyFgrPieces * wpp)
+          : entry.primaryUom === 'KG'
+          ? readyFgrGross
+          : 0,
+        undispatchedGross,
+        undispatchedCartons: snapFloat(entry.undispatchedCartons),
+        undispatchedKgs: entry.isGrossUnit
+          ? round1(entry.undispatchedPieces * wpp)
+          : entry.primaryUom === 'KG'
+          ? undispatchedGross
+          : 0,
+        balancePendingGross,
+        balancePendingCartons: snapFloat(entry.balancePendingCartons),
+        balancePendingKgs: entry.isGrossUnit
+          ? round1(entry.balancePendingPieces * wpp)
+          : entry.primaryUom === 'KG'
+          ? balancePendingGross
+          : 0,
+      };
+    })
+    .sort((a, b) => a.itemCode.localeCompare(b.itemCode, undefined, { numeric: true }));
 }

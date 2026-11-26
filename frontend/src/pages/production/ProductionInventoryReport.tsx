@@ -55,7 +55,10 @@ import { PageHeader, EmptyState, LargeLoadingBuffer } from '../../components/sha
 import { matchesTabRefresh, tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import { useWorkspaceTabStore } from '../../store/workspaceTabStore';
 import { formatDimension } from '../../utils/numberFormat';
-import { renderWhatsAppTemplate, resolveWhatsAppTemplate } from '../../utils/whatsappSettingsStore';
+import {
+  buildWhatsAppShareUrl,
+  renderWhatsAppTemplate,
+} from '../../utils/whatsappTemplateRenderer';
 import { ITEM_TYPES } from '../master-data/items/itemTypes';
 import './productionInventoryReport.css';
 
@@ -1322,25 +1325,30 @@ const ProductionInventoryReport: React.FC = () => {
 
   const handleShareBatchWhatsApp = () => {
     if (selectedRows.length === 0) return;
-    const lines = [
-      `*${dynamicReportTitle.company}*`,
-      `*Production Inventory — Batch Summary (${selectedRows.length} Items)*`,
-      `Division: ${dynamicReportTitle.divName} | Dept: ${dynamicReportTitle.deptName}`,
-      `Date: ${dayjs().format('DD MMM YYYY, HH:mm')}`,
-      `-----------------------------------------`,
-    ];
+    const itemBlocks: string[] = [];
     selectedRows.forEach((r, idx) => {
-      lines.push(
+      const rowLines = [
         `*${idx + 1}. ${r.itemCode}* — ${r.itemName}`,
         `   • Type: ${itemTypeLabel(r.itemType)} | Dept: ${r.departmentName || '-'}`,
         `   • Opening: ${formatInt(r.openingBalance)} | IN: ${formatInt(r.totalIn)} | OUT: ${formatInt(r.totalOut)}`,
         `   • Closing: ${formatInt(r.closingBalance)} | On Hand: ${formatInt(r.onHand)}`,
-        r.flow ? `   • Flow: ${r.flow.flowStatus === 'SOURCE' ? 'SOURCE (Feeds production)' : `Fed by ${r.flow.source?.itemCode || '-'}`}` : '',
-        `-----------------------------------------`
-      );
+        r.flow
+          ? `   • Flow: ${r.flow.flowStatus === 'SOURCE' ? 'SOURCE (Feeds production)' : `Fed by ${r.flow.source?.itemCode || '-'}`}`
+          : '',
+        `-----------------------------------------`,
+      ].filter(Boolean);
+      itemBlocks.push(rowLines.join('\n'));
     });
-    lines.push(`_Generated from PWI ERP System_`);
-    window.open(`https://wa.me/?text=${encodeURIComponent(lines.filter(Boolean).join('\n'))}`, '_blank');
+
+    const text = renderWhatsAppTemplate('[PROD-INV-BATCH]', {
+      company: dynamicReportTitle.company,
+      division: dynamicReportTitle.divName,
+      department: dynamicReportTitle.deptName || 'All Departments',
+      date: dayjs().format('DD MMM YYYY, HH:mm'),
+      items_count: String(selectedRows.length),
+      items: itemBlocks.join('\n'),
+    });
+    window.open(buildWhatsAppShareUrl(text), '_blank', 'noopener,noreferrer');
   };
 
   const handleExportSelectedCSV = () => {
@@ -1488,25 +1496,27 @@ const ProductionInventoryReport: React.FC = () => {
     if (!journeyItem) return;
     const itemCode = 'itemCode' in journeyItem ? journeyItem.itemCode : '';
     const itemName = 'name' in journeyItem ? journeyItem.name : ('itemName' in journeyItem ? (journeyItem as any).itemName : '');
-    const lines = [
-      `*${dynamicReportTitle.company}*`,
-      `*End-to-End Material Flow & Traceability Journey*`,
-      `Item: *${itemCode}* — ${itemName}`,
-      `Date: ${dayjs().format('DD MMM YYYY, HH:mm')}`,
-      `-----------------------------------------`,
-    ];
+    const stageBlocks: string[] = [];
     journeyData.forEach((st) => {
-      lines.push(
+      const stageLines = [
         `*Stage ${st.stageNumber}: ${st.stageName}*`,
         `   • Dept: ${st.departmentName}`,
         `   • Item: ${st.itemCode} (${st.itemName})`,
         `   • Unit: ${st.uom}`,
         st.isCurrentItem ? `   • _[CURRENT INSPECTED ITEM]_` : '',
-        `-----------------------------------------`
-      );
+        `-----------------------------------------`,
+      ].filter(Boolean);
+      stageBlocks.push(stageLines.join('\n'));
     });
-    lines.push(`_Generated from PWI ERP System_`);
-    window.open(`https://wa.me/?text=${encodeURIComponent(lines.filter(Boolean).join('\n'))}`, '_blank');
+
+    const text = renderWhatsAppTemplate('[PROD-FLOW]', {
+      company: dynamicReportTitle.company,
+      item_code: itemCode || '—',
+      item_name: itemName || '—',
+      date: dayjs().format('DD MMM YYYY, HH:mm'),
+      stages: stageBlocks.join('\n'),
+    });
+    window.open(buildWhatsAppShareUrl(text), '_blank', 'noopener,noreferrer');
   };
 
   const itemOptions = useMemo(
@@ -1703,27 +1713,23 @@ const ProductionInventoryReport: React.FC = () => {
       return `${formatInt(val)} UNITS`;
     };
 
-    const tpl = resolveWhatsAppTemplate(
-      'productionInventoryReport',
-      DEFAULT_PROD_INVENTORY_WHATSAPP_TEMPLATE,
-    );
-    const text = renderWhatsAppTemplate(tpl, {
-      '{company}': dynamicReportTitle.company,
-      '{title}': dynamicReportTitle.title,
-      '{division}': dynamicReportTitle.divName,
-      '{department}': dynamicReportTitle.deptName || 'All Departments',
-      '{date}': dynamicReportTitle.dateStr,
-      '{total_items}': formatInt(s.itemCount),
-      '{on_hand}': formatShareVal(s.onHand),
-      '{available}': formatShareVal(s.available),
-      '{total_in}': formatShareVal(s.totalIn),
-      '{total_out}': formatShareVal(s.totalOut),
-      '{produced}': formatShareVal(s.produced),
-      '{required}': formatShareVal(s.required),
-      '{short_items}': formatInt(summary?.shortItems ?? 0),
+    const text = renderWhatsAppTemplate('[PROD-INV]', {
+      company: dynamicReportTitle.company,
+      title: dynamicReportTitle.title,
+      division: dynamicReportTitle.divName,
+      department: dynamicReportTitle.deptName || 'All Departments',
+      date: dynamicReportTitle.dateStr,
+      total_items: formatInt(s.itemCount),
+      on_hand: formatShareVal(s.onHand),
+      available: formatShareVal(s.available),
+      total_in: formatShareVal(s.totalIn),
+      total_out: formatShareVal(s.totalOut),
+      produced: formatShareVal(s.produced),
+      required: formatShareVal(s.required),
+      short_items: formatInt(summary?.shortItems ?? 0),
     });
 
-    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+    window.open(buildWhatsAppShareUrl(text), '_blank', 'noopener,noreferrer');
   };
 
   /* ── Multi-Department Aggregated Breakdown ───────────────────────────── */
@@ -3171,8 +3177,32 @@ const ProductionInventoryReport: React.FC = () => {
                   size="small"
                   icon={<WhatsAppOutlined style={{ color: '#16a34a' }} />}
                   onClick={() => {
-                    const text = `*PWI Stock Ledger Summary*\nItem: ${ledger.item?.itemCode} - ${ledger.item?.name}\nOpening: ${formatInt(ledger.openingBalance)}\nIN: ${formatInt(ledger.totalIn)}\nOUT: ${formatInt(ledger.totalOut)}\nClosing: ${formatInt(ledger.closingBalance)}`;
-                    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+                    const rowsList = Array.isArray(ledger.rows) ? ledger.rows : [];
+                    const recentMovements = rowsList
+                      .slice(0, 5)
+                      .map((r: any, idx: number) => {
+                        const dt = r.date ? dayjs(r.date).format('DD-MMM-YY') : '—';
+                        const inQty = Number(r.inQty || 0);
+                        const outQty = Number(r.outQty || 0);
+                        const dirStr = inQty > 0 ? `+IN ${formatInt(inQty)}` : `-OUT ${formatInt(outQty)}`;
+                        return `${idx + 1}. ${dt} | ${dirStr} | Ref: ${r.referenceNo || r.movementType || '—'}`;
+                      })
+                      .join('\n');
+                    const text = renderWhatsAppTemplate('[INV-LEDGER]', {
+                      company: dynamicReportTitle.company,
+                      item_code: ledger.item?.itemCode || '—',
+                      item_name: ledger.item?.name || '—',
+                      warehouse: dynamicReportTitle.deptName || dynamicReportTitle.divName || 'Production Store',
+                      uom: (ledger.item as any)?.uomCode || 'UNITS',
+                      date: dayjs().format('DD-MMM-YYYY HH:mm'),
+                      opening_balance: formatInt(ledger.openingBalance),
+                      total_in: formatInt(ledger.totalIn),
+                      total_out: formatInt(ledger.totalOut),
+                      current_balance: formatInt(ledger.closingBalance),
+                      movements_count: String(rowsList.length),
+                      recent_movements: recentMovements || 'No movement records.',
+                    });
+                    window.open(buildWhatsAppShareUrl(text), '_blank', 'noopener,noreferrer');
                   }}
                 >
                   Share on WhatsApp
@@ -3355,22 +3385,24 @@ const ProductionInventoryReport: React.FC = () => {
               icon={<WhatsAppOutlined style={{ color: '#16a34a' }} />}
               onClick={() => {
                 const divName = (effectiveDivisions || []).find((d) => d.id === selectedDivisionForDept)?.name || 'Division';
-                const lines = [
-                  `*${dynamicReportTitle.company}*`,
-                  `*Multi-Department Production Report*`,
-                  `Division: ${divName}`,
-                  `Departments: ${departmentBreakdown.map((d) => d.departmentName).join(', ')}`,
-                  `-----------------------------`,
-                ];
-                departmentBreakdown.forEach((d) => {
-                  lines.push(`*${d.departmentName}*:`);
-                  lines.push(`- Items: ${d.itemCount} | On Hand: ${formatInt(d.onHand)}`);
-                  lines.push(`- In: ${formatInt(d.totalIn)} | Out: ${formatInt(d.totalOut)} | Closing: ${formatInt(d.closing)}`);
-                  lines.push(`- Produced: ${formatInt(d.produced)} | Short: ${d.shortItems}`);
-                  lines.push(``);
+                const deptRows = departmentBreakdown
+                  .map((d) =>
+                    [
+                      `*${d.departmentName}*:`,
+                      `- Items: ${d.itemCount} | On Hand: ${formatInt(d.onHand)}`,
+                      `- In: ${formatInt(d.totalIn)} | Out: ${formatInt(d.totalOut)} | Closing: ${formatInt(d.closing)}`,
+                      `- Produced: ${formatInt(d.produced)} | Short: ${d.shortItems}`,
+                    ].join('\n'),
+                  )
+                  .join('\n\n');
+                const text = renderWhatsAppTemplate('[PROD-MULTI-DEPT]', {
+                  company: dynamicReportTitle.company,
+                  division: divName,
+                  departments: departmentBreakdown.map((d) => d.departmentName).join(', '),
+                  date: dayjs().format('DD MMM YYYY, HH:mm'),
+                  department_rows: deptRows || 'No department rows.',
                 });
-                lines.push(`_Generated from PWI ERP System_`);
-                window.open(`https://wa.me/?text=${encodeURIComponent(lines.join('\n'))}`, '_blank');
+                window.open(buildWhatsAppShareUrl(text), '_blank', 'noopener,noreferrer');
               }}
             >
               WhatsApp

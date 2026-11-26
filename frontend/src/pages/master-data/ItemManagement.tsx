@@ -48,7 +48,7 @@ import {
 import InputMaterialSelect, { registerItemsInCache } from './items/InputMaterialSelect';
 import ProductionFlowCard, { StageBlock } from './items/ProductionFlowCard';
 import { buildRouteFlow, findRouteCycles, normalizeRouteRows, type RouteRow, type RouteStageSource } from './items/productionRoute';
-import { matchesTabRefresh, tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
+import { matchesTabRefresh, markManualRefreshWindow, tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import { getLookupsSnapshot, invalidateLookupsCache, prefetchAllLookups } from '../../services/lookupsCache';
 import { useHeaderActions, type HeaderAction } from '../../components/layout/headerActionsStore';
 import './itemManagement.css';
@@ -730,10 +730,10 @@ const ItemManagement: React.FC = () => {
   const savedMaster: ItemMasterCache | undefined =
     savedEntry && Array.isArray(savedEntry.items) ? (savedEntry as ItemMasterCache) : undefined;
 
-  const [items, setItems] = useState<Item[]>(() => savedMaster?.items ?? []);
+  const [allItems, setAllItems] = useState<Item[]>(() => savedMaster?.items ?? []);
+  const [serverTotal, setServerTotal] = useState<number>(() => savedMaster?.total ?? (savedMaster?.items?.length ?? 0));
   const [loading, setLoading] = useState(!savedMaster);
   const [error, setError] = useState<string | null>(null);
-  const [total, setTotal] = useState<number>(() => savedMaster?.total ?? 0);
   const [page, setPage] = useState(savedFilters?.page ?? 1);
   const [pageSize, setPageSize] = useState(savedFilters?.pageSize ?? 20);
   const [sortField, setSortField] = useState<string>(savedFilters?.sortField ?? 'itemCode');
@@ -1123,7 +1123,7 @@ const ItemManagement: React.FC = () => {
     const scanState = location.state as { entityId?: string; entityLabel?: string; openBarcode?: boolean; openHistory?: boolean } | null;
     if (scanState?.entityId) {
       const targetId = scanState.entityId;
-      const found = items.find((i) => i.id === targetId || i.itemCode === targetId);
+      const found = allItems.find((i) => i.id === targetId || i.itemCode === targetId);
       if (found) {
         if (scanState.openBarcode) {
           openBarcodeModal(found);
@@ -1132,7 +1132,7 @@ const ItemManagement: React.FC = () => {
         }
         window.history.replaceState({}, document.title);
       } else {
-        // Fetch item directly from API if not in current page
+        // Fetch item directly from API if not yet cached
         apiService.get<{ data: Item }>(`/master-data/items/${targetId}`).then((res) => {
           const raw = res?.data || res;
           if (raw) {
@@ -1147,7 +1147,7 @@ const ItemManagement: React.FC = () => {
         }).catch(() => { });
       }
     }
-  }, [location.state, items]);
+  }, [location.state, allItems]);
 
   useEffect(() => {
     const trimmed = searchInput.trim();
@@ -1333,28 +1333,50 @@ const ItemManagement: React.FC = () => {
   //  - `inFlightKeyRef`: an identical query that is already running is not
   //                      issued a second time (no duplicate filter requests).
   const fetchSeqRef = useRef(0);
-  const inFlightKeyRef = useRef<string | null>(null);
+  const inFlightFetchRef = useRef<boolean>(false);
+  const hasFullDataset = allItems.length > 0 && (serverTotal === 0 || allItems.length >= serverTotal);
 
   const fetchItems = useCallback(
     async (options?: { force?: boolean }) => {
-      const params = buildParams();
-      const key = itemQueryKey(params);
-      if (!options?.force && inFlightKeyRef.current === key) return; // identical request already running
+      if (!options?.force && inFlightFetchRef.current) return; // single-flight dedup
 
       const seq = ++fetchSeqRef.current;
-      inFlightKeyRef.current = key;
+      inFlightFetchRef.current = true;
       setLoading(true);
       setError(null);
+      if (options?.force) {
+        markManualRefreshWindow(800);
+      }
       try {
-        const response = await apiService.get<{ data: Item[]; total: number }>('/master-data/items', params);
-        if (seq !== fetchSeqRef.current) return; // superseded by a newer request
-        const list = (response.data || []).map(normalizeItem);
-        const nextTotal = response.total || 0;
-        setItems(list);
-        setTotal(nextTotal);
+        const dirParams = { page: 1, limit: 5000, view: 'directory', sortField: 'itemCode', sortOrder: 'ASC' };
+        const response = options?.force
+          ? await apiService.get<{ data: Item[]; total: number }>('/master-data/items', dirParams, { forceRefresh: true })
+          : await apiService.get<{ data: Item[]; total: number }>('/master-data/items', dirParams);
+        if (seq !== fetchSeqRef.current) return;
 
-        // Keep rows and the filters that produced them in ONE snapshot so a
-        // restored tab can never show rows that do not match its filters.
+        let rawList = response.data || [];
+        const nextTotal = typeof response.total === 'number' ? response.total : rawList.length;
+
+        // Future-proof: if total exceeds 5000, seamlessly pull remaining directory pages
+        if (nextTotal > rawList.length && rawList.length >= 5000) {
+          let p = 2;
+          while (rawList.length < nextTotal && p <= 10) {
+            const pageRes = await apiService.get<{ data: Item[]; total: number }>('/master-data/items', {
+              ...dirParams,
+              page: p,
+            });
+            const pageRows = pageRes.data || [];
+            if (pageRows.length === 0) break;
+            rawList = [...rawList, ...pageRows];
+            p += 1;
+          }
+        }
+        if (seq !== fetchSeqRef.current) return;
+
+        const list = rawList.map(normalizeItem);
+        setAllItems(list);
+        setServerTotal(nextTotal);
+
         const prevCache = tabSessionCache.get<ItemMasterCache>(ITEM_CACHE_KEY);
         tabSessionCache.set<ItemMasterCache>(ITEM_CACHE_KEY, {
           ...prevCache,
@@ -1368,10 +1390,6 @@ const ItemManagement: React.FC = () => {
             showFilters: uiSnapshotRef.current.showFilters,
           } as ItemFilterState,
         } as ItemMasterCache);
-
-        // Safety net: if the current page is beyond the filtered range
-        // (stale page number), fall back to page 1 instead of showing empty.
-        if (list.length === 0 && nextTotal > 0 && queryState.page > 1) setPage(1);
       } catch (err: any) {
         if (seq !== fetchSeqRef.current) return;
         const prevSnapshot = tabSessionCache.get<ItemMasterCache>(ITEM_CACHE_KEY);
@@ -1381,12 +1399,12 @@ const ItemManagement: React.FC = () => {
           : (lookupsItems && lookupsItems.length > 0 ? (lookupsItems as any) : []);
 
         if (fallbackList.length > 0) {
-          setItems(fallbackList);
-          setTotal(prevSnapshot?.total || fallbackList.length);
+          setAllItems(fallbackList);
+          setServerTotal(prevSnapshot?.total || fallbackList.length);
           messageRef.current?.warning('Displaying cached items (server connection recovering...)');
         } else {
-          setItems([]);
-          setTotal(0);
+          setAllItems([]);
+          setServerTotal(0);
           const raw = err?.response?.data?.message;
           const errorText: string =
             (Array.isArray(raw) ? raw.join('; ') : raw) ||
@@ -1398,11 +1416,12 @@ const ItemManagement: React.FC = () => {
       } finally {
         if (seq === fetchSeqRef.current) {
           setLoading(false);
-          inFlightKeyRef.current = null;
+          inFlightFetchRef.current = false;
         }
       }
     },
-    [buildParams, normalizeItem, queryState],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [normalizeItem],
   );
 
   const resolveCompanyId = useCallback(async (): Promise<string | null> => {
@@ -1420,131 +1439,118 @@ const ItemManagement: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    // Load organization/UOM lookups + initial stats once when uncached (eliminates the 29+ KPI/type probe storm)
     (async () => {
-      const [uomSettled, catSettled, divSettled, secSettled, depSettled, rtSettled, itSettled] = await Promise.allSettled([
-        apiService.get<{ data: UomOption[] }>('/master-data/uom', { limit: 200 }),
-        apiService.get<{ data: CategoryOption[] }>('/master-data/categories', { limit: 500 }),
-        apiService.get<{ data: DivisionOption[] }>('/divisions', { limit: 200, status: 'ACTIVE' }),
-        apiService.get<{ data: SectionOption[] }>('/sections', { limit: 500 }),
-        apiService.get<{ data: DepartmentOption[] }>('/departments', { limit: 500, status: 'ACTIVE', departmentType: 'PRODUCTION' }),
-        apiService.get<{ data: Array<{ id: string; routeCode: string; name: string; status: string }> }>('/master-data/route-types', { limit: 200 }),
-        apiService.get<{ data: MasterItemType[] }>('/master-data/item-types', { limit: 500 }),
-      ]);
+      const hasCachedLookups = Boolean(
+        savedMaster &&
+        (savedMaster.uoms?.length || savedMaster.divisions?.length || savedMaster.categories?.length),
+      );
 
-      if (uomSettled.status === 'fulfilled') setUoms(uomSettled.value.data || []);
-      if (catSettled.status === 'fulfilled') setCategories(catSettled.value.data || []);
-      if (divSettled.status === 'fulfilled') {
-        const loadedDivs = (divSettled.value.data || []).filter((d: any) => d?.isActive !== false && d?.is_active !== false && String(d?.status ?? 'ACTIVE').toUpperCase() === 'ACTIVE');
-        setDivisions(loadedDivs);
-        if (loadedDivs.length === 1 && !fDivision) {
-          setFDivision(loadedDivs[0].id);
+      if (!hasCachedLookups) {
+        const [uomSettled, catSettled, divSettled, secSettled, depSettled, rtSettled, itSettled] = await Promise.allSettled([
+          apiService.get<{ data: UomOption[] }>('/master-data/uom', { limit: 200 }),
+          apiService.get<{ data: CategoryOption[] }>('/master-data/categories', { limit: 500 }),
+          apiService.get<{ data: DivisionOption[] }>('/divisions', { limit: 200, status: 'ACTIVE' }),
+          apiService.get<{ data: SectionOption[] }>('/sections', { limit: 500 }),
+          apiService.get<{ data: DepartmentOption[] }>('/departments', { limit: 500, status: 'ACTIVE', departmentType: 'PRODUCTION' }),
+          apiService.get<{ data: Array<{ id: string; routeCode: string; name: string; status: string }> }>('/master-data/route-types', { limit: 200 }),
+          apiService.get<{ data: MasterItemType[] }>('/master-data/item-types', { limit: 500 }),
+        ]);
+
+        if (uomSettled.status === 'fulfilled') setUoms(uomSettled.value.data || []);
+        if (catSettled.status === 'fulfilled') setCategories(catSettled.value.data || []);
+        if (divSettled.status === 'fulfilled') {
+          const loadedDivs = (divSettled.value.data || []).filter((d: any) => d?.isActive !== false && d?.is_active !== false && String(d?.status ?? 'ACTIVE').toUpperCase() === 'ACTIVE');
+          setDivisions(loadedDivs);
+          if (loadedDivs.length === 1 && !fDivision) {
+            setFDivision(loadedDivs[0].id);
+          }
         }
-      }
-      if (secSettled.status === 'fulfilled') setSections(secSettled.value.data || []);
-      if (depSettled.status === 'fulfilled') setDepartments(depSettled.value.data || []);
-      if (rtSettled.status === 'fulfilled') {
-        setRouteTypes((rtSettled.value.data || []).filter((rt) => rt.status === 'ACTIVE'));
-        setRouteTypesState('ready');
-      } else {
-        setRouteTypesState('error');
-      }
-      let masterReady: MasterItemType[] = [];
-      if (itSettled.status === 'fulfilled' && Array.isArray(itSettled.value.data) && itSettled.value.data.length > 0) {
-        masterReady = itSettled.value.data;
-        setMasterItemTypes(masterReady);
-        setMasterTypesState('ready');
-      } else {
-        setMasterItemTypes([]);
-        setMasterTypesState(itSettled.status === 'rejected' ? 'error' : 'ready');
-      }
+        if (secSettled.status === 'fulfilled') setSections(secSettled.value.data || []);
+        if (depSettled.status === 'fulfilled') setDepartments(depSettled.value.data || []);
+        if (rtSettled.status === 'fulfilled') {
+          setRouteTypes((rtSettled.value.data || []).filter((rt) => rt.status === 'ACTIVE'));
+          setRouteTypesState('ready');
+        } else {
+          setRouteTypesState('error');
+        }
+        if (itSettled.status === 'fulfilled' && Array.isArray(itSettled.value.data) && itSettled.value.data.length > 0) {
+          setMasterItemTypes(itSettled.value.data);
+          setMasterTypesState('ready');
+        } else {
+          setMasterItemTypes([]);
+          setMasterTypesState(itSettled.status === 'rejected' ? 'error' : 'ready');
+        }
 
-      const allFailed = [uomSettled, catSettled, divSettled, secSettled, depSettled, rtSettled, itSettled].every(s => s.status === 'rejected');
-      if (allFailed) {
-        message.warning('Could not connect to server to load master data. Please check your network or try again.');
+        const allFailed = [uomSettled, catSettled, divSettled, secSettled, depSettled, rtSettled, itSettled].every(s => s.status === 'rejected');
+        if (allFailed) {
+          message.warning('Could not connect to server to load master data. Please check your network or try again.');
+        }
       }
       setCompanyId(await resolveCompanyId());
-      if (can('item.view')) {
-        const mk = async (params: Record<string, unknown>) => {
-          const res = await apiService.get<{ data: Item[]; total: number }>('/master-data/items', { page: 1, limit: 1, ...params });
-          return res.total || 0;
-        };
+
+      if (can('item.view') && !savedMaster?.items?.length) {
         try {
-          const [totalCount, active, inactive, stock, manufactured] = await Promise.all([
-            mk({}),
-            mk({ status: 'ACTIVE' }),
-            mk({ status: 'INACTIVE' }),
-            mk({ isStockItem: true }),
-            mk({ isManufacturable: true }),
-          ]);
-          setStats({ total: totalCount, active, inactive, stock, manufactured });
+          const pRes = await apiService.get<{ data: any }>('/master-data/items/pipeline-stats', undefined, { silent: true });
+          const pData = pRes?.data;
+          if (pData) {
+            setPipelineStats(pData);
+            setStats({
+              total: pData.total ?? null,
+              active: pData.active ?? null,
+              inactive: pData.inactive ?? null,
+              stock: pData.stock ?? null,
+              manufactured: pData.manufactured ?? null,
+            });
+            if (Array.isArray(pData.types)) {
+              const tMap: Record<string, number> = {};
+              pData.types.forEach((t: any) => {
+                if (t?.key) tMap[t.key] = t.count || 0;
+              });
+              setTypeCounts(tMap);
+            }
+          }
         } catch {
-          // keep page-derived fallback values on failure
-        }
-        try {
-          const typeList = masterReady.length > 0 ? masterReady.map((t) => ({ value: t.code })) : ITEM_TYPES;
-          const settled = await Promise.allSettled(
-            typeList.map((t) => mk({ itemType: t.value })),
-          );
-          const counts: Record<string, number> = {};
-          typeList.forEach((t, i) => {
-            if (settled[i].status === 'fulfilled') counts[t.value] = settled[i].value;
-          });
-          setTypeCounts(counts);
-        } catch {
-          // per-type counts stay absent; the All Items count badge remains.
+          // KPI & chevron counts still derive accurately once directory items load
         }
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resolveCompanyId, message, can]);
 
-  // ITEM-FILTER-01: the session snapshot (rows + lookups + filter state) is
-  // written by (a) `fetchItems` after every successful response and
-  // (b) TabKeepAlive's `serialize` after every render — one consistent shape.
-
-  // ITEM-FILTER-01 — the ONLY automatic list request.
-  // `fetchItems` is re-created whenever the query state changes (search,
-  // Division, Section, Department, Category, Route Type, Material Role/Usage,
-  // Status, item type, sort, page, page size), so every filter change — and
-  // only a real query change — reloads the table with the new parameters.
-  // Identical in-flight requests are de-duplicated inside `fetchItems`.
-  //
-  // PRODUCTS-ITEMS-LOADING-02 — SPA-return guard (same contract as the shared
-  // TabKeepAlive wrapper above / the Dashboard: load ONLY when no cached
-  // snapshot exists). The workspace remounts this page on every route change,
-  // so without this guard the mount-time run below re-issued the identical
-  // query and flashed "Loading Products & Items..." over rows that were
-  // already on screen. When a complete snapshot (`savedMaster`: the rows PLUS
-  // the filter state that produced them — written by `fetchItems` and
-  // `TabKeepAlive.serialize`) seeds this mount, the query it seeds IS the
-  // cached query: that first effect run is skipped. The comparison is
-  // key-based, so it stays correct under StrictMode's double-invoked effects
-  // (SPA return → 0 extra list requests). The moment the query really
-  // changes, the guard flips off permanently — every later filter, search,
-  // sort or pagination change fetches as before, including one that returns
-  // to the original values. Mounts WITHOUT a cache (first visit, re-open
-  // after the tab was closed, refresh-driven invalidation) behave exactly as
-  // before, still under the single-flight guard. Explicit Refresh, mutations
-  // and the global refresh event call `fetchItems({ force: true })` directly
-  // and are unaffected by this guard.
-  const mountQueryKeyRef = useRef<string | null>(savedMaster ? itemQueryKey(buildParams()) : null);
-
+  // Load items ONCE per tab session when cache is empty (SPA return stays 0ms with 0 network calls)
   useEffect(() => {
-    if (mountQueryKeyRef.current !== null) {
-      if (itemQueryKey(buildParams()) === mountQueryKeyRef.current) {
-        return; // cached SPA return: previous data is already seeded — no request, no overlay
-      }
-      mountQueryKeyRef.current = null; // a real query change happened — never skip again
+    if (!savedMaster?.items) {
+      void fetchItems();
     }
-    void fetchItems();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetchItems]);
+
+  // Keep filter/page/sort changes persisted in tabSessionCache without any network calls
+  useEffect(() => {
+    if (allItems.length === 0 && !tabSessionCache.has(ITEM_CACHE_KEY)) return;
+    const prevCache = tabSessionCache.get<ItemMasterCache>(ITEM_CACHE_KEY);
+    if (!prevCache) return;
+    tabSessionCache.set<ItemMasterCache>(ITEM_CACHE_KEY, {
+      ...prevCache,
+      items: allItems,
+      total: serverTotal,
+      filterState: {
+        ...(prevCache.filterState as Partial<ItemFilterState> | undefined),
+        ...queryState,
+        searchInput,
+        activeTab,
+        showFilters,
+      } as ItemFilterState,
+    } as ItemMasterCache);
+  }, [allItems, serverTotal, queryState, searchInput, activeTab, showFilters, ITEM_CACHE_KEY]);
 
   // Global header/tab refresh event listener
   useEffect(() => {
     const handleGlobalRefresh = (e: Event) => {
       if (matchesTabRefresh(e, [ITEM_CACHE_KEY, MASTER_PRODUCTS_ITEMS_TAB_ID])) {
         tabSessionCache.remove(ITEM_CACHE_KEY);
-        void fetchItems();
+        void fetchItems({ force: true });
       }
     };
     window.addEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
@@ -1562,34 +1568,192 @@ const ItemManagement: React.FC = () => {
     total: number;
     active: number;
     inactive: number;
+    stock?: number;
+    manufactured?: number;
     types: Array<{ key: string; label: string; count: number }>;
   }>({ total: 0, active: 0, inactive: 0, types: [] });
 
-  const fetchPipelineStats = useCallback(async () => {
-    try {
-      const params: Record<string, string> = {};
-      if (fDivision) params.divisionId = fDivision;
-      if (fSection) params.sectionId = fSection;
-      if (fDepartment) params.departmentId = fDepartment;
-      const res = await apiService.get<{ data: any }>('/master-data/items/pipeline-stats', params, { silent: true });
-      if (res?.data) {
-        setPipelineStats(res.data);
+  // Instant 0ms in-memory filtering, sorting, KPI counts, and pagination
+  const { items, total, kpiStats, effectivePipelineStats } = useMemo(() => {
+    const expandItemTypeAliases = (rawType: string): Set<string> => {
+      const clean = rawType.trim().toUpperCase().replace(/[-\s]+/g, '_');
+      if (clean === 'WIP' || clean === 'WORK_IN_PROGRESS' || clean === 'WORK_IN_PROCESS') {
+        return new Set(['WORK_IN_PROGRESS', 'WIP']);
       }
-    } catch (err) {
-      console.warn('Pipeline stats temporarily unavailable:', (err as any)?.message || err);
-    }
-  }, [fDivision, fSection, fDepartment]);
+      if (clean === 'RM' || clean === 'RAW_MATERIAL' || clean === 'RAW') {
+        return new Set(['RAW_MATERIAL', 'RM']);
+      }
+      if (clean === 'FG' || clean === 'FINISHED_GOOD' || clean === 'FINISHED_GOODS') {
+        return new Set(['FINISHED_GOOD', 'FINISHED_GOODS', 'FG']);
+      }
+      if (clean === 'SFG' || clean === 'SEMI_FINISHED') {
+        return new Set(['SEMI_FINISHED', 'SFG']);
+      }
+      if (clean.includes('TOOL')) {
+        return new Set(['TOOLS', 'TOOLING', 'TOOL']);
+      }
+      return new Set([clean]);
+    };
 
-  useEffect(() => {
-    fetchPipelineStats();
-  }, [fetchPipelineStats]);
+    const formatTypeLabel = (code: string) => {
+      if (!code) return 'Other';
+      const mapped = typeLabelMap.get(code);
+      if (mapped) return mapped;
+      if (code === 'RAW_MATERIAL') return 'Raw Material';
+      if (code === 'WORK_IN_PROGRESS') return 'Work In Progress';
+      if (code === 'FINISHED_GOOD' || code === 'FINISHED_GOODS') return 'Finished Goods';
+      if (code === 'SEMI_FINISHED') return 'Semi-Finished';
+      if (code === 'CONSUMABLE' || code === 'CONSUMABLES') return 'Consumables';
+      if (code === 'SPARE_PART' || code === 'SPARE_PARTS') return 'Spare Parts';
+      if (code === 'PACKAGING_MATERIAL') return 'Packaging';
+      return code.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+    };
+
+    // Compute register KPI stats and org-scoped chevron counts from in-memory directory
+    let totalCount = 0;
+    let activeCount = 0;
+    let inactiveCount = 0;
+    let stockCount = 0;
+    let mfgCount = 0;
+
+    let scopeTotal = 0;
+    let scopeActive = 0;
+    let scopeInactive = 0;
+    const scopeTypeCounts = new Map<string, number>();
+
+    const trimmedSearch = search.trim();
+    const lowerSearch = trimmedSearch.toLowerCase();
+    const isRmAlias = /^rm$/i.test(trimmedSearch) || /^raw$/i.test(trimmedSearch) || /^raw[-_\s]?mat/i.test(trimmedSearch);
+    const typeAliasSet = fItemType ? expandItemTypeAliases(fItemType) : null;
+    const roleLower = fRoleUsage ? fRoleUsage.toLowerCase() : '';
+
+    const matched: Item[] = [];
+
+    for (const r of allItems) {
+      totalCount += 1;
+      if (r.status === 'ACTIVE') activeCount += 1;
+      else if (r.status === 'INACTIVE') inactiveCount += 1;
+      if (r.isStockItem) stockCount += 1;
+      if (r.isManufacturable) mfgCount += 1;
+
+      const itemDivId = r.divisionId || r.division?.id || (r.department as any)?.divisionId;
+      const itemSecId = r.sectionId || r.section?.id || (r.department as any)?.sectionId;
+      const itemDeptId = r.departmentId || r.department?.id;
+      const itemCatId = r.categoryId || r.category?.id;
+      const itemRtId = r.routeTypeId || r.routeTypeRef?.id;
+
+      const matchesOrg =
+        (!fDivision || itemDivId === fDivision) &&
+        (!fSection || itemSecId === fSection) &&
+        (!fDepartment || itemDeptId === fDepartment);
+
+      if (matchesOrg) {
+        scopeTotal += 1;
+        if (r.status === 'ACTIVE') scopeActive += 1;
+        else if (r.status === 'INACTIVE') scopeInactive += 1;
+        if (r.itemType) {
+          scopeTypeCounts.set(r.itemType, (scopeTypeCounts.get(r.itemType) || 0) + 1);
+        }
+      }
+
+      if (!matchesOrg) continue;
+      if (fCategory && itemCatId !== fCategory) continue;
+      if (fRouteType && itemRtId !== fRouteType && r.routeType !== fRouteType) continue;
+      if (fStatus && r.status !== fStatus) continue;
+      if (roleLower && !String(r.materialRoleUsage || '').toLowerCase().includes(roleLower)) continue;
+      if (typeAliasSet) {
+        const itemT = String(r.itemType || '').trim().toUpperCase().replace(/[-\s]+/g, '_');
+        if (!typeAliasSet.has(itemT)) continue;
+      }
+      if (lowerSearch) {
+        if (isRmAlias) {
+          const isRm = r.itemType === 'RAW_MATERIAL' ||
+            String(r.itemCode || '').toLowerCase().includes(lowerSearch) ||
+            String(r.name || '').toLowerCase().includes(lowerSearch);
+          if (!isRm) continue;
+        } else {
+          const catN = categoryName(r) || '';
+          const hit =
+            String(r.itemCode || '').toLowerCase().includes(lowerSearch) ||
+            String(r.sku || '').toLowerCase().includes(lowerSearch) ||
+            String(r.name || '').toLowerCase().includes(lowerSearch) ||
+            String(r.shortName || '').toLowerCase().includes(lowerSearch) ||
+            catN.toLowerCase().includes(lowerSearch) ||
+            String(r.barcode || '').toLowerCase().includes(lowerSearch) ||
+            String(r.itemType || '').toLowerCase().includes(lowerSearch) ||
+            String(r.materialRoleUsage || '').toLowerCase().includes(lowerSearch) ||
+            (r.wireSizeMm != null && String(r.wireSizeMm).toLowerCase().includes(lowerSearch)) ||
+            (r.diameterMm != null && String(r.diameterMm).toLowerCase().includes(lowerSearch));
+          if (!hit) continue;
+        }
+      }
+      matched.push(r);
+    }
+
+    const dir = sortOrder === 'DESC' ? -1 : 1;
+    matched.sort((a, b) => {
+      const sf = sortField;
+      if (sf === 'wireSizeMm' || sf === 'diameterMm' || sf === 'thicknessMm' || sf === 'widthMm') {
+        const na = Number((a as any)[sf] ?? 0);
+        const nb = Number((b as any)[sf] ?? 0);
+        return (na - nb) * dir;
+      }
+      if (sf === 'createdAt') {
+        return (new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime()) * dir;
+      }
+      const va = String((a as any)[sf] ?? '');
+      const vb = String((b as any)[sf] ?? '');
+      return va.localeCompare(vb) * dir;
+    });
+
+    const filteredTotal = hasFullDataset ? matched.length : serverTotal;
+    const startIdx = (page - 1) * pageSize;
+    const sliced = hasFullDataset ? matched.slice(startIdx, startIdx + pageSize) : matched;
+
+    const chevronTypes = Array.from(scopeTypeCounts.entries())
+      .map(([key, count]) => ({ key, label: formatTypeLabel(key), count }))
+      .sort((a, b) => b.count - a.count);
+
+    const hasOrgScope = Boolean(fDivision || fSection || fDepartment);
+    const derivedPipeline = allItems.length > 0
+      ? {
+        total: scopeTotal,
+        active: scopeActive,
+        inactive: scopeInactive,
+        types: !hasOrgScope && pipelineStats.types?.length > 0 && allItems.length < serverTotal
+          ? pipelineStats.types
+          : chevronTypes,
+      }
+      : pipelineStats;
+
+    const derivedKpi = allItems.length > 0
+      ? {
+        total: hasFullDataset ? totalCount : (stats.total ?? serverTotal),
+        active: hasFullDataset ? activeCount : (stats.active ?? activeCount),
+        inactive: hasFullDataset ? inactiveCount : (stats.inactive ?? inactiveCount),
+        stock: hasFullDataset ? stockCount : (stats.stock ?? stockCount),
+        manufactured: hasFullDataset ? mfgCount : (stats.manufactured ?? mfgCount),
+      }
+      : stats;
+
+    return {
+      items: sliced,
+      total: filteredTotal,
+      kpiStats: derivedKpi,
+      effectivePipelineStats: derivedPipeline,
+    };
+  }, [
+    allItems, serverTotal, hasFullDataset,
+    fDivision, fSection, fDepartment, fCategory, fRouteType, fStatus, fRoleUsage, fItemType, search,
+    sortField, sortOrder, page, pageSize, stats, pipelineStats, typeLabelMap,
+  ]);
 
   const dynamicChevrons = useMemo(() => {
     const list: ItemChevronItem[] = [
       {
         key: 'all',
         label: 'ALL ITEMS',
-        count: pipelineStats.total || total,
+        count: effectivePipelineStats.total || total,
         color: '#1e293b',
         activeBg: '#0f172a',
         icon: <AppstoreOutlined />,
@@ -1597,7 +1761,7 @@ const ItemManagement: React.FC = () => {
       {
         key: 'ACTIVE',
         label: 'ACTIVE',
-        count: pipelineStats.active,
+        count: effectivePipelineStats.active,
         color: '#16a34a',
         activeBg: '#15803d',
         icon: <CheckCircleOutlined />,
@@ -1605,14 +1769,14 @@ const ItemManagement: React.FC = () => {
       {
         key: 'INACTIVE',
         label: 'INACTIVE',
-        count: pipelineStats.inactive,
+        count: effectivePipelineStats.inactive,
         color: '#64748b',
         activeBg: '#475569',
         icon: <MinusOutlined />,
       },
     ];
 
-    (pipelineStats.types || []).forEach((t, idx) => {
+    (effectivePipelineStats.types || []).forEach((t, idx) => {
       if (t.count <= 0) return; // ZERO figures will NEVER appear!
       const preset = KNOWN_TYPE_STYLES[t.key] || CHEVRON_PALETTE[idx % CHEVRON_PALETTE.length];
       list.push({
@@ -1626,7 +1790,7 @@ const ItemManagement: React.FC = () => {
     });
 
     return list;
-  }, [pipelineStats, total]);
+  }, [effectivePipelineStats, total]);
 
   const activeChevronKey = useMemo(() => {
     if (fStatus === 'ACTIVE') return 'ACTIVE';
@@ -1673,17 +1837,13 @@ const ItemManagement: React.FC = () => {
     setSortOrder('ASC');
   };
 
-  // ITEM-FILTER-01 #6 — "Apply Filters".
-  // The filter controls apply live; this button (a) commits a search text that
-  // has not reached the 400 ms debounce yet, (b) returns to page 1 and
-  // (c) re-runs the current query so the table rows and the total count are
-  // refreshed from the server with exactly the values shown in the controls.
+  // Commit pending search text / reset to page 1 in memory (0ms); explicit repeat click forces server sync
   const applyFilters = () => {
     const trimmed = searchInput.trim();
     if (trimmed !== search || page !== 1) {
       setSearch(trimmed);
       setPage(1);
-      return; // the query effect issues the request with the committed values
+      return;
     }
     void fetchItems({ force: true });
   };
@@ -1806,8 +1966,8 @@ const ItemManagement: React.FC = () => {
     ].filter(Boolean) as Item[]);
     // TASK 15: populate route-item-details for any output items already referenced
     // by the stored processes rows, so the preview resolves dims/UOM immediately.
-    if (items && items.length > 0) {
-      registerItemsInCache(items);
+    if (allItems && allItems.length > 0) {
+      registerItemsInCache(allItems);
     }
     if (record.processes && record.processes.length > 0) {
       const detailsMap: Record<string, RouteStageSource | null> = {};
@@ -1930,6 +2090,64 @@ const ItemManagement: React.FC = () => {
     const isAutoRole = isRaw ? (!record.materialRoleUsage || record.materialRoleUsage === 'Process Component Materials') : false;
     setAutoFillMaterialRole(isAutoRole);
     setFormOpen(true);
+
+    // Directory rows omit heavy descriptions/notes/processes/imageUrl; hydrate full item silently when opened
+    if (record.id && !record.processes) {
+      apiService.get<{ data: Item }>(`/master-data/items/${record.id}`).then((res) => {
+        const full = res?.data;
+        if (!full || !full.id) return;
+        const enrichedIn = enrichItemUom(full.productionInItem) ?? null;
+        const enrichedIn2 = enrichItemUom(full.productionInItem2) ?? null;
+        const enrichedIn3 = enrichItemUom(full.productionInItem3) ?? null;
+        setEditing((cur) => (cur?.id === full.id ? normalizeItem(full) : cur));
+        setSelectedInputDetail(enrichedIn);
+        setSelectedInputDetail2(enrichedIn2);
+        setSelectedInputDetail3(enrichedIn3);
+        registerItemsInCache([enrichItemUom(full), enrichedIn, enrichedIn2, enrichedIn3].filter(Boolean) as Item[]);
+        const hydratedProcs = Array.isArray(full.processes)
+          ? full.processes.map((p, idx) => ({
+            sequence: Number(p.sequence ?? (idx + 1)),
+            name: typeof p.name === 'string' ? p.name : '',
+            departmentId: typeof (p as any).departmentId === 'string' ? (p as any).departmentId : undefined,
+            departmentName: typeof (p as any).departmentName === 'string' ? (p as any).departmentName : undefined,
+            divisionId: typeof (p as any).divisionId === 'string' ? (p as any).divisionId : undefined,
+            divisionName: typeof (p as any).divisionName === 'string' ? (p as any).divisionName : undefined,
+            sectionId: typeof (p as any).sectionId === 'string' ? (p as any).sectionId : undefined,
+            sectionName: typeof (p as any).sectionName === 'string' ? (p as any).sectionName : undefined,
+            outputItemId: typeof (p as any).outputItemId === 'string' ? (p as any).outputItemId : undefined,
+            outputItemCode: typeof (p as any).outputItemCode === 'string' ? (p as any).outputItemCode : undefined,
+            outputItemName: typeof (p as any).outputItemName === 'string' ? (p as any).outputItemName : undefined,
+          }))
+          : undefined;
+        form.setFieldsValue({
+          description: full.description ?? undefined,
+          notes: full.notes ?? undefined,
+          costPrice: full.costPrice ?? undefined,
+          sellingPrice: full.sellingPrice ?? undefined,
+          trackInventory: full.trackInventory ?? false,
+          batchTracked: full.batchTracked ?? false,
+          serialTracked: full.serialTracked ?? false,
+          expiryTracked: full.expiryTracked ?? false,
+          minimumStockLevel: full.minimumStockLevel ?? undefined,
+          maximumStockLevel: full.maximumStockLevel ?? undefined,
+          reorderLevel: full.reorderLevel ?? undefined,
+          safetyStockLevel: full.safetyStockLevel ?? undefined,
+          leadTimeDays: full.leadTimeDays ?? undefined,
+          process1: full.process1 ?? undefined,
+          process2: full.process2 ?? undefined,
+          process3: full.process3 ?? undefined,
+          process4: full.process4 ?? undefined,
+          process5: full.process5 ?? undefined,
+          process6: full.process6 ?? undefined,
+          productionInItemId: full.productionInItemId ?? undefined,
+          productionInItemId2: full.productionInItemId2 ?? undefined,
+          productionInItemId3: full.productionInItemId3 ?? undefined,
+          sourceItemId: (full as any).sourceItemId ?? full.productionInItemId ?? undefined,
+          ...(Array.isArray((full as any).operationalSequenceMask) ? { operationalSequenceMask: (full as any).operationalSequenceMask } : {}),
+          ...(hydratedProcs && hydratedProcs.length > 0 ? { processes: hydratedProcs } : {}),
+        });
+      }).catch(() => { });
+    }
   };
 
   const openDuplicate = (record: Item) => {
@@ -1947,8 +2165,8 @@ const ItemManagement: React.FC = () => {
       record.productionInItem2,
       record.productionInItem3,
     ].filter(Boolean) as Item[]);
-    if (items && items.length > 0) {
-      registerItemsInCache(items);
+    if (allItems && allItems.length > 0) {
+      registerItemsInCache(allItems);
     }
     if (record.processes && record.processes.length > 0) {
       const detailsMap: Record<string, RouteStageSource | null> = {};
@@ -2509,7 +2727,7 @@ const ItemManagement: React.FC = () => {
   };
 
   const handleBulkExport = () => {
-    const selectedItems = items.filter((it) => selectedRowKeys.includes(it.id));
+    const selectedItems = allItems.filter((it) => selectedRowKeys.includes(it.id));
     if (selectedItems.length === 0) {
       message.info('No items selected for export');
       return;
@@ -3108,11 +3326,15 @@ const ItemManagement: React.FC = () => {
     // `item_code`. Deliberately unfiltered so a narrowed grid can never
     // mis-classify an existing row as a brand-new insert.
     let existingByCode = new Map<string, Item>();
-    try {
-      const res = await apiService.get<{ data: Item[] }>('/master-data/items', { page: 1, limit: 10000 });
-      (res.data || []).forEach((i) => existingByCode.set(String(i.itemCode || '').trim().toUpperCase(), i));
-    } catch {
-      message.warning('Could not verify existing item codes before import.');
+    if (hasFullDataset && allItems.length > 0) {
+      allItems.forEach((i) => existingByCode.set(String(i.itemCode || '').trim().toUpperCase(), i));
+    } else {
+      try {
+        const res = await apiService.get<{ data: Item[] }>('/master-data/items', { page: 1, limit: 10000, view: 'directory' });
+        (res.data || []).forEach((i) => existingByCode.set(String(i.itemCode || '').trim().toUpperCase(), i));
+      } catch {
+        message.warning('Could not verify existing item codes before import.');
+      }
     }
 
     const seenCodes = new Set<string>();
@@ -3507,16 +3729,12 @@ const ItemManagement: React.FC = () => {
       title: <HeaderCell icon={<TagOutlined />} first="Item" second="Code" />,
       dataIndex: 'itemCode',
       key: 'itemCode',
-      width: 125,
-      align: 'center',
+      width: 155,
+      align: 'left',
       fixed: screens.md ? 'left' : undefined,
       sorter: true,
       render: (v: string, r: Item) => {
         if (!v) return <Text type="secondary">—</Text>;
-        const dashIdx = v.indexOf('-');
-        const prefix = dashIdx > 0 ? v.substring(0, dashIdx) : '';
-        const rest = dashIdx > 0 ? v.substring(dashIdx + 1) : v;
-
         return (
           <Button
             type="link"
@@ -3524,56 +3742,26 @@ const ItemManagement: React.FC = () => {
             style={{
               padding: 0,
               height: 'auto',
-              textAlign: 'center',
-              display: 'inline-block',
-              lineHeight: 1.25,
+              display: 'inline-flex',
+              alignItems: 'center',
+              whiteSpace: 'nowrap',
             }}
             onClick={() => openDetail(r)}
             aria-label={`View item ${v}`}
           >
-            {prefix ? (
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                <span
-                  style={{
-                    fontSize: 9.5,
-                    fontWeight: 800,
-                    color: '#2563eb',
-                    background: 'rgba(37, 99, 235, 0.1)',
-                    border: '1px solid rgba(37, 99, 235, 0.25)',
-                    padding: '0 4px',
-                    borderRadius: 3,
-                    letterSpacing: '0.4px',
-                    lineHeight: '15px',
-                  }}
-                >
-                  {prefix}
-                </span>
-                <span
-                  style={{
-                    fontSize: 11.5,
-                    fontWeight: 700,
-                    color: 'var(--theme-accent, #0284c7)',
-                    fontFamily: 'monospace',
-                    letterSpacing: '0.2px',
-                    marginTop: 2,
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {rest}
-                </span>
-              </div>
-            ) : (
-              <span
-                style={{
-                  fontSize: 11.5,
-                  fontWeight: 700,
-                  color: 'var(--theme-accent, #0284c7)',
-                  fontFamily: 'monospace',
-                }}
-              >
-                {v}
-              </span>
-            )}
+            <span
+              style={{
+                fontSize: 12,
+                fontWeight: 700,
+                color: token.colorPrimary,
+                fontFamily: 'monospace',
+                fontVariantNumeric: 'tabular-nums',
+                letterSpacing: '0.2px',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {v}
+            </span>
           </Button>
         );
       },
@@ -3582,135 +3770,96 @@ const ItemManagement: React.FC = () => {
       title: <HeaderCell icon={<AppstoreOutlined />} first="Item" second="Name" />,
       dataIndex: 'name',
       key: 'name',
-      width: 175,
+      width: 220,
       sorter: true,
       render: (_: unknown, r: Item) => (
-        <Tooltip title={r.name}>
-          <div style={{ lineHeight: 1.25 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 170 }}>
+        <Tooltip title={r.shortName ? `${r.name} (${r.shortName})` : r.name}>
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              maxWidth: 205,
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+          >
+            <span style={{ fontSize: 12.5, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {r.name}
-            </div>
+            </span>
             {r.shortName && (
-              <span style={{ fontSize: 10.5, lineHeight: 1.1, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 170, color: 'var(--theme-text-muted, #64748b)' }}>
-                {r.shortName}
+              <span style={{ fontSize: 11, color: token.colorTextTertiary, flexShrink: 0 }}>
+                ({r.shortName})
               </span>
             )}
-          </div>
+          </span>
         </Tooltip>
       ),
     },
     {
       title: <HeaderCell icon={<ApartmentOutlined />} first="Division /" second="Section" />,
       key: 'divisionSection',
-      width: 135,
+      width: 210,
       render: (_: unknown, r: Item) => {
         const d = divisionName(r);
         const s = sectionName(r);
         return (
-          <div style={{ lineHeight: 1.3 }}>
-            <div style={{ fontSize: 11.5, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 130, color: 'var(--theme-text)' }}>
-              {d ?? <Text type="secondary">—</Text>}
-            </div>
-            {s && s !== '—' ? (
-              <span
-                style={{
-                  display: 'inline-block',
-                  marginTop: 2,
-                  padding: '1px 6px',
-                  fontSize: 10,
-                  fontWeight: 600,
-                  borderRadius: 4,
-                  background: s.toLowerCase().includes('spiral') ? 'rgba(217, 70, 239, 0.12)' : 'rgba(99, 102, 241, 0.1)',
-                  color: s.toLowerCase().includes('spiral') ? '#a21caf' : '#4f46e5',
-                  border: s.toLowerCase().includes('spiral') ? '1px solid rgba(217, 70, 239, 0.28)' : '1px solid rgba(99, 102, 241, 0.25)',
-                  whiteSpace: 'nowrap',
-                  maxWidth: 125,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                }}
-              >
-                {s}
+          <Tooltip title={s && s !== '—' ? `${d ?? '—'} / ${s}` : (d ?? '—')}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: token.colorText, whiteSpace: 'nowrap' }}>
+                {d ?? <Text type="secondary">—</Text>}
               </span>
-            ) : (
-              <span style={{ fontSize: 10.5, color: 'var(--theme-text-muted, #64748b)' }}>—</span>
-            )}
-          </div>
+              {s && s !== '—' ? (
+                <Tag
+                  color={s.toLowerCase().includes('spiral') ? 'magenta' : 'geekblue'}
+                  style={{ marginInlineEnd: 0, fontSize: 10.5, fontWeight: 600, lineHeight: '16px', padding: '0 6px' }}
+                >
+                  {s}
+                </Tag>
+              ) : (
+                <span style={{ fontSize: 11, color: token.colorTextTertiary }}>—</span>
+              )}
+            </span>
+          </Tooltip>
         );
       },
     },
     {
       title: <HeaderCell icon={<FolderOutlined />} first="Dept" second="Name" />,
       key: 'department',
-      width: 110,
+      width: 145,
       render: (_: unknown, r: Item) => {
         const d = departmentName(r);
         if (!d) return <Text type="secondary">—</Text>;
         const lower = d.toLowerCase();
-        let bg = 'rgba(100, 116, 139, 0.1)';
-        let color = '#475569';
-        let border = 'rgba(100, 116, 139, 0.25)';
-
-        if (lower.includes('flatten')) {
-          bg = 'rgba(249, 115, 22, 0.12)';
-          color = '#c2410c';
-          border = 'rgba(249, 115, 22, 0.35)';
-        } else if (lower.includes('outer') || lower.includes('casing') || lower.includes('extru')) {
-          bg = 'rgba(2, 132, 199, 0.12)';
-          color = '#0369a1';
-          border = 'rgba(2, 132, 199, 0.35)';
-        } else if (lower.includes('wire') || lower.includes('draw')) {
-          bg = 'rgba(147, 51, 234, 0.12)';
-          color = '#7e22ce';
-          border = 'rgba(147, 51, 234, 0.35)';
-        } else if (lower.includes('pack')) {
-          bg = 'rgba(16, 185, 129, 0.12)';
-          color = '#047857';
-          border = 'rgba(16, 185, 129, 0.35)';
-        } else if (lower.includes('inner') || lower.includes('spiral')) {
-          bg = 'rgba(225, 29, 72, 0.12)';
-          color = '#be123c';
-          border = 'rgba(225, 29, 72, 0.35)';
-        } else {
-          const palettes = [
-            { color: '#1d4ed8', bg: 'rgba(29, 78, 216, 0.1)', border: 'rgba(29, 78, 216, 0.25)' },
-            { color: '#0f766e', bg: 'rgba(15, 118, 110, 0.1)', border: 'rgba(15, 118, 110, 0.25)' },
-            { color: '#b45309', bg: 'rgba(180, 83, 9, 0.1)', border: 'rgba(180, 83, 9, 0.25)' },
-            { color: '#6d28d9', bg: 'rgba(109, 40, 217, 0.1)', border: 'rgba(109, 40, 217, 0.25)' },
-          ];
-          let hash = 0;
-          for (let i = 0; i < d.length; i++) hash = (hash << 5) - hash + d.charCodeAt(i);
-          const p = palettes[Math.abs(hash) % palettes.length];
-          color = p.color;
-          bg = p.bg;
-          border = p.border;
-        }
+        const tagColor =
+          lower.includes('flatten') ? 'orange'
+            : (lower.includes('outer') || lower.includes('casing') || lower.includes('extru')) ? 'blue'
+              : (lower.includes('wire') || lower.includes('draw')) ? 'purple'
+                : lower.includes('pack') ? 'green'
+                  : (lower.includes('inner') || lower.includes('spiral')) ? 'red'
+                    : 'cyan';
 
         return (
-          <span
+          <Tag
+            color={tagColor}
             style={{
-              display: 'inline-block',
-              padding: '2px 7px',
+              marginInlineEnd: 0,
               fontSize: 11,
               fontWeight: 600,
-              borderRadius: 4,
-              background: bg,
-              color: color,
-              border: `1px solid ${border}`,
               whiteSpace: 'nowrap',
-              maxWidth: 105,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
             }}
           >
             {d}
-          </span>
+          </Tag>
         );
       },
     },
     {
       title: <HeaderCell icon={<ToolOutlined />} first="Wire / Dia" second="Length" />,
       key: 'wireDiaLength',
-      width: 85,
+      width: 125,
       align: 'right',
       sorter: (a: Item, b: Item) => (Number(a.diameterMm ?? a.wireSizeMm ?? 0) - Number(b.diameterMm ?? b.wireSizeMm ?? 0)),
       render: (_: unknown, r: Item) => {
@@ -3720,39 +3869,39 @@ const ItemManagement: React.FC = () => {
         const hasLen = len !== null && len !== undefined;
         if (!hasDia && !hasLen) return <Text type="secondary">—</Text>;
         return (
-          <div style={{ lineHeight: 1.25, textAlign: 'right' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
             {hasDia && (
-              <Text strong style={{ fontSize: 11.5, display: 'block', color: 'var(--theme-accent, var(--theme-primary, #10b981))' }}>
+              <Text strong style={{ fontSize: 12, color: token.colorPrimary }}>
                 {formatDimension(dia)}
               </Text>
             )}
             {hasLen && (
-              <Text type="secondary" style={{ fontSize: 10, lineHeight: 1.1, display: 'block' }}>
+              <Text type="secondary" style={{ fontSize: 11 }}>
                 L: {formatDimension(len)}
               </Text>
             )}
-          </div>
+          </span>
         );
       },
     },
     {
       title: <HeaderCell icon={<BuildOutlined />} first="Flat Spec" second="(mm)" />,
       key: 'flatSpec',
-      width: 80,
+      width: 115,
       align: 'right',
       render: (_: unknown, r: Item) => {
         const t = r.thicknessMm;
         const w = r.widthMm;
         if (t != null && w != null) {
           return (
-            <div style={{ lineHeight: 1.2, textAlign: 'right' }}>
-              <div style={{ fontSize: 11 }}>T: {formatDimension(t)}</div>
-              <Text type="secondary" style={{ fontSize: 10 }}>W: {formatDimension(w)}</Text>
-            </div>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap', fontSize: 11.5, fontVariantNumeric: 'tabular-nums' }}>
+              <span>T: {formatDimension(t)}</span>
+              <Text type="secondary" style={{ fontSize: 11 }}>W: {formatDimension(w)}</Text>
+            </span>
           );
         }
-        if (t != null) return <Text style={{ fontSize: 11 }}>T: {formatDimension(t)}</Text>;
-        if (w != null) return <Text style={{ fontSize: 11 }}>W: {formatDimension(w)}</Text>;
+        if (t != null) return <Text style={{ fontSize: 11.5, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>T: {formatDimension(t)}</Text>;
+        if (w != null) return <Text style={{ fontSize: 11.5, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>W: {formatDimension(w)}</Text>;
         return <Text type="secondary">—</Text>;
       },
     },
@@ -3760,54 +3909,30 @@ const ItemManagement: React.FC = () => {
       title: <HeaderCell icon={<ProjectOutlined />} first="Item" second="Type" />,
       dataIndex: 'itemType',
       key: 'itemType',
-      width: 115,
+      width: 135,
       render: (v: string) => {
         const label = typeName(v);
         const norm = (v || label || '').toUpperCase();
-
-        let color = '#475569';
-        let bg = 'rgba(100, 116, 139, 0.1)';
-        let border = 'rgba(100, 116, 139, 0.25)';
-
-        if (norm.includes('RAW')) {
-          color = '#b45309';
-          bg = 'rgba(245, 158, 11, 0.12)';
-          border = 'rgba(245, 158, 11, 0.35)';
-        } else if (norm.includes('SEMI') || norm.includes('PROGRESS') || norm.includes('WIP')) {
-          color = '#4f46e5';
-          bg = 'rgba(99, 102, 241, 0.12)';
-          border = 'rgba(99, 102, 241, 0.35)';
-        } else if (norm.includes('FINISH')) {
-          color = '#047857';
-          bg = 'rgba(16, 185, 129, 0.12)';
-          border = 'rgba(16, 185, 129, 0.35)';
-        } else if (norm.includes('PACKAG')) {
-          color = '#0284c7';
-          bg = 'rgba(2, 132, 199, 0.12)';
-          border = 'rgba(2, 132, 199, 0.35)';
-        } else if (norm.includes('CONSUMABLE') || norm.includes('SPARE')) {
-          color = '#0d9488';
-          bg = 'rgba(13, 148, 136, 0.12)';
-          border = 'rgba(13, 148, 136, 0.35)';
-        }
+        const tagColor =
+          norm.includes('RAW') ? 'gold'
+            : (norm.includes('SEMI') || norm.includes('PROGRESS') || norm.includes('WIP')) ? 'purple'
+              : norm.includes('FINISH') ? 'green'
+                : norm.includes('PACKAG') ? 'blue'
+                  : (norm.includes('CONSUMABLE') || norm.includes('SPARE')) ? 'cyan'
+                    : 'default';
 
         return (
-          <span
+          <Tag
+            color={tagColor}
             style={{
-              display: 'inline-block',
-              padding: '2px 7px',
-              fontSize: 10.5,
+              marginInlineEnd: 0,
+              fontSize: 11,
               fontWeight: 700,
-              borderRadius: 4,
-              background: bg,
-              color: color,
-              border: `1px solid ${border}`,
               whiteSpace: 'nowrap',
-              textAlign: 'center',
             }}
           >
             {label}
-          </span>
+          </Tag>
         );
       },
     },
@@ -3815,24 +3940,18 @@ const ItemManagement: React.FC = () => {
       title: <HeaderCell icon={<TagsOutlined />} first="Material" second="Role / Use" />,
       dataIndex: 'materialRoleUsage',
       key: 'materialRoleUsage',
-      width: 105,
+      width: 165,
       sorter: true,
       render: (v: string | null | undefined, r: Item) => {
         const isRaw = (r.itemType || '').toUpperCase().includes('RAW') || (typeName(r.itemType) || '').toUpperCase().includes('RAW');
         const role = v || (isRaw ? 'Process Component Materials' : null);
         if (role) {
-          if (role === 'Process Component Materials') {
-            return (
-              <Tag color="cyan" style={{ marginInlineEnd: 0, padding: '1px 4px', fontSize: 10, lineHeight: 1.2, fontWeight: 600, borderRadius: 4, textAlign: 'center' }}>
-                <div>Process Comp.</div>
-                <div>Materials</div>
-              </Tag>
-            );
-          }
           return (
-            <Tag color="cyan" style={{ marginInlineEnd: 0, padding: '1px 5px', fontSize: 10.5, fontWeight: 600, borderRadius: 4 }}>
-              {role}
-            </Tag>
+            <Tooltip title={role}>
+              <Tag color="cyan" style={{ marginInlineEnd: 0, fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                {role}
+              </Tag>
+            </Tooltip>
           );
         }
         return <Text type="secondary">—</Text>;
@@ -3842,86 +3961,80 @@ const ItemManagement: React.FC = () => {
       title: <HeaderCell icon={<ArrowRightOutlined />} first="Route" second="Type" />,
       dataIndex: 'routeType',
       key: 'routeType',
-      width: 85,
+      width: 135,
       sorter: true,
-      render: (v: string | null, r: Item) => {
+      render: (_v: string | null, r: Item) => {
         const label = routeTypeLabel(r);
         if (!label) return <Text type="secondary">—</Text>;
-        const parts = label.split(' ');
-        if (parts.length >= 2) {
-          return (
-            <div style={{ fontSize: 11, lineHeight: 1.2 }}>
-              <div style={{ fontWeight: 600 }}>{parts[0]}</div>
-              <div style={{ color: 'var(--theme-text-secondary)', fontSize: 10 }}>{parts.slice(1).join(' ')}</div>
-            </div>
-          );
-        }
-        return <span style={{ fontSize: 11.5 }}>{label}</span>;
+        return <span style={{ fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap' }}>{label}</span>;
       },
     },
     {
       title: <HeaderCell icon={<DatabaseOutlined />} first="UOM /" second="Conv" />,
       key: 'uom',
-      width: 80,
-      render: (_: unknown, r: Item) => (
-        <div style={{ lineHeight: 1.25 }}>
-          <div style={{ fontSize: 11.5, fontWeight: 600 }}>{r.baseUomName ?? '—'}</div>
-          {convChips(r).length > 0 && (
-            <span style={{ fontSize: 10, lineHeight: 1.1, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--theme-text-muted, #64748b)' }}>
-              {convChips(r)[0]}
-            </span>
-          )}
-        </div>
-      ),
+      width: 165,
+      render: (_: unknown, r: Item) => {
+        const chipsList = convChips(r);
+        return (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+            <span style={{ fontSize: 12, fontWeight: 600 }}>{r.baseUomName ?? '—'}</span>
+            {chipsList.length > 0 && (
+              <Tag style={{ marginInlineEnd: 0, fontSize: 10.5, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                {chipsList[0]}
+              </Tag>
+            )}
+          </span>
+        );
+      },
     },
     {
       title: <HeaderCell icon={<CheckCircleOutlined />} first="Item" second="Status" />,
       dataIndex: 'status',
       key: 'status',
-      width: 110,
+      width: 120,
       sorter: true,
       render: (s: string, r: Item) => (
-        <Space size={6} align="center">
+        <Space size={6} align="center" style={{ whiteSpace: 'nowrap' }}>
           <Switch
             size="small"
             checked={s === 'ACTIVE'}
             onChange={(checked) => handleStatusChange(r, checked ? 'activate' : 'deactivate')}
             style={{
-              backgroundColor: s === 'ACTIVE' ? '#10b981' : undefined,
+              backgroundColor: s === 'ACTIVE' ? token.colorSuccess : undefined,
             }}
           />
-          <StatusBadge status={s} colorMap={statusColorMap} style={{ minWidth: 50, fontSize: 10, padding: '1px 4px', textAlign: 'center' }} />
+          <StatusBadge status={s} colorMap={statusColorMap} style={{ minWidth: 50, fontSize: 10, padding: '1px 4px', textAlign: 'center', whiteSpace: 'nowrap' }} />
         </Space>
       ),
     },
     {
       title: <HeaderCell icon={<ClockCircleOutlined />} first="Created By" second="/ Date" />,
       key: 'createdByNameDate',
-      width: 155,
+      width: 205,
       render: (_: unknown, r: Item) => (
-        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.25 }}>
-          <span style={{ fontWeight: 600, fontSize: 12.5, whiteSpace: 'nowrap', color: 'var(--theme-text, inherit)' }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+          <span style={{ fontWeight: 600, fontSize: 12, color: token.colorText }}>
             {r.createdByName || (r.createdBy ? 'Admin' : '—')}
           </span>
-          <span style={{ fontSize: 11, color: 'var(--theme-text-muted, #64748b)', whiteSpace: 'nowrap' }}>
+          <span style={{ fontSize: 11, color: token.colorTextSecondary }}>
             {r.createdAt ? dayjs(r.createdAt).format('DD-MMM-YYYY HH:mm') : '—'}
           </span>
-        </div>
+        </span>
       ),
     },
     {
       title: <HeaderCell icon={<SyncOutlined />} first="Updated By" second="/ Date" />,
       key: 'updatedByNameDate',
-      width: 155,
+      width: 205,
       render: (_: unknown, r: Item) => (
-        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.25 }}>
-          <span style={{ fontWeight: 600, fontSize: 12.5, whiteSpace: 'nowrap', color: 'var(--theme-text, inherit)' }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+          <span style={{ fontWeight: 600, fontSize: 12, color: token.colorText }}>
             {r.updatedByName || (r.updatedBy ? 'Admin' : '—')}
           </span>
-          <span style={{ fontSize: 11, color: 'var(--theme-text-muted, #64748b)', whiteSpace: 'nowrap' }}>
+          <span style={{ fontSize: 11, color: token.colorTextSecondary }}>
             {r.updatedAt ? dayjs(r.updatedAt).format('DD-MMM-YYYY HH:mm') : '—'}
           </span>
-        </div>
+        </span>
       ),
     },
     {
@@ -4135,13 +4248,6 @@ const ItemManagement: React.FC = () => {
             Add Item
           </Button>
         )}
-        <Button
-          size="middle"
-          className="erp-toolbar-action-btn"
-          icon={<ReloadOutlined />}
-          onClick={() => fetchItems({ force: true })}
-          title="Refresh"
-        />
         {can('item.view') && (
           <Button size="middle" className="erp-toolbar-action-btn" icon={<ScanOutlined />} onClick={() => setScannerOpen(true)}>
             Scan Barcode
@@ -4169,9 +4275,20 @@ const ItemManagement: React.FC = () => {
             Export Current Data as Template
           </Button>
         )}
+        <Button
+          size="middle"
+          className="erp-toolbar-action-btn"
+          icon={<ReloadOutlined />}
+          loading={loading}
+          onClick={() => fetchItems({ force: true })}
+          title="Refresh"
+          style={{ fontWeight: 600, flexShrink: 0, whiteSpace: 'nowrap' }}
+        >
+          Refresh
+        </Button>
       </Space>
     ),
-    [can, openCreate, fetchItems, setScannerOpen, onExportMenu, exporting, exportingTemplate, exportCurrentDataAsTemplate, pdfing, printing, setImportOpen, setImportRows, setImportSummary, setImportFileName]
+    [can, openCreate, fetchItems, loading, setScannerOpen, onExportMenu, exporting, exportingTemplate, exportCurrentDataAsTemplate, pdfing, printing, setImportOpen, setImportRows, setImportSummary, setImportFileName]
   );
 
   useEffect(() => {
@@ -4193,18 +4310,6 @@ const ItemManagement: React.FC = () => {
         ),
       });
     }
-    actions.push({
-      key: 'refresh',
-      node: (
-        <Button
-          size="middle"
-          className="erp-toolbar-action-btn"
-          icon={<ReloadOutlined />}
-          onClick={() => fetchItems({ force: true })}
-          title="Refresh"
-        />
-      ),
-    });
     if (can('item.view')) {
       actions.push({
         key: 'scan',
@@ -4250,16 +4355,32 @@ const ItemManagement: React.FC = () => {
         ),
       });
     }
+    actions.push({
+      key: 'refresh',
+      node: (
+        <Button
+          size="middle"
+          className="erp-toolbar-action-btn"
+          icon={<ReloadOutlined />}
+          loading={loading}
+          onClick={() => fetchItems({ force: true })}
+          title="Refresh"
+          style={{ fontWeight: 600, flexShrink: 0, whiteSpace: 'nowrap' }}
+        >
+          Refresh
+        </Button>
+      ),
+    });
 
     setHeaderActions(actions, '/master-data/items');
     setHeaderActions(actions, '/master-data/products-items');
-  }, [can, openCreate, fetchItems, setScannerOpen, onExportMenu, exporting, exportingTemplate, exportCurrentDataAsTemplate, pdfing, printing, setImportOpen, setImportRows, setImportSummary, setImportFileName]);
+  }, [can, openCreate, fetchItems, loading, setScannerOpen, onExportMenu, exporting, exportingTemplate, exportCurrentDataAsTemplate, pdfing, printing, setImportOpen, setImportRows, setImportSummary, setImportFileName]);
 
   return (
     <TabKeepAlive
       tabId={MASTER_PRODUCTS_ITEMS_TAB_ID}
-      load={async () => { await fetchItems(); }}
-      serialize={() => ({ items, total, stats, typeCounts, uoms, categories, divisions, sections, departments, routeTypes, masterItemTypes, filterState: { fDivision, fSection, fDepartment, fCategory, fItemType, fRoleUsage, fRouteType, fStatus, search, searchInput, page, pageSize, sortField, sortOrder, activeTab, showFilters } })}
+      load={async () => { }}
+      serialize={() => ({ items: allItems, total: serverTotal, stats: kpiStats, typeCounts, uoms, categories, divisions, sections, departments, routeTypes, masterItemTypes, filterState: { fDivision, fSection, fDepartment, fCategory, fItemType, fRoleUsage, fRouteType, fStatus, search, searchInput, page, pageSize, sortField, sortOrder, activeTab, showFilters } })}
     >
       <div style={{ padding: '4px 6px', width: '100%' }}>
         <PageHeader
@@ -4282,7 +4403,7 @@ const ItemManagement: React.FC = () => {
           <KpiCard
             testId="kpi-total"
             label="Total Items"
-            value={stats.total ?? total}
+            value={kpiStats.total ?? total}
             icon={AppstoreOutlined}
             tone="var(--theme-accent, var(--theme-primary))"
             toneSoft="var(--theme-accent-soft)"
@@ -4290,7 +4411,7 @@ const ItemManagement: React.FC = () => {
           <KpiCard
             testId="kpi-active"
             label="Active"
-            value={stats.active ?? items.filter((i) => i.status === 'ACTIVE').length}
+            value={kpiStats.active ?? items.filter((i) => i.status === 'ACTIVE').length}
             icon={CheckCircleOutlined}
             tone="var(--theme-success)"
             toneSoft="var(--theme-success-soft)"
@@ -4298,7 +4419,7 @@ const ItemManagement: React.FC = () => {
           <KpiCard
             testId="kpi-inactive"
             label="Inactive"
-            value={stats.inactive ?? items.filter((i) => i.status === 'INACTIVE').length}
+            value={kpiStats.inactive ?? items.filter((i) => i.status === 'INACTIVE').length}
             icon={CloseCircleOutlined}
             tone="var(--theme-danger)"
             toneSoft="var(--theme-danger-soft)"
@@ -4306,7 +4427,7 @@ const ItemManagement: React.FC = () => {
           <KpiCard
             testId="kpi-stock"
             label="Stock Items"
-            value={stats.stock ?? items.filter((i) => i.isStockItem).length}
+            value={kpiStats.stock ?? items.filter((i) => i.isStockItem).length}
             icon={InboxOutlined}
             tone="var(--theme-accent, var(--theme-primary))"
             toneSoft="var(--theme-accent-soft)"
@@ -4314,7 +4435,7 @@ const ItemManagement: React.FC = () => {
           <KpiCard
             testId="kpi-manufactured"
             label="Manufactured"
-            value={stats.manufactured ?? items.filter((i) => i.isManufacturable).length}
+            value={kpiStats.manufactured ?? items.filter((i) => i.isManufacturable).length}
             icon={BuildOutlined}
             tone="var(--theme-warning)"
             toneSoft="var(--theme-warning-soft)"
@@ -4729,13 +4850,13 @@ const ItemManagement: React.FC = () => {
         {selectedRowKeys.length > 0 && (
           <div className="erp-table-bulk-toolbar">
             <div className="bulk-count-badge">
-              <Badge count={selectedRowKeys.length} style={{ backgroundColor: '#f59e0b', fontWeight: 800 }} />
+              <Badge count={selectedRowKeys.length} style={{ backgroundColor: token.colorWarning, fontWeight: 800 }} />
               <span>{selectedRowKeys.length} item{selectedRowKeys.length === 1 ? '' : 's'} selected</span>
               <Button
                 size="small"
                 type="link"
                 onClick={() => setSelectedRowKeys([])}
-                style={{ color: '#94a3b8', padding: '0 4px', fontSize: 12 }}
+                style={{ color: token.colorTextTertiary, padding: '0 4px', fontSize: 12 }}
               >
                 Clear
               </Button>
@@ -4746,7 +4867,7 @@ const ItemManagement: React.FC = () => {
                 icon={<PlayCircleOutlined />}
                 onClick={() => handleBulkStatusChange('activate')}
                 loading={bulkActionLoading}
-                style={{ color: '#10b981', borderColor: '#10b981', fontWeight: 600 }}
+                style={{ color: token.colorSuccess, borderColor: token.colorSuccess, fontWeight: 600 }}
               >
                 Activate
               </Button>
@@ -4755,7 +4876,7 @@ const ItemManagement: React.FC = () => {
                 icon={<PauseCircleOutlined />}
                 onClick={() => handleBulkStatusChange('deactivate')}
                 loading={bulkActionLoading}
-                style={{ color: '#f59e0b', borderColor: '#f59e0b', fontWeight: 600 }}
+                style={{ color: token.colorWarning, borderColor: token.colorWarning, fontWeight: 600 }}
               >
                 Deactivate
               </Button>
@@ -4792,6 +4913,7 @@ const ItemManagement: React.FC = () => {
           />
         ) : (
           <ERPTable
+            className="pwi-items-directory-table"
             rowKey="id"
             rowSelection={{
               selectedRowKeys,
@@ -4811,7 +4933,7 @@ const ItemManagement: React.FC = () => {
             // itemManagement.css — opaque theme token, backdrop-filter: none,
             // no antd .ant-spin-blur fade (interaction block stays in place).
             containerClassName="items-loading-surface"
-            scroll={{ x: 1550 }}
+            scroll={{ x: 'max-content' }}
             sticky
             size="small"
             pagination={pagination}
@@ -7561,7 +7683,7 @@ const ItemManagement: React.FC = () => {
                                                         placeholder="Select WIP or Purchased Component (e.g. WIP-SPL-001, FG-NP-001)..."
                                                         options={(() => {
                                                           const allLookupItems = getLookupsSnapshot().items || [];
-                                                          const combined = [...items, ...allLookupItems];
+                                                          const combined = [...allItems, ...allLookupItems];
                                                           const uniqueItems = toUnique(combined, (i) => i.id);
                                                           return uniqueItems.map((it: any) => ({
                                                             value: it.id,
@@ -7569,7 +7691,7 @@ const ItemManagement: React.FC = () => {
                                                           }));
                                                         })()}
                                                         onChange={(val) => {
-                                                          const found = (getLookupsSnapshot().items || []).find((x: any) => x.id === val) || items.find((x) => x.id === val);
+                                                          const found = (getLookupsSnapshot().items || []).find((x: any) => x.id === val) || allItems.find((x) => x.id === val);
                                                           if (found?.baseUomId) {
                                                             form.setFieldValue(['bomLines', index, 'uomId'], found.baseUomId);
                                                           }

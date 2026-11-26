@@ -17,6 +17,12 @@ import apiService, { resolveFileUrl } from '../../../services/api';
 import { compressImageFile } from '../../../utils/imageCompressor';
 import { formatNumber } from '../../../utils/numberFormat';
 import { formatApiError } from '../../../utils/apiError';
+import {
+  getCurrentFiscalYearInfo,
+  getFiscalQuarterInfo,
+  getPreviousFiscalQuarterInfo,
+  getPreviousFiscalYearInfo,
+} from '../../../utils/fiscalYear';
 import { buildReceiptWhatsAppMessage, normalizeWaPhone, waLink, waDirectShareUrl } from '../../../utils/receiptShare';
 import type { ShareReceiptInfo } from '../../../utils/receiptShare';
 import { useWhatsAppSettingsVersion } from '../../../utils/whatsappSettingsStore';
@@ -48,11 +54,106 @@ const PHOTO_FILE_MAX = 5 * 1024 * 1024;
 
 const RM_RECEIVING_TAB_ID = '/production/raw-material-receiving';
 
+type RmrPeriodPreset =
+  | 'allTime'
+  | 'thisMonth'
+  | 'lastMonth'
+  | 'thisQuarter'
+  | 'lastQuarter'
+  | 'thisYear'
+  | 'lastYear'
+  | 'custom';
+
+const RMR_PERIOD_OPTIONS: { value: RmrPeriodPreset; label: string }[] = [
+  { value: 'allTime', label: 'All Time' },
+  { value: 'thisMonth', label: 'This Month' },
+  { value: 'lastMonth', label: 'Last Month' },
+  { value: 'thisQuarter', label: 'This Quarter' },
+  { value: 'lastQuarter', label: 'Last Quarter' },
+  { value: 'thisYear', label: 'This Year (FY Jul–Jun)' },
+  { value: 'lastYear', label: 'Last Year' },
+  { value: 'custom', label: 'Custom Range' },
+];
+
+function resolvePeriodPresetDates(preset: RmrPeriodPreset): { dateFrom?: string; dateTo?: string } {
+  const now = new Date();
+  switch (preset) {
+    case 'allTime':
+      return { dateFrom: undefined, dateTo: undefined };
+    case 'thisMonth':
+      return {
+        dateFrom: dayjs().startOf('month').format('YYYY-MM-DD'),
+        dateTo: dayjs().endOf('month').format('YYYY-MM-DD'),
+      };
+    case 'lastMonth':
+      return {
+        dateFrom: dayjs().subtract(1, 'month').startOf('month').format('YYYY-MM-DD'),
+        dateTo: dayjs().subtract(1, 'month').endOf('month').format('YYYY-MM-DD'),
+      };
+    case 'thisQuarter': {
+      const q = getFiscalQuarterInfo(now);
+      return { dateFrom: q.startDate, dateTo: q.endDate };
+    }
+    case 'lastQuarter': {
+      const pq = getPreviousFiscalQuarterInfo(now);
+      return { dateFrom: pq.startDate, dateTo: pq.endDate };
+    }
+    case 'thisYear': {
+      const fy = getCurrentFiscalYearInfo(now);
+      return { dateFrom: fy.startDate, dateTo: fy.endDate };
+    }
+    case 'lastYear': {
+      const pfy = getPreviousFiscalYearInfo(now);
+      return { dateFrom: pfy.startDate, dateTo: pfy.endDate };
+    }
+    case 'custom':
+    default:
+      return {};
+  }
+}
+
+function detectPeriodPreset(dateFrom?: string, dateTo?: string): RmrPeriodPreset {
+  if (!dateFrom && !dateTo) return 'allTime';
+  const candidates: RmrPeriodPreset[] = [
+    'thisMonth',
+    'lastMonth',
+    'thisQuarter',
+    'lastQuarter',
+    'thisYear',
+    'lastYear',
+  ];
+  for (const preset of candidates) {
+    const resolved = resolvePeriodPresetDates(preset);
+    if (resolved.dateFrom === dateFrom && resolved.dateTo === dateTo) {
+      return preset;
+    }
+  }
+  return 'custom';
+}
+
+interface AuditSummaryPayload {
+  kpiSummary: {
+    receiptsCount: number;
+    linesCount: number;
+    uniquePoCount: number;
+    totalGatePassKg: number;
+    totalReceivedKg: number;
+    totalDifferenceKg: number;
+    totalReturnedKg: number;
+    returnsCount: number;
+    totalOpeningKg: number;
+    totalUsedInProdKg: number;
+    totalClosingBalanceKg: number;
+  };
+  items: ItemWiseReceivingExportItem[];
+}
+
 interface RawMaterialReceivingTabCache {
   list: ReceiptHeader[];
   total: number;
   page: number;
   filters: { status?: string; warehouseId?: string; gatePassNo?: string; dateFrom?: string; dateTo?: string; divisionId?: string };
+  auditSummary?: AuditSummaryPayload | null;
 }
 const ATTACH_FILE_MAX = 10 * 1024 * 1024;
 const PHOTO_MIME_ALLOW = ['image/jpeg', 'image/png', 'image/webp'];
@@ -387,10 +488,11 @@ const RawMaterialReceiving: React.FC = () => {
   const [listLoading, setListLoading] = useState(false);
   const [listState, setListState] = useState<'loading' | 'error' | 'ready'>(() => cachedTab ? 'ready' : 'loading');
 
-  const [filters, setFilters] = useState<{ status?: string; warehouseId?: string; gatePassNo?: string; dateFrom?: string; dateTo?: string; divisionId?: string }>(() => cachedTab?.filters ?? {
-    dateFrom: dayjs().subtract(6, 'day').format('YYYY-MM-DD'),
-    dateTo: dayjs().format('YYYY-MM-DD'),
-  });
+  const [filters, setFilters] = useState<{ status?: string; warehouseId?: string; gatePassNo?: string; dateFrom?: string; dateTo?: string; divisionId?: string }>(() => cachedTab?.filters ?? {});
+  const [periodPreset, setPeriodPreset] = useState<RmrPeriodPreset>(() =>
+    detectPeriodPreset(cachedTab?.filters?.dateFrom, cachedTab?.filters?.dateTo),
+  );
+  const [auditSummary, setAuditSummary] = useState<AuditSummaryPayload | null>(() => cachedTab?.auditSummary ?? null);
 
   // Raw Material Returns Integration (for Inward vs Outward vs Net Available Stock)
   const [returnsSummary, setReturnsSummary] = useState<{
@@ -787,117 +889,59 @@ const RawMaterialReceiving: React.FC = () => {
     }
   }, []);
 
-  // Live item-level inventory balance and production usage loaded directly from stock ledger
-  const [materialBalances, setMaterialBalances] = useState<Record<string, {
-    totalIn?: number;
-    totalOut?: number;
-    currentBalance?: number;
-    onHand?: number;
-    available?: number;
-    usedInProduction?: number;
-    ledgerNetBalance?: number;
-  }>>({});
-  const [balancesLoading, setBalancesLoading] = useState(false);
-
-  const fetchItemsLedgerUsage = useCallback(async (
-    targetItems: Array<{ id: string; itemCode?: string }>,
-    f: typeof filters = filters,
-  ) => {
-    if (!targetItems || targetItems.length === 0) return;
-    setBalancesLoading(true);
-
-    const balanceMap: Record<string, {
-      totalIn: number;
-      totalOut: number;
-      currentBalance: number;
-      onHand: number;
-      available: number;
-      usedInProduction: number;
-      ledgerNetBalance: number;
-    }> = {};
-
-    try {
-      await Promise.all(
-        targetItems.map(async (item) => {
-          if (!item.id || item.id === 'unknown') return;
-          try {
-            const params: any = {};
-            if (f.warehouseId) params.warehouseId = f.warehouseId;
-
-            let res: any;
-            try {
-              res = await apiService.get<any>(`/inventory/balances/items/${item.id}/ledger`, params);
-            } catch {
-              res = await apiService.get<any>(`/inventory/receipts/items/${item.id}/ledger`, params);
-            }
-
-            const ledgerData = res?.data || res;
-            const summary = ledgerData?.summary || {};
-
-            const totalIn = summary?.totalIn !== undefined ? Number(summary.totalIn) : 0;
-            const totalOut = summary?.totalOut !== undefined ? Number(summary.totalOut) : 0;
-            const currentBal = summary?.currentBalance !== undefined ? Number(summary.currentBalance) : 0;
-
-            balanceMap[item.id] = {
-              totalIn: Math.round(totalIn * 1000) / 1000,
-              totalOut: Math.round(totalOut * 1000) / 1000,
-              currentBalance: Math.round(currentBal * 1000) / 1000,
-              onHand: Math.round(currentBal * 1000) / 1000,
-              available: Math.round(currentBal * 1000) / 1000,
-              usedInProduction: Math.round(totalOut * 1000) / 1000,
-              ledgerNetBalance: Math.round(currentBal * 1000) / 1000,
-            };
-          } catch (err) {
-            console.warn(`Could not load ledger for item ${item.id}:`, err);
-          }
-        })
-      );
-
-      setMaterialBalances((prev) => ({ ...prev, ...balanceMap }));
-    } finally {
-      setBalancesLoading(false);
-    }
-  }, []);
-
   const loadList = useCallback(async (p: number = page, f: typeof filters = filters, ps: number = pageSize) => {
     setListLoading(true);
     void loadReturnsSummary(f);
     try {
-      const res = await apiService.get<{ data: ReceiptHeader[]; total: number }>('/inventory/receipts/gate-pass', { page: p, limit: ps || pageSize, ...f });
+      const [listSettled, auditSettled] = await Promise.allSettled([
+        apiService.get<{ data: ReceiptHeader[]; total: number }>('/inventory/receipts/gate-pass', {
+          page: p,
+          limit: ps || pageSize,
+          ...f,
+        }),
+        apiService.get<{ data?: AuditSummaryPayload } & Partial<AuditSummaryPayload>>(
+          '/inventory/receipts/gate-pass/audit-summary',
+          { ...f },
+        ),
+      ]);
+
+      if (listSettled.status !== 'fulfilled') {
+        throw listSettled.reason;
+      }
+
+      const res = listSettled.value;
       const loadedList = res.data || [];
       setList(loadedList);
       setTotal(res.total || 0);
       setListState('ready');
-      // Persist to session cache so switching back restores rows + filters
+
+      let parsedAudit: AuditSummaryPayload | null = null;
+      if (auditSettled.status === 'fulfilled') {
+        const raw = auditSettled.value?.data ?? auditSettled.value;
+        if (raw && typeof raw === 'object' && !Array.isArray(raw) && raw.kpiSummary && Array.isArray(raw.items)) {
+          parsedAudit = raw as AuditSummaryPayload;
+        }
+      }
+      setAuditSummary(parsedAudit);
+
+      // Persist to session cache so switching back restores rows, filters & reconciled audit summary
       tabSessionCache.set<RawMaterialReceivingTabCache>(RM_RECEIVING_TAB_ID, {
         list: loadedList,
         total: res.total || 0,
         page: p,
         filters: f,
+        auditSummary: parsedAudit,
       });
-
-      // Extract unique item IDs and load their live ledger usage
-      const uniqueItems = new Map<string, { id: string; itemCode?: string }>();
-      for (const receipt of loadedList) {
-        for (const line of (receipt.lines || [])) {
-          const itId = line.item?.id || (line as any).itemId;
-          if (itId && itId !== 'unknown') {
-            uniqueItems.set(itId, { id: itId, itemCode: line.item?.itemCode });
-          }
-        }
-      }
-      if (uniqueItems.size > 0) {
-        void fetchItemsLedgerUsage(Array.from(uniqueItems.values()), f);
-      }
     } catch {
       setList([]);
       setTotal(0);
+      setAuditSummary(null);
       setListState('error');
     } finally {
       setListLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, pageSize, filters, loadReturnsSummary, fetchItemsLedgerUsage]);
+  }, [page, pageSize, filters, loadReturnsSummary]);
 
   // Dynamic on-demand loading of lines when a row is expanded
   const [expandedLinesMap, setExpandedLinesMap] = useState<Record<string, ReceiptLine[]>>({});
@@ -928,7 +972,7 @@ const RawMaterialReceiving: React.FC = () => {
     // If the tab was already loaded in this session, verify that rows have lines
     const cached = tabSessionCache.get<RawMaterialReceivingTabCache>(RM_RECEIVING_TAB_ID);
     const hasLinesInCache = cached?.list && cached.list.length > 0 && cached.list.some((r) => r.lines && r.lines.length > 0);
-    if (!tabSessionCache.has(RM_RECEIVING_TAB_ID) || !hasLinesInCache) {
+    if (!tabSessionCache.has(RM_RECEIVING_TAB_ID) || !hasLinesInCache || cached?.auditSummary === undefined) {
       tabSessionCache.remove(RM_RECEIVING_TAB_ID);
       void loadList(1);
     }
@@ -2146,6 +2190,23 @@ const RawMaterialReceiving: React.FC = () => {
       }
     });
     setFilters(next);
+    setPeriodPreset(detectPeriodPreset(next.dateFrom, next.dateTo));
+    setPage(1);
+    void loadList(1, next);
+  };
+
+  const handlePeriodChange = (preset: RmrPeriodPreset) => {
+    setPeriodPreset(preset);
+    if (preset === 'custom') {
+      return;
+    }
+    const { dateFrom, dateTo } = resolvePeriodPresetDates(preset);
+    const next: typeof filters = { ...filters };
+    if (dateFrom) next.dateFrom = dateFrom;
+    else delete next.dateFrom;
+    if (dateTo) next.dateTo = dateTo;
+    else delete next.dateTo;
+    setFilters(next);
     setPage(1);
     void loadList(1, next);
   };
@@ -2159,6 +2220,30 @@ const RawMaterialReceiving: React.FC = () => {
   // Executive KPI Aggregation across current filtered receiving records
   // ─────────────────────────────────────────────────────────────────────────
   const summaryKpi = useMemo(() => {
+    if (auditSummary?.kpiSummary) {
+      const k = auditSummary.kpiSummary;
+      const totalOpeningKg = Number(k.totalOpeningKg || 0);
+      const totalReceivedKg = Number(k.totalReceivedKg || 0);
+      const totalGatePassKg = Number(k.totalGatePassKg || 0);
+      const totalDifferenceKg = Number(k.totalDifferenceKg ?? (totalReceivedKg - totalGatePassKg));
+      const totalReturnedKg = Number(k.totalReturnedKg || 0);
+      const netAvailableKg = Math.max(0, totalOpeningKg + totalReceivedKg - totalReturnedKg);
+      return {
+        totalOpeningKg,
+        totalReceivedKg,
+        totalGatePassKg,
+        totalDifferenceKg,
+        totalReturnedKg,
+        returnsCount: Number(k.returnsCount || 0),
+        netAvailableKg,
+        totalUsedInProdKg: Number(k.totalUsedInProdKg || 0),
+        totalClosingBalanceKg: Number(k.totalClosingBalanceKg || 0),
+        totalLines: Number(k.linesCount || 0),
+        receiptsCount: Number(k.receiptsCount || 0),
+        uniquePoCount: Number(k.uniquePoCount || 0),
+      };
+    }
+
     let totalReceivedKg = 0;
     let totalGatePassKg = 0;
     let totalLines = 0;
@@ -2178,21 +2263,46 @@ const RawMaterialReceiving: React.FC = () => {
     const netAvailableKg = Math.max(0, totalReceivedKg - totalReturnedKg);
 
     return {
+      totalOpeningKg: 0,
       totalReceivedKg,
       totalGatePassKg,
       totalDifferenceKg,
       totalReturnedKg,
+      returnsCount: returnsSummary.returnsCount,
       netAvailableKg,
+      totalUsedInProdKg: 0,
+      totalClosingBalanceKg: netAvailableKg,
       totalLines,
       receiptsCount: list.length,
       uniquePoCount: uniquePos.size,
     };
-  }, [list, returnsSummary]);
+  }, [auditSummary, list, returnsSummary]);
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Item-Wise Aggregation across all loaded receipts
+  // Item-Wise Aggregation (Server reconciled Opening + GP Received + Balance)
   // ─────────────────────────────────────────────────────────────────────────
   const itemWiseList: ItemWiseReceivingExportItem[] = useMemo(() => {
+    if (auditSummary?.items) {
+      return auditSummary.items.map((it) => ({
+        itemId: it.itemId,
+        itemCode: it.itemCode || 'RAW-MAT',
+        itemName: it.itemName || 'Raw Material',
+        uomCode: it.uomCode || 'KG',
+        openingStock: Number(it.openingStock || 0),
+        gatePassTotal: Number(it.gatePassTotal || 0),
+        receivedTotal: Number(it.receivedTotal || 0),
+        returnedTotal: Number(it.returnedTotal || 0),
+        netBalanceTotal: Number(it.netBalanceTotal ?? (Number(it.openingStock || 0) + Number(it.receivedTotal || 0) - Number(it.returnedTotal || 0))),
+        usedInProduction: Number(it.usedInProduction || 0),
+        stockAdjustmentTotal: Number(it.stockAdjustmentTotal || 0),
+        currentStoreBalance: Number(it.currentStoreBalance ?? 0),
+        differenceTotal: Number(it.differenceTotal ?? (Number(it.receivedTotal || 0) - Number(it.gatePassTotal || 0))),
+        receiptCount: Number(it.receiptCount || 0),
+        gatePassNumbers: Array.isArray(it.gatePassNumbers) ? it.gatePassNumbers : [],
+        poNumbers: Array.isArray(it.poNumbers) ? it.poNumbers : [],
+      }));
+    }
+
     const map = new Map<string, {
       itemId: string;
       itemCode: string;
@@ -2246,7 +2356,6 @@ const RawMaterialReceiving: React.FC = () => {
       }
     }
 
-    // Map returned quantities per item from returnsSummary
     const returnedByItemMap = new Map<string, number>();
     for (const ret of (returnsSummary.returnsList || [])) {
       for (const line of (ret.lines || [])) {
@@ -2273,52 +2382,63 @@ const RawMaterialReceiving: React.FC = () => {
         } else if (unallocatedReturns > 0 && idx === 0 && mappedTotalReturns === 0) {
           retQty += unallocatedReturns;
         }
-        const balInfo = materialBalances[v.itemId];
-        const totalReceived = (balInfo?.totalIn !== undefined && balInfo.totalIn > 0)
-          ? balInfo.totalIn
-          : v.receivedTotal;
-        const returnedQty = retQty;
-        const netBal = Math.max(0, totalReceived - returnedQty);
-
-        const totalOut = (balInfo?.totalOut !== undefined && balInfo.totalOut > 0)
-          ? balInfo.totalOut
-          : (balInfo ? Number(balInfo.usedInProduction || 0) : 0);
-        const usedInProd = Math.max(0, totalOut - returnedQty);
-
-        const currentBal = (balInfo?.currentBalance !== undefined)
-          ? balInfo.currentBalance
-          : Math.max(0, netBal - usedInProd);
+        const netBal = Math.max(0, v.receivedTotal - retQty);
 
         return {
           itemId: v.itemId,
           itemCode: v.itemCode,
           itemName: v.itemName,
           uomCode: v.uomCode,
+          openingStock: 0,
           gatePassTotal: v.gatePassTotal,
-          receivedTotal: totalReceived,
-          differenceTotal: totalReceived - v.gatePassTotal,
-          returnedTotal: returnedQty,
+          receivedTotal: v.receivedTotal,
+          differenceTotal: v.receivedTotal - v.gatePassTotal,
+          returnedTotal: retQty,
           netBalanceTotal: netBal,
-          usedInProduction: usedInProd,
-          currentStoreBalance: currentBal,
+          usedInProduction: 0,
+          stockAdjustmentTotal: 0,
+          currentStoreBalance: netBal,
           receiptCount: v.receiptCount,
           gatePassNumbers: Array.from(v.gatePassSet),
           poNumbers: Array.from(v.poSet),
         };
       })
       .sort((a, b) => b.receivedTotal - a.receivedTotal);
-  }, [list, returnsSummary, materialBalances]);
+  }, [auditSummary, list, returnsSummary]);
 
-  // Auto-fetch ledger balances for any item in itemWiseList that doesn't have it yet
-  useEffect(() => {
-    if (itemWiseList.length === 0) return;
-    const missing = itemWiseList
-      .filter((it) => it.itemId && it.itemId !== 'unknown' && materialBalances[it.itemId] === undefined)
-      .map((it) => ({ id: it.itemId, itemCode: it.itemCode }));
-    if (missing.length > 0) {
-      void fetchItemsLedgerUsage(missing, filters);
-    }
-  }, [itemWiseList, materialBalances, fetchItemsLedgerUsage, filters]);
+  const hasStockAdjustments = useMemo(
+    () => itemWiseList.some((r) => Math.abs(Number(r.stockAdjustmentTotal || 0)) > 0.005),
+    [itemWiseList],
+  );
+
+  const itemWiseTotals = useMemo(() => {
+    return itemWiseList.reduce(
+      (acc, r) => ({
+        openingStock: acc.openingStock + Number(r.openingStock || 0),
+        gatePassTotal: acc.gatePassTotal + Number(r.gatePassTotal || 0),
+        receivedTotal: acc.receivedTotal + Number(r.receivedTotal || 0),
+        returnedTotal: acc.returnedTotal + Number(r.returnedTotal || 0),
+        netBalanceTotal: acc.netBalanceTotal + Number(r.netBalanceTotal || 0),
+        usedInProduction: acc.usedInProduction + Number(r.usedInProduction || 0),
+        stockAdjustmentTotal: acc.stockAdjustmentTotal + Number(r.stockAdjustmentTotal || 0),
+        currentStoreBalance: acc.currentStoreBalance + Number(r.currentStoreBalance || 0),
+        differenceTotal: acc.differenceTotal + Number(r.differenceTotal || 0),
+        receiptCount: acc.receiptCount + Number(r.receiptCount || 0),
+      }),
+      {
+        openingStock: 0,
+        gatePassTotal: 0,
+        receivedTotal: 0,
+        returnedTotal: 0,
+        netBalanceTotal: 0,
+        usedInProduction: 0,
+        stockAdjustmentTotal: 0,
+        currentStoreBalance: 0,
+        differenceTotal: 0,
+        receiptCount: 0,
+      },
+    );
+  }, [itemWiseList]);
 
   const selectedDivisionName = useMemo(() => {
     if (!filters.divisionId) return 'All Divisions';
@@ -2330,18 +2450,19 @@ const RawMaterialReceiving: React.FC = () => {
     divisionName: selectedDivisionName,
     warehouseName: filters.warehouseId ? refData?.warehouses?.find((w) => w.id === filters.warehouseId)?.name : undefined,
     dateRangeStr: filters.dateFrom && filters.dateTo ? `${filters.dateFrom} to ${filters.dateTo}` : undefined,
+    totalOpeningKg: summaryKpi.totalOpeningKg,
     totalReceivedKg: summaryKpi.totalReceivedKg,
-    totalReturnedKg: returnsSummary.totalReturnedKg,
-    netAvailableKg: Math.max(0, summaryKpi.totalReceivedKg - returnsSummary.totalReturnedKg),
-    returnsCount: returnsSummary.returnsCount,
+    totalReturnedKg: summaryKpi.totalReturnedKg,
+    netAvailableKg: summaryKpi.netAvailableKg,
+    returnsCount: summaryKpi.returnsCount,
     totalGatePassKg: summaryKpi.totalGatePassKg,
     totalDifferenceKg: summaryKpi.totalDifferenceKg,
-    receiptsCount: total || list.length,
+    receiptsCount: summaryKpi.receiptsCount || total || list.length,
     uniquePoCount: summaryKpi.uniquePoCount,
     linesCount: summaryKpi.totalLines,
     distinctItemsCount: itemWiseList.length,
     itemWiseList,
-  }), [selectedDivisionName, filters.warehouseId, refData?.warehouses, filters.dateFrom, filters.dateTo, summaryKpi, returnsSummary, total, list.length, itemWiseList]);
+  }), [selectedDivisionName, filters.warehouseId, refData?.warehouses, filters.dateFrom, filters.dateTo, summaryKpi, total, list.length, itemWiseList]);
 
   const exportRows: ReceivingExportItem[] = useMemo(() => {
     return list.map((r) => ({
@@ -2608,32 +2729,28 @@ const RawMaterialReceiving: React.FC = () => {
       ),
     },
     {
-      title: (
-        <div>
-          <div style={{ color: isDark ? '#38bdf8' : '#0369a1', fontSize: 11, fontWeight: 700, letterSpacing: '0.4px' }}>DIVISION</div>
-          <div style={{ color: isDark ? '#c084fc' : '#7e22ce', fontSize: 10, fontWeight: 600 }}>SECTION</div>
-          <div style={{ color: isDark ? '#fbbf24' : '#b45309', fontSize: 10, fontWeight: 600 }}>DEPARTMENT</div>
-        </div>
-      ),
+      title: 'Division / Dept',
       key: 'orgHierarchy',
-      width: 250,
-      render: (_, r) => (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '2px 0' }}>
-          <div style={{ color: isDark ? '#38bdf8' : '#0369a1', fontWeight: 700, fontSize: 12.5, whiteSpace: 'nowrap' }}>
-            {r.division ? `${r.division.divisionCode ? `${r.division.divisionCode} ` : ''}${r.division.name}`.trim() : '—'}
-          </div>
-          {r.section?.name && (
-            <div style={{ color: isDark ? '#c084fc' : '#7e22ce', fontWeight: 600, fontSize: 11.5, whiteSpace: 'nowrap' }}>
-              {r.section.name}
+      width: 240,
+      render: (_, r) => {
+        const divLabel = r.division ? `${r.division.divisionCode ? `${r.division.divisionCode} ` : ''}${r.division.name}`.trim() : '—';
+        const secondaryParts = [r.section?.name, r.department?.name].filter(Boolean);
+        const fullHierarchy = [divLabel, ...secondaryParts].join(' · ');
+        return (
+          <Tooltip title={fullHierarchy}>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap', maxWidth: 225, overflow: 'hidden' }}>
+              <span style={{ color: isDark ? '#38bdf8' : '#0369a1', fontWeight: 700, fontSize: 12 }}>
+                {divLabel}
+              </span>
+              {r.department?.name && (
+                <span style={{ color: token.colorTextSecondary, fontSize: 11.5, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  · {r.department.name}
+                </span>
+              )}
             </div>
-          )}
-          {r.department?.name && (
-            <div style={{ color: isDark ? '#fbbf24' : '#b45309', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>
-              {r.department.name}
-            </div>
-          )}
-        </div>
-      ),
+          </Tooltip>
+        );
+      },
     },
     {
       title: 'Warehouse',
@@ -2769,32 +2886,38 @@ const RawMaterialReceiving: React.FC = () => {
     {
       title: 'Created By',
       key: 'createdByNameDate',
-      width: 155,
-      render: (_, r) => (
-        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.25 }}>
-          <span style={{ fontWeight: 600, fontSize: 12.5, whiteSpace: 'nowrap', color: token.colorText }}>
-            {r.createdByName || (r.createdBy ? 'Admin' : '-')}
-          </span>
-          <span style={{ fontSize: 11, color: token.colorTextSecondary, whiteSpace: 'nowrap' }}>
-            {r.createdAt ? dayjs(r.createdAt).format('DD-MMM-YYYY HH:mm') : '-'}
-          </span>
-        </div>
-      ),
+      width: 170,
+      render: (_, r) => {
+        const actor = r.createdByName || (r.createdBy ? 'Admin' : '-');
+        const shortDt = r.createdAt ? dayjs(r.createdAt).format('DD-MMM') : '';
+        const fullDt = r.createdAt ? dayjs(r.createdAt).format('DD-MMM-YYYY HH:mm') : '-';
+        return (
+          <Tooltip title={`${actor} (${fullDt})`}>
+            <span style={{ whiteSpace: 'nowrap', fontSize: 12, color: token.colorText }}>
+              <span style={{ fontWeight: 600 }}>{actor}</span>
+              {shortDt && <span style={{ color: token.colorTextSecondary }}> · {shortDt}</span>}
+            </span>
+          </Tooltip>
+        );
+      },
     },
     {
       title: 'Updated By',
       key: 'updatedByNameDate',
-      width: 155,
-      render: (_, r) => (
-        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.25 }}>
-          <span style={{ fontWeight: 600, fontSize: 12.5, whiteSpace: 'nowrap', color: token.colorText }}>
-            {r.updatedByName || (r.updatedBy ? 'Admin' : '-')}
-          </span>
-          <span style={{ fontSize: 11, color: token.colorTextSecondary, whiteSpace: 'nowrap' }}>
-            {r.updatedAt ? dayjs(r.updatedAt).format('DD-MMM-YYYY HH:mm') : '-'}
-          </span>
-        </div>
-      ),
+      width: 170,
+      render: (_, r) => {
+        const actor = r.updatedByName || (r.updatedBy ? 'Admin' : '-');
+        const shortDt = r.updatedAt ? dayjs(r.updatedAt).format('DD-MMM') : '';
+        const fullDt = r.updatedAt ? dayjs(r.updatedAt).format('DD-MMM-YYYY HH:mm') : '-';
+        return (
+          <Tooltip title={`${actor} (${fullDt})`}>
+            <span style={{ whiteSpace: 'nowrap', fontSize: 12, color: token.colorText }}>
+              <span style={{ fontWeight: 600 }}>{actor}</span>
+              {shortDt && <span style={{ color: token.colorTextSecondary }}> · {shortDt}</span>}
+            </span>
+          </Tooltip>
+        );
+      },
     },
     {
       title: 'Actions', key: 'actions', width: 160,
@@ -2943,205 +3066,268 @@ const RawMaterialReceiving: React.FC = () => {
   // ─────────────────────────────────────────────────────────────────────────
   // Item-Wise Breakdown Table Columns
   // ─────────────────────────────────────────────────────────────────────────
-  const itemWiseColumns: ColumnsType<ItemWiseReceivingExportItem> = useMemo(() => [
-    {
-      title: '#',
-      key: 'idx',
-      width: 48,
-      align: 'center',
-      render: (_, __, i) => <span style={{ color: token.colorTextTertiary, fontSize: 11 }}>{i + 1}</span>,
-    },
-    {
-      title: 'Item Code / Raw Material',
-      key: 'itemAndName',
-      width: 250,
-      render: (_, r) => (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-          <Tooltip title="Click to view Item Stock Ledger Drill-down">
+  const isHistoricalCutoff = Boolean(filters.dateTo && filters.dateTo < dayjs().format('YYYY-MM-DD'));
+
+  const itemWiseColumns: ColumnsType<ItemWiseReceivingExportItem> = useMemo(() => {
+    const baseCols: ColumnsType<ItemWiseReceivingExportItem> = [
+      {
+        title: '#',
+        key: 'idx',
+        width: 44,
+        align: 'center',
+        render: (_, __, i) => <span style={{ color: token.colorTextTertiary, fontSize: 11 }}>{i + 1}</span>,
+      },
+      {
+        title: 'Item Code / Raw Material',
+        key: 'itemAndName',
+        width: 280,
+        render: (_, r) => (
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', maxWidth: 270 }}>
+            <Tooltip title="Click to view Item Stock Ledger Drill-down">
+              <span
+                onClick={() => handleOpenItemLedger({ id: r.itemId, itemCode: r.itemCode, name: r.itemName })}
+                style={{
+                  fontFamily: 'monospace, var(--theme-font-mono, sans-serif)',
+                  fontWeight: 700,
+                  fontSize: 12,
+                  color: isDark ? '#38bdf8' : '#0284c7',
+                  cursor: 'pointer',
+                  textDecoration: 'underline',
+                  flexShrink: 0,
+                }}
+              >
+                {r.itemCode}
+              </span>
+            </Tooltip>
+            <Tooltip title={r.itemName}>
+              <span
+                style={{
+                  fontWeight: 600,
+                  color: token.colorText,
+                  fontSize: 12,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {r.itemName}
+              </span>
+            </Tooltip>
+          </div>
+        ),
+      },
+      {
+        title: 'UoM',
+        dataIndex: 'uomCode',
+        key: 'uomCode',
+        width: 64,
+        align: 'center',
+        render: (u) => <Tag style={{ margin: 0 }}>{u || 'KG'}</Tag>,
+      },
+      {
+        title: (
+          <Tooltip title="Stock carried forward before the selected period">
+            <span>Opening Stock (KG)</span>
+          </Tooltip>
+        ),
+        dataIndex: 'openingStock',
+        key: 'openingStock',
+        width: 135,
+        align: 'right',
+        render: (v) => (
+          <span style={{ fontFamily: 'monospace', fontWeight: 700, color: token.colorTextSecondary }}>
+            {formatNumber(Number(v || 0), 2)}
+          </span>
+        ),
+      },
+      {
+        title: 'GP Declared (KG)',
+        dataIndex: 'gatePassTotal',
+        key: 'gatePassTotal',
+        width: 130,
+        align: 'right',
+        render: (v) => (
+          <span style={{ fontFamily: 'monospace', fontWeight: 600, color: token.colorTextSecondary }}>
+            {formatNumber(v, 2)}
+          </span>
+        ),
+      },
+      {
+        title: 'GP Received (KG)',
+        dataIndex: 'receivedTotal',
+        key: 'receivedTotal',
+        width: 135,
+        align: 'right',
+        render: (v) => (
+          <span style={{ fontFamily: 'monospace', fontWeight: 800, color: isDark ? '#38bdf8' : '#0284c7', fontSize: 13 }}>
+            {formatNumber(v, 2)}
+          </span>
+        ),
+      },
+      {
+        title: 'Returned (KG)',
+        dataIndex: 'returnedTotal',
+        key: 'returnedTotal',
+        width: 115,
+        align: 'right',
+        render: (v) => {
+          const qty = Number(v || 0);
+          return qty > 0 ? (
+            <Tag color="warning" style={{ margin: 0, fontFamily: 'monospace', fontWeight: 700, fontSize: 11.5 }}>
+              -{formatNumber(qty, 2)}
+            </Tag>
+          ) : (
+            <span style={{ color: token.colorTextTertiary, fontFamily: 'monospace', fontSize: 11.5 }}>0.00</span>
+          );
+        },
+      },
+      {
+        title: 'Net In-Hand (KG)',
+        dataIndex: 'netBalanceTotal',
+        key: 'netBalanceTotal',
+        width: 135,
+        align: 'right',
+        render: (v, r) => {
+          const open = Number(r.openingStock || 0);
+          const ret = Number(r.returnedTotal || 0);
+          const net = v !== undefined ? Number(v) : Math.max(0, open + Number(r.receivedTotal || 0) - ret);
+          return (
             <span
-              onClick={() => handleOpenItemLedger({ id: r.itemId, itemCode: r.itemCode, name: r.itemName })}
               style={{
                 fontFamily: 'monospace, var(--theme-font-mono, sans-serif)',
-                fontWeight: 700,
-                fontSize: 12.5,
+                fontWeight: 800,
+                fontSize: 13,
                 color: isDark ? '#38bdf8' : '#0284c7',
-                cursor: 'pointer',
-                textDecoration: 'underline',
-                display: 'inline-block',
-                width: 'fit-content',
               }}
             >
-              {r.itemCode}
+              {formatNumber(net, 2)}
             </span>
+          );
+        },
+      },
+      {
+        title: 'Used in Prod (KG)',
+        dataIndex: 'usedInProduction',
+        key: 'usedInProduction',
+        width: 135,
+        align: 'right',
+        render: (v) => {
+          const qty = Number(v || 0);
+          return qty > 0 ? (
+            <Tag color="orange" style={{ margin: 0, fontFamily: 'monospace', fontWeight: 700, fontSize: 11.5 }}>
+              -{formatNumber(qty, 2)}
+            </Tag>
+          ) : (
+            <span style={{ color: token.colorTextTertiary, fontFamily: 'monospace', fontSize: 11.5 }}>0.00</span>
+          );
+        },
+      },
+    ];
+
+    if (hasStockAdjustments) {
+      baseCols.push({
+        title: (
+          <Tooltip title="Physical Stock Adjustments / Transfers during the period">
+            <span>Stock Adj (KG)</span>
           </Tooltip>
-          <span style={{ fontWeight: 600, color: token.colorText, fontSize: 12, lineHeight: 1.35 }}>
-            {r.itemName}
-          </span>
-        </div>
-      ),
-    },
-    {
-      title: 'UoM',
-      dataIndex: 'uomCode',
-      key: 'uomCode',
-      width: 75,
-      align: 'center',
-      render: (u) => <Tag style={{ margin: 0 }}>{u || 'KG'}</Tag>,
-    },
-    {
-      title: 'GP Declared (KG)',
-      dataIndex: 'gatePassTotal',
-      key: 'gatePassTotal',
-      width: 135,
-      align: 'right',
-      render: (v) => (
-        <span style={{ fontFamily: 'monospace', fontWeight: 600, color: token.colorTextSecondary }}>
-          {formatNumber(v, 2)}
-        </span>
-      ),
-    },
-    {
-      title: 'Total Received (KG)',
-      dataIndex: 'receivedTotal',
-      key: 'receivedTotal',
-      width: 140,
-      align: 'right',
-      render: (v) => (
-        <span style={{ fontFamily: 'monospace', fontWeight: 800, color: '#0284c7', fontSize: 13 }}>
-          {formatNumber(v, 2)}
-        </span>
-      ),
-    },
-    {
-      title: 'Returned (KG)',
-      dataIndex: 'returnedTotal',
-      key: 'returnedTotal',
-      width: 130,
-      align: 'right',
-      render: (v) => {
-        const qty = Number(v || 0);
-        return qty > 0 ? (
-          <Tag color="warning" style={{ margin: 0, fontFamily: 'monospace', fontWeight: 700, fontSize: 11.5 }}>
-            -{formatNumber(qty, 2)}
-          </Tag>
-        ) : (
-          <span style={{ color: token.colorTextTertiary, fontFamily: 'monospace', fontSize: 11.5 }}>0.00</span>
-        );
+        ),
+        dataIndex: 'stockAdjustmentTotal',
+        key: 'stockAdjustmentTotal',
+        width: 120,
+        align: 'right',
+        render: (v) => {
+          const adj = Number(v || 0);
+          if (Math.abs(adj) < 0.005) {
+            return <span style={{ color: token.colorTextTertiary, fontFamily: 'monospace', fontSize: 11.5 }}>0.00</span>;
+          }
+          return (
+            <Tag color={adj > 0 ? 'purple' : 'magenta'} style={{ margin: 0, fontFamily: 'monospace', fontWeight: 700, fontSize: 11.5 }}>
+              {adj > 0 ? `+${formatNumber(adj, 2)}` : formatNumber(adj, 2)}
+            </Tag>
+          );
+        },
+      });
+    }
+
+    baseCols.push(
+      {
+        title: isHistoricalCutoff ? 'Closing Balance (KG)' : 'Current Balance (KG)',
+        dataIndex: 'currentStoreBalance',
+        key: 'currentStoreBalance',
+        width: 150,
+        align: 'right',
+        render: (v, r) => {
+          const open = Number(r.openingStock || 0);
+          const ret = Number(r.returnedTotal || 0);
+          const adj = Number(r.stockAdjustmentTotal || 0);
+          const net = r.netBalanceTotal !== undefined ? Number(r.netBalanceTotal) : Math.max(0, open + Number(r.receivedTotal || 0) - ret);
+          const used = Number(r.usedInProduction || 0);
+          const bal = v !== undefined ? Number(v) : Math.max(0, net - used + adj);
+          return (
+            <span
+              style={{
+                fontFamily: 'monospace, var(--theme-font-mono, sans-serif)',
+                fontWeight: 800,
+                fontSize: 13,
+                color: isDark ? '#4ade80' : '#16a34a',
+              }}
+            >
+              {formatNumber(bal, 2)}
+            </span>
+          );
+        },
       },
-    },
-    {
-      title: 'Net In-Hand (KG)',
-      dataIndex: 'netBalanceTotal',
-      key: 'netBalanceTotal',
-      width: 145,
-      align: 'right',
-      render: (v, r) => {
-        const ret = Number(r.returnedTotal || 0);
-        const net = v !== undefined ? Number(v) : Math.max(0, Number(r.receivedTotal || 0) - ret);
-        return (
-          <span
+      {
+        title: 'Discrepancy (KG)',
+        dataIndex: 'differenceTotal',
+        key: 'differenceTotal',
+        width: 145,
+        align: 'right',
+        render: (v) => {
+          const diff = Number(v || 0);
+          if (diff === 0) return <Tag color="success" style={{ margin: 0 }}>0.00 (Match)</Tag>;
+          if (diff > 0) return <Tag color="warning" style={{ margin: 0 }}>+{formatNumber(diff, 2)} (Excess)</Tag>;
+          return <Tag color="error" style={{ margin: 0 }}>{formatNumber(diff, 2)} (Shortage)</Tag>;
+        },
+      },
+      {
+        title: 'Deliveries',
+        dataIndex: 'receiptCount',
+        key: 'receiptCount',
+        width: 85,
+        align: 'center',
+        render: (c) => (
+          <Badge
+            count={c}
+            overflowCount={999}
             style={{
-              fontFamily: 'monospace, var(--theme-font-mono, sans-serif)',
-              fontWeight: 800,
-              fontSize: 13,
-              color: isDark ? '#38bdf8' : '#0284c7',
+              backgroundColor: isDark ? 'rgba(56, 189, 248, 0.15)' : '#e0f2fe',
+              color: isDark ? '#38bdf8' : '#0369a1',
+              border: isDark ? '1px solid rgba(56, 189, 248, 0.3)' : '1px solid #bae6fd',
             }}
-          >
-            {formatNumber(net, 2)}
-          </span>
-        );
-      },
-    },
-    {
-      title: 'Used in Prod (KG)',
-      dataIndex: 'usedInProduction',
-      key: 'usedInProduction',
-      width: 145,
-      align: 'right',
-      render: (v) => {
-        const qty = Number(v || 0);
-        return qty > 0 ? (
-          <Tag color="orange" style={{ margin: 0, fontFamily: 'monospace', fontWeight: 700, fontSize: 11.5 }}>
-            -{formatNumber(qty, 2)}
-          </Tag>
-        ) : (
-          <span style={{ color: token.colorTextTertiary, fontFamily: 'monospace', fontSize: 11.5 }}>0.00</span>
-        );
-      },
-    },
-    {
-      title: 'Current Balance (KG)',
-      dataIndex: 'currentStoreBalance',
-      key: 'currentStoreBalance',
-      width: 155,
-      align: 'right',
-      render: (v, r) => {
-        const ret = Number(r.returnedTotal || 0);
-        const net = r.netBalanceTotal !== undefined ? Number(r.netBalanceTotal) : Math.max(0, Number(r.receivedTotal || 0) - ret);
-        const used = Number(r.usedInProduction || 0);
-        const bal = v !== undefined ? Number(v) : Math.max(0, net - used);
-        return (
-          <span
-            style={{
-              fontFamily: 'monospace, var(--theme-font-mono, sans-serif)',
-              fontWeight: 800,
-              fontSize: 13,
-              color: isDark ? '#4ade80' : '#16a34a',
-            }}
-          >
-            {formatNumber(bal, 2)}
-          </span>
-        );
-      },
-    },
-    {
-      title: 'Discrepancy (KG)',
-      dataIndex: 'differenceTotal',
-      key: 'differenceTotal',
-      width: 135,
-      align: 'right',
-      render: (v) => {
-        const diff = Number(v || 0);
-        if (diff === 0) return <Tag color="success" style={{ margin: 0 }}>0.00 (Match)</Tag>;
-        if (diff > 0) return <Tag color="warning" style={{ margin: 0 }}>+{formatNumber(diff, 2)} (Excess)</Tag>;
-        return <Tag color="error" style={{ margin: 0 }}>{formatNumber(diff, 2)} (Shortage)</Tag>;
-      },
-    },
-    {
-      title: 'Deliveries',
-      dataIndex: 'receiptCount',
-      key: 'receiptCount',
-      width: 90,
-      align: 'center',
-      render: (c) => (
-        <Badge
-          count={c}
-          overflowCount={999}
-          style={{
-            backgroundColor: isDark ? 'rgba(56, 189, 248, 0.15)' : '#e0f2fe',
-            color: isDark ? '#38bdf8' : '#0369a1',
-            border: isDark ? '1px solid rgba(56, 189, 248, 0.3)' : '1px solid #bae6fd',
-          }}
-        />
-      ),
-    },
-    {
-      title: 'Action',
-      key: 'act',
-      width: 75,
-      align: 'center',
-      render: (_, r) => (
-        <Tooltip title="View Stock Ledger History">
-          <Button
-            type="text"
-            size="small"
-            icon={<HistoryOutlined />}
-            onClick={() => handleOpenItemLedger({ id: r.itemId, itemCode: r.itemCode, name: r.itemName })}
           />
-        </Tooltip>
-      ),
-    },
-  ], [token, isDark, filters.warehouseId, refData?.warehouses]);
+        ),
+      },
+      {
+        title: 'Action',
+        key: 'act',
+        width: 65,
+        align: 'center',
+        render: (_, r) => (
+          <Tooltip title="View Stock Ledger History">
+            <Button
+              type="text"
+              size="small"
+              icon={<HistoryOutlined />}
+              onClick={() => handleOpenItemLedger({ id: r.itemId, itemCode: r.itemCode, name: r.itemName })}
+            />
+          </Tooltip>
+        ),
+      },
+    );
+
+    return baseCols;
+  }, [token, isDark, hasStockAdjustments, isHistoricalCutoff, handleOpenItemLedger]);
 
   const pdfMenuItems: MenuProps['items'] = useMemo(() => [
     {
@@ -3298,7 +3484,7 @@ const RawMaterialReceiving: React.FC = () => {
     <TabKeepAlive
       tabId={RM_RECEIVING_TAB_ID}
       load={async () => { await loadRef(); await loadList(1); }}
-      serialize={() => ({ list, total, page, filters })}
+      serialize={() => ({ list, total, page, filters, auditSummary })}
     >
       <div className="erp-dashboard">
       <PageHeader
@@ -3355,41 +3541,29 @@ const RawMaterialReceiving: React.FC = () => {
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ fontSize: 12, fontWeight: 700, color: token.colorTextSecondary, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                Period:
+              </span>
+              <Select
+                aria-label="Period Filter"
+                style={{ width: 175 }}
+                value={periodPreset}
+                onChange={(val) => handlePeriodChange(val as RmrPeriodPreset)}
+                options={RMR_PERIOD_OPTIONS}
+              />
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: token.colorTextSecondary, textTransform: 'uppercase', letterSpacing: 0.5 }}>
                 Date:
               </span>
               <DatePicker.RangePicker
-                style={{ width: 230 }}
+                style={{ width: 225 }}
                 value={filters.dateFrom && filters.dateTo ? [dayjs(filters.dateFrom), dayjs(filters.dateTo)] : undefined}
                 onChange={(v) => applyFilter({
                   dateFrom: v?.[0] ? v[0].format('YYYY-MM-DD') : undefined,
                   dateTo: v?.[1] ? v[1].format('YYYY-MM-DD') : undefined,
                 })}
               />
-              {/* Quick Presets */}
-              <Space size={4}>
-                <Button
-                  size="small"
-                  type={!filters.dateFrom && !filters.dateTo ? 'default' : 'text'}
-                  style={{ fontSize: 11, padding: '0 6px', height: 24 }}
-                  onClick={() => applyFilter({
-                    dateFrom: dayjs().startOf('month').format('YYYY-MM-DD'),
-                    dateTo: dayjs().endOf('month').format('YYYY-MM-DD'),
-                  })}
-                >
-                  This Month
-                </Button>
-                <Button
-                  size="small"
-                  type="text"
-                  style={{ fontSize: 11, padding: '0 6px', height: 24 }}
-                  onClick={() => applyFilter({
-                    dateFrom: dayjs().subtract(1, 'month').startOf('month').format('YYYY-MM-DD'),
-                    dateTo: dayjs().subtract(1, 'month').endOf('month').format('YYYY-MM-DD'),
-                  })}
-                >
-                  Last Month
-                </Button>
-              </Space>
             </div>
           </Space>
 
@@ -3428,12 +3602,13 @@ const RawMaterialReceiving: React.FC = () => {
             />
 
             {/* Reset All Button */}
-            {(filters.divisionId || filters.warehouseId || filters.status || filters.gatePassNo || filters.dateFrom || filters.dateTo) && (
+            {(filters.divisionId || filters.warehouseId || filters.status || filters.gatePassNo || filters.dateFrom || filters.dateTo || periodPreset !== 'allTime') && (
               <Button
                 size="small"
                 danger
                 icon={<ClearOutlined />}
                 onClick={() => {
+                  setPeriodPreset('allTime');
                   setFilters({});
                   setPage(1);
                   void loadList(1, {});
@@ -3454,7 +3629,7 @@ const RawMaterialReceiving: React.FC = () => {
 
         {/* ROW 2: 6 Executive 2027 KPI Stat Cards */}
         <Row gutter={[10, 10]}>
-          {/* Card 1: Total Received (Gross Inward) */}
+          {/* Card 1: GP Received (Gate Pass Inward) */}
           <Col xs={12} sm={8} md={8} lg={4} xl={4} xxl={4}>
             <div
               style={{
@@ -3470,7 +3645,7 @@ const RawMaterialReceiving: React.FC = () => {
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                 <span style={{ fontSize: 11, fontWeight: 700, color: isDark ? '#38bdf8' : '#0369a1', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                  Total Received
+                  GP Received
                 </span>
                 <InboxOutlined style={{ color: isDark ? '#38bdf8' : '#0284c7', fontSize: 16 }} />
               </div>
@@ -3478,7 +3653,7 @@ const RawMaterialReceiving: React.FC = () => {
                 {formatNumber(summaryKpi.totalReceivedKg, 2)} <span style={{ fontSize: 11, fontWeight: 600, color: token.colorTextSecondary }}>KG</span>
               </div>
               <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: 11, color: token.colorTextSecondary }}>Inward Gate Pass</span>
+                <span style={{ fontSize: 11, color: token.colorTextSecondary }}>Total GP Received</span>
                 <Tag color="cyan" style={{ fontSize: 10, margin: 0, padding: '0 4px', lineHeight: '18px' }}>
                   {summaryKpi.totalGatePassKg > 0 ? `${((summaryKpi.totalReceivedKg / summaryKpi.totalGatePassKg) * 100).toFixed(1)}%` : '100%'}
                 </Tag>
@@ -3510,22 +3685,22 @@ const RawMaterialReceiving: React.FC = () => {
                 </span>
                 <RollbackOutlined style={{ color: isDark ? '#fbbf24' : '#d97706', fontSize: 16 }} />
               </div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: returnsSummary.totalReturnedKg > 0 ? (isDark ? '#fbbf24' : '#d97706') : token.colorText, fontFamily: 'monospace, var(--theme-font-mono, sans-serif)' }}>
-                {returnsSummary.totalReturnedKg > 0 ? `-${formatNumber(returnsSummary.totalReturnedKg, 2)}` : '0.00'}{' '}
+              <div style={{ fontSize: 20, fontWeight: 800, color: summaryKpi.totalReturnedKg > 0 ? (isDark ? '#fbbf24' : '#d97706') : token.colorText, fontFamily: 'monospace, var(--theme-font-mono, sans-serif)' }}>
+                {summaryKpi.totalReturnedKg > 0 ? `-${formatNumber(summaryKpi.totalReturnedKg, 2)}` : '0.00'}{' '}
                 <span style={{ fontSize: 11, fontWeight: 600, color: token.colorTextSecondary }}>KG</span>
               </div>
               <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <span style={{ fontSize: 11, color: token.colorTextSecondary }}>
-                  {returnsSummary.returnsCount > 0 ? `${returnsSummary.returnsCount} Return Chalan(s)` : 'Zero Returns'}
+                  {summaryKpi.returnsCount > 0 ? `${summaryKpi.returnsCount} Return(s)` : 'Zero Returns'}
                 </span>
-                <Tag color={returnsSummary.totalReturnedKg > 0 ? 'warning' : 'default'} style={{ fontSize: 10, margin: 0, padding: '0 4px', lineHeight: '18px' }}>
-                  {returnsSummary.totalReturnedKg > 0 ? 'Deducted' : 'Clean'}
+                <Tag color={summaryKpi.totalReturnedKg > 0 ? 'warning' : 'default'} style={{ fontSize: 10, margin: 0, padding: '0 4px', lineHeight: '18px' }}>
+                  {summaryKpi.totalReturnedKg > 0 ? 'Deducted' : 'Clean'}
                 </Tag>
               </div>
             </div>
           </Col>
 
-          {/* Card 3: Net Available Balance (In-Hand Stock = Received - Returned) */}
+          {/* Card 3: Net Available Balance (Opening + GP Received - Returned) */}
           <Col xs={12} sm={8} md={8} lg={4} xl={4} xxl={4}>
             <div
               style={{
@@ -3546,11 +3721,13 @@ const RawMaterialReceiving: React.FC = () => {
                 <SafetyCertificateOutlined style={{ color: isDark ? '#4ade80' : '#16a34a', fontSize: 16 }} />
               </div>
               <div style={{ fontSize: 20, fontWeight: 800, color: isDark ? '#4ade80' : '#16a34a', fontFamily: 'monospace, var(--theme-font-mono, sans-serif)' }}>
-                {formatNumber(Math.max(0, summaryKpi.totalReceivedKg - returnsSummary.totalReturnedKg), 2)}{' '}
+                {formatNumber(summaryKpi.netAvailableKg, 2)}{' '}
                 <span style={{ fontSize: 11, fontWeight: 600, color: token.colorTextSecondary }}>KG</span>
               </div>
               <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: 11, color: token.colorTextSecondary }}>Recv − Return</span>
+                <span style={{ fontSize: 11, color: token.colorTextSecondary }}>
+                  {summaryKpi.totalOpeningKg > 0 ? 'Open + GP Recv − Ret' : 'GP Recv − Return'}
+                </span>
                 <Tag color="success" style={{ fontSize: 10, margin: 0, padding: '0 4px', lineHeight: '18px' }}>
                   Net Usable
                 </Tag>
@@ -3584,7 +3761,7 @@ const RawMaterialReceiving: React.FC = () => {
               <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <span style={{ fontSize: 11, color: token.colorTextSecondary }}>Supplier Declared</span>
                 <span style={{ fontSize: 11, fontWeight: 600, color: token.colorTextTertiary }}>
-                  {total || list.length} GPs
+                  {summaryKpi.receiptsCount || total || list.length} GPs
                 </span>
               </div>
             </div>
@@ -3678,7 +3855,7 @@ const RawMaterialReceiving: React.FC = () => {
                 <HistoryOutlined style={{ color: isDark ? '#a78bfa' : '#7c3aed', fontSize: 16 }} />
               </div>
               <div style={{ fontSize: 20, fontWeight: 800, color: token.colorText, fontFamily: 'monospace, var(--theme-font-mono, sans-serif)' }}>
-                {total || list.length} <span style={{ fontSize: 11, fontWeight: 600, color: token.colorTextSecondary }}>GPs</span>
+                {summaryKpi.receiptsCount || total || list.length} <span style={{ fontSize: 11, fontWeight: 600, color: token.colorTextSecondary }}>GPs</span>
               </div>
               <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <span style={{ fontSize: 11, color: token.colorTextSecondary }}>{itemWiseList.length} Materials</span>
@@ -3794,6 +3971,8 @@ const RawMaterialReceiving: React.FC = () => {
           <>
             {viewMode !== 'itemWise' && (
               <Table
+            className="rmr-compact-table"
+            size="small"
             columns={displayedColumns}
             dataSource={list}
             rowKey="id"
@@ -4043,33 +4222,112 @@ const RawMaterialReceiving: React.FC = () => {
                     <Space size={8} align="center">
                       <AppstoreOutlined style={{ color: token.colorPrimary, fontSize: 16 }} />
                       <span style={{ fontSize: 14, fontWeight: 700, color: token.colorText }}>
-                        Item-Wise Raw Material Audit Breakdown — Received vs Returned ({itemWiseList.length} Materials)
+                        Item-Wise Raw Material Audit Breakdown — Opening Stock, GP Received vs Returned ({itemWiseList.length} Materials)
                       </span>
                     </Space>
                     <Space size={10} wrap>
+                      {summaryKpi.totalOpeningKg > 0 && (
+                        <Tag color="default" style={{ fontSize: 11, padding: '2px 8px', margin: 0 }}>
+                          Opening Stock: <strong>{formatNumber(summaryKpi.totalOpeningKg, 2)} KG</strong>
+                        </Tag>
+                      )}
                       <Tag color="processing" style={{ fontSize: 11, padding: '2px 8px', margin: 0 }}>
-                        Total Received: <strong>{formatNumber(summaryKpi.totalReceivedKg, 2)} KG</strong>
+                        GP Received: <strong>{formatNumber(summaryKpi.totalReceivedKg, 2)} KG</strong>
                       </Tag>
-                      <Tag color={returnsSummary.totalReturnedKg > 0 ? 'warning' : 'default'} style={{ fontSize: 11, padding: '2px 8px', margin: 0 }}>
-                        Material Returned: <strong>{returnsSummary.totalReturnedKg > 0 ? `-${formatNumber(returnsSummary.totalReturnedKg, 2)} KG` : '0.00 KG'}</strong>
+                      <Tag color={summaryKpi.totalReturnedKg > 0 ? 'warning' : 'default'} style={{ fontSize: 11, padding: '2px 8px', margin: 0 }}>
+                        Material Returned: <strong>{summaryKpi.totalReturnedKg > 0 ? `-${formatNumber(summaryKpi.totalReturnedKg, 2)} KG` : '0.00 KG'}</strong>
                       </Tag>
                       <Tag color="success" style={{ fontSize: 11, padding: '2px 8px', margin: 0 }}>
-                        Net In-Hand: <strong>{formatNumber(Math.max(0, summaryKpi.totalReceivedKg - returnsSummary.totalReturnedKg), 2)} KG</strong>
+                        Net In-Hand: <strong>{formatNumber(summaryKpi.netAvailableKg, 2)} KG</strong>
                       </Tag>
                     </Space>
                   </div>
                 )}
                 <Table
+                  className="rmr-compact-table"
                   columns={itemWiseColumns}
                   dataSource={itemWiseList}
                   rowKey="itemId"
+                  scroll={{ x: 'max-content' }}
                   pagination={{
                     defaultPageSize: 50,
                     pageSizeOptions: ['25', '50', '100', '200'],
                     showSizeChanger: true,
                     showTotal: (t) => `Total ${t} raw materials`,
                   }}
-                  size="middle"
+                  size="small"
+                  summary={() => {
+                    if (itemWiseList.length === 0) return null;
+                    const diffTotal = itemWiseTotals.differenceTotal;
+                    return (
+                      <Table.Summary fixed="bottom">
+                        <Table.Summary.Row>
+                          <Table.Summary.Cell index={0} align="center" />
+                          <Table.Summary.Cell index={1}>
+                            <span style={{ fontWeight: 800, fontSize: 12, color: token.colorText }}>
+                              TOTAL ({itemWiseList.length} Materials)
+                            </span>
+                          </Table.Summary.Cell>
+                          <Table.Summary.Cell index={2} align="center">
+                            <span style={{ color: token.colorTextSecondary, fontSize: 11 }}>KG</span>
+                          </Table.Summary.Cell>
+                          <Table.Summary.Cell index={3} align="right">
+                            <span style={{ fontFamily: 'monospace', fontWeight: 800, color: token.colorText }}>
+                              {formatNumber(itemWiseTotals.openingStock, 2)}
+                            </span>
+                          </Table.Summary.Cell>
+                          <Table.Summary.Cell index={4} align="right">
+                            <span style={{ fontFamily: 'monospace', fontWeight: 800, color: token.colorText }}>
+                              {formatNumber(itemWiseTotals.gatePassTotal, 2)}
+                            </span>
+                          </Table.Summary.Cell>
+                          <Table.Summary.Cell index={5} align="right">
+                            <span style={{ fontFamily: 'monospace', fontWeight: 800, color: isDark ? '#38bdf8' : '#0284c7' }}>
+                              {formatNumber(itemWiseTotals.receivedTotal, 2)}
+                            </span>
+                          </Table.Summary.Cell>
+                          <Table.Summary.Cell index={6} align="right">
+                            <span style={{ fontFamily: 'monospace', fontWeight: 800, color: itemWiseTotals.returnedTotal > 0 ? '#d97706' : token.colorTextSecondary }}>
+                              {itemWiseTotals.returnedTotal > 0 ? `-${formatNumber(itemWiseTotals.returnedTotal, 2)}` : '0.00'}
+                            </span>
+                          </Table.Summary.Cell>
+                          <Table.Summary.Cell index={7} align="right">
+                            <span style={{ fontFamily: 'monospace', fontWeight: 800, color: isDark ? '#38bdf8' : '#0284c7' }}>
+                              {formatNumber(itemWiseTotals.netBalanceTotal, 2)}
+                            </span>
+                          </Table.Summary.Cell>
+                          <Table.Summary.Cell index={8} align="right">
+                            <span style={{ fontFamily: 'monospace', fontWeight: 800, color: '#ea580c' }}>
+                              {itemWiseTotals.usedInProduction > 0 ? `-${formatNumber(itemWiseTotals.usedInProduction, 2)}` : '0.00'}
+                            </span>
+                          </Table.Summary.Cell>
+                          {hasStockAdjustments && (
+                            <Table.Summary.Cell index={9} align="right">
+                              <span style={{ fontFamily: 'monospace', fontWeight: 800, color: token.colorText }}>
+                                {itemWiseTotals.stockAdjustmentTotal > 0 ? `+${formatNumber(itemWiseTotals.stockAdjustmentTotal, 2)}` : formatNumber(itemWiseTotals.stockAdjustmentTotal, 2)}
+                              </span>
+                            </Table.Summary.Cell>
+                          )}
+                          <Table.Summary.Cell index={hasStockAdjustments ? 10 : 9} align="right">
+                            <span style={{ fontFamily: 'monospace', fontWeight: 800, color: isDark ? '#4ade80' : '#16a34a' }}>
+                              {formatNumber(itemWiseTotals.currentStoreBalance, 2)}
+                            </span>
+                          </Table.Summary.Cell>
+                          <Table.Summary.Cell index={hasStockAdjustments ? 11 : 10} align="right">
+                            <span style={{ fontFamily: 'monospace', fontWeight: 800, color: diffTotal === 0 ? '#16a34a' : diffTotal > 0 ? '#d97706' : '#dc2626' }}>
+                              {diffTotal > 0 ? `+${formatNumber(diffTotal, 2)}` : formatNumber(diffTotal, 2)}
+                            </span>
+                          </Table.Summary.Cell>
+                          <Table.Summary.Cell index={hasStockAdjustments ? 12 : 11} align="center">
+                            <span style={{ fontFamily: 'monospace', fontWeight: 800, color: token.colorPrimary }}>
+                              {itemWiseTotals.receiptCount}
+                            </span>
+                          </Table.Summary.Cell>
+                          <Table.Summary.Cell index={hasStockAdjustments ? 13 : 12} align="center" />
+                        </Table.Summary.Row>
+                      </Table.Summary>
+                    );
+                  }}
                 />
               </div>
             )}
@@ -5471,9 +5729,9 @@ const RawMaterialReceiving: React.FC = () => {
             value={whatsAppTab}
             onChange={(v) => setWhatsAppTab(v as 'gatePass' | 'itemWise' | 'itemBalance')}
             options={[
-              { value: 'gatePass', label: '📋 Gate Pass Overview' },
-              { value: 'itemWise', label: '📦 Item Breakdown' },
-              { value: 'itemBalance', label: '⚖️ Item & Balance Only (صرف آئٹم اور بیلنس)' },
+              { value: 'gatePass', label: 'Gate Pass Overview' },
+              { value: 'itemWise', label: 'Item Breakdown' },
+              { value: 'itemBalance', label: 'Item & Balance Only' },
             ]}
           />
           {summaryWaCopied && (

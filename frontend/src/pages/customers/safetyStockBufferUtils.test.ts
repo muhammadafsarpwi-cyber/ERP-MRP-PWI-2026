@@ -2,13 +2,21 @@ import {
   buildItemMasterIndex,
   buildSafetyBufferDockSummary,
   buildSafetyItemMetrics,
+  buildUnifiedItemRollupFromCustomers,
+  canonicalizeSocKey,
   convertGrossToExactPcsAndCartons,
   convertUomQuantity,
+  formatUomBreakdownDisplay,
+  isExplicitRealSocToken,
+  matchesDivisionFilter,
   reconcileCustomerSocContracts,
   resolveBufferEntryMetrics,
+  resolveDefaultAnalyticsDivision,
+  resolveDivisionPrimaryUom,
   resolveExactPcsPerCarton,
   SafetyItemDetail,
   splitItemDisplayName,
+  summarizeUomBuckets,
   UomConversionRecord,
 } from './safetyStockBufferUtils';
 
@@ -369,5 +377,196 @@ describe('safetyStockBufferUtils', () => {
     expect(splitItemDisplayName('7 MM PVC DS Outer Casing')).toEqual({
       primary: '7 MM PVC DS Outer Casing',
     });
+  });
+
+  test('resolves default analytics division strictly to DIV-001-SPI Spoke Division and dynamic primary UOMs', () => {
+    const def = resolveDefaultAnalyticsDivision(DIVISIONS);
+    expect(def?.divisionCode).toBe('DIV-001-SPI');
+    expect(resolveDivisionPrimaryUom(DIVISIONS[0])).toBe('GRS');
+    expect(resolveDivisionPrimaryUom(DIVISIONS[1])).toBe('M');
+    expect(resolveDivisionPrimaryUom(DIVISIONS[2])).toBe('KG');
+    expect(
+      matchesDivisionFilter(
+        { divisionCode: 'DIV-002-CCD', divisionName: 'Control Cable Division' },
+        DIVISIONS[1].id,
+        DIVISIONS,
+      ),
+    ).toBe(true);
+    expect(
+      matchesDivisionFilter(
+        { divisionCode: 'DIV-002-CCD', divisionName: 'Control Cable Division' },
+        DIVISIONS[0].id,
+        DIVISIONS,
+      ),
+    ).toBe(false);
+  });
+
+  test('reconciles non-GRS Control Cable (M / COIL) orders without applying x144 PCS math', () => {
+    const ccdRec = reconcileCustomerSocContracts([
+      {
+        orderId: 'so-ccd-1',
+        socNumber: 'SOC-CCD-001',
+        status: 'CONFIRMED',
+        isOfficialOrder: true,
+        primaryUom: 'M',
+        packagingUnitCode: 'COIL',
+        items: [
+          {
+            key: 'ccd-1',
+            itemCode: 'CCD-FGR-011',
+            itemName: '7 MM PVC DS Outer Casing',
+            orderedPcs: 0,
+            packedPcs: 0,
+            dispatchedPcs: 0,
+            pcsPerCarton: 0,
+            grossPerCarton: 250,
+            isOrderItem: true,
+            primaryUom: 'M',
+            packagingUnitCode: 'COIL',
+            isGrossUnit: false,
+            orderedQtyRaw: 50000,
+            packedQtyRaw: 30000,
+            dispatchedQtyRaw: 10000,
+          },
+        ],
+      },
+    ]);
+
+    expect(ccdRec[0].primaryUom).toBe('M');
+    expect(ccdRec[0].packagingUnitCode).toBe('COIL');
+    expect(ccdRec[0].totalOrderedQty).toBe(50000);
+    expect(ccdRec[0].totalOrderedCartons).toBe(200);
+    expect(ccdRec[0].totalPackedQty).toBe(30000);
+    expect(ccdRec[0].totalDispatchedQty).toBe(10000);
+    expect(ccdRec[0].totalReadyToDispatchQty).toBe(20000);
+    expect(ccdRec[0].totalReadyToDispatchCartons).toBe(80);
+    expect(ccdRec[0].totalPendingQty).toBe(40000);
+    expect(ccdRec[0].totalToPackQty).toBe(20000);
+    expect(ccdRec[0].items[0].orderedPcs).toBe(0);
+  });
+
+  test('summarizes multi-unit UOM breakdowns cleanly for All Divisions vs single division', () => {
+    const single = summarizeUomBuckets([{ unitCode: 'M', qty: 2157000 }]);
+    expect(formatUomBreakdownDisplay(single, (v) => v.toLocaleString('en-US'))).toEqual({
+      text: '2,157,000',
+      suffix: 'M',
+    });
+
+    const mixed = summarizeUomBuckets([
+      { unitCode: 'GRS', qty: 96605 },
+      { unitCode: 'M', qty: 2157000 },
+    ]);
+    expect(formatUomBreakdownDisplay(mixed, (v) => v.toLocaleString('en-US'))).toEqual({
+      text: '96,605 GRS · 2,157,000 M',
+      suffix: undefined,
+    });
+  });
+
+  test('canonicalizes legacy 4-digit and 5-digit SOC keys consistently and detects real SOC tokens', () => {
+    expect(canonicalizeSocKey('SOC-2026-5810')).toBe('SOC-2026-5810');
+    expect(canonicalizeSocKey('SOC-2026-05810')).toBe('SOC-2026-5810');
+    expect(canonicalizeSocKey('soc 2026 05817')).toBe('SOC-2026-5817');
+    expect(canonicalizeSocKey('SOC-2026-5817')).toBe('SOC-2026-5817');
+    expect(canonicalizeSocKey('SAFETY_STOCK')).toBe('SAFETYSTOCK');
+    expect(canonicalizeSocKey('—')).toBe('');
+
+    expect(isExplicitRealSocToken('SOC-2026-05832')).toBe(true);
+    expect(isExplicitRealSocToken('SOC-2026-5810')).toBe(true);
+    expect(isExplicitRealSocToken('SAFETY_STOCK')).toBe(false);
+    expect(isExplicitRealSocToken('SAFETY-STOCK')).toBe(false);
+    expect(isExplicitRealSocToken('—')).toBe(false);
+  });
+
+  test('preserves CS (10.556) SO/DN quantities and guarantees 100% Customer <-> Item <-> KPI rollup parity across Spoke & CCD', () => {
+    const csOrd011 = convertGrossToExactPcsAndCartons(6544.72, 10.556, 'SPI-FG-SPK-011');
+    const csDel011 = convertGrossToExactPcsAndCartons(3114.02, 10.556, 'SPI-FG-SPK-011');
+    const aliSocs = reconcileCustomerSocContracts([
+      {
+        orderId: 'so-5806',
+        socNumber: 'SOC-2026-05806',
+        status: 'PROCESSING',
+        isOfficialOrder: true,
+        items: [
+          {
+            key: '5806-011',
+            itemCode: 'SPI-FG-SPK-011',
+            itemName: '300X17 S9 Inn / Out Spoke Straight (CS)__125-S9 Nipple (CS)',
+            orderedPcs: csOrd011.pcs,
+            packedPcs: 874080,
+            dispatchedPcs: csDel011.pcs,
+            pcsPerCarton: 1520,
+            grossPerCarton: 10.556,
+            orderedQtyRaw: 6544.72,
+            dispatchedQtyRaw: 3114.02,
+            isOrderItem: true,
+          },
+        ],
+      },
+    ]);
+
+    expect(aliSocs[0].totalOrderedQty).toBe(6544.72);
+    expect(aliSocs[0].totalDispatchedQty).toBe(3114.02);
+    expect(aliSocs[0].totalPendingQty).toBe(3430.7);
+    expect(aliSocs[0].totalReadyToDispatchQty).toBe(2956.11);
+
+    const unifiedItems = buildUnifiedItemRollupFromCustomers({
+      regularCustomers: [
+        {
+          id: 'cust-ali',
+          customerCode: 'CUS-ASA',
+          name: 'ALI SHAH AUTOS',
+          socContracts: aliSocs,
+        },
+      ],
+    });
+    expect(unifiedItems).toHaveLength(1);
+    expect(unifiedItems[0].totalGross).toBe(aliSocs[0].totalOrderedQty);
+    expect(unifiedItems[0].totalDispatchedGross).toBe(aliSocs[0].totalDispatchedQty);
+    expect(unifiedItems[0].undispatchedGross).toBe(aliSocs[0].totalPendingQty);
+    expect(unifiedItems[0].readyFgrGross).toBe(aliSocs[0].totalReadyToDispatchQty);
+    expect(unifiedItems[0].balancePendingGross).toBe(
+      Math.round((aliSocs[0].totalPendingQty - aliSocs[0].totalReadyToDispatchQty) * 100) / 100,
+    );
+
+    const ccdSocs = reconcileCustomerSocContracts([
+      {
+        orderId: 'so-ccd-xinda',
+        socNumber: 'SOC-2026-05850',
+        status: 'CONFIRMED',
+        isOfficialOrder: true,
+        primaryUom: 'M',
+        packagingUnitCode: 'COIL',
+        items: [
+          {
+            key: 'ccd-2',
+            itemCode: 'CCD-FGR-002',
+            itemName: '6 MM PVC 2P Outer Casing',
+            orderedPcs: 0,
+            packedPcs: 0,
+            dispatchedPcs: 0,
+            pcsPerCarton: 0,
+            grossPerCarton: 250,
+            primaryUom: 'M',
+            packagingUnitCode: 'COIL',
+            isGrossUnit: false,
+            orderedQtyRaw: 816500,
+            packedQtyRaw: 0,
+            dispatchedQtyRaw: 0,
+            isOrderItem: true,
+          },
+        ],
+      },
+    ]);
+    const ccdItems = buildUnifiedItemRollupFromCustomers({
+      regularCustomers: [
+        { id: 'cust-xinda', customerCode: 'CUS-XIN', name: 'Xinda', socContracts: ccdSocs },
+      ],
+      resolveMeta: () => ({ matrixFgrNative: 557500, packagingSize: 250 }),
+    });
+    expect(ccdItems[0].totalGross).toBe(816500);
+    expect(ccdItems[0].totalDispatchedGross).toBe(0);
+    expect(ccdItems[0].readyFgrGross).toBe(0);
+    expect(ccdItems[0].undispatchedGross).toBe(816500);
+    expect(ccdItems[0].warehouseFgrGross).toBe(557500);
   });
 });

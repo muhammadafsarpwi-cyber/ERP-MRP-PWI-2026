@@ -285,23 +285,6 @@ const DowntimeAnalytics: React.FC<DowntimeAnalyticsProps> = ({ seed, buildFilter
   const [selectedDateNode, setSelectedDateNode] = useState<DateNode | null>(null);
   const [modalDeptTab, setModalDeptTab] = useState<string>('ALL');
 
-  const DEFAULT_DOWNTIME_WHATSAPP_TEMPLATE = [
-    '*🏭 Pakistan Wire Industries (Pvt.) LTD*',
-    '*Daily Production & Downtime Report*',
-    '📅 Date: {date} ({weekday})',
-    '━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-    '⚙️ Total Running Time (RT): {running_hours}',
-    '🛑 Total Downtime (DT): {downtime_hours}',
-    '⏱️ Total Shift Time: {total_time}',
-    '📊 Downtime Rate: {downtime_rate}',
-    '⚠️ Dominant Stoppage: {top_reason}',
-    '━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-    '*Department-Wise Breakdown:*',
-    '{department_rows}',
-    '━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-    '_Generated via PWI ERP System_',
-  ].join('\n');
-
   const handleWhatsAppShare = (node: DateNode | null) => {
     if (!node) return;
     const totalTime = round2(node.runningHours + node.downtimeHours);
@@ -314,16 +297,16 @@ const DowntimeAnalytics: React.FC<DowntimeAnalyticsProps> = ({ seed, buildFilter
       )
       .join('\n');
 
-    const tpl = resolveWhatsAppTemplate('productionDowntime', DEFAULT_DOWNTIME_WHATSAPP_TEMPLATE);
-    const msg = renderWhatsAppTemplate(tpl, {
-      '{date}': node.date,
-      '{weekday}': node.weekday,
-      '{running_hours}': `${hoursFixed(node.runningHours)}h`,
-      '{downtime_hours}': `${hoursFixed(node.downtimeHours)}h`,
-      '{total_time}': `${hoursFixed(totalTime)}h`,
-      '{downtime_rate}': `${hoursFixed(dtPct, 1)}%`,
-      '{top_reason}': node.topReason || '—',
-      '{department_rows}': deptLines || 'No breakdown recorded.',
+    const msg = renderWhatsAppTemplate('[PROD-DT]', {
+      company: 'Pakistan Wire Industries (Pvt.) LTD',
+      date: node.date,
+      weekday: node.weekday,
+      running_hours: `${hoursFixed(node.runningHours)}h`,
+      downtime_hours: `${hoursFixed(node.downtimeHours)}h`,
+      total_time: `${hoursFixed(totalTime)}h`,
+      downtime_rate: `${hoursFixed(dtPct, 1)}%`,
+      top_reason: node.topReason || '—',
+      department_rows: deptLines || 'No breakdown recorded.',
     });
 
     window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`, '_blank');

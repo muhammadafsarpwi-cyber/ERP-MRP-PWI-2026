@@ -14,7 +14,7 @@ import {
   DollarCircleOutlined, InfoCircleOutlined, HistoryOutlined,
   GlobalOutlined, SafetyCertificateOutlined, SwapOutlined, WarningOutlined,
   SaveOutlined, CloseOutlined, CalendarOutlined, SyncOutlined,
-  PlusCircleOutlined, ApartmentOutlined, SettingOutlined,
+  PlusCircleOutlined, ApartmentOutlined, SettingOutlined, WhatsAppOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { useLocation } from 'react-router-dom';
@@ -38,6 +38,10 @@ import {
   printPaymentReceiptVoucher,
   printTableList,
 } from '../../utils/printTemplates';
+import {
+  DEFAULT_COMPANY_NAME,
+  openWhatsAppWithTemplate,
+} from '../../utils/whatsappTemplateRenderer';
 import { useUserStore } from '../../store/userStore';
 
 const { TabPane } = Tabs;
@@ -1354,6 +1358,34 @@ const CustomerManagement: React.FC = () => {
               onClick={() => openDeleteConfirm(record)}
             >
               <DeleteOutlined />
+            </button>
+          </Tooltip>
+          <Tooltip title="Share Account Statement via WhatsApp">
+            <button
+              className="action-btn-square"
+              onClick={() => {
+                const divName =
+                  record.division?.name ||
+                  record.divisionName ||
+                  divisions.find((d) => d.id === record.divisionId)?.name ||
+                  'All Divisions';
+                openWhatsAppWithTemplate(
+                  '[CUST-STMT]',
+                  {
+                    company: DEFAULT_COMPANY_NAME,
+                    customer: record.name || record.legalName || 'Customer',
+                    customer_code: record.customerCode || '—',
+                    division: divName,
+                    date: dayjs().format('YYYY-MM-DD'),
+                    open_invoices: `${record.openInvoicesCount ?? 0} (Rs ${formatDecimal(Number(record.openInvoicesBalance || 0))})`,
+                    advance_balance: `Rs ${formatDecimal(Number(record.unadjustedAdvanceBalance || 0))}`,
+                    balance: `Rs ${formatDecimal(Number(record.currentBalance || 0))}`,
+                  },
+                  record.mobile || record.phone,
+                );
+              }}
+            >
+              <WhatsAppOutlined />
             </button>
           </Tooltip>
           <Tooltip title="Print Barcode">

@@ -31,12 +31,12 @@ export class SalesDeliveryController {
   async findAll(
     @Req() req: any,
     @Query('page') page?: number, @Query('limit') limit?: number, @Query('search') search?: string,
-    @Query('customerId') customerId?: string,
+    @Query('customerId') customerId?: string, @Query('divisionId') divisionId?: string,
     @Query('status') status?: string, @Query('sortField') sortField?: string, @Query('sortOrder') sortOrder?: string,
   ) {
     const companyId = req.erpUser?.defaultCompanyId;
     const result = await this.service.findAll({
-      page: Number(page) || 1, limit: Number(limit) || 20, search, companyId, customerId, status, sortField, sortOrder,
+      page: Number(page) || 1, limit: Number(limit) || 20, search, companyId, customerId, divisionId, status, sortField, sortOrder,
       allowedDivisionIds: this.divisionScope(req),
     });
     return { success: true, ...result };

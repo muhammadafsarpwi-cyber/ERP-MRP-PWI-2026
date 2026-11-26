@@ -25,6 +25,7 @@ import { InventoryBalance } from '../../inventory/entities/inventory-balance.ent
 import { ProductionEntry } from '../../production/entities/production-entry.entity';
 import { ActivityLog } from '../../audit/entities/activity-log.entity';
 import { ActivityLogService } from '../../audit/services/activity-log.service';
+import { ProductionRouting, RoutingOperation } from '../../production-routing/entities';
 import { ItemService } from './item.service';
 
 const RUN_E2E = process.env.ITEM_CLEANUP_E2E === '1';
@@ -83,6 +84,8 @@ describeE2e('Item dummy cleanup — live database verification', () => {
       { ensureBarcodeForEntity: async () => ({}), backfill: async () => ({}), generateBarcodeValue: async () => 'X' } as any,
       ds,
       new ActivityLogService(ds.getRepository(ActivityLog)),
+      ds.getRepository(ProductionRouting),
+      ds.getRepository(RoutingOperation),
     );
   }, 120000);
 

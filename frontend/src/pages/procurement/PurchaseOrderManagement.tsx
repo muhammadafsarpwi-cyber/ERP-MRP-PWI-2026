@@ -12,7 +12,7 @@ import {
   CameraOutlined, SoundOutlined, SaveOutlined, WarningOutlined,
   BarcodeOutlined, CarOutlined, WalletOutlined, UserOutlined,
   ClearOutlined, ApartmentOutlined, SafetyCertificateOutlined,
-  ShopOutlined, CheckCircleOutlined, GlobalOutlined,
+  ShopOutlined, CheckCircleOutlined, GlobalOutlined, WhatsAppOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -20,6 +20,10 @@ import apiService from '../../services/api';
 import { formatDecimal } from '../../utils/numberFormat';
 import { usePermission } from '../../hooks/usePermission';
 import { printPurchaseOrderDocument, printTableList, printGatePassDocument } from '../../utils/printTemplates';
+import {
+  DEFAULT_COMPANY_NAME,
+  openWhatsAppWithTemplate,
+} from '../../utils/whatsappTemplateRenderer';
 import { DraggableResizableModal } from '../../components/shared';
 import PoImportTrackingModal, { IMPORT_STAGES } from './components/PoImportTrackingModal';
 import './PurchaseOrderManagement.css';
@@ -1664,6 +1668,45 @@ const PurchaseOrderManagement: React.FC = () => {
               className="btn-po-action-icon"
               icon={<PrinterOutlined />}
               onClick={() => handlePrintPO(record)}
+            />
+          </Tooltip>
+          <Tooltip title="Share Purchase Order via WhatsApp">
+            <Button
+              className="btn-po-action-icon"
+              icon={<WhatsAppOutlined />}
+              onClick={() => {
+                const supName =
+                  record.supplier?.name || record.supplierName || 'Supplier';
+                const itemLines = Array.isArray(record.items) && record.items.length > 0
+                  ? record.items
+                      .slice(0, 8)
+                      .map((it: any, idx: number) => {
+                        const iName = it.item?.name || it.itemName || it.description || `Material ${idx + 1}`;
+                        const uom = it.uom?.code || it.uomCode || '';
+                        return `${idx + 1}. *${iName}*: ${formatDecimal(Number(it.quantity || 0))}${uom ? ` ${uom}` : ''}`;
+                      })
+                      .join('\n')
+                  : 'See Purchase Order line items.';
+                openWhatsAppWithTemplate(
+                  '[PO-SHARE]',
+                  {
+                    company: DEFAULT_COMPANY_NAME,
+                    supplier: supName,
+                    doc_no: record.poCode || '',
+                    date: record.orderDate ? dayjs(record.orderDate).format('YYYY-MM-DD') : '—',
+                    delivery_date: record.expectedDeliveryDate
+                      ? dayjs(record.expectedDeliveryDate).format('YYYY-MM-DD')
+                      : '—',
+                    division: record.divisionName || '—',
+                    warehouse: record.warehouse?.name || '—',
+                    payment_terms: record.paymentTerms || 'Standard',
+                    status: (record.status || 'DRAFT').toUpperCase(),
+                    amount: `${record.currencyCode || 'PKR'} ${formatDecimal(Number(record.totalAmount || 0))}`,
+                    items: itemLines,
+                  },
+                  (record.supplier as any)?.phone,
+                );
+              }}
             />
           </Tooltip>
           <Tooltip title="Print Inward Gate Pass (Delivery)">

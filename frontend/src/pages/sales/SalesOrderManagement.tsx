@@ -11,7 +11,7 @@ import {
   CalendarOutlined, ShoppingCartOutlined, DollarOutlined, CheckCircleOutlined,
   BuildOutlined, BranchesOutlined, SendOutlined, DownOutlined, UpOutlined, ApartmentOutlined,
   DatabaseOutlined, SaveOutlined, CloseOutlined, ClearOutlined, AppstoreOutlined,
-  ExclamationCircleOutlined, InfoCircleOutlined, ClockCircleOutlined, RightCircleOutlined,
+  ExclamationCircleOutlined, InfoCircleOutlined, ClockCircleOutlined, RightCircleOutlined, WhatsAppOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
@@ -27,6 +27,10 @@ import isSameOrBefore from 'dayjs/plugin/isSameOrBefore';
 import isSameOrAfter from 'dayjs/plugin/isSameOrAfter';
 import './SalesInvoiceManagement.css';
 import { printSalesOrderDocument, printTableList, printLoadingAdviceSlip } from '../../utils/printTemplates';
+import {
+  DEFAULT_COMPANY_NAME,
+  openWhatsAppWithTemplate,
+} from '../../utils/whatsappTemplateRenderer';
 
 dayjs.extend(isSameOrBefore);
 dayjs.extend(isSameOrAfter);
@@ -1369,6 +1373,44 @@ const SalesOrderManagement: React.FC = () => {
             <p style={{ fontSize: 13, color: '#475569', margin: 0 }}>
               The <strong>Loading Advice</strong> is ready for truck loading and gate pass dispatch. You can print the slip immediately or share via WhatsApp.
             </p>
+            <div style={{ marginTop: 12 }}>
+              <Button
+                icon={<WhatsAppOutlined />}
+                onClick={() => {
+                  const custMeta = resolveSalesOrderCustomer(deliveryOrder, customers);
+                  const custObj = customers.find((c) => c.id === deliveryOrder.customerId);
+                  const itemLines = Array.isArray(deliveryForPrint?.lines)
+                    ? deliveryForPrint.lines
+                        .map(
+                          (ln: any, idx: number) =>
+                            `${idx + 1}. ${ln.description || ln.itemName || 'Item'}: *${formatDecimal(Number(ln.quantity || 0))}*`,
+                        )
+                        .join('\n')
+                    : 'See Delivery Challan';
+                  openWhatsAppWithTemplate(
+                    '[DN-GP]',
+                    {
+                      company: DEFAULT_COMPANY_NAME,
+                      customer: custMeta.displayWithCode,
+                      doc_no: deliveryData.deliveryNumber || 'Created',
+                      gate_pass_no: deliveryData.gatePassNumber || 'Pending',
+                      soc_no: deliveryOrder.orderNumber || '—',
+                      customer_po: deliveryOrder.customerPo || '—',
+                      date: deliveryDate,
+                      division: deliveryOrder.division?.name || '—',
+                      carrier: deliveryCarrier || '—',
+                      vehicle_no: deliveryTracking || '—',
+                      total_qty: formatDecimal(Number(deliveryData.totalDispatchQuantity || 0)),
+                      total_cartons: String(deliveryData.totalDispatchCartons || '—'),
+                      items: itemLines,
+                    },
+                    (custObj as any)?.phone,
+                  );
+                }}
+              >
+                Share Gate Pass via WhatsApp
+              </Button>
+            </div>
           </div>
         ),
         okText: '🖨️ Print Loading Advice Slip',
@@ -1971,6 +2013,45 @@ const SalesOrderManagement: React.FC = () => {
             <Tooltip title="Print Order">
               <button className="inv-action-btn inv-btn-print" onClick={() => printSalesOrderDocument(record)}>
                 <PrinterOutlined />
+              </button>
+            </Tooltip>
+            <Tooltip title="Share Sales Order / SOC via WhatsApp">
+              <button
+                className="inv-action-btn inv-btn-wa"
+                onClick={() => {
+                  const custMeta = resolveSalesOrderCustomer(record, customers);
+                  const custObj = customers.find((c) => c.id === record.customerId);
+                  const ordDiv = record.division || divisions.find((d) => d.id === record.divisionId) || null;
+                  const itemLines = Array.isArray(record.items) && record.items.length > 0
+                    ? record.items
+                        .slice(0, 8)
+                        .map((it: any, idx: number) => {
+                          const desc = it.description || it.item?.name || `Item ${idx + 1}`;
+                          const uom = resolveOrderLineUom(it, ordDiv);
+                          return `${idx + 1}. *${desc}*: ${formatDecimal(Number(it.quantity || 0))}${uom ? ` ${uom}` : ''}`;
+                        })
+                        .join('\n')
+                    : 'See Sales Order details.';
+                  openWhatsAppWithTemplate(
+                    '[SO-CONFIRM]',
+                    {
+                      company: DEFAULT_COMPANY_NAME,
+                      customer: custMeta.displayWithCode,
+                      doc_no: record.orderNumber || '',
+                      customer_po: record.customerPo || '—',
+                      date: record.orderDate || '—',
+                      delivery_date: record.deliveryDate || '—',
+                      division: ordDiv?.name || '—',
+                      status: (record.status || 'Draft').toUpperCase(),
+                      amount: `${record.currency || 'Rs'} ${formatDecimal(record.totalAmount || 0)}`,
+                      items: itemLines,
+                      link: typeof window !== 'undefined' ? window.location.origin : '',
+                    },
+                    (custObj as any)?.phone,
+                  );
+                }}
+              >
+                <WhatsAppOutlined />
               </button>
             </Tooltip>
             {canUpdate && (

@@ -523,9 +523,41 @@ K) LAST ENTRY / LATEST ACTIVITY ("when was the last entry made", "last entry", "
    • Set "chartType": "table" in the response JSON.
    • Store / warehouse departments (General Store, Raw Material (RM), Finished Goods Store, anything named store/warehouse) are NOT production floors: always exclude them from production activity reports.
 
-L) RAW MATERIAL RECEIVING & RAW MATERIAL STOCK BALANCE ("raw material received", "item-wise raw material received", "rm received", "material received", "receiving", "grn", "gate pass", "raw material stock balance"):
+L) RAW MATERIAL RECEIVING & RAW MATERIAL STOCK BALANCE ("raw material received", "item-wise raw material received", "rm received", "material received", "receiving", "grn", "gate pass", "gate-pass wise", "receipt wise", "raw material stock balance"):
    • NEVER query \`production_entries\` for raw material receiving or raw material stock questions!
-   • For Raw Material Receiving queries, query \`raw_material_receipts r JOIN raw_material_receipt_lines l ON l.receipt_id = r.id JOIN items i ON i.id = l.item_id LEFT JOIN uoms u ON u.id = l.uom_id\`:
+   • Note: The receiving line table is named \`raw_material_receipt_lines\` (never invent \`raw_material_receipt_items\`).
+   • L1) GATE PASS-WISE / DETAILED RAW MATERIAL RECEIVING (whenever the prompt mentions "gate pass", "gate-pass wise", "gate pass wise", "receipt wise", "grn wise", or "detailed"):
+     - Do NOT collapse rows into an item-only COUNT(DISTINCT r.id) summary! Return every individual confirmed Gate Pass receipt line ordered by item and receipt date:
+       SELECT r.division_id,
+              TO_CHAR(r.receipt_date, 'DD-Mon-YYYY') AS "DATE",
+              CASE
+                WHEN NULLIF(TRIM(COALESCE(r.gate_pass_no, '')), '') IS NOT NULL
+                THEN 'GP #' || TRIM(r.gate_pass_no) || ' · ' || r.receipt_code
+                ELSE r.receipt_code
+              END AS "GATE PASS # / GRN #",
+              i.item_code || ' — ' || i.name AS "ITEM CODE & NAME",
+              COALESCE(s.name, NULLIF(TRIM(COALESCE(r.reference, '')), ''), '—') AS "SUPPLIER / PARTY",
+              CASE
+                WHEN NULLIF(TRIM(COALESCE(r.source_no, '')), '') IS NOT NULL
+                     AND TRIM(COALESCE(r.source_no, '')) <> TRIM(COALESCE(r.gate_pass_no, ''))
+                THEN 'DC: ' || TRIM(r.source_no)
+                ELSE '—'
+              END AS "VEHICLE / CHALLAN #",
+              ROUND(l.received_quantity::numeric, 2)::text || ' ' || COALESCE(u.code, 'KG') AS "RECEIVED QTY / WEIGHT",
+              COALESCE(dv.name, '—') AS "DIVISION"
+         FROM raw_material_receipts r
+         JOIN raw_material_receipt_lines l ON l.receipt_id = r.id
+         JOIN items i ON i.id = l.item_id
+         LEFT JOIN uoms u ON u.id = l.uom_id
+         LEFT JOIN divisions dv ON dv.id = r.division_id
+         LEFT JOIN purchase_orders po ON po.id = r.purchase_order_id
+         LEFT JOIN suppliers s ON s.id = po.supplier_id
+        WHERE r.is_active = true
+          AND r.status NOT IN ('DRAFT', 'CANCELLED', 'VOID', 'REJECTED')
+        ORDER BY i.item_code ASC, r.receipt_date DESC, r.created_at DESC
+        LIMIT 200
+     - Set "chartType": "table" in the response JSON. Honor any division mentioned in the prompt; if no division is specified and caller scope allows multiple divisions, include all divisions cleanly.
+   • L2) SUMMARY MODE RAW MATERIAL RECEIVING (when the user asks for item-wise raw material received WITHOUT mentioning "gate pass", "gate-pass wise", "receipt wise", "grn wise", or "detailed"):
      SELECT r.division_id,
             i.item_code AS "ITEM CODE",
             i.name AS "RAW MATERIAL ITEM NAME",
@@ -540,8 +572,7 @@ L) RAW MATERIAL RECEIVING & RAW MATERIAL STOCK BALANCE ("raw material received",
       GROUP BY r.division_id, i.item_code, i.name
       ORDER BY SUM(l.received_quantity) DESC
       LIMIT 100
-   • For Raw Material Stock Balance queries ("current raw material stock balance item-wise"), query \`inventory_balances b JOIN items i ON i.id = b.item_id JOIN warehouses w ON w.id = b.warehouse_id\` with \`i.item_type = 'RAW_MATERIAL'\` and expose \`w.division_id AS division_id\` as the first column.
-   • Note: The receiving line table is named \`raw_material_receipt_lines\` (never invent \`raw_material_receipt_items\`).
+   • L3) For Raw Material Stock Balance queries ("current raw material stock balance item-wise"), query \`inventory_balances b JOIN items i ON i.id = b.item_id JOIN warehouses w ON w.id = b.warehouse_id\` with \`i.item_type = 'RAW_MATERIAL'\` and expose \`w.division_id AS division_id\` as the first column.
 
 # RESPONSE FORMAT (JSON only, no prose)
 {
@@ -609,8 +640,32 @@ ${this.catalogService.renderDepartmentsPrompt(catalog, allowedDivisionIds)}`;
     repairHint: string;
   }> = [
       {
-        // Raw material receiving / gate passes / GRN (must never fall back to production_entries)
-        pattern: /\b(raw\s+material(?:s)?\s+(?:receiv(?:ed|ing)|grn|gate\s+pass)|rm\s+receiv(?:ed|ing)|material\s+receiv(?:ed|ing)|goods\s+receipt|gate\s+pass(?:es)?|grns?)\b|(?=\braw\s+material(?:s)?\b)(?=.*\breceiv(?:ed|ing)\b)/i,
+        // Gate Pass-Wise / Detailed Raw Material Receiving (must list individual gate pass lines, never collapse into COUNT(DISTINCT r.id))
+        pattern:
+          /\b(gate[\s-]*pass(?:es)?(?:\s*wise)?|gp[\s-]*wise|receipt[\s-]*wise|grn[\s-]*wise)\b|(?=.*\b(raw\s+material(?:s)?|rm|receiv(?:ed|ing)|grns?)\b)(?=.*\b(detailed|line[\s-]*wise)\b)/i,
+        requireAll: [
+          /\braw_material_receipts\b/i,
+          /\braw_material_receipt_lines\b/i,
+          /\b(gate_pass_no|receipt_code)\b/i,
+          /\breceipt_date\b/i,
+        ],
+        forbidAny: [
+          /\bFROM\s+production_entries\b/i,
+          /\bCOUNT\s*\(\s*DISTINCT\s+r\.id\s*\)/i,
+        ],
+        repairHint:
+          'SHAPE REPAIR REQUIRED: The user asked for a Gate Pass-Wise / Detailed Raw Material Receiving report. ' +
+          'Do NOT collapse rows with COUNT(DISTINCT r.id). Return individual receipt lines FROM raw_material_receipts r ' +
+          'JOIN raw_material_receipt_lines l ON l.receipt_id = r.id JOIN items i ON i.id = l.item_id ' +
+          'LEFT JOIN uoms u ON u.id = l.uom_id LEFT JOIN divisions dv ON dv.id = r.division_id ' +
+          'LEFT JOIN purchase_orders po ON po.id = r.purchase_order_id LEFT JOIN suppliers s ON s.id = po.supplier_id ' +
+          '(with r.division_id first), exposing "DATE" (DD-Mon-YYYY from r.receipt_date), "GATE PASS # / GRN #" (r.gate_pass_no / r.receipt_code), ' +
+          '"ITEM CODE & NAME", "SUPPLIER / PARTY", "VEHICLE / CHALLAN #", "RECEIVED QTY / WEIGHT", and "DIVISION".',
+      },
+      {
+        // Summary Raw material receiving / GRN (must never fall back to production_entries)
+        pattern:
+          /^(?!.*\b(gate[\s-]*pass(?:es)?(?:\s*wise)?|gp[\s-]*wise|receipt[\s-]*wise|grn[\s-]*wise|detailed|line[\s-]*wise)\b).*(\b(raw\s+material(?:s)?\s+(?:receiv(?:ed|ing)|grn)|rm\s+receiv(?:ed|ing)|material\s+receiv(?:ed|ing)|goods\s+receipt|grns?)\b|(?=\braw\s+material(?:s)?\b)(?=.*\breceiv(?:ed|ing)\b))/i,
         requireAll: [
           /\braw_material_receipts\b/i,
           /\braw_material_receipt_lines\b/i,
@@ -619,7 +674,7 @@ ${this.catalogService.renderDepartmentsPrompt(catalog, allowedDivisionIds)}`;
           /\bFROM\s+production_entries\b/i,
         ],
         repairHint:
-          'SHAPE REPAIR REQUIRED: The user asked for Raw Material Receiving (GRN / Gate Passes). ' +
+          'SHAPE REPAIR REQUIRED: The user asked for Raw Material Receiving Summary. ' +
           'You MUST query FROM raw_material_receipts r JOIN raw_material_receipt_lines l ON l.receipt_id = r.id ' +
           'JOIN items i ON i.id = l.item_id (with r.division_id as the FIRST column in SELECT), grouped by ' +
           'r.division_id, i.item_code, i.name. NEVER query production_entries for raw material receiving.',
@@ -818,6 +873,19 @@ ${this.catalogService.renderDepartmentsPrompt(catalog, allowedDivisionIds)}`;
 
     const seriesOf = (...candidates: Array<[string, string]>): AiChartSeries[] =>
       candidates.filter(([column]) => has(column)).map(([column, label]) => ({ column, label }));
+
+    // ── gate pass-wise / detailed receiving → clean table ─────────────────
+    if (
+      /\b(gate[\s-]*pass(?:es)?(?:\s*wise)?|gp[\s-]*wise|receipt[\s-]*wise|grn[\s-]*wise)\b/i.test(question) ||
+      has('GATE PASS # / GRN #')
+    ) {
+      return {
+        chartType: 'table',
+        dimension: 'none',
+        x: { column: first('GATE PASS # / GRN #', 'ITEM CODE & NAME') ?? columns[1] ?? columns[0] ?? '', label: 'Gate Pass #' },
+        series: [],
+      };
+    }
 
     // ── last entry / latest activity → clean table ────────────────────────
     if (

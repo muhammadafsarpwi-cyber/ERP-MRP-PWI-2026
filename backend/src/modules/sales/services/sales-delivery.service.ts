@@ -239,9 +239,9 @@ export class SalesDeliveryService implements OnModuleInit {
 
   async findAll(filter: any): Promise<{ data: any[]; total: number }> {
     const page = Number(filter.page) || 1;
-    const limit = Number(filter.limit) || 20;
+    const limit = Math.min(Number(filter.limit) || 20, 300);
     const {
-      companyId, status, search, sortField = 'createdAt', sortOrder = 'DESC',
+      companyId, divisionId, status, search, sortField = 'createdAt', sortOrder = 'DESC',
       allowedDivisionIds,
     } = filter;
     const qb = this.repo.createQueryBuilder('sd')
@@ -249,14 +249,19 @@ export class SalesDeliveryService implements OnModuleInit {
       .leftJoinAndSelect('sd.salesOrder', 'salesOrder')
       .leftJoinAndSelect('salesOrder.division', 'division')
       .leftJoinAndSelect('salesOrder.section', 'section')
+      .leftJoinAndSelect('salesOrder.items', 'orderItems')
+      .leftJoinAndSelect('orderItems.item', 'orderItem')
+      .leftJoinAndSelect('orderItems.uom', 'orderItemUom')
+      .leftJoinAndSelect('orderItem.baseUom', 'orderItemBaseUom')
+      .leftJoinAndSelect('orderItem.salesUom', 'orderItemSalesUom')
       .leftJoinAndSelect('sd.lines', 'lines')
       .leftJoinAndSelect('lines.item', 'lineItem')
       .leftJoinAndSelect('lines.uom', 'lineUom')
-      .leftJoinAndSelect('salesOrder.items', 'orderItems')
-      .leftJoinAndSelect('orderItems.item', 'orderItemObj')
-      .leftJoinAndSelect('orderItems.uom', 'orderItemUom');
+      .leftJoinAndSelect('lineItem.baseUom', 'lineItemBaseUom')
+      .leftJoinAndSelect('lineItem.salesUom', 'lineItemSalesUom');
     let hasWhere = false;
     if (companyId) { qb.where('sd.companyId = :companyId', { companyId }); hasWhere = true; }
+    if (divisionId && divisionId !== 'ALL') { qb[hasWhere ? 'andWhere' : 'where']('salesOrder.divisionId = :divisionId', { divisionId }); hasWhere = true; }
     if (status && status.toLowerCase() !== 'all') { qb[hasWhere ? 'andWhere' : 'where']('sd.status ILIKE :status', { status }); hasWhere = true; }
     if (search) { qb[hasWhere ? 'andWhere' : 'where']('(sd.deliveryNumber ILIKE :search OR sd.gatePassNumber ILIKE :search OR sd.carrier ILIKE :search OR sd.trackingNumber ILIKE :search OR customer.companyName ILIKE :search OR salesOrder.orderNumber ILIKE :search)', { search: `%${search}%` }); hasWhere = true; }
     // PROMPT #27 — `sales_deliveries` has no `division_id`; it inherits the
@@ -274,6 +279,99 @@ export class SalesDeliveryService implements OnModuleInit {
     return { data, total, ...gatePassMeta } as any;
   }
 
+  private normalizeSalesUomCode(raw?: string | null): string {
+    const cleaned = String(raw || '').trim().toUpperCase();
+    if (!cleaned) return '';
+    if (['M', 'MTR', 'MTRS', 'METER', 'METRE', 'METERS', 'METRES'].includes(cleaned)) return 'M';
+    if (cleaned === 'GROSS' || cleaned === 'GRS') return 'GRS';
+    if (['KG', 'KGS', 'KILOGRAM', 'KILOGRAMS'].includes(cleaned)) return 'KG';
+    return cleaned;
+  }
+
+  private resolveDivisionDefaultUom(division?: { divisionCode?: string; name?: string } | null): string {
+    if (!division) return '';
+    const code = String(division.divisionCode || '').trim().toUpperCase();
+    const name = String(division.name || '').trim().toLowerCase();
+    if (code.includes('CCD') || name.includes('control cable') || name.includes('cable')) return 'M';
+    if (code.includes('SPI') || name.includes('spoke')) return 'GRS';
+    if (code.includes('WRD') || name.includes('wire')) return 'KG';
+    return '';
+  }
+
+  private isMeterUomCode(uom?: string | null): boolean {
+    return this.normalizeSalesUomCode(uom) === 'M';
+  }
+
+  private resolvePackagingMeta(opts: {
+    lineUomCode?: string | null;
+    itemSalesUom?: string | null;
+    itemBaseUom?: string | null;
+    soItemUom?: string | null;
+    rawPackagingUnit?: string | null;
+    rawPackagingSize?: number | string | null;
+    itemName?: string | null;
+    division?: { divisionCode?: string; name?: string } | null;
+  }): { uomCode: string; packagingUnit: string; packagingSize: number } {
+    const divDefaultUom = this.resolveDivisionDefaultUom(opts.division);
+    const lineUom = this.normalizeSalesUomCode(opts.lineUomCode);
+    const itemUom = this.normalizeSalesUomCode(opts.itemSalesUom) || this.normalizeSalesUomCode(opts.itemBaseUom);
+    const soUom = this.normalizeSalesUomCode(opts.soItemUom);
+
+    // Control Cable items operate strictly in Meters (M) + Coils; never leak hardcoded GRS/CTN defaults.
+    let uomCode = '';
+    if (divDefaultUom === 'M' && (itemUom === 'M' || soUom === 'M' || !lineUom || lineUom === 'GRS')) {
+      uomCode = 'M';
+    } else {
+      uomCode = lineUom || itemUom || soUom || divDefaultUom || 'GRS';
+    }
+
+    const isMeter = uomCode === 'M';
+    const rawPkgUnit = String(opts.rawPackagingUnit || '').trim();
+    let packagingUnit: string;
+    if (isMeter) {
+      if (!rawPkgUnit || /^(ctn|carton|cartons)$/i.test(rawPkgUnit)) {
+        packagingUnit = 'Coils';
+      } else if (/^coils?$/i.test(rawPkgUnit)) {
+        packagingUnit = 'Coils';
+      } else {
+        packagingUnit = rawPkgUnit;
+      }
+    } else if (uomCode === 'KG') {
+      if (!rawPkgUnit || /^(ctn|carton|cartons)$/i.test(rawPkgUnit)) {
+        packagingUnit = 'Coils';
+      } else if (/^coils?$/i.test(rawPkgUnit)) {
+        packagingUnit = 'Coils';
+      } else {
+        packagingUnit = rawPkgUnit;
+      }
+    } else {
+      packagingUnit = (!rawPkgUnit || /^(ctn|carton|cartons)$/i.test(rawPkgUnit)) ? 'CTN' : rawPkgUnit;
+    }
+
+    let packagingSize = Number(opts.rawPackagingSize || 0);
+    if (!Number.isFinite(packagingSize) || packagingSize <= 0) {
+      if (isMeter) {
+        const lowerName = String(opts.itemName || '').toLowerCase();
+        if (lowerName.includes('5 mm') || lowerName.includes('6 mm')) packagingSize = 500;
+        else packagingSize = 250;
+      } else if (uomCode === 'GRS') {
+        packagingSize = 10;
+      } else {
+        packagingSize = 1;
+      }
+    }
+
+    return { uomCode, packagingUnit, packagingSize };
+  }
+
+  private calcPackagesCount(qty: number, packagingSize: number, uomCode: string): number {
+    const cleanQty = Number(qty) || 0;
+    if (cleanQty <= 0) return 0;
+    if (packagingSize > 1) return Math.round((cleanQty / packagingSize) * 100) / 100;
+    if (uomCode === 'GRS') return Math.round((cleanQty / 10) * 100) / 100;
+    return Math.round(cleanQty * 100) / 100;
+  }
+
   private formatDispatchOrdinal(n: number): string {
     const mod100 = n % 100;
     if (mod100 >= 11 && mod100 <= 13) return `${n}th Dispatch`;
@@ -287,6 +385,9 @@ export class SalesDeliveryService implements OnModuleInit {
 
   private async enrichDeliveriesWithSocData(rawDeliveries: any[]): Promise<any[]> {
     if (!rawDeliveries || rawDeliveries.length === 0) return [];
+
+    const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
+    const shippedStatuses = new Set(['CONFIRMED', 'DELIVERED', 'SHIPPED']);
 
     // 1. Collect all distinct SOC numbers referenced across the deliveries
     const allSocNumbers = new Set<string>();
@@ -307,119 +408,238 @@ export class SalesDeliveryService implements OnModuleInit {
 
     const socList = Array.from(allSocNumbers);
     const soItemsMap = new Map<string, any[]>();
-    const soMetaMap = new Map<string, { id: string; customerPo: string | null }>();
-    const shippedPerSocMap = new Map<string, { qty: number; ctn: number }>();
-    const shippedBySocItemMap = new Map<string, number>();
+    const soMetaMap = new Map<string, { id: string; customerPo: string | null; divisionCode: string | null; divisionName: string | null }>();
     const socTimelineMap = new Map<string, Array<{
       deliveryId: string;
+      deliveryNumber: string;
+      deliveryDate: string;
+      createdAt: string;
       status: string;
       lineQtyByItem: Map<string, number>;
     }>>();
 
+    // Pre-seed soItemsMap & soMetaMap directly from joined `sd.salesOrder.items` (guaranteed even without raw SQL)
+    for (const sd of rawDeliveries) {
+      const so = sd.salesOrder;
+      const socNum = so?.orderNumber ? String(so.orderNumber).trim() : '';
+      if (!socNum) continue;
+      if (!soMetaMap.has(socNum)) {
+        soMetaMap.set(socNum, {
+          id: so.id,
+          customerPo: so.customerPo || null,
+          divisionCode: so.division?.divisionCode || null,
+          divisionName: so.division?.name || null,
+        });
+      }
+      if (Array.isArray(so.items) && so.items.length > 0 && !soItemsMap.has(socNum)) {
+        soItemsMap.set(
+          socNum,
+          so.items.map((oi: any) => ({
+            id: so.id,
+            soi_id: oi.id,
+            order_number: socNum,
+            customer_po: so.customerPo || null,
+            division_id: so.divisionId || null,
+            division_code: so.division?.divisionCode || null,
+            division_name: so.division?.name || null,
+            item_id: oi.itemId || oi.item?.id || null,
+            order_qty: Number(oi.quantity || 0),
+            uom_code: oi.uom?.code || null,
+            packaging_size: oi.item?.packagingSize ?? oi.packagingSize ?? null,
+            packaging_unit: oi.item?.packagingUnit ?? oi.packagingUnit ?? null,
+            item_code: oi.item?.itemCode || oi.itemCode || null,
+            item_name: oi.item?.name || oi.description || null,
+            base_uom_code: oi.item?.baseUom?.code || null,
+            sales_uom_code: oi.item?.salesUom?.code || null,
+          })),
+        );
+      }
+    }
+
+    const deliveryEntryBySoc = new Map<string, Map<string, {
+      deliveryId: string;
+      deliveryNumber: string;
+      deliveryDate: string;
+      createdAt: string;
+      status: string;
+      lineQtyByItem: Map<string, number>;
+    }>>();
+
+    const registerTimelineRow = (opts: {
+      soc: string;
+      deliveryId: string;
+      deliveryNumber: string;
+      deliveryDate: string;
+      createdAt: string;
+      status: string;
+      itemKey?: string | null;
+      qty?: number;
+      lineMatchesSoc?: boolean;
+    }) => {
+      let socDelivMap = deliveryEntryBySoc.get(opts.soc);
+      if (!socDelivMap) {
+        socDelivMap = new Map();
+        deliveryEntryBySoc.set(opts.soc, socDelivMap);
+      }
+      let dEntry = socDelivMap.get(opts.deliveryId);
+      if (!dEntry) {
+        dEntry = {
+          deliveryId: opts.deliveryId,
+          deliveryNumber: opts.deliveryNumber,
+          deliveryDate: opts.deliveryDate,
+          createdAt: opts.createdAt,
+          status: opts.status,
+          lineQtyByItem: new Map<string, number>(),
+        };
+        socDelivMap.set(opts.deliveryId, dEntry);
+        const list = socTimelineMap.get(opts.soc) || [];
+        list.push(dEntry);
+        socTimelineMap.set(opts.soc, list);
+      }
+      if (opts.lineMatchesSoc && opts.itemKey && Number(opts.qty) > 0) {
+        dEntry.lineQtyByItem.set(opts.itemKey, (dEntry.lineQtyByItem.get(opts.itemKey) || 0) + Number(opts.qty));
+      }
+    };
+
     if (socList.length > 0) {
       try {
-        const soRows = await this.repo.manager.query(
-          `SELECT so.id, so.order_number, so.customer_po,
-                  soi.item_id, soi.quantity as order_qty,
-                  i.packaging_size, i.item_code, i.name as item_name
-           FROM erp_sales.sales_orders so
-           JOIN erp_sales.sales_order_items soi ON soi.sales_order_id = so.id
-           LEFT JOIN public.items i ON i.id = soi.item_id
-           WHERE so.order_number = ANY($1)`,
-          [socList],
-        );
-        for (const r of soRows) {
-          if (!soMetaMap.has(r.order_number)) {
-            soMetaMap.set(r.order_number, { id: r.id, customerPo: r.customer_po || null });
-          }
-          const list = soItemsMap.get(r.order_number) || [];
-          list.push(r);
-          soItemsMap.set(r.order_number, list);
-        }
-
-        // Fetch all non-cancelled deliveries chronologically to compute accurate
-        // per-SOC dispatch sequence ordinals (1st, 2nd, 3rd, 4th...) & cumulative balances.
-        const chronoParams: any[] = [];
-        const whereClauses = [
-          `sd.deleted_at IS NULL`,
-          `UPPER(COALESCE(sd.status, 'DRAFT')) <> 'CANCELLED'`,
-        ];
-        if (companyIds.length > 0) {
-          chronoParams.push(companyIds);
-          whereClauses.push(`sd.company_id = ANY($${chronoParams.length})`);
-        }
-        const chronoRows = await this.repo.manager.query(
-          `SELECT sd.id AS delivery_id, sd.delivery_number,
-                  UPPER(COALESCE(sd.status, 'DRAFT')) AS status,
-                  sd.delivery_date, sd.created_at,
-                  sdl.item_id, sdl.description, sdl.quantity AS line_qty,
-                  so.order_number AS header_soc, i.packaging_size
-           FROM erp_sales.sales_deliveries sd
-           LEFT JOIN erp_sales.sales_orders so ON so.id = sd.sales_order_id
-           LEFT JOIN erp_sales.sales_delivery_lines sdl ON sdl.delivery_id = sd.id
-           LEFT JOIN public.items i ON i.id = sdl.item_id
-           WHERE ${whereClauses.join(' AND ')}
-           ORDER BY sd.delivery_date ASC, sd.created_at ASC, sd.delivery_number ASC`,
-          chronoParams,
-        );
-
-        const shippedStatuses = new Set(['CONFIRMED', 'DELIVERED', 'SHIPPED']);
-        const deliveryEntryBySoc = new Map<string, Map<string, { deliveryId: string; status: string; lineQtyByItem: Map<string, number> }>>();
-
-        for (const r of chronoRows) {
-          const socMatch = r.description?.match(/SOC[:\s]+(SOC-[A-Za-z0-9-]+|[0-9A-Za-z-]+)/i);
-          const lineSoc = (socMatch ? socMatch[1].trim() : (r.header_soc ? String(r.header_soc).trim() : null));
-          const headerSoc = r.header_soc ? String(r.header_soc).trim() : null;
-
-          // Record timeline membership per distinct (soc, delivery_id)
-          const touchedSocs = Array.from(new Set([lineSoc, headerSoc].filter(Boolean) as string[]))
-            .filter((s) => allSocNumbers.has(s));
-
-          for (const soc of touchedSocs) {
-            let socDelivMap = deliveryEntryBySoc.get(soc);
-            if (!socDelivMap) {
-              socDelivMap = new Map();
-              deliveryEntryBySoc.set(soc, socDelivMap);
+        if (typeof this.repo?.manager?.query === 'function') {
+          const soRows = await this.repo.manager.query(
+            `SELECT so.id, so.order_number, so.customer_po, so.division_id,
+                    d.division_code, d.name AS division_name,
+                    soi.item_id, soi.quantity as order_qty,
+                    u.code AS uom_code,
+                    i.packaging_size, i.packaging_unit, i.item_code, i.name as item_name,
+                    bu.code AS base_uom_code, su.code AS sales_uom_code
+             FROM erp_sales.sales_orders so
+             JOIN erp_sales.sales_order_items soi ON soi.sales_order_id = so.id
+             LEFT JOIN public.divisions d ON d.id = so.division_id
+             LEFT JOIN public.items i ON i.id = soi.item_id
+             LEFT JOIN public.uoms u ON u.id = soi.uom_id
+             LEFT JOIN public.uoms bu ON bu.id = i.base_uom_id
+             LEFT JOIN public.uoms su ON su.id = i.sales_uom_id
+             WHERE so.order_number = ANY($1)`,
+            [socList],
+          );
+          const sqlItemsBySoc = new Map<string, any[]>();
+          for (const r of soRows || []) {
+            if (!soMetaMap.has(r.order_number)) {
+              soMetaMap.set(r.order_number, {
+                id: r.id,
+                customerPo: r.customer_po || null,
+                divisionCode: r.division_code || null,
+                divisionName: r.division_name || null,
+              });
             }
-            let dEntry = socDelivMap.get(r.delivery_id);
-            if (!dEntry) {
-              dEntry = {
+            const list = sqlItemsBySoc.get(r.order_number) || [];
+            list.push(r);
+            sqlItemsBySoc.set(r.order_number, list);
+          }
+          for (const [socKey, rows] of sqlItemsBySoc.entries()) {
+            if (rows.length > 0) {
+              soItemsMap.set(socKey, rows);
+            }
+          }
+
+          // Fetch non-cancelled deliveries referencing these SOCs sorted chronologically by deliveryDate + deliveryNumber
+          const chronoParams: any[] = [socList];
+          const likePatterns = socList.map((s) => `%${s}%`);
+          chronoParams.push(likePatterns);
+          const whereClauses = [
+            `sd.deleted_at IS NULL`,
+            `UPPER(COALESCE(sd.status, 'DRAFT')) <> 'CANCELLED'`,
+            `(so.order_number = ANY($1) OR sdl.description ILIKE ANY($2))`,
+          ];
+          if (companyIds.length > 0) {
+            chronoParams.push(companyIds);
+            whereClauses.push(`sd.company_id = ANY($${chronoParams.length})`);
+          }
+          const chronoRows = await this.repo.manager.query(
+            `SELECT sd.id AS delivery_id, sd.delivery_number,
+                    UPPER(COALESCE(sd.status, 'DRAFT')) AS status,
+                    sd.delivery_date, sd.created_at,
+                    sdl.item_id, sdl.description, sdl.quantity AS line_qty,
+                    so.order_number AS header_soc, i.packaging_size, i.item_code
+             FROM erp_sales.sales_deliveries sd
+             LEFT JOIN erp_sales.sales_orders so ON so.id = sd.sales_order_id
+             LEFT JOIN erp_sales.sales_delivery_lines sdl ON sdl.delivery_id = sd.id
+             LEFT JOIN public.items i ON i.id = sdl.item_id
+             WHERE ${whereClauses.join(' AND ')}
+             ORDER BY sd.delivery_date ASC, sd.delivery_number ASC, sd.created_at ASC`,
+            chronoParams,
+          );
+
+          for (const r of chronoRows || []) {
+            const socMatch = r.description?.match(/SOC[:\s]+(SOC-[A-Za-z0-9-]+|[0-9A-Za-z-]+)/i);
+            const lineSoc = (socMatch ? socMatch[1].trim() : (r.header_soc ? String(r.header_soc).trim() : null));
+            const headerSoc = r.header_soc ? String(r.header_soc).trim() : null;
+            const touchedSocs = Array.from(new Set([lineSoc, headerSoc].filter(Boolean) as string[]))
+              .filter((s) => allSocNumbers.has(s));
+            const itemKey = r.item_id || (r.item_code ? `CODE:${String(r.item_code).toUpperCase()}` : null);
+            for (const soc of touchedSocs) {
+              registerTimelineRow({
+                soc,
                 deliveryId: r.delivery_id,
+                deliveryNumber: String(r.delivery_number || ''),
+                deliveryDate: String(r.delivery_date || '').slice(0, 10),
+                createdAt: r.created_at ? String(r.created_at) : '',
                 status: r.status,
-                lineQtyByItem: new Map<string, number>(),
-              };
-              socDelivMap.set(r.delivery_id, dEntry);
-              const list = socTimelineMap.get(soc) || [];
-              list.push(dEntry);
-              socTimelineMap.set(soc, list);
-            }
-            if (lineSoc === soc && r.item_id) {
-              const q = Number(r.line_qty || 0);
-              dEntry.lineQtyByItem.set(r.item_id, (dEntry.lineQtyByItem.get(r.item_id) || 0) + q);
-            }
-          }
-
-          if (lineSoc && allSocNumbers.has(lineSoc) && shippedStatuses.has(r.status)) {
-            const pSize = Number(r.packaging_size || 10) || 10;
-            const q = Number(r.line_qty || 0);
-            const c = Math.round((q / pSize) * 100) / 100;
-            const curr = shippedPerSocMap.get(lineSoc) || { qty: 0, ctn: 0 };
-            shippedPerSocMap.set(lineSoc, { qty: curr.qty + q, ctn: curr.ctn + c });
-            if (r.item_id) {
-              const siKey = `${lineSoc}_${r.item_id}`;
-              shippedBySocItemMap.set(siKey, (shippedBySocItemMap.get(siKey) || 0) + q);
+                itemKey,
+                qty: Number(r.line_qty || 0),
+                lineMatchesSoc: lineSoc === soc,
+              });
             }
           }
         }
       } catch (err: any) {
         this.logger.warn(`Failed to enrich deliveries with SOC data: ${err.message}`);
       }
+
+      const sqlLoadedBySoc = new Map<string, Set<string>>();
+      for (const [soc, dMap] of deliveryEntryBySoc.entries()) {
+        sqlLoadedBySoc.set(soc, new Set(dMap.keys()));
+      }
+
+      // Supplement timeline with any non-cancelled deliveries present in rawDeliveries not yet in socTimelineMap
+      for (const sd of rawDeliveries) {
+        const st = String(sd.status || 'DRAFT').toUpperCase();
+        if (st === 'CANCELLED') continue;
+        const headerSoc = sd.salesOrder?.orderNumber ? String(sd.salesOrder.orderNumber).trim() : null;
+        for (const l of sd.lines || []) {
+          const socMatch = l.description?.match(/SOC[:\s]+(SOC-[A-Za-z0-9-]+|[0-9A-Za-z-]+)/i);
+          const lineSoc = socMatch ? socMatch[1].trim() : headerSoc;
+          const touchedSocs = Array.from(new Set([lineSoc, headerSoc].filter(Boolean) as string[]))
+            .filter((s) => allSocNumbers.has(s));
+          const itemKey = l.itemId || l.item?.id || (l.item?.itemCode || l.itemCode ? `CODE:${String(l.item?.itemCode || l.itemCode).toUpperCase()}` : null);
+          for (const soc of touchedSocs) {
+            if (sqlLoadedBySoc.get(soc)?.has(sd.id)) continue;
+            registerTimelineRow({
+              soc,
+              deliveryId: sd.id,
+              deliveryNumber: String(sd.deliveryNumber || ''),
+              deliveryDate: String(sd.deliveryDate || '').slice(0, 10),
+              createdAt: sd.createdAt ? String(sd.createdAt) : '',
+              status: st,
+              itemKey,
+              qty: Number(l.quantity || 0),
+              lineMatchesSoc: lineSoc === soc,
+            });
+          }
+        }
+      }
+
+      // Enforce deterministic chronological sort (deliveryDate ASC, deliveryNumber ASC)
+      for (const [soc, list] of socTimelineMap.entries()) {
+        list.sort((a, b) => {
+          if (a.deliveryDate !== b.deliveryDate) return a.deliveryDate.localeCompare(b.deliveryDate);
+          if (a.deliveryNumber !== b.deliveryNumber) {
+            return a.deliveryNumber.localeCompare(b.deliveryNumber, undefined, { numeric: true, sensitivity: 'base' });
+          }
+          return a.createdAt.localeCompare(b.createdAt);
+        });
+        socTimelineMap.set(soc, list);
+      }
     }
-
-    const isMeterUom = (u?: string | null) =>
-      ['M', 'MTR', 'METER', 'METRE', 'METERS', 'METRES'].includes(String(u || '').toUpperCase().trim());
-
-    const shippedStatuses = new Set(['CONFIRMED', 'DELIVERED', 'SHIPPED']);
 
     // Batch-lookup linked non-deleted Sales Invoices for these Delivery Notes
     const deliveryIds = rawDeliveries.map((sd: any) => sd.id).filter(Boolean);
@@ -455,33 +675,55 @@ export class SalesDeliveryService implements OnModuleInit {
     }
 
     return rawDeliveries.map((sd: any) => {
-      // Precompute per-SOC ordinal index for this delivery (CONFIRMED/SHIPPED/DELIVERED + current sd if DRAFT)
-      const seqBySoc = new Map<string, { dispatchOrdinal: number; totalSocDispatches: number; dispatchLabel: string; shippedUpToByItem: Map<string, number> }>();
+      const sdStatusUpper = String(sd.status || 'DRAFT').toUpperCase();
+      const isCancelledDelivery = sdStatusUpper === 'CANCELLED';
+      const headerDivision = sd.salesOrder?.division || null;
+
+      // Compute point-in-time chronological progress up to and including `sd` per SOC
+      const seqBySoc = new Map<string, {
+        dispatchOrdinal: number;
+        totalSocDispatches: number;
+        dispatchLabel: string;
+        previousByItem: Map<string, number>;
+        cumulativeByItem: Map<string, number>;
+      }>();
+
       const getSocSequence = (soc: string | null) => {
         if (!soc) return null;
         if (seqBySoc.has(soc)) return seqBySoc.get(soc)!;
         const timeline = socTimelineMap.get(soc) || [];
         const activeTimeline = timeline.filter(
-          (entry) => shippedStatuses.has(entry.status) || entry.deliveryId === sd.id,
+          (entry) => shippedStatuses.has(entry.status) || (!isCancelledDelivery && entry.deliveryId === sd.id),
         );
         const idx = activeTimeline.findIndex((entry) => entry.deliveryId === sd.id);
         const dispatchOrdinal = idx >= 0 ? idx + 1 : activeTimeline.length + 1;
         const totalSocDispatches = idx >= 0 ? activeTimeline.length : activeTimeline.length + 1;
-        const shippedUpToByItem = new Map<string, number>();
-        const upperLimit = idx >= 0 ? idx : activeTimeline.length - 1;
-        for (let i = 0; i <= upperLimit; i++) {
+
+        const previousByItem = new Map<string, number>();
+        const cumulativeByItem = new Map<string, number>();
+        const priorEnd = idx >= 0 ? idx : activeTimeline.length;
+        for (let i = 0; i < priorEnd; i++) {
           const entry = activeTimeline[i];
-          if (shippedStatuses.has(entry.status) || entry.deliveryId === sd.id) {
+          if (shippedStatuses.has(entry.status)) {
             entry.lineQtyByItem.forEach((qtyVal, itemId) => {
-              shippedUpToByItem.set(itemId, (shippedUpToByItem.get(itemId) || 0) + qtyVal);
+              previousByItem.set(itemId, (previousByItem.get(itemId) || 0) + qtyVal);
+              cumulativeByItem.set(itemId, (cumulativeByItem.get(itemId) || 0) + qtyVal);
             });
           }
         }
+        if (idx >= 0 && !isCancelledDelivery) {
+          const currentEntry = activeTimeline[idx];
+          currentEntry.lineQtyByItem.forEach((qtyVal, itemId) => {
+            cumulativeByItem.set(itemId, (cumulativeByItem.get(itemId) || 0) + qtyVal);
+          });
+        }
+
         const computed = {
           dispatchOrdinal,
           totalSocDispatches,
           dispatchLabel: this.formatDispatchOrdinal(dispatchOrdinal),
-          shippedUpToByItem,
+          previousByItem,
+          cumulativeByItem,
         };
         seqBySoc.set(soc, computed);
         return computed;
@@ -490,36 +732,81 @@ export class SalesDeliveryService implements OnModuleInit {
       const lines = (sd.lines || []).map((l: any) => {
         const socMatch = l.description?.match(/SOC[:\s]+(SOC-[A-Za-z0-9-]+|[0-9A-Za-z-]+)/i);
         const lineSoc = socMatch ? socMatch[1].trim() : (sd.salesOrder?.orderNumber || null);
-        const uomCode = l.uom?.code || 'GRS';
-        const isMeter = isMeterUom(uomCode);
-        const pSize = Number(l.item?.packagingSize || l.packagingSize || 10) || 10;
+        const soItems = lineSoc ? (soItemsMap.get(lineSoc) || []) : [];
+        const lineItemCode = String(l.item?.itemCode || l.itemCode || '').trim().toUpperCase();
+        const matchedSoi = soItems.find((oi: any) =>
+          (l.itemId && oi.item_id === l.itemId) ||
+          (lineItemCode && String(oi.item_code || '').trim().toUpperCase() === lineItemCode),
+        );
+        const soMeta = lineSoc ? soMetaMap.get(lineSoc) : undefined;
+        const effectiveDiv = headerDivision || (soMeta ? { divisionCode: soMeta.divisionCode || '', name: soMeta.divisionName || '' } : null);
+
+        const itemName = l.item?.name || l.itemName || matchedSoi?.item_name || l.description || 'Product';
+        const { uomCode, packagingUnit, packagingSize: pSize } = this.resolvePackagingMeta({
+          lineUomCode: l.uom?.code || l.uomCode,
+          itemSalesUom: l.item?.salesUom?.code,
+          itemBaseUom: l.item?.baseUom?.code || matchedSoi?.sales_uom_code || matchedSoi?.base_uom_code,
+          soItemUom: matchedSoi?.uom_code,
+          rawPackagingUnit: l.item?.packagingUnit || matchedSoi?.packaging_unit || l.packagingUnit,
+          rawPackagingSize: l.item?.packagingSize || matchedSoi?.packaging_size || l.packagingSize,
+          itemName,
+          division: effectiveDiv,
+        });
+
         const qty = Number(l.quantity) || 0;
-        const ctn = Math.round((qty / pSize) * 100) / 100;
+        const ctn = this.calcPackagesCount(qty, pSize, uomCode);
         const rawWpm = l.item?.weightPerMeter != null ? Number(l.item.weightPerMeter) : null;
         const finWpm = l.item?.finishedWeightPerMeter != null ? Number(l.item.finishedWeightPerMeter) : null;
+        const isMeter = uomCode === 'M';
         const effectiveWpm = isMeter
           ? ((finWpm != null && finWpm > 0) ? finWpm : ((rawWpm != null && rawWpm > 0) ? rawWpm : 0))
           : 0;
         const totalWeightKg = isMeter && effectiveWpm > 0 ? Number((qty * effectiveWpm).toFixed(3)) : null;
 
         const socSeq = getSocSequence(lineSoc);
-        const soItems = lineSoc ? (soItemsMap.get(lineSoc) || []) : [];
-        const matchedSoi = soItems.find((oi: any) => oi.item_id === l.itemId);
-        const lineOrderQty = matchedSoi ? Math.round(Number(matchedSoi.order_qty || 0) * 100) / 100 : null;
-        const shippedUpToLine = lineSoc && l.itemId
-          ? (socSeq?.shippedUpToByItem.get(l.itemId) ?? (shippedBySocItemMap.get(`${lineSoc}_${l.itemId}`) || 0) + (shippedStatuses.has(String(sd.status || '').toUpperCase()) ? 0 : qty))
-          : qty;
-        const lineBalanceAfter = lineOrderQty != null ? Math.max(0, Math.round((lineOrderQty - shippedUpToLine) * 100) / 100) : null;
+        const lineOrderQty = matchedSoi ? round2(Number(matchedSoi.order_qty || 0)) : null;
+        const lineOrderCtn = lineOrderQty != null ? this.calcPackagesCount(lineOrderQty, pSize, uomCode) : null;
+
+        let previousQty = 0;
+        let cumulativeQty = isCancelledDelivery ? 0 : qty;
+        const timelineItemKey = l.itemId || l.item?.id || matchedSoi?.item_id || (lineItemCode ? `CODE:${lineItemCode}` : null);
+        if (lineSoc && timelineItemKey && socSeq) {
+          previousQty = round2(socSeq.previousByItem.get(timelineItemKey) || 0);
+          cumulativeQty = isCancelledDelivery
+            ? previousQty
+            : round2(socSeq.cumulativeByItem.get(timelineItemKey) ?? (previousQty + qty));
+        }
+        const previousCtn = this.calcPackagesCount(previousQty, pSize, uomCode);
+        const cumulativeCtn = this.calcPackagesCount(cumulativeQty, pSize, uomCode);
+        const lineBalanceAfter = lineOrderQty != null ? Math.max(0, round2(lineOrderQty - cumulativeQty)) : null;
+        const lineBalanceCtnAfter = lineOrderCtn != null ? Math.max(0, round2(lineOrderCtn - cumulativeCtn)) : null;
         const lineIsFinal = lineOrderQty != null && lineOrderQty > 0 && lineBalanceAfter != null && lineBalanceAfter <= 0.001;
+        const lineCompletionPct = lineOrderQty != null && lineOrderQty > 0
+          ? Math.min(100, Math.round((cumulativeQty / lineOrderQty) * 100))
+          : (qty > 0 ? 100 : 0);
+
+        // Strip heavyweight/unused JSONB item blobs (`processes`, `operationalSequenceMask`, etc.) from list payload
+        const leanItem = l.item ? {
+          id: l.item.id,
+          itemCode: l.item.itemCode,
+          name: l.item.name,
+          packagingSize: l.item.packagingSize ?? matchedSoi?.packaging_size ?? pSize,
+          packagingUnit,
+          weightPerMeter: l.item.weightPerMeter ?? null,
+          finishedWeightPerMeter: l.item.finishedWeightPerMeter ?? null,
+          baseUom: l.item.baseUom ? { id: l.item.baseUom.id, code: l.item.baseUom.code } : undefined,
+          salesUom: l.item.salesUom ? { id: l.item.salesUom.id, code: l.item.salesUom.code } : undefined,
+        } : undefined;
 
         return {
           ...l,
+          item: leanItem,
           socNumber: lineSoc,
           packagingSize: pSize,
-          packagingUnit: l.item?.packagingUnit || (isMeter ? 'Coil' : 'CTN'),
+          packagingUnit,
           cartons: ctn,
-          itemCode: l.item?.itemCode || l.itemCode,
-          itemName: l.item?.name || l.itemName || l.description,
+          itemCode: l.item?.itemCode || l.itemCode || matchedSoi?.item_code,
+          itemName,
           uomCode,
           weightPerMeter: rawWpm,
           finishedWeightPerMeter: finWpm,
@@ -529,13 +816,19 @@ export class SalesDeliveryService implements OnModuleInit {
             dispatchLabel: socSeq.dispatchLabel,
             totalSocDispatches: socSeq.totalSocDispatches,
           } : {}),
-          ...(lineOrderQty != null ? { orderQuantity: lineOrderQty } : {}),
-          ...(lineBalanceAfter != null ? { balanceQuantity: lineBalanceAfter } : {}),
+          orderQuantity: lineOrderQty ?? 0,
+          orderCartons: lineOrderCtn ?? 0,
+          previousDispatchedQuantity: previousQty,
+          previousDispatchedCartons: previousCtn,
+          cumulativeDispatchedQuantity: cumulativeQty,
+          cumulativeDispatchedCartons: cumulativeCtn,
+          balanceQuantity: lineBalanceAfter ?? 0,
+          balanceCartons: lineBalanceCtnAfter ?? 0,
+          completionPercent: lineCompletionPct,
           isFinalDispatch: lineIsFinal,
         };
       });
 
-      // Find all distinct SOCs for this specific delivery
       const delSocs = Array.from(
         new Set([sd.salesOrder?.orderNumber, ...lines.map((l: any) => l.socNumber)].filter(Boolean) as string[]),
       );
@@ -544,46 +837,83 @@ export class SalesDeliveryService implements OnModuleInit {
         const thisLines = lines.filter((l: any) => l.socNumber === soc);
         const thisDispQty = thisLines.reduce((sum: number, l: any) => sum + (Number(l.quantity) || 0), 0);
         const thisDispCtn = thisLines.reduce((sum: number, l: any) => sum + (Number(l.cartons) || 0), 0);
+        const primarySocUom = thisLines[0]?.uomCode || this.resolveDivisionDefaultUom(headerDivision) || 'GRS';
+        const primarySocPkgUnit = thisLines[0]?.packagingUnit || (primarySocUom === 'M' || primarySocUom === 'KG' ? 'Coils' : 'CTN');
 
         const soItems = soItemsMap.get(soc) || [];
+        const socSeq = getSocSequence(soc);
+
         let orderQty = 0;
         let orderCtn = 0;
+        let previousQty = 0;
+        let previousCtn = 0;
+        let cumulativeQty = 0;
+        let cumulativeCtn = 0;
+
         for (const soi of soItems) {
-          const pSize = Number(soi.packaging_size || 10) || 10;
+          const { uomCode: soiUom, packagingSize: pSize } = this.resolvePackagingMeta({
+            soItemUom: soi.uom_code,
+            itemBaseUom: soi.base_uom_code,
+            itemSalesUom: soi.sales_uom_code,
+            rawPackagingSize: soi.packaging_size,
+            rawPackagingUnit: soi.packaging_unit,
+            itemName: soi.item_name,
+            division: headerDivision || { divisionCode: soi.division_code, name: soi.division_name },
+          });
           const oQty = Number(soi.order_qty) || 0;
           orderQty += oQty;
-          orderCtn += Math.round((oQty / pSize) * 100) / 100;
+          orderCtn += this.calcPackagesCount(oQty, pSize, soiUom);
+
+          const soiKey = soi.item_id || (soi.item_code ? `CODE:${String(soi.item_code).toUpperCase()}` : '');
+          const pItemQty = (soiKey ? socSeq?.previousByItem.get(soiKey) : 0) || 0;
+          const cItemQty = isCancelledDelivery
+            ? pItemQty
+            : ((soiKey ? socSeq?.cumulativeByItem.get(soiKey) : undefined) ?? pItemQty);
+          previousQty += pItemQty;
+          previousCtn += this.calcPackagesCount(pItemQty, pSize, soiUom);
+          cumulativeQty += cItemQty;
+          cumulativeCtn += this.calcPackagesCount(cItemQty, pSize, soiUom);
         }
 
-        const shipped = shippedPerSocMap.get(soc) || { qty: 0, ctn: 0 };
-        const isCurrentShipped = shippedStatuses.has(String(sd.status || '').toUpperCase());
-        const effectiveTotalDelivered = isCurrentShipped ? shipped.qty : shipped.qty + thisDispQty;
-        const balQty = Math.max(0, orderQty - (shipped.qty > 0 || isCurrentShipped ? shipped.qty : thisDispQty));
-        const balAfterThisDelivery = Math.max(0, orderQty - effectiveTotalDelivered);
-        const balCtn = Math.max(0, orderCtn - (shipped.ctn > 0 || isCurrentShipped ? shipped.ctn : thisDispCtn));
-        const pct = orderQty > 0 ? Math.min(100, Math.round(((orderQty - balQty) / orderQty) * 100)) : 100;
-        const socSeq = getSocSequence(soc);
+        // Handle direct delivery / SOC without matching item IDs gracefully
+        if (soItems.length === 0) {
+          previousQty = 0;
+          previousCtn = 0;
+          cumulativeQty = isCancelledDelivery ? 0 : thisDispQty;
+          cumulativeCtn = isCancelledDelivery ? 0 : thisDispCtn;
+        }
+
+        const balAfter = orderQty > 0 ? Math.max(0, round2(orderQty - cumulativeQty)) : 0;
+        const balCtnAfter = orderCtn > 0 ? Math.max(0, round2(orderCtn - cumulativeCtn)) : 0;
+        const pct = orderQty > 0 ? Math.min(100, Math.round((cumulativeQty / orderQty) * 100)) : 100;
         const dispatchOrdinal = socSeq?.dispatchOrdinal || 1;
         const totalSocDispatches = socSeq?.totalSocDispatches || 1;
+        const completed = orderQty > 0 && balAfter <= 0.001;
 
         return {
           socNumber: soc,
           salesOrderId: soMetaMap.get(soc)?.id || null,
           customerPo: soMetaMap.get(soc)?.customerPo || null,
+          uom: primarySocUom,
+          packagingUnit: primarySocPkgUnit,
           dispatchOrdinal,
           dispatchLabel: this.formatDispatchOrdinal(dispatchOrdinal),
           totalSocDispatches,
-          isFinalDispatch: orderQty > 0 && balAfterThisDelivery <= 0.001,
-          thisDeliveryQuantity: Math.round(thisDispQty * 100) / 100,
-          thisDeliveryCartons: Math.round(thisDispCtn * 100) / 100,
-          totalOrderQuantity: Math.round(orderQty * 100) / 100,
-          totalOrderCartons: Math.round(orderCtn * 100) / 100,
-          totalShippedQuantity: Math.round(shipped.qty * 100) / 100,
-          totalShippedCartons: Math.round(shipped.ctn * 100) / 100,
-          balanceQuantity: Math.round(balQty * 100) / 100,
-          balanceAfterThisDelivery: Math.round(balAfterThisDelivery * 100) / 100,
-          balanceCartons: Math.round(balCtn * 100) / 100,
-          isCompleted: orderQty > 0 && balQty <= 0,
+          isFinalDispatch: completed,
+          previousQuantity: round2(previousQty),
+          previousCartons: round2(previousCtn),
+          previousDispatchedQuantity: round2(previousQty),
+          previousDispatchedCartons: round2(previousCtn),
+          thisDeliveryQuantity: round2(thisDispQty),
+          thisDeliveryCartons: round2(thisDispCtn),
+          totalOrderQuantity: round2(orderQty),
+          totalOrderCartons: round2(orderCtn),
+          totalShippedQuantity: round2(cumulativeQty),
+          totalShippedCartons: round2(cumulativeCtn),
+          balanceQuantity: balAfter,
+          balanceAfterThisDelivery: balAfter,
+          balanceCartons: balCtnAfter,
+          isCompleted: completed,
           completionPercent: pct,
         };
       });
@@ -593,42 +923,106 @@ export class SalesDeliveryService implements OnModuleInit {
 
       const totalOrderQuantity = salesOrdersSummary.reduce((sum: number, s: any) => sum + s.totalOrderQuantity, 0);
       const totalOrderCartons = salesOrdersSummary.reduce((sum: number, s: any) => sum + s.totalOrderCartons, 0);
-
+      const totalPreviousQuantity = salesOrdersSummary.reduce((sum: number, s: any) => sum + s.previousDispatchedQuantity, 0);
+      const totalPreviousCartons = salesOrdersSummary.reduce((sum: number, s: any) => sum + s.previousDispatchedCartons, 0);
       const totalDeliveredQuantity = salesOrdersSummary.reduce((sum: number, s: any) => sum + s.totalShippedQuantity, 0);
+      const totalDeliveredCartons = salesOrdersSummary.reduce((sum: number, s: any) => sum + s.totalShippedCartons, 0);
       const totalBalanceQuantity = salesOrdersSummary.reduce((sum: number, s: any) => sum + s.balanceQuantity, 0);
       const totalBalanceCartons = salesOrdersSummary.reduce((sum: number, s: any) => sum + s.balanceCartons, 0);
 
-      const isCompleted = totalOrderQuantity > 0 && totalBalanceQuantity <= 0;
+      const isCompleted = totalOrderQuantity > 0 && totalBalanceQuantity <= 0.001;
+      const completionPercent = totalOrderQuantity > 0
+        ? Math.min(100, Math.round((totalDeliveredQuantity / totalOrderQuantity) * 100))
+        : (totalDispatchQuantity > 0 ? 100 : 0);
 
-      // Item summary breakdown
+      const primaryUom = lines[0]?.uomCode || salesOrdersSummary[0]?.uom || this.resolveDivisionDefaultUom(headerDivision) || 'GRS';
+      const primaryPackagingUnit = lines[0]?.packagingUnit || salesOrdersSummary[0]?.packagingUnit || (primaryUom === 'M' || primaryUom === 'KG' ? 'Coils' : 'CTN');
+
+      // Item summary breakdown with full point-in-time ordered / previous / this / cumulative / balance metrics
       const itemsSummary = lines.map((l: any) => ({
         itemId: l.itemId,
         itemCode: l.itemCode || '-',
         itemName: l.itemName || 'Product',
         socNumber: l.socNumber,
+        orderedQuantity: Number(l.orderQuantity || 0),
+        orderedCartons: Number(l.orderCartons || 0),
+        previousDispatchedQuantity: Number(l.previousDispatchedQuantity || 0),
+        previousDispatchedCartons: Number(l.previousDispatchedCartons || 0),
         dispatchedQuantity: Number(l.quantity) || 0,
-        dispatchedCartons: l.cartons,
-        packagingUnit: l.packagingUnit || 'CTN',
-        uom: l.uomCode || 'GRS',
+        dispatchedCartons: Number(l.cartons) || 0,
+        totalShippedQuantity: Number(l.cumulativeDispatchedQuantity ?? l.quantity ?? 0),
+        totalShippedCartons: Number(l.cumulativeDispatchedCartons ?? l.cartons ?? 0),
+        balanceQuantity: Number(l.balanceQuantity || 0),
+        balanceCartons: Number(l.balanceCartons || 0),
+        isCompleted: Boolean(l.isFinalDispatch),
+        completionPercent: Number(l.completionPercent ?? 0),
+        packagingUnit: l.packagingUnit || primaryPackagingUnit,
+        packagingSize: Number(l.packagingSize || 0),
+        uom: l.uomCode || primaryUom,
       }));
 
       const linkedInvoice = invoicedByDeliveryMap.get(sd.id) || null;
+      const headerSocNum = sd.salesOrder?.orderNumber ? String(sd.salesOrder.orderNumber).trim() : '';
+      const headerSoItems = headerSocNum ? (soItemsMap.get(headerSocNum) || []) : [];
+      const leanOrderItems = headerSoItems.map((soi: any) => {
+        const meta = this.resolvePackagingMeta({
+          soItemUom: soi.uom_code,
+          itemBaseUom: soi.base_uom_code,
+          itemSalesUom: soi.sales_uom_code,
+          rawPackagingSize: soi.packaging_size,
+          rawPackagingUnit: soi.packaging_unit,
+          itemName: soi.item_name,
+          division: headerDivision || { divisionCode: soi.division_code, name: soi.division_name },
+        });
+        const oQty = round2(Number(soi.order_qty || 0));
+        return {
+          id: soi.soi_id || undefined,
+          itemId: soi.item_id,
+          itemCode: soi.item_code || null,
+          itemName: soi.item_name || null,
+          quantity: oQty,
+          packageQuantity: this.calcPackagesCount(oQty, meta.packagingSize, meta.uomCode),
+          uom: { code: meta.uomCode },
+          uomCode: meta.uomCode,
+          packagingSize: meta.packagingSize,
+          packagingUnit: meta.packagingUnit,
+        };
+      });
+      const leanSalesOrder = sd.salesOrder ? {
+        id: sd.salesOrder.id,
+        orderNumber: sd.salesOrder.orderNumber,
+        customerPo: sd.salesOrder.customerPo,
+        divisionId: sd.salesOrder.divisionId,
+        sectionId: sd.salesOrder.sectionId,
+        division: sd.salesOrder.division,
+        section: sd.salesOrder.section,
+        items: leanOrderItems,
+      } : null;
 
       return {
         ...sd,
+        salesOrder: leanSalesOrder,
         lines,
         salesOrderNumber: sd.salesOrder?.orderNumber || (delSocs.length > 0 ? delSocs.join(', ') : null),
         salesOrderNumbers: delSocs,
         salesOrdersSummary,
+        divisionId: sd.salesOrder?.divisionId || sd.divisionId || null,
+        divisionCode: sd.salesOrder?.division?.divisionCode || null,
         divisionName: sd.salesOrder?.division?.name || null,
         sectionName: sd.salesOrder?.section?.name || null,
-        totalDispatchQuantity: Math.round(totalDispatchQuantity * 100) / 100,
-        totalDispatchCartons: Math.round(totalDispatchCartons * 100) / 100,
-        totalOrderQuantity: Math.round(totalOrderQuantity * 100) / 100,
-        totalOrderCartons: Math.round(totalOrderCartons * 100) / 100,
-        totalDeliveredQuantity: Math.round(totalDeliveredQuantity * 100) / 100,
-        totalBalanceQuantity: Math.round(totalBalanceQuantity * 100) / 100,
-        totalBalanceCartons: Math.round(totalBalanceCartons * 100) / 100,
+        primaryUom,
+        primaryPackagingUnit,
+        totalPreviousQuantity: round2(totalPreviousQuantity),
+        totalPreviousCartons: round2(totalPreviousCartons),
+        totalDispatchQuantity: round2(totalDispatchQuantity),
+        totalDispatchCartons: round2(totalDispatchCartons),
+        totalOrderQuantity: round2(totalOrderQuantity),
+        totalOrderCartons: round2(totalOrderCartons),
+        totalDeliveredQuantity: round2(totalDeliveredQuantity),
+        totalDeliveredCartons: round2(totalDeliveredCartons),
+        totalBalanceQuantity: round2(totalBalanceQuantity),
+        totalBalanceCartons: round2(totalBalanceCartons),
+        completionPercent,
         isCompleted,
         itemsSummary,
         invoicedInvoice: linkedInvoice,
@@ -653,9 +1047,13 @@ export class SalesDeliveryService implements OnModuleInit {
         'salesOrder.section',
         'salesOrder.items',
         'salesOrder.items.item',
+        'salesOrder.items.item.baseUom',
+        'salesOrder.items.item.salesUom',
         'salesOrder.items.uom',
         'lines',
         'lines.item',
+        'lines.item.baseUom',
+        'lines.item.salesUom',
         'lines.uom',
         'warehouse',
       ],

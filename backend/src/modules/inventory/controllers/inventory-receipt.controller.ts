@@ -468,6 +468,40 @@ export class InventoryReceiptController {
     return { success: true, ...result };
   }
 
+  @Get('gate-pass/audit-summary')
+  @UseGuards(PermissionGuard)
+  @RequireOrgScope()
+  @RequirePermission('manufacturing.material_receiving.view')
+  @ApiOperation({ summary: 'Get item-wise & KPI audit summary for Raw Material Receiving with separate Opening Stock and strict GP Received reconciliation' })
+  async getGatePassAuditSummary(
+    @Req() req: any,
+    @Query('status') status?: string,
+    @Query('divisionId') divisionId?: string,
+    @Query('sectionId') sectionId?: string,
+    @Query('departmentId') departmentId?: string,
+    @Query('warehouseId') warehouseId?: string,
+    @Query('gatePassNo') gatePassNo?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+  ) {
+    const companyId = this.getCompanyId(req);
+    const data = await this.rawMaterialService.getGatePassAuditSummary(
+      companyId,
+      {
+        status,
+        divisionId,
+        sectionId,
+        departmentId,
+        warehouseId,
+        gatePassNo,
+        dateFrom,
+        dateTo,
+      },
+      this.divisionScope(req),
+    );
+    return { success: true, data };
+  }
+
   @Get('gate-pass/:id')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()

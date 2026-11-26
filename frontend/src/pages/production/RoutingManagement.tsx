@@ -21,14 +21,29 @@ import DivisionFlowCockpit, {
 import dayjs from 'dayjs';
 import apiService, { describeRequestError } from '../../services/api';
 import SaveResultDialog, { SaveResultData, SaveResultPhase } from '../../components/shared/SaveResultDialog';
-import { TabKeepAlive, GlobalLoading } from '../../components/shared';
+import { TabKeepAlive, GlobalLoading, TableColumnSelector, useColumnVisibility } from '../../components/shared';
 import { formatDecimal, toNum } from '../../utils/numberFormat';
 import { handleValidationErrors } from '../../utils/formValidationHelper';
+import './routingManagement.css';
 
 import { getLookupsSnapshot, subscribeLookups } from '../../services/lookupsCache';
-import { matchesTabRefresh, tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
+import { matchesTabRefresh, markManualRefreshWindow, tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 
 const ROUTING_TAB_ID = '/production/routings';
+const isTestRuntime = () => typeof process !== 'undefined' && process.env?.NODE_ENV === 'test';
+
+let routingMemoryCache: Routing[] | null = null;
+let routingLookupsCache: {
+  items: Item[];
+  boms: Bom[];
+  divisions: Division[];
+  sections: Section[];
+  departments: Department[];
+  uoms: Uom[];
+  routeTypes: RouteType[];
+  machines: Machine[];
+  warehouses: Warehouse[];
+} | null = null;
 
 interface RoutingTabCache {
   routings: Routing[];
@@ -67,19 +82,23 @@ const RoutingManagement: React.FC = () => {
   const { token } = theme.useToken();
   const initialSnap = getLookupsSnapshot();
   const cachedTab = useMemo(() => tabSessionCache.get<RoutingTabCache>(ROUTING_TAB_ID), []);
+  const initialRoutings = !isTestRuntime() && routingMemoryCache
+    ? routingMemoryCache
+    : (cachedTab?.routings ?? []);
 
-  const [routings, setRoutings] = useState<Routing[]>(() => cachedTab?.routings ?? []);
+  const [routings, setRoutings] = useState<Routing[]>(() => initialRoutings);
   const [loading, setLoading] = useState(false);
-  const [items, setItems] = useState<Item[]>(() => initialSnap.items as Item[]);
+  const [routingsError, setRoutingsError] = useState<string | null>(null);
+  const [items, setItems] = useState<Item[]>(() => (!isTestRuntime() && routingLookupsCache?.items) || (initialSnap.items as Item[]));
   const [itemSearching, setItemSearching] = useState(false);
-  const [boms, setBoms] = useState<Bom[]>([]);
-  const [divisions, setDivisions] = useState<Division[]>(() => initialSnap.divisions as Division[]);
-  const [sections, setSections] = useState<Section[]>(() => initialSnap.sections as Section[]);
-  const [departments, setDepartments] = useState<Department[]>(() => initialSnap.departments as Department[]);
-  const [uoms, setUoms] = useState<Uom[]>(() => initialSnap.uoms as Uom[]);
-  const [machines, setMachines] = useState<Machine[]>(() => initialSnap.machines as Machine[]);
-  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
-  const [routeTypes, setRouteTypes] = useState<RouteType[]>([]);
+  const [boms, setBoms] = useState<Bom[]>(() => (!isTestRuntime() && routingLookupsCache?.boms) || []);
+  const [divisions, setDivisions] = useState<Division[]>(() => (!isTestRuntime() && routingLookupsCache?.divisions) || (initialSnap.divisions as Division[]));
+  const [sections, setSections] = useState<Section[]>(() => (!isTestRuntime() && routingLookupsCache?.sections) || (initialSnap.sections as Section[]));
+  const [departments, setDepartments] = useState<Department[]>(() => (!isTestRuntime() && routingLookupsCache?.departments) || (initialSnap.departments as Department[]));
+  const [uoms, setUoms] = useState<Uom[]>(() => (!isTestRuntime() && routingLookupsCache?.uoms) || (initialSnap.uoms as Uom[]));
+  const [machines, setMachines] = useState<Machine[]>(() => (!isTestRuntime() && routingLookupsCache?.machines) || (initialSnap.machines as Machine[]));
+  const [warehouses, setWarehouses] = useState<Warehouse[]>(() => (!isTestRuntime() && routingLookupsCache?.warehouses) || []);
+  const [routeTypes, setRouteTypes] = useState<RouteType[]>(() => (!isTestRuntime() && routingLookupsCache?.routeTypes) || []);
   const [modalVisible, setModalVisible] = useState(false);
   const [detailVisible, setDetailVisible] = useState(false);
   const [opEditor, setOpEditor] = useState<{ open: boolean; operation: RoutingOperation | null }>({ open: false, operation: null });
@@ -120,16 +139,25 @@ const RoutingManagement: React.FC = () => {
     finally { setItemSearching(false); }
   }, []);
 
-  const fetchRoutings = useCallback(async () => {
+  const fetchRoutings = useCallback(async (forceRefresh = false) => {
     setLoading(true);
+    setRoutingsError(null);
+    if (forceRefresh) {
+      markManualRefreshWindow(800);
+    }
     try {
-      const res = await apiService.get<any>('/production/routings');
+      const res = forceRefresh
+        ? await apiService.get<any>('/production/routings', undefined, { forceRefresh: true })
+        : await apiService.get<any>('/production/routings');
       const raw = res?.data;
       const list = Array.isArray(raw)
         ? raw
         : (Array.isArray(raw?.data) ? raw.data : (Array.isArray(res) ? res : []));
       setRoutings(list);
-      // Persist to session cache so switching back restores rows + filters
+      if (!isTestRuntime()) {
+        routingMemoryCache = list;
+      }
+      // Persist to session cache so switching tabs restores rows + filters immediately
       tabSessionCache.set<RoutingTabCache>(ROUTING_TAB_ID, {
         routings: list,
         search,
@@ -137,7 +165,9 @@ const RoutingManagement: React.FC = () => {
         filterDivision,
       });
     } catch (err: any) {
-      message.error('Failed to fetch routings');
+      const errMsg = describeRequestError(err) || 'Failed to fetch routings';
+      setRoutingsError(errMsg);
+      message.error(errMsg);
     }
     finally { setLoading(false); }
   }, [message, search, filterStatus, filterDivision]);
@@ -155,22 +185,40 @@ const RoutingManagement: React.FC = () => {
         apiService.get<{ data: Machine[] }>('/production/machines'),
         apiService.get<{ data: Warehouse[] }>('/warehouses'),
       ]);
-      setItems(itemsRes.data || []);
-      setBoms(bomRes.data || []);
-      setDivisions(divRes.data || []);
-      setSections(secRes.data || []);
-      setDepartments(deptRes.data || []);
-      setUoms(uomRes.data || []);
-      setRouteTypes(rtRes.data || []);
-      setMachines(machineRes.data || []);
-      setWarehouses(whRes.data || []);
+      const nextLookups = {
+        items: itemsRes.data || [],
+        boms: bomRes.data || [],
+        divisions: divRes.data || [],
+        sections: secRes.data || [],
+        departments: deptRes.data || [],
+        uoms: uomRes.data || [],
+        routeTypes: rtRes.data || [],
+        machines: machineRes.data || [],
+        warehouses: whRes.data || [],
+      };
+      setItems(nextLookups.items);
+      setBoms(nextLookups.boms);
+      setDivisions(nextLookups.divisions);
+      setSections(nextLookups.sections);
+      setDepartments(nextLookups.departments);
+      setUoms(nextLookups.uoms);
+      setRouteTypes(nextLookups.routeTypes);
+      setMachines(nextLookups.machines);
+      setWarehouses(nextLookups.warehouses);
+      if (!isTestRuntime()) {
+        routingLookupsCache = nextLookups;
+      }
     } catch {}
   }, []);
 
   useEffect(() => {
-    // Always refresh routings in background so inputs/outputs updated elsewhere stay synced
-    fetchRoutings();
-    fetchLookupData();
+    // Load once per session; switching back or filtering runs instantaneously from cache until manual Refresh/mutation
+    if (isTestRuntime() || (!routingMemoryCache && !cachedTab?.routings?.length)) {
+      void fetchRoutings(false);
+    }
+    if (isTestRuntime() || !routingLookupsCache) {
+      void fetchLookupData();
+    }
     const params = new URLSearchParams(window.location.search);
     const targetId = routeParamId || params.get('id') || params.get('routingId');
     if (targetId) {
@@ -189,6 +237,18 @@ const RoutingManagement: React.FC = () => {
     return () => unsubscribe();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Keep filter preferences synced in tab session cache without re-fetching
+  useEffect(() => {
+    if (!isTestRuntime() && (routingMemoryCache || cachedTab?.routings?.length)) {
+      tabSessionCache.set<RoutingTabCache>(ROUTING_TAB_ID, {
+        routings,
+        search,
+        filterStatus,
+        filterDivision,
+      });
+    }
+  }, [routings, search, filterStatus, filterDivision, cachedTab]);
 
   // auto-open targetId from route params or query param
   useEffect(() => {
@@ -215,8 +275,9 @@ const RoutingManagement: React.FC = () => {
   useEffect(() => {
     const handleGlobalRefresh = (e: Event) => {
       if (matchesTabRefresh(e, ROUTING_TAB_ID)) {
+        routingMemoryCache = null;
         tabSessionCache.remove(ROUTING_TAB_ID);
-        void fetchRoutings();
+        void fetchRoutings(true);
       }
     };
     window.addEventListener(TAB_REFRESH_EVENT, handleGlobalRefresh);
@@ -237,13 +298,22 @@ const RoutingManagement: React.FC = () => {
       const routeTypeName = (r.routeType?.name || '').toLowerCase();
       const code = (r.routingCode || '').toLowerCase();
       const prodCode = (r.product?.itemCode || '').toLowerCase();
+      const hasOpDiv = (needles: string[]) =>
+        Boolean(
+          r.operations?.some((op) => {
+            const dc = (op.division?.divisionCode || '').toLowerCase();
+            const deptc = (op.department?.departmentCode || '').toLowerCase();
+            return needles.some((n) => dc.includes(n) || deptc.startsWith(n));
+          }),
+        );
 
       if (
         routeTypeCode.includes('spi') ||
         routeTypeName.includes('spoke') ||
         code.includes('spd') ||
         prodCode.includes('spk') ||
-        prodCode.includes('spi')
+        prodCode.includes('spi') ||
+        hasOpDiv(['spi', 'spd'])
       ) {
         counts['DIV-SPD']++;
       } else if (
@@ -251,7 +321,8 @@ const RoutingManagement: React.FC = () => {
         routeTypeName.includes('cable') ||
         code.includes('ccd') ||
         prodCode.includes('ccd') ||
-        prodCode.includes('cable')
+        prodCode.includes('cable') ||
+        hasOpDiv(['ccd'])
       ) {
         counts['DIV-CCD']++;
       } else if (
@@ -260,12 +331,8 @@ const RoutingManagement: React.FC = () => {
         routeTypeName.includes('wrd') ||
         code.includes('wrd') ||
         prodCode.includes('wrd') ||
-        r.operations?.some((op) =>
-          op.divisionId === 'd1000000-0000-0000-0000-000000000005' ||
-          op.division?.divisionCode === 'DIV-005-WRD' ||
-          op.division?.divisionCode === 'DIV-WRD' ||
-          op.department?.departmentCode?.startsWith('WRD')
-        )
+        hasOpDiv(['wrd']) ||
+        r.operations?.some((op) => op.divisionId === 'd1000000-0000-0000-0000-000000000005')
       ) {
         counts['DIV-WRD']++;
       } else if (
@@ -273,14 +340,16 @@ const RoutingManagement: React.FC = () => {
         routeTypeName.includes('wire') ||
         code.includes('pwi') ||
         prodCode.includes('wire') ||
-        prodCode.includes('rm-wire')
+        prodCode.includes('rm-wire') ||
+        hasOpDiv(['pwi'])
       ) {
         counts['DIV-PWI']++;
       } else if (
         routeTypeCode.includes('nipple') ||
         routeTypeName.includes('nipple') ||
         code.includes('nb') ||
-        prodCode.includes('nip')
+        prodCode.includes('nip') ||
+        hasOpDiv(['nb'])
       ) {
         counts['DIV-NB']++;
       }
@@ -314,6 +383,14 @@ const RoutingManagement: React.FC = () => {
       const prodCode = (r.product?.itemCode || '').toLowerCase();
 
       let matchDiv = false;
+      const hasOpDiv = (needles: string[]) =>
+        Boolean(
+          r.operations?.some((op) => {
+            const dc = (op.division?.divisionCode || '').toLowerCase();
+            const deptc = (op.department?.departmentCode || '').toLowerCase();
+            return needles.some((n) => dc.includes(n) || deptc.startsWith(n));
+          }),
+        );
       if (filterDivision === 'DIV-SPD') {
         matchDiv =
           routeTypeCode.includes('spi') ||
@@ -321,7 +398,7 @@ const RoutingManagement: React.FC = () => {
           code.includes('spd') ||
           prodCode.includes('spk') ||
           prodCode.includes('spi') ||
-          r.operations?.some(op => (op.division?.divisionCode === 'DIV-SPD' || op.department?.departmentCode?.startsWith('SPD')));
+          hasOpDiv(['spi', 'spd']);
       } else if (filterDivision === 'DIV-CCD') {
         matchDiv =
           routeTypeCode.includes('ccd') ||
@@ -329,7 +406,7 @@ const RoutingManagement: React.FC = () => {
           code.includes('ccd') ||
           prodCode.includes('ccd') ||
           prodCode.includes('cable') ||
-          r.operations?.some(op => (op.division?.divisionCode === 'DIV-CCD' || op.department?.departmentCode?.startsWith('CCD')));
+          hasOpDiv(['ccd']);
       } else if (filterDivision === 'DIV-PWI') {
         matchDiv =
           routeTypeCode.includes('pwi') ||
@@ -337,14 +414,14 @@ const RoutingManagement: React.FC = () => {
           code.includes('pwi') ||
           prodCode.includes('wire') ||
           prodCode.includes('rm-wire') ||
-          r.operations?.some(op => (op.division?.divisionCode === 'DIV-PWI' || op.department?.departmentCode?.startsWith('PWI')));
+          hasOpDiv(['pwi']);
       } else if (filterDivision === 'DIV-NB') {
         matchDiv =
           routeTypeCode.includes('nipple') ||
           routeTypeName.includes('nipple') ||
           code.includes('nb') ||
           prodCode.includes('nip') ||
-          r.operations?.some(op => (op.division?.divisionCode === 'DIV-NB' || op.department?.departmentCode?.startsWith('NB')));
+          hasOpDiv(['nb']);
       } else if (filterDivision === 'DIV-WRD') {
         matchDiv =
           routeTypeCode.includes('wrd') ||
@@ -352,14 +429,10 @@ const RoutingManagement: React.FC = () => {
           routeTypeName.includes('wrd') ||
           code.includes('wrd') ||
           prodCode.includes('wrd') ||
-          r.operations?.some((op) =>
-            op.divisionId === 'd1000000-0000-0000-0000-000000000005' ||
-            op.division?.divisionCode === 'DIV-005-WRD' ||
-            op.division?.divisionCode === 'DIV-WRD' ||
-            op.department?.departmentCode?.startsWith('WRD')
-          );
+          hasOpDiv(['wrd']) ||
+          Boolean(r.operations?.some((op) => op.divisionId === 'd1000000-0000-0000-0000-000000000005'));
       } else {
-        matchDiv = r.operations?.some((op) => op.divisionId === filterDivision);
+        matchDiv = Boolean(r.operations?.some((op) => op.divisionId === filterDivision));
       }
       return matchSearch && matchStatus && matchDiv;
     });
@@ -428,7 +501,7 @@ const RoutingManagement: React.FC = () => {
       }
       await apiService.put(`/production/routings/${r.id}`, { isDefault: true });
       message.success(`Set ${r.routingCode} as primary default active routing (Yes)!`);
-      await fetchRoutings();
+      await fetchRoutings(true);
       if (selectedRouting?.id === r.id) {
         await refreshDetail(r.id);
       }
@@ -490,7 +563,7 @@ const RoutingManagement: React.FC = () => {
           }
           message.success(`Successfully attached sequential department operations from ${flow.divisionName}`);
           await refreshDetail(selectedRouting.id);
-          fetchRoutings();
+          void fetchRoutings(true);
         } catch (err: any) {
           message.error(describeRequestError(err) || 'Failed to apply operations');
         }
@@ -559,9 +632,9 @@ const RoutingManagement: React.FC = () => {
           if (copied?.id) {
             setSelectedRouting(copied);
             setDetailVisible(true);
-            await Promise.all([refreshDetail(copied.id), fetchRoutings()]);
+            await Promise.all([refreshDetail(copied.id), fetchRoutings(true)]);
           } else {
-            await fetchRoutings();
+            await fetchRoutings(true);
           }
         } catch (err: any) {
           modal.error({
@@ -651,7 +724,7 @@ const RoutingManagement: React.FC = () => {
       });
       setRoutingResultPhase('success');
       setModalVisible(false);
-      fetchRoutings();
+      void fetchRoutings(true);
       if (editingRouting && selectedRouting?.id === editingRouting.id) await refreshDetail(editingRouting.id);
     } catch (err: any) {
       setRoutingResultError(describeRequestError(err));
@@ -673,7 +746,7 @@ const RoutingManagement: React.FC = () => {
         try {
           await apiService.delete(`/production/routings/${id}`);
           message.success('Routing deleted successfully');
-          fetchRoutings();
+          void fetchRoutings(true);
           if (selectedRouting?.id === id) setDetailVisible(false);
         } catch (err: any) {
           modal.error({
@@ -690,7 +763,7 @@ const RoutingManagement: React.FC = () => {
     try {
       await apiService.put(`/production/routings/${id}/status`, { status });
       message.success(`Routing status changed to ${status}`);
-      fetchRoutings();
+      void fetchRoutings(true);
       if (selectedRouting?.id === id) await refreshDetail(id);
     } catch (err: any) {
       message.error(err?.response?.data?.message || 'Failed to change status');
@@ -751,7 +824,7 @@ const RoutingManagement: React.FC = () => {
   const handleOpSaved = async () => {
     setOpEditor(e => ({ ...e, open: false }));
     if (selectedRouting) await refreshDetail(selectedRouting.id);
-    fetchRoutings();
+    void fetchRoutings(true);
   };
 
   const executeDeleteOp = async (op: RoutingOperation) => {
@@ -775,7 +848,7 @@ const RoutingManagement: React.FC = () => {
       });
       setRoutingResultPhase('success');
       await refreshDetail(selectedRouting!.id);
-      fetchRoutings();
+      void fetchRoutings(true);
     } catch (err: any) {
       setRoutingResultError(describeRequestError(err) || 'Failed to remove operation');
       setRoutingResultPhase('error');
@@ -791,7 +864,7 @@ const RoutingManagement: React.FC = () => {
           <p style={{ fontSize: 14, margin: '8px 0 4px 0' }}>
             Are you sure you want to remove operation <strong>{op.operationCode}</strong> ({op.operationName})?
           </p>
-          <p style={{ color: '#dc2626', fontSize: 12, margin: 0 }}>
+          <p style={{ color: token.colorError, fontSize: 12, margin: 0 }}>
             This will permanently remove this operation from the routing sequence.
           </p>
         </div>
@@ -815,7 +888,7 @@ const RoutingManagement: React.FC = () => {
       );
       message.success('Operation reordered');
       await refreshDetail(selectedRouting!.id);
-      fetchRoutings();
+      void fetchRoutings(true);
     } catch (err: any) {
       message.error(err?.response?.data?.message || 'Failed to reorder operation');
     }
@@ -829,7 +902,7 @@ const RoutingManagement: React.FC = () => {
       );
       message.success('Operation duplicated');
       await refreshDetail(selectedRouting!.id);
-      fetchRoutings();
+      void fetchRoutings(true);
     } catch (err: any) {
       message.error(err?.response?.data?.message || 'Failed to duplicate operation');
     }
@@ -937,16 +1010,16 @@ const RoutingManagement: React.FC = () => {
     return renderIoRows(list);
   };
 
-  const columns: ColumnsType<Routing> = [
+  const columns = useMemo<ColumnsType<Routing>>(() => [
     {
       title: 'Code',
       dataIndex: 'routingCode',
       key: 'routingCode',
-      width: 140,
+      width: 155,
       fixed: 'left',
       sorter: (a, b) => (a.routingCode || '').localeCompare(b.routingCode || ''),
       render: (code: string) => (
-        <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 13, color: token.colorPrimary }}>
+        <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 13, color: token.colorPrimary, whiteSpace: 'nowrap' }}>
           {code}
         </span>
       ),
@@ -955,18 +1028,31 @@ const RoutingManagement: React.FC = () => {
       title: 'Name',
       dataIndex: 'name',
       key: 'name',
-      width: 220,
+      width: 240,
       sorter: (a, b) => (a.name || '').localeCompare(b.name || ''),
       render: (text: string) => (
-        <span style={{ fontWeight: 600, color: token.colorText }}>
-          {text}
-        </span>
+        <Tooltip title={text}>
+          <span
+            style={{
+              fontWeight: 600,
+              color: token.colorText,
+              display: 'inline-block',
+              maxWidth: 215,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              verticalAlign: 'bottom',
+            }}
+          >
+            {text}
+          </span>
+        </Tooltip>
       ),
     },
     {
       title: 'Product',
       key: 'product',
-      width: 240,
+      width: 265,
       sorter: (a, b) => {
         const pA = a.product ? `${a.product.itemCode} ${a.product.name}` : (a.productId || '');
         const pB = b.product ? `${b.product.itemCode} ${b.product.name}` : (b.productId || '');
@@ -974,10 +1060,22 @@ const RoutingManagement: React.FC = () => {
       },
       render: (_, r) =>
         r.product ? (
-          <div>
-            <div style={{ fontWeight: 600, color: token.colorText }}>{r.product.itemCode}</div>
-            <div style={{ fontSize: 11, color: token.colorTextSecondary }}>{r.product.name}</div>
-          </div>
+          <Tooltip title={`${r.product.itemCode} — ${r.product.name}`}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, maxWidth: 240, whiteSpace: 'nowrap' }}>
+              <Text code style={{ margin: 0, flexShrink: 0 }}>{r.product.itemCode}</Text>
+              <span
+                style={{
+                  fontSize: 12,
+                  color: token.colorTextSecondary,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {r.product.name}
+              </span>
+            </span>
+          </Tooltip>
         ) : (
           r.productId || '—'
         ),
@@ -985,7 +1083,7 @@ const RoutingManagement: React.FC = () => {
     {
       title: 'Route Type',
       key: 'routeType',
-      width: 160,
+      width: 175,
       sorter: (a, b) => {
         const rtA = a.routeType?.name || '';
         const rtB = b.routeType?.name || '';
@@ -997,21 +1095,21 @@ const RoutingManagement: React.FC = () => {
     {
       title: 'BOM',
       key: 'bom',
-      width: 120,
+      width: 125,
       sorter: (a, b) => (a.bom?.bomCode || '').localeCompare(b.bom?.bomCode || ''),
-      render: (_, r) => (r.bom ? <Tag color="blue">{r.bom.bomCode}</Tag> : <span style={{ color: token.colorTextTertiary }}>—</span>),
+      render: (_, r) => (r.bom ? <Tag color="blue" style={{ margin: 0 }}>{r.bom.bomCode}</Tag> : <span style={{ color: token.colorTextTertiary }}>—</span>),
     },
     {
       title: 'Status',
       dataIndex: 'status',
       key: 'status',
-      width: 110,
+      width: 105,
       sorter: (a, b) => (a.status || '').localeCompare(b.status || ''),
       render: (s: string, r: Routing) => (
         <Tooltip title={s === 'DRAFT' ? 'Click to Activate this routing' : `Status: ${s}`}>
           <Tag
             color={STATUS_COLORS[s]}
-            style={{ fontWeight: 700, borderRadius: 6, cursor: s === 'DRAFT' ? 'pointer' : 'default' }}
+            style={{ fontWeight: 700, borderRadius: 6, margin: 0, cursor: s === 'DRAFT' ? 'pointer' : 'default' }}
             onClick={() => {
               if (s === 'DRAFT') {
                 confirmStatusChange(r, 'ACTIVE');
@@ -1026,11 +1124,11 @@ const RoutingManagement: React.FC = () => {
     {
       title: 'Ops',
       key: 'ops',
-      width: 70,
+      width: 75,
       align: 'center',
       sorter: (a, b) => (a.operations?.length || 0) - (b.operations?.length || 0),
       render: (_, r) => (
-        <Tag style={{ borderRadius: 10, fontWeight: 700 }}>
+        <Tag style={{ borderRadius: 10, fontWeight: 700, margin: 0, fontVariantNumeric: 'tabular-nums' }}>
           {r.operations?.length || 0}
         </Tag>
       ),
@@ -1039,7 +1137,7 @@ const RoutingManagement: React.FC = () => {
       title: 'Default',
       dataIndex: 'isDefault',
       key: 'isDefault',
-      width: 140,
+      width: 130,
       align: 'center',
       sorter: (a, b) => (a.isDefault === b.isDefault ? 0 : a.isDefault ? 1 : -1),
       render: (v: boolean, r: Routing) =>
@@ -1050,8 +1148,9 @@ const RoutingManagement: React.FC = () => {
               style={{
                 fontWeight: 700,
                 borderRadius: 14,
-                padding: '3px 10px',
+                padding: '2px 10px',
                 fontSize: 12,
+                margin: 0,
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: 4,
@@ -1076,7 +1175,7 @@ const RoutingManagement: React.FC = () => {
                 borderRadius: 12,
                 fontWeight: 700,
                 fontSize: 12,
-                height: 26,
+                height: 24,
                 padding: '0 10px',
               }}
             >
@@ -1088,33 +1187,33 @@ const RoutingManagement: React.FC = () => {
     {
       title: 'Created By / Date',
       key: 'created',
-      width: 165,
+      width: 215,
       sorter: (a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime(),
       render: (_, r) => (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
           <span style={{ fontWeight: 600, color: token.colorText }}>
-            {r.createdByName || (r.createdBy ? 'Muhammad Afsar' : '—')}
+            {r.createdByName || (r.createdBy ? 'System Admin' : '—')}
           </span>
           <span style={{ fontSize: 11, color: token.colorTextSecondary }}>
             {formatDateTime(r.createdAt)}
           </span>
-        </div>
+        </span>
       ),
     },
     {
       title: 'Updated By / Date',
       key: 'updated',
-      width: 165,
+      width: 215,
       sorter: (a, b) => new Date(a.updatedAt || 0).getTime() - new Date(b.updatedAt || 0).getTime(),
       render: (_, r) => (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
           <span style={{ fontWeight: 600, color: token.colorText }}>
-            {r.updatedByName || (r.updatedBy ? 'Muhammad Afsar' : '—')}
+            {r.updatedByName || (r.updatedBy ? 'System Admin' : '—')}
           </span>
           <span style={{ fontSize: 11, color: token.colorTextSecondary }}>
             {formatDateTime(r.updatedAt)}
           </span>
-        </div>
+        </span>
       ),
     },
     {
@@ -1131,7 +1230,7 @@ const RoutingManagement: React.FC = () => {
             <Tooltip title="Set as Active Default Routing (Yes)">
               <Button
                 size="small"
-                icon={<CheckCircleOutlined style={{ color: '#10b981' }} />}
+                icon={<CheckCircleOutlined style={{ color: token.colorSuccess }} />}
                 onClick={() => handleSetDefault(r)}
               />
             </Tooltip>
@@ -1148,7 +1247,13 @@ const RoutingManagement: React.FC = () => {
         </Space>
       ),
     },
-  ];
+  ], [token.colorPrimary, token.colorText, token.colorTextSecondary, token.colorTextTertiary, token.colorSuccess, routeTypes]);
+
+  const { visibleColumns: visibleRoutingColumns, selectorProps: routingColumnSelectorProps } = useColumnVisibility(
+    'pwi_cols_production_routings',
+    columns,
+    { lockedKeys: ['routingCode', 'actions'] },
+  );
 
   const opColumns: ColumnsType<RoutingOperation> = [
     {
@@ -1696,7 +1801,7 @@ const RoutingManagement: React.FC = () => {
   return (
     <TabKeepAlive
       tabId={ROUTING_TAB_ID}
-      load={async () => { await fetchRoutings(); await fetchLookupData(); }}
+      load={async () => {}}
       serialize={() => ({ routings, search, filterStatus, filterDivision })}
     >
       <div style={{ padding: '6px 8px', width: '100%' }}>
@@ -1725,8 +1830,8 @@ const RoutingManagement: React.FC = () => {
               <Statistic
                 title={<span style={{ color: token.colorTextSecondary, fontSize: 12, fontWeight: 600 }}>Active Production Routings</span>}
                 value={stats.active}
-                valueStyle={{ color: '#10b981', fontWeight: 800, fontSize: 22 }}
-                prefix={<CheckCircleFilled style={{ color: '#10b981', marginRight: 6 }} />}
+                valueStyle={{ color: token.colorSuccess, fontWeight: 800, fontSize: 22 }}
+                prefix={<CheckCircleFilled style={{ color: token.colorSuccess, marginRight: 6 }} />}
               />
             </Card>
           </Col>
@@ -1745,8 +1850,8 @@ const RoutingManagement: React.FC = () => {
               <Statistic
                 title={<span style={{ color: token.colorTextSecondary, fontSize: 12, fontWeight: 600 }}>Draft / In Revision</span>}
                 value={stats.draft}
-                valueStyle={{ color: '#f59e0b', fontWeight: 800, fontSize: 22 }}
-                prefix={<ThunderboltOutlined style={{ color: '#f59e0b', marginRight: 6 }} />}
+                valueStyle={{ color: token.colorWarning, fontWeight: 800, fontSize: 22 }}
+                prefix={<ThunderboltOutlined style={{ color: token.colorWarning, marginRight: 6 }} />}
               />
             </Card>
           </Col>
@@ -1833,12 +1938,24 @@ const RoutingManagement: React.FC = () => {
               <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate} style={{ fontWeight: 600 }}>
                 New Routing
               </Button>
-              <Button icon={<ReloadOutlined />} onClick={fetchRoutings}>
+              <Button icon={<ReloadOutlined />} onClick={() => void fetchRoutings(true)} loading={loading}>
                 Refresh
               </Button>
+              <TableColumnSelector {...routingColumnSelectorProps} size="middle" />
             </Space>
           }
         >
+          {routingsError && (
+            <Alert
+              type="error"
+              showIcon
+              closable
+              style={{ marginBottom: 14 }}
+              message="Unable to load production routings"
+              description={routingsError}
+              onClose={() => setRoutingsError(null)}
+            />
+          )}
           <Alert
             message="Clean Master Production Routings (Single Source of Truth)"
             description="Production Routings and multi-department operational stages are automatically synchronized from Item Master & Standard Department Flows. Sample and obsolete developmental records have been sanitized."
@@ -1866,11 +1983,13 @@ const RoutingManagement: React.FC = () => {
                   />
                 )}
                 <Table
+                  className="pwi-routing-directory-table"
                   dataSource={filteredRoutings}
-                  columns={columns}
+                  columns={visibleRoutingColumns}
                   rowKey="id"
+                  size="small"
                   loading={false}
-                  scroll={{ x: 1800 }}
+                  scroll={{ x: 'max-content' }}
                   pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (t) => `Total ${t} routings` }}
                 />
               </>

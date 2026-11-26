@@ -1296,7 +1296,12 @@ export class RawMaterialReceivingService implements OnModuleInit {
     if (filter.sectionId) qb.andWhere('r.sectionId = :sectionId', { sectionId: filter.sectionId });
     if (filter.departmentId) qb.andWhere('r.departmentId = :departmentId', { departmentId: filter.departmentId });
     if (filter.warehouseId) qb.andWhere('r.warehouseId = :warehouseId', { warehouseId: filter.warehouseId });
-    if (filter.gatePassNo) qb.andWhere('r.gatePassNo ILIKE :gatePassNo', { gatePassNo: `%${filter.gatePassNo}%` });
+    if (filter.gatePassNo) {
+      qb.andWhere(
+        '(r.gatePassNo ILIKE :q OR r.receiptCode ILIKE :q OR r.sourceNo ILIKE :q OR r.heatNumber ILIKE :q OR r.reference ILIKE :q)',
+        { q: `%${filter.gatePassNo.trim()}%` },
+      );
+    }
     if (filter.dateFrom) qb.andWhere('r.receiptDate >= :dateFrom', { dateFrom: filter.dateFrom });
     if (filter.dateTo) qb.andWhere('r.receiptDate <= :dateTo', { dateTo: filter.dateTo });
 
@@ -1348,27 +1353,39 @@ export class RawMaterialReceivingService implements OnModuleInit {
     }
 
     const poIds = data.map((h) => h.purchaseOrderId).filter(Boolean) as string[];
-    const poMap = new Map<string, string>();
+    const poMap = new Map<string, { poCode: string | null; supplierName: string | null; supplierCode: string | null }>();
     if (poIds.length > 0) {
       const pos: any[] = await this.receiptRepo.manager.query(
-        `SELECT id, po_code FROM purchase_orders WHERE id = ANY($1)`,
+        `SELECT po.id, po.po_code, s.name AS supplier_name, s.supplier_code
+           FROM purchase_orders po
+           LEFT JOIN suppliers s ON s.id = po.supplier_id
+          WHERE po.id = ANY($1)`,
         [poIds],
       );
       for (const p of pos) {
-        poMap.set(p.id, p.po_code);
+        poMap.set(p.id, {
+          poCode: p.po_code || null,
+          supplierName: p.supplier_name || null,
+          supplierCode: p.supplier_code || null,
+        });
       }
     }
 
     return {
-      data: data.map((h) => ({
-        ...h,
-        poCode: poMap.get(h.purchaseOrderId || '') || h.reference || null,
-        lineCount: (h as any).lineCount ?? (linesMap[h.id]?.length || 0),
-        gatePassTotal: totals[h.id]?.gatePassTotal ?? 0,
-        receivedTotal: totals[h.id]?.receivedTotal ?? 0,
-        differenceTotal: totals[h.id]?.differenceTotal ?? 0,
-        lines: linesMap[h.id] || [],
-      })),
+      data: data.map((h) => {
+        const poInfo = poMap.get(h.purchaseOrderId || '');
+        return {
+          ...h,
+          poCode: poInfo?.poCode || h.reference || null,
+          supplierName: poInfo?.supplierName || null,
+          supplierCode: poInfo?.supplierCode || null,
+          lineCount: (h as any).lineCount ?? (linesMap[h.id]?.length || 0),
+          gatePassTotal: totals[h.id]?.gatePassTotal ?? 0,
+          receivedTotal: totals[h.id]?.receivedTotal ?? 0,
+          differenceTotal: totals[h.id]?.differenceTotal ?? 0,
+          lines: linesMap[h.id] || [],
+        };
+      }),
       total,
     };
   }
@@ -2226,5 +2243,376 @@ export class RawMaterialReceivingService implements OnModuleInit {
     }
 
     return balanceMap;
+  }
+
+  /**
+   * Authoritative, zero-N+1 item-wise and KPI audit summary for Raw Material Receiving.
+   * Cleanly separates Opening Stock (`OPENING` + prior balance / initial stock) from
+   * Gate Pass Declared & Gate Pass Received quantities (`raw_material_receipt_lines`),
+   * and enforces identical totals between Top KPI Cards and Item-Wise Totals across
+   * every Period preset (`All Time`, `This Month`, `Last Month`, `This Quarter`, `FY`, `Custom`).
+   */
+  async getGatePassAuditSummary(
+    companyId: string,
+    filter: {
+      status?: string;
+      divisionId?: string;
+      sectionId?: string;
+      departmentId?: string;
+      warehouseId?: string;
+      gatePassNo?: string;
+      dateFrom?: string;
+      dateTo?: string;
+    } = {},
+    allowedDivisionIds?: DivisionScope,
+  ) {
+    if (filter.divisionId) {
+      RawMaterialReceivingService.assertDivisionAllowed(filter.divisionId, allowedDivisionIds);
+    }
+
+    const round3 = (n: number) => Math.round((Number(n) || 0) * 1000) / 1000;
+
+    if (!isUnrestricted(allowedDivisionIds) && (!allowedDivisionIds || allowedDivisionIds.length === 0)) {
+      return {
+        kpiSummary: {
+          receiptsCount: 0,
+          linesCount: 0,
+          uniquePoCount: 0,
+          totalGatePassKg: 0,
+          totalReceivedKg: 0,
+          totalDifferenceKg: 0,
+          totalReturnedKg: 0,
+          returnsCount: 0,
+          totalOpeningKg: 0,
+          totalUsedInProdKg: 0,
+          totalClosingBalanceKg: 0,
+        },
+        items: [],
+      };
+    }
+
+    const effectiveDivisionIds: string[] | null = filter.divisionId
+      ? [filter.divisionId]
+      : !isUnrestricted(allowedDivisionIds)
+        ? (allowedDivisionIds as string[])
+        : null;
+
+    // 1. Receipt Header + Line Filter (Gate Pass receipts only)
+    const gpParams: any[] = [companyId];
+    const gpWhere: string[] = ['r.company_id = $1'];
+
+    if (effectiveDivisionIds) {
+      gpParams.push(effectiveDivisionIds);
+      gpWhere.push(`r.division_id = ANY($${gpParams.length}::uuid[])`);
+    }
+    if (filter.status) {
+      gpParams.push(filter.status);
+      gpWhere.push(`r.status = $${gpParams.length}`);
+    } else {
+      gpWhere.push(`r.status != 'CANCELLED'`);
+    }
+    if (filter.sectionId) {
+      gpParams.push(filter.sectionId);
+      gpWhere.push(`r.section_id = $${gpParams.length}::uuid`);
+    }
+    if (filter.departmentId) {
+      gpParams.push(filter.departmentId);
+      gpWhere.push(`r.department_id = $${gpParams.length}::uuid`);
+    }
+    if (filter.warehouseId) {
+      gpParams.push(filter.warehouseId);
+      gpWhere.push(`r.warehouse_id = $${gpParams.length}::uuid`);
+    }
+    if (filter.gatePassNo && filter.gatePassNo.trim()) {
+      gpParams.push(`%${filter.gatePassNo.trim()}%`);
+      const idx = gpParams.length;
+      gpWhere.push(
+        `(r.gate_pass_no ILIKE $${idx} OR r.receipt_code ILIKE $${idx} OR r.source_no ILIKE $${idx} OR r.heat_number ILIKE $${idx} OR r.reference ILIKE $${idx})`,
+      );
+    }
+    if (filter.dateFrom) {
+      gpParams.push(filter.dateFrom.slice(0, 10));
+      gpWhere.push(`r.receipt_date >= $${gpParams.length}::date`);
+    }
+    if (filter.dateTo) {
+      gpParams.push(filter.dateTo.slice(0, 10));
+      gpWhere.push(`r.receipt_date <= $${gpParams.length}::date`);
+    }
+
+    const gpWhereSql = gpWhere.join(' AND ');
+
+    // 2. Formal Returns Filter (`raw_material_returns`)
+    const retParams: any[] = [companyId];
+    const retWhere: string[] = [`ret.company_id = $1`, `ret.status != 'CANCELLED'`];
+    if (effectiveDivisionIds) {
+      retParams.push(effectiveDivisionIds);
+      retWhere.push(`ret.division_id = ANY($${retParams.length}::uuid[])`);
+    }
+    if (filter.sectionId) {
+      retParams.push(filter.sectionId);
+      retWhere.push(`ret.section_id = $${retParams.length}::uuid`);
+    }
+    if (filter.departmentId) {
+      retParams.push(filter.departmentId);
+      retWhere.push(`ret.department_id = $${retParams.length}::uuid`);
+    }
+    if (filter.warehouseId) {
+      retParams.push(filter.warehouseId);
+      retWhere.push(`ret.warehouse_id = $${retParams.length}::uuid`);
+    }
+    if (filter.dateFrom) {
+      retParams.push(filter.dateFrom.slice(0, 10));
+      retWhere.push(`ret.return_date >= $${retParams.length}::date`);
+    }
+    if (filter.dateTo) {
+      retParams.push(filter.dateTo.slice(0, 10));
+      retWhere.push(`ret.return_date <= $${retParams.length}::date`);
+    }
+    const retWhereSql = retWhere.join(' AND ');
+
+    // 3. Stock Ledger RM Warehouse Rollforward Filter
+    // Scope strictly to active RAW_MATERIAL warehouses in the selected division/company
+    // (or the explicit warehouseId) so non-RM general/WIP seed entries do not pollute RM balances.
+    const slParams: any[] = [companyId];
+    const slWhere: string[] = [
+      `sl.company_id = $1`,
+      `i.item_type = 'RAW_MATERIAL'`,
+      `i.status = 'ACTIVE'`,
+    ];
+    if (filter.warehouseId) {
+      slParams.push(filter.warehouseId);
+      slWhere.push(`sl.warehouse_id = $${slParams.length}::uuid`);
+    } else {
+      slWhere.push(`w.warehouse_type = 'RAW_MATERIAL'`);
+      if (effectiveDivisionIds) {
+        slParams.push(effectiveDivisionIds);
+        slWhere.push(`w.division_id = ANY($${slParams.length}::uuid[])`);
+      }
+    }
+    if (filter.sectionId) {
+      slParams.push(filter.sectionId);
+      slWhere.push(`(i.section_id IS NULL OR i.section_id = $${slParams.length}::uuid)`);
+    }
+    if (filter.departmentId) {
+      slParams.push(filter.departmentId);
+      slWhere.push(`(i.department_id IS NULL OR i.department_id = $${slParams.length}::uuid)`);
+    }
+
+    const cleanDateFrom = filter.dateFrom ? filter.dateFrom.slice(0, 10) : null;
+    const cleanDateTo = filter.dateTo ? filter.dateTo.slice(0, 10) : null;
+
+    let dateFromIdx = 0;
+    let dateToIdx = 0;
+    if (cleanDateFrom) {
+      slParams.push(cleanDateFrom);
+      dateFromIdx = slParams.length;
+    }
+    if (cleanDateTo) {
+      slParams.push(cleanDateTo);
+      dateToIdx = slParams.length;
+    }
+
+    const localDateExpr = `(sl.transaction_date AT TIME ZONE 'Asia/Karachi')::date`;
+    const inPeriodCondParts: string[] = [];
+    if (dateFromIdx > 0) inPeriodCondParts.push(`${localDateExpr} >= $${dateFromIdx}::date`);
+    if (dateToIdx > 0) inPeriodCondParts.push(`${localDateExpr} <= $${dateToIdx}::date`);
+    const inPeriodCond = inPeriodCondParts.length > 0 ? inPeriodCondParts.join(' AND ') : 'TRUE';
+
+    const openingBeforeCond = dateFromIdx > 0 ? `${localDateExpr} < $${dateFromIdx}::date` : 'FALSE';
+    const initialStockTypesCond = `(sl.transaction_type = 'OPENING' OR (sl.transaction_type = 'RECEIPT' AND (sl.reference_type IS NULL OR sl.reference_type != 'MATERIAL_RECEIPT')) OR sl.transaction_type IN ('TRANSFER_IN', 'TRANSFER_OUT'))`;
+    const signedQtyExpr = `CASE WHEN sl.direction = 'IN' THEN sl.quantity ELSE -sl.quantity END`;
+    const prodUsedSignedExpr = `CASE
+      WHEN sl.direction = 'OUT' AND (sl.transaction_type IN ('PRODUCTION_CONSUMPTION', 'PRODUCTION_ISSUE') OR sl.reference_type = 'PRODUCTION_ENTRY') THEN sl.quantity
+      WHEN sl.direction = 'IN' AND sl.transaction_type = 'PRODUCTION_REVERSAL' THEN -sl.quantity
+      ELSE 0
+    END`;
+
+    const [gpHeaderAggRows, gpItemRows, retHeaderAggRows, retItemRows, slItemRows] = await Promise.all([
+      this.receiptRepo.manager.query(
+        `SELECT COUNT(DISTINCT r.id)::int AS receipts_count,
+                COUNT(rl.id)::int AS lines_count,
+                COUNT(DISTINCT NULLIF(TRIM(COALESCE(po.po_code, r.reference, '')), ''))::int AS unique_po_count,
+                COALESCE(SUM(rl.gate_pass_quantity), 0) AS total_gp_kg,
+                COALESCE(SUM(rl.received_quantity), 0) AS total_received_kg
+           FROM raw_material_receipts r
+           JOIN raw_material_receipt_lines rl ON rl.receipt_id = r.id
+           LEFT JOIN purchase_orders po ON po.id = r.purchase_order_id
+          WHERE ${gpWhereSql}`,
+        gpParams,
+      ),
+      this.receiptRepo.manager.query(
+        `SELECT rl.item_id AS "itemId",
+                MAX(i.item_code) AS "itemCode",
+                MAX(i.name) AS "itemName",
+                COALESCE(MAX(u.code), MAX(u.symbol), 'KG') AS "uomCode",
+                COALESCE(SUM(rl.gate_pass_quantity), 0) AS "gatePassTotal",
+                COALESCE(SUM(rl.received_quantity), 0) AS "receivedTotal",
+                COUNT(DISTINCT r.id)::int AS "receiptCount",
+                ARRAY_REMOVE(ARRAY_AGG(DISTINCT NULLIF(TRIM(COALESCE(r.gate_pass_no, r.receipt_code)), '')), NULL) AS "gatePassNumbers",
+                ARRAY_REMOVE(ARRAY_AGG(DISTINCT NULLIF(TRIM(COALESCE(po.po_code, r.reference)), '')), NULL) AS "poNumbers"
+           FROM raw_material_receipts r
+           JOIN raw_material_receipt_lines rl ON rl.receipt_id = r.id
+           JOIN items i ON i.id = rl.item_id
+           LEFT JOIN uoms u ON u.id = COALESCE(rl.uom_id, i.base_uom_id)
+           LEFT JOIN purchase_orders po ON po.id = r.purchase_order_id
+          WHERE ${gpWhereSql}
+          GROUP BY rl.item_id`,
+        gpParams,
+      ),
+      this.receiptRepo.manager.query(
+        `SELECT COUNT(DISTINCT ret.id)::int AS returns_count
+           FROM raw_material_returns ret
+          WHERE ${retWhereSql}`,
+        retParams,
+      ),
+      this.receiptRepo.manager.query(
+        `SELECT retl.item_id AS "itemId",
+                MAX(i.item_code) AS "itemCode",
+                MAX(i.name) AS "itemName",
+                COALESCE(MAX(u.code), MAX(u.symbol), 'KG') AS "uomCode",
+                COALESCE(SUM(retl.quantity), 0) AS "returnedTotal"
+           FROM raw_material_returns ret
+           JOIN raw_material_return_lines retl ON retl.return_id = ret.id
+           JOIN items i ON i.id = retl.item_id
+           LEFT JOIN uoms u ON u.id = COALESCE(retl.uom_id, i.base_uom_id)
+          WHERE ${retWhereSql}
+          GROUP BY retl.item_id`,
+        retParams,
+      ),
+      this.receiptRepo.manager.query(
+        `SELECT sl.item_id AS "itemId",
+                MAX(i.item_code) AS "itemCode",
+                MAX(i.name) AS "itemName",
+                COALESCE(MAX(u.code), MAX(u.symbol), 'KG') AS "uomCode",
+                COALESCE(SUM(CASE
+                  WHEN (${openingBeforeCond}) AND sl.transaction_type != 'PRODUCTION_SCRAP' THEN (${signedQtyExpr})
+                  WHEN (${inPeriodCond}) AND (${initialStockTypesCond}) THEN (${signedQtyExpr})
+                  ELSE 0
+                END), 0) AS "openingStock",
+                COALESCE(SUM(CASE WHEN (${inPeriodCond}) THEN (${prodUsedSignedExpr}) ELSE 0 END), 0) AS "usedInProduction",
+                COALESCE(SUM(CASE
+                  WHEN (${inPeriodCond}) AND sl.transaction_type = 'RETURN_OUT' AND (sl.reference_type IS NULL OR sl.reference_type != 'MATERIAL_RETURN')
+                  THEN sl.quantity ELSE 0
+                END), 0) AS "legacyReturnTotal",
+                COUNT(*) FILTER (
+                  WHERE (${inPeriodCond}) AND sl.transaction_type = 'RETURN_OUT' AND (sl.reference_type IS NULL OR sl.reference_type != 'MATERIAL_RETURN')
+                )::int AS "legacyReturnCount",
+                COALESCE(SUM(CASE
+                  WHEN (${inPeriodCond}) AND sl.transaction_type IN ('ADJUSTMENT_IN', 'ADJUSTMENT_OUT')
+                  THEN (${signedQtyExpr}) ELSE 0
+                END), 0) AS "stockAdjustmentTotal"
+           FROM stock_ledger sl
+           JOIN items i ON i.id = sl.item_id
+           LEFT JOIN uoms u ON u.id = i.base_uom_id
+           LEFT JOIN warehouses w ON w.id = sl.warehouse_id
+          WHERE ${slWhere.join(' AND ')}
+          GROUP BY sl.item_id`,
+        slParams,
+      ),
+    ]);
+
+    const gpAgg = gpHeaderAggRows?.[0] || {};
+    const receiptsCount = Number(gpAgg.receipts_count || 0);
+    const linesCount = Number(gpAgg.lines_count || 0);
+    const uniquePoCount = Number(gpAgg.unique_po_count || 0);
+    const totalGatePassKg = round3(Number(gpAgg.total_gp_kg || 0));
+    const totalReceivedKg = round3(Number(gpAgg.total_received_kg || 0));
+    const totalDifferenceKg = round3(totalReceivedKg - totalGatePassKg);
+
+    const hasSearchFilter = !!(filter.gatePassNo && filter.gatePassNo.trim());
+    const gpByItem = new Map<string, any>();
+    for (const r of gpItemRows || []) gpByItem.set(r.itemId, r);
+
+    const retByItem = new Map<string, any>();
+    for (const r of retItemRows || []) retByItem.set(r.itemId, r);
+
+    const slByItem = new Map<string, any>();
+    for (const r of slItemRows || []) slByItem.set(r.itemId, r);
+
+    const allItemIds = new Set<string>();
+    for (const id of gpByItem.keys()) allItemIds.add(id);
+    if (!hasSearchFilter) {
+      for (const id of retByItem.keys()) allItemIds.add(id);
+      for (const [id, slRow] of slByItem.entries()) {
+        const hasActivity =
+          Math.abs(Number(slRow.openingStock || 0)) > 0.0001 ||
+          Math.abs(Number(slRow.usedInProduction || 0)) > 0.0001 ||
+          Math.abs(Number(slRow.legacyReturnTotal || 0)) > 0.0001 ||
+          Math.abs(Number(slRow.stockAdjustmentTotal || 0)) > 0.0001;
+        if (hasActivity) allItemIds.add(id);
+      }
+    }
+
+    let totalReturnedKg = 0;
+    let totalLegacyReturnCount = 0;
+    let totalOpeningKg = 0;
+    let totalUsedInProdKg = 0;
+    let totalClosingBalanceKg = 0;
+
+    const items: any[] = [];
+    for (const itemId of allItemIds) {
+      const gp = gpByItem.get(itemId);
+      const ret = retByItem.get(itemId);
+      const sl = slByItem.get(itemId);
+
+      const openingStock = round3(Number(sl?.openingStock || 0));
+      const gatePassTotal = round3(Number(gp?.gatePassTotal || 0));
+      const receivedTotal = round3(Number(gp?.receivedTotal || 0));
+      const formalRet = round3(Number(ret?.returnedTotal || 0));
+      const legacyRet = round3(Number(sl?.legacyReturnTotal || 0));
+      const returnedTotal = round3(formalRet + legacyRet);
+      const usedInProduction = round3(Math.max(0, Number(sl?.usedInProduction || 0)));
+      const stockAdjustmentTotal = round3(Number(sl?.stockAdjustmentTotal || 0));
+
+      const netBalanceTotal = round3(openingStock + receivedTotal - returnedTotal);
+      const currentStoreBalance = round3(
+        openingStock + receivedTotal - returnedTotal - usedInProduction + stockAdjustmentTotal,
+      );
+      const differenceTotal = round3(receivedTotal - gatePassTotal);
+
+      totalReturnedKg += returnedTotal;
+      totalLegacyReturnCount += Number(sl?.legacyReturnCount || 0);
+      totalOpeningKg += openingStock;
+      totalUsedInProdKg += usedInProduction;
+      totalClosingBalanceKg += currentStoreBalance;
+
+      items.push({
+        itemId,
+        itemCode: gp?.itemCode || ret?.itemCode || sl?.itemCode || 'RAW-MAT',
+        itemName: gp?.itemName || ret?.itemName || sl?.itemName || 'Raw Material',
+        uomCode: gp?.uomCode || ret?.uomCode || sl?.uomCode || 'KG',
+        openingStock,
+        gatePassTotal,
+        receivedTotal,
+        returnedTotal,
+        netBalanceTotal,
+        usedInProduction,
+        stockAdjustmentTotal,
+        currentStoreBalance,
+        differenceTotal,
+        receiptCount: Number(gp?.receiptCount || 0),
+        gatePassNumbers: Array.isArray(gp?.gatePassNumbers) ? gp.gatePassNumbers : [],
+        poNumbers: Array.isArray(gp?.poNumbers) ? gp.poNumbers : [],
+      });
+    }
+
+    items.sort((a, b) => (b.receivedTotal - a.receivedTotal) || (b.openingStock - a.openingStock) || a.itemCode.localeCompare(b.itemCode));
+
+    return {
+      kpiSummary: {
+        receiptsCount,
+        linesCount,
+        uniquePoCount,
+        totalGatePassKg,
+        totalReceivedKg,
+        totalDifferenceKg,
+        totalReturnedKg: round3(totalReturnedKg),
+        returnsCount: Number(retHeaderAggRows?.[0]?.returns_count || 0) + (hasSearchFilter ? 0 : totalLegacyReturnCount),
+        totalOpeningKg: round3(totalOpeningKg),
+        totalUsedInProdKg: round3(totalUsedInProdKg),
+        totalClosingBalanceKg: round3(totalClosingBalanceKg),
+      },
+      items,
+    };
   }
 }

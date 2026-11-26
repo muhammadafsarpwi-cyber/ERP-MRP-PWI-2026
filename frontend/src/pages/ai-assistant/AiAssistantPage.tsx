@@ -91,6 +91,7 @@ import {
   exportAiReportToExcel,
   shareAiReportOnWhatsApp,
 } from './aiReportExporter';
+import { useWhatsAppSettingsVersion } from '../../utils/whatsappTemplateRenderer';
 
 // AI Assistant ERP reporting module
 dayjs.extend(weekOfYear);
@@ -216,6 +217,7 @@ interface ChatSession {
 const AiAssistantPage: React.FC = () => {
   const navigate = useNavigate();
   const isDark = useThemeStore((state) => state.draft.mode === 'dark');
+  useWhatsAppSettingsVersion();
 
   const [divisionsList, setDivisionsList] = useState<DivisionMeta[]>(DEFAULT_DIVISIONS);
   const [selectedDivisionCode, setSelectedDivisionCode] = useState<string>('DIV-CCD');
@@ -1191,7 +1193,7 @@ const AiAssistantPage: React.FC = () => {
 
   const handleOpenWhatsAppModal = (msg: ChatMessage) => {
     const target = resolveSourceReportMessage(msg);
-    const waText = target.whatsappText || buildAiReportWhatsAppText(target);
+    const waText = buildAiReportWhatsAppText(target);
     setWhatsappDraftText(waText);
     setWhatsappModalMsg(target);
     try {
@@ -1202,7 +1204,7 @@ const AiAssistantPage: React.FC = () => {
 
   const handleCopy = (msg: ChatMessage) => {
     const target = resolveSourceReportMessage(msg);
-    const copyContent = target.whatsappText || buildAiReportWhatsAppText(target);
+    const copyContent = buildAiReportWhatsAppText(target);
     navigator.clipboard.writeText(copyContent);
     setCopiedId(msg.id);
     message.success('Report copied to clipboard');
@@ -1439,12 +1441,24 @@ const AiAssistantPage: React.FC = () => {
         intent.dimension === 'daily_granular_ledger' ||
         isGrossActive ||
         (intent.confidence === 'high' &&
-          (intent.dimension === 'last_entry' || intent.dimension === 'customer'));
+          (intent.dimension === 'last_entry' ||
+            intent.dimension === 'customer' ||
+            intent.dimension === 'raw_material_receiving' ||
+            intent.dimension === 'raw_material_stock'));
 
       if (serverLlmAvailableRef.current === true && !shouldPreferLocalSpecialized) {
+        const resolvedIntentDiv =
+          intent.divisionCode === 'ALL'
+            ? { id: 'ALL', code: 'ALL' }
+            : divisionsList.find(
+                (d) =>
+                  d.code === intent.divisionCode ||
+                  d.id === intent.divisionCode ||
+                  canonicalizeDivisionCode(d.code, d.id) === canonicalizeDivisionCode(intent.divisionCode),
+              ) || divMeta;
         try {
           const answer = await aiAssistantService.askQuestion(query, {
-            divisionId: divMeta.id,
+            divisionId: resolvedIntentDiv.id === 'ALL' ? 'ALL' : resolvedIntentDiv.id,
             departmentId: deptMeta?.id,
             departmentName: effectiveDept !== 'ALL' ? (deptMeta?.name || effectiveDept) : undefined,
             dateFrom: intent.period.startDate,
@@ -2468,7 +2482,8 @@ const AiAssistantPage: React.FC = () => {
                                 size="small"
                                 icon={<CopyOutlined />}
                                 onClick={() => {
-                                  navigator.clipboard.writeText(msg.whatsappText || '');
+                                  const liveWa = buildAiReportWhatsAppText(msg);
+                                  navigator.clipboard.writeText(liveWa);
                                   message.success('WhatsApp message copied to clipboard');
                                 }}
                                 style={{ fontWeight: 600 }}
@@ -2479,7 +2494,7 @@ const AiAssistantPage: React.FC = () => {
                                 size="small"
                                 type="primary"
                                 icon={<WhatsAppOutlined />}
-                                onClick={() => shareAiReportOnWhatsApp(msg.whatsappText || '')}
+                                onClick={() => shareAiReportOnWhatsApp(buildAiReportWhatsAppText(msg))}
                                 style={{ background: '#16a34a', borderColor: '#16a34a', fontWeight: 700 }}
                               >
                                 Send on WhatsApp
@@ -2496,10 +2511,10 @@ const AiAssistantPage: React.FC = () => {
                               lineHeight: 1.55,
                               maxHeight: 380,
                               overflowY: 'auto',
-                              color: isDark ? '#f8fafc' : '#0f172a',
+                              color: 'var(--theme-text)',
                             }}
                           >
-                            {msg.whatsappText}
+                            {buildAiReportWhatsAppText(msg)}
                           </pre>
                         </div>
                       )}
@@ -2566,8 +2581,8 @@ const AiAssistantPage: React.FC = () => {
                             overflowY: 'hidden',
                             WebkitOverflowScrolling: 'touch',
                             maxWidth: '100%',
-                            border: isDark ? '1px solid #334155' : '1px solid #e2e8f0',
-                            background: isDark ? '#0f172a' : '#ffffff',
+                            border: '1px solid var(--theme-border)',
+                            background: 'var(--theme-surface)',
                           }}
                         >
                           <Table

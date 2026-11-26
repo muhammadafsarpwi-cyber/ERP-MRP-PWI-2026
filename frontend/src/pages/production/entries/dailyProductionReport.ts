@@ -11,7 +11,15 @@ import {
  * are EXACTLY the figures the on-screen grid and its KPIs render. */
 import { effectiveDowntime, effectiveRunning } from './downtimeHours';
 import { entryOvertimeHours } from './overtimeHours';
-import { renderWhatsAppTemplate, resolveWhatsAppTemplate, WHATSAPP_SETTINGS_STORAGE_KEY } from '../../../utils/whatsappSettingsStore';
+import {
+  DEFAULT_COMPANY_NAME,
+  DEFAULT_DAILY_PRODUCTION_REPORT_TEMPLATE,
+  DEFAULT_DIRECTOR_SUMMARY_DEPT_TEMPLATE,
+  DEFAULT_DIRECTOR_SUMMARY_TEMPLATE,
+  WHATSAPP_SETTINGS_STORAGE_KEY,
+  renderWhatsAppTemplate,
+  resolveWhatsAppTemplate,
+} from '../../../utils/whatsappTemplateRenderer';
 
 /**
  * PHASE 7 — DAILY PRODUCTION REPORT model (Print / PDF / Excel-CSV).
@@ -2600,21 +2608,16 @@ export function buildDailyProductionWhatsApp(
   out.push('━━━━━━━━━━━━━━━━━━━━');
   out.push(`_Report generated via PWI ERP System • ${model.generatedLabel}_`);
 
-  const customTemplate = resolveWhatsAppTemplate('dailyProductionReport', '');
-  if (customTemplate) {
-    const bodyLines = out.slice(5, -2).join('\n');
-    return renderWhatsAppTemplate(customTemplate, {
-      '{company}': 'Pakistan Wire Industries (Pvt.) LTD',
-      '{division}': model.divisionName.toUpperCase(),
-      '{date}': model.dateLabel,
-      '{shift_suffix}': model.shiftLabel ? ` | *Shift:* ${model.shiftLabel}` : '',
-      '{audited}': `${model.grand.machines} Machines · ${model.grand.entries} Entries · ${model.sections.length} Depts`,
-      '{report_body}': bodyLines,
-      '{generated_label}': model.generatedLabel,
-    });
-  }
-
-  return out.join('\n');
+  const bodyLines = out.slice(5, -2).join('\n');
+  return renderWhatsAppTemplate('[PROD-FULL]', {
+    company: DEFAULT_COMPANY_NAME,
+    division: model.divisionName.toUpperCase(),
+    date: model.dateLabel,
+    shift_suffix: model.shiftLabel ? ` | *Shift:* ${model.shiftLabel}` : '',
+    audited: `${model.grand.machines} Machines · ${model.grand.entries} Entries · ${model.sections.length} Depts`,
+    report_body: bodyLines,
+    generated_label: model.generatedLabel,
+  });
 }
 
 
@@ -2665,30 +2668,11 @@ function buildSectionItemUomMap(section: ReportSection, fallbackUom: string): Ma
 
 export const PROD_DIR_SUMMARY_STORAGE_KEY = WHATSAPP_SETTINGS_STORAGE_KEY;
 
-export const DEFAULT_DAILY_PRODUCTION_REPORT_TEMPLATE = `🏭 *{company}*
-📊 *DAILY PRODUCTION REPORT — {division}*
-📅 *{date}*{shift_suffix}
-⚡ *Audited:* {audited}
-━━━━━━━━━━━━━━━━━━━━
-{report_body}
-━━━━━━━━━━━━━━━━━━━━
-_Report generated via PWI ERP System • {generated_label}_`;
-
-export const DEFAULT_DIRECTOR_SUMMARY_TEMPLATE = `📊 *DAILY PRODUCTION SUMMARY*
-🏭 *Division:* {division}
-📅 *Date:* {date}
-
-{department_blocks}
-
-✅ *Generated via PWI ERP System*`;
-
-export const DEFAULT_DIRECTOR_SUMMARY_DEPT_TEMPLATE = `🔹 *{index}. {department}*
-Target: {target}
-Actual: {actual} ({achievement})
-Part Rejection: {part_rejection}
-Process Scrap: {process_scrap}
-*Item Breakdown:*
-{item_rows}`;
+export {
+  DEFAULT_DAILY_PRODUCTION_REPORT_TEMPLATE,
+  DEFAULT_DIRECTOR_SUMMARY_TEMPLATE,
+  DEFAULT_DIRECTOR_SUMMARY_DEPT_TEMPLATE,
+};
 
 export interface DirectorSummaryTemplateOptions {
   mainTemplate?: string;
@@ -2779,6 +2763,7 @@ export function buildDirectorSummaryWhatsApp(
   });
 
   return applyTemplateTokens(mainTemplate, {
+    '{company}': DEFAULT_COMPANY_NAME,
     '{division}': model.divisionName,
     '{date}': formatDirectorSummaryDate(model.dateLabel),
     '{department_blocks}': deptBlocks.join('\n\n'),

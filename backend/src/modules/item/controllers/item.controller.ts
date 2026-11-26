@@ -87,6 +87,7 @@ export class ItemController {
   @ApiQuery({ name: 'trackInventory', required: false })
   @ApiQuery({ name: 'sortField', required: false })
   @ApiQuery({ name: 'sortOrder', required: false })
+  @ApiQuery({ name: 'view', required: false, enum: ['directory', 'full'] })
   async findAll(
     @Req() req: any,
     @Query('page') page?: number,
@@ -115,6 +116,7 @@ export class ItemController {
     @Query('trackInventory') trackInventory?: boolean,
     @Query('sortField') sortField?: string,
     @Query('sortOrder') sortOrder?: string,
+    @Query('view') view?: 'directory' | 'full',
   ) {
     const result = await this.itemService.findAll({
       page: Number(page) || 1, limit: Number(limit) || 20, search, status, itemType, itemTypes, itemTypeId, categoryId, companyId,
@@ -124,7 +126,7 @@ export class ItemController {
       widthMm: widthMm !== undefined && widthMm !== null && `${widthMm}` !== '' ? Number(widthMm) : undefined,
       active: active === 'true' ? true : active === 'false' ? false : undefined,
       isPurchasable, isSellable, isManufacturable, isStockItem, trackInventory,
-      sortField, sortOrder,
+      sortField, sortOrder, view,
       allowedDivisionIds: this.divisions(req),
     });
     return { success: true, ...result };

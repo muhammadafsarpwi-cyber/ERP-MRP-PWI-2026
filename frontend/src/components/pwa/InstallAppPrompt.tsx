@@ -12,6 +12,10 @@ import {
   InfoCircleOutlined,
 } from '@ant-design/icons';
 import { usePwaInstall } from '../../context/PwaInstallContext';
+import {
+  DEFAULT_COMPANY_NAME,
+  openWhatsAppWithTemplate,
+} from '../../utils/whatsappTemplateRenderer';
 
 const { Text, Title, Paragraph } = Typography;
 
@@ -95,10 +99,10 @@ export const InstallAppPrompt: React.FC = () => {
   };
 
   const handleWhatsAppShare = () => {
-    const text = encodeURIComponent(
-      `Pakistan Wire Industries (PWI) ERP Mobile App:\n${mobileInstallUrl}\n\nOpen this link in Chrome/Safari on your mobile phone to install the PWI ERP application.`
-    );
-    window.open(`https://wa.me/?text=${text}`, '_blank');
+    openWhatsAppWithTemplate('[APP-INSTALL]', {
+      company: DEFAULT_COMPANY_NAME,
+      link: mobileInstallUrl,
+    });
   };
 
   const handleCopyLink = () => {

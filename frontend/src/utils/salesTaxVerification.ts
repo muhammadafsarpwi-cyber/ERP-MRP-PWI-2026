@@ -120,14 +120,19 @@ export function summarizeLinesTaxVerification(
 
     const rawName = raw.item?.name || raw.itemName || raw.productName || raw.description || 'Item';
     const cleanName = String(rawName).replace(/\s*\[SOC:[^\]]+\]/i, '').trim() || 'Item';
-    const uomCode = raw.uom?.code || raw.uomCode || 'GRS';
+    const uomCode = String(raw.uom?.code || raw.uomCode || raw.item?.salesUom?.code || raw.item?.baseUom?.code || 'GRS').toUpperCase();
     const pkgSize = Number(raw.packagingSize ?? raw.item?.packagingSize ?? 0);
     const explicitCartons = Number(raw.cartons ?? raw.packageQuantity ?? 0);
+    const isMeter = ['M', 'MTR', 'METER', 'METRE', 'METERS', 'METRES'].includes(uomCode);
     const cartons = explicitCartons > 0
       ? explicitCartons
       : (pkgSize > 0 && qty > 0
           ? round2(qty / pkgSize)
-          : (String(uomCode).toUpperCase().startsWith('GR') && qty > 0 ? round2(qty / 10) : 0));
+          : (isMeter && qty > 0 ? round2(qty / 250) : (uomCode.startsWith('GR') && qty > 0 ? round2(qty / 10) : 0)));
+    const rawPkgUnit = String(raw.packagingUnit || raw.item?.packagingUnit || '').trim();
+    const packagingUnit = isMeter
+      ? ((!rawPkgUnit || /^(ctn|carton|cartons)$/i.test(rawPkgUnit)) ? 'COILS' : rawPkgUnit.toUpperCase())
+      : (rawPkgUnit || (uomCode === 'KG' ? 'KG' : 'CTN')).toUpperCase();
 
     return {
       key: String(raw.id || `${idx}`),
@@ -137,7 +142,7 @@ export function summarizeLinesTaxVerification(
       quantity: qty,
       uomCode,
       cartons,
-      packagingUnit: String(raw.packagingUnit || raw.item?.packagingUnit || 'CTN').toUpperCase(),
+      packagingUnit,
       unitPrice,
       discountPercent,
       taxPercent,

@@ -51,7 +51,7 @@ const DEFAULT_CACHE_RULES: CacheRule[] = [
     id: 'items',
     pattern: /^\/(master-data\/)?items(\/.*)?$/,
     excludePattern: /\/(cleanup|delete-eligibility|stock-ledger|inventory|production-history|qr|convert)$/,
-    ttlMs: 30_000,
+    ttlMs: 60_000,
     tags: ['items'],
   },
   {
@@ -88,7 +88,7 @@ const DEFAULT_CACHE_RULES: CacheRule[] = [
   {
     id: 'routings',
     pattern: /^\/production\/routings(\/.*)?$/,
-    ttlMs: 30_000,
+    ttlMs: 60_000,
     tags: ['routings'],
   },
   {
@@ -166,6 +166,20 @@ const DEFAULT_CACHE_RULES: CacheRule[] = [
     tags: ['finance'],
     perUser: true,
   },
+  {
+    id: 'sales-deliveries:list:v2',
+    pattern: /^\/sales\/deliveries(\/next-gate-pass)?$/,
+    ttlMs: 60_000,
+    tags: ['sales-deliveries', 'sales-analytics', 'sales-orders'],
+    perUser: true,
+  },
+  {
+    id: 'sales-and-production:lists',
+    pattern: /^\/(sales\/orders|production\/(entries|open-stock\/(history|matrix|items)))$/,
+    ttlMs: 30_000,
+    tags: ['sales-analytics', 'sales-orders'],
+    perUser: true,
+  },
 ];
 
 const INVALIDATION_RULES: Array<{ pattern: RegExp; tags: string[] | 'ALL' }> = [
@@ -180,7 +194,7 @@ const INVALIDATION_RULES: Array<{ pattern: RegExp; tags: string[] | 'ALL' }> = [
   { pattern: /^\/team-chat(\/|$)/, tags: ['team-chat:users', 'team-chat:conversations'] },
   { pattern: /^\/(sections|master-data\/(operations|categories|item-types|route-types))(\/|$)/, tags: ['masters', 'items', 'routings', 'dashboard'] },
   { pattern: /^\/customer(\/|$)/, tags: ['customers', 'dashboard', 'finance'] },
-  { pattern: /^\/(sales|procurement|inventory|production|store|bom|raw-material-receiving)(\/|$)/, tags: ['sales-analytics', 'nipple-alerts', 'routings', 'dashboard', 'sales-command', 'sales-orders', 'production:bulk-ledger', 'finance'] },
+  { pattern: /^\/(sales|procurement|inventory|production|store|bom|raw-material-receiving)(\/|$)/, tags: ['sales-deliveries', 'sales-analytics', 'nipple-alerts', 'routings', 'dashboard', 'sales-command', 'sales-orders', 'production:bulk-ledger', 'finance'] },
   { pattern: /^\/finance(\/|$)/, tags: ['finance', 'dashboard'] },
   { pattern: /^\/(notifications|communication)(\/|$)/, tags: ['comm-summary'] },
   { pattern: /^\/admin\/(users|roles|permissions|recycle-bin)(\/|$)/, tags: 'ALL' },

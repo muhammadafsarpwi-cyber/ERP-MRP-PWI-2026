@@ -156,6 +156,8 @@ export class ProductionRoutingService {
     const safeLimit = Math.min(Math.max(Number(limit) || 200, 1), 500);
     let routings: ProductionRouting[];
     if (typeof this.routingRepo.createQueryBuilder === 'function') {
+      // Lean list query: loads directory headers + minimal operations/division metadata
+      // (avoids 33-way nested I/O joins; full details still load via findOne(id)).
       routings = await this.routingRepo
         .createQueryBuilder('r')
         .select([
@@ -163,12 +165,14 @@ export class ProductionRoutingService {
           'r.companyId',
           'r.routingCode',
           'r.name',
+          'r.description',
           'r.status',
           'r.isDefault',
           'r.productId',
           'r.bomId',
           'r.routeTypeId',
           'r.baseQuantity',
+          'r.estimatedTotalTime',
           'r.effectiveFrom',
           'r.effectiveTo',
           'r.createdBy',
@@ -190,100 +194,16 @@ export class ProductionRoutingService {
           'op.operationCode',
           'op.operationName',
           'op.divisionId',
-          'op.sectionId',
           'op.departmentId',
-          'op.machineId',
-          'op.operationId',
-          'op.uomId',
           'op.inputItemId',
           'op.outputItemId',
-          'op.inputQuantity',
-          'op.outputQuantity',
-          'op.setupTimeMinutes',
-          'op.runTimeMinutes',
           'op.status',
           'op.isActive',
-          'op.laborRequired',
-          'op.machineRequired',
         ])
         .leftJoin('op.division', 'division')
         .addSelect(['division.id', 'division.name', 'division.divisionCode'])
-        .leftJoin('op.section', 'section')
-        .addSelect(['section.id', 'section.name'])
         .leftJoin('op.department', 'department')
         .addSelect(['department.id', 'department.name', 'department.departmentCode'])
-        .leftJoin('op.machine', 'machine')
-        .addSelect(['machine.id', 'machine.machineCode', 'machine.name'])
-        .leftJoin('op.operation', 'operation')
-        .addSelect(['operation.id', 'operation.operationCode', 'operation.name'])
-        .leftJoin('op.uom', 'opUom')
-        .addSelect(['opUom.id', 'opUom.code', 'opUom.symbol'])
-        .leftJoin('op.inputItem', 'inputItem')
-        .addSelect(['inputItem.id', 'inputItem.itemCode', 'inputItem.name', 'inputItem.baseUomId'])
-        .leftJoin('inputItem.baseUom', 'inputItemUom')
-        .addSelect(['inputItemUom.id', 'inputItemUom.code', 'inputItemUom.symbol'])
-        .leftJoin('op.outputItem', 'outputItem')
-        .addSelect([
-          'outputItem.id',
-          'outputItem.itemCode',
-          'outputItem.name',
-          'outputItem.baseUomId',
-          'outputItem.productionInItemId',
-          'outputItem.productionInItemId2',
-          'outputItem.productionInItemId3',
-        ])
-        .leftJoin('outputItem.baseUom', 'outputItemUom')
-        .addSelect(['outputItemUom.id', 'outputItemUom.code', 'outputItemUom.symbol'])
-        .leftJoin('outputItem.productionInItem', 'outIn1')
-        .addSelect(['outIn1.id', 'outIn1.itemCode', 'outIn1.name', 'outIn1.baseUomId'])
-        .leftJoin('outIn1.baseUom', 'outIn1Uom')
-        .addSelect(['outIn1Uom.id', 'outIn1Uom.code', 'outIn1Uom.symbol'])
-        .leftJoin('outputItem.productionInItem2', 'outIn2')
-        .addSelect(['outIn2.id', 'outIn2.itemCode', 'outIn2.name', 'outIn2.baseUomId'])
-        .leftJoin('outIn2.baseUom', 'outIn2Uom')
-        .addSelect(['outIn2Uom.id', 'outIn2Uom.code', 'outIn2Uom.symbol'])
-        .leftJoin('outputItem.productionInItem3', 'outIn3')
-        .addSelect(['outIn3.id', 'outIn3.itemCode', 'outIn3.name', 'outIn3.baseUomId'])
-        .leftJoin('outIn3.baseUom', 'outIn3Uom')
-        .addSelect(['outIn3Uom.id', 'outIn3Uom.code', 'outIn3Uom.symbol'])
-        .leftJoin('op.inputs', 'inputs')
-        .addSelect(['inputs.id', 'inputs.routingOperationId', 'inputs.sequenceNo', 'inputs.itemId', 'inputs.quantity', 'inputs.uomId', 'inputs.isPrimary', 'inputs.scrapBasis'])
-        .leftJoin('inputs.item', 'inItem')
-        .addSelect(['inItem.id', 'inItem.itemCode', 'inItem.name', 'inItem.baseUomId'])
-        .leftJoin('inItem.baseUom', 'inItemUom')
-        .addSelect(['inItemUom.id', 'inItemUom.code', 'inItemUom.symbol'])
-        .leftJoin('inputs.uom', 'inUom')
-        .addSelect(['inUom.id', 'inUom.code', 'inUom.symbol'])
-        .leftJoin('op.outputs', 'outputs')
-        .addSelect(['outputs.id', 'outputs.routingOperationId', 'outputs.sequenceNo', 'outputs.itemId', 'outputs.quantity', 'outputs.uomId', 'outputs.outputType', 'outputs.yieldPercentage'])
-        .leftJoin('outputs.item', 'outItem')
-        .addSelect([
-          'outItem.id',
-          'outItem.itemCode',
-          'outItem.name',
-          'outItem.baseUomId',
-          'outItem.productionInItemId',
-          'outItem.productionInItemId2',
-          'outItem.productionInItemId3',
-        ])
-        .leftJoin('outItem.baseUom', 'outItemUom')
-        .addSelect(['outItemUom.id', 'outItemUom.code', 'outItemUom.symbol'])
-        .leftJoin('outItem.productionInItem', 'oIn1')
-        .addSelect(['oIn1.id', 'oIn1.itemCode', 'oIn1.name', 'oIn1.baseUomId'])
-        .leftJoin('oIn1.baseUom', 'oIn1Uom')
-        .addSelect(['oIn1Uom.id', 'oIn1Uom.code', 'oIn1Uom.symbol'])
-        .leftJoin('outItem.productionInItem2', 'oIn2')
-        .addSelect(['oIn2.id', 'oIn2.itemCode', 'oIn2.name', 'oIn2.baseUomId'])
-        .leftJoin('oIn2.baseUom', 'oIn2Uom')
-        .addSelect(['oIn2Uom.id', 'oIn2Uom.code', 'oIn2Uom.symbol'])
-        .leftJoin('outItem.productionInItem3', 'oIn3')
-        .addSelect(['oIn3.id', 'oIn3.itemCode', 'oIn3.name', 'oIn3.baseUomId'])
-        .leftJoin('oIn3.baseUom', 'oIn3Uom')
-        .addSelect(['oIn3Uom.id', 'oIn3Uom.code', 'oIn3Uom.symbol'])
-        .leftJoin('outputs.uom', 'outUom')
-        .addSelect(['outUom.id', 'outUom.code', 'outUom.symbol'])
-        .leftJoin('r.connections', 'connections')
-        .addSelect(['connections.id', 'connections.fromOperationId', 'connections.toOperationId', 'connections.connectionType'])
         .where('r.companyId = :companyId', { companyId })
         .andWhere('r.isActive = true')
         .orderBy('r.routingCode', 'ASC')
@@ -292,7 +212,7 @@ export class ProductionRoutingService {
     } else {
       routings = await this.routingRepo.find({
         where: { companyId, isActive: true },
-        relations: RELATIONS,
+        relations: ['routeType', 'product', 'bom', 'operations', 'operations.division', 'operations.department'],
         order: { routingCode: 'ASC' },
         take: safeLimit,
       });

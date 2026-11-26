@@ -1,26 +1,16 @@
 /**
- * WhatsApp Share utility for Maintenance Job Cards
- * Formats rich industrial maintenance ticket summaries for WhatsApp groups and technician dispatch.
+ * WhatsApp Share utility for Maintenance Job Cards (`[MNT-JC]`)
+ * Centrally controlled via Settings -> WhatsApp Messages (`maintenanceJobCard`).
  */
 
 import {
-  formatWhatsAppPhoneWithCountryCode,
+  DEFAULT_COMPANY_NAME,
+  DEFAULT_JOB_CARD_WHATSAPP_TEMPLATE,
+  buildWhatsAppShareUrl,
   renderWhatsAppTemplate,
-  resolveWhatsAppTemplate,
-} from './whatsappSettingsStore';
+} from './whatsappTemplateRenderer';
 
-export const DEFAULT_JOB_CARD_WHATSAPP_TEMPLATE = `🏭 *Pakistan Wire Industries (Pvt.) LTD*
-🔧 *MAINTENANCE JOB CARD SUMMARY*
-━━━━━━━━━━━━━━━━━━━━━━━━━
-🎫 *Job Card #:* *{job_card_no}*
-📊 *Status:* *{status}*
-{priority_line}━━━━━━━━━━━━━━━━━━━━━━━━━
-⚙️ *Machine / Asset:* *{machine}*
-{hierarchy_line}{location_line}{team_line}━━━━━━━━━━━━━━━━━━━━━━━━━
-⚠️ *Reported Fault / Complaint:*
-"{complaint}"
-{reported_by_line}{timings_section}{technicians_section}{parts_section}{actions_section}━━━━━━━━━━━━━━━━━━━━━━━━━
-📅 *Generated via PWI ERP System* • {generated_at}`;
+export { DEFAULT_JOB_CARD_WHATSAPP_TEMPLATE };
 
 export interface JobCardShareData {
   jobCardNo: string;
@@ -78,7 +68,10 @@ function formatDuration(minutes?: number): string {
 export function buildJobCardWhatsAppMessage(card: JobCardShareData): string {
   const statusLabel = (card.currentStatus || 'OPEN').replace(/_/g, ' ').toUpperCase();
   const mName = card.machine?.name || card.machine?.machineName || 'Machine Asset';
-  const mCode = card.machine?.code || card.machine?.machineCode ? ` [${card.machine?.code || card.machine?.machineCode}]` : '';
+  const mCode =
+    card.machine?.code || card.machine?.machineCode
+      ? ` [${card.machine?.code || card.machine?.machineCode}]`
+      : '';
 
   const hierarchyParts: string[] = [];
   if (card.division?.name) hierarchyParts.push(card.division.name);
@@ -89,28 +82,34 @@ export function buildJobCardWhatsAppMessage(card: JobCardShareData): string {
   if (card.timings) {
     const tLines = [
       '━━━━━━━━━━━━━━━━━━━━━━━━━',
-      '⏱️ *LIFECYCLE TIMINGS:*',
-      `• ⏳ *Response Wait:* ${formatDuration(card.timings.waitMinutes)} (Open → Start)`,
-      `• 🕒 *Gross Repair:* ${formatDuration(card.timings.grossRepairMinutes)}`,
+      '*LIFECYCLE TIMINGS:*',
+      `• *Response Wait:* ${formatDuration(card.timings.waitMinutes)} (Open -> Start)`,
+      `• *Gross Repair:* ${formatDuration(card.timings.grossRepairMinutes)}`,
     ];
     if (card.timings.partsHoldMinutes && card.timings.partsHoldMinutes > 0) {
-      tLines.push(`• ⏸️ *Parts Delay:* ${formatDuration(card.timings.partsHoldMinutes)} (Hold)`);
+      tLines.push(`• *Parts Delay:* ${formatDuration(card.timings.partsHoldMinutes)} (Hold)`);
     }
-    tLines.push(`• ✅ *Net Active Labor:* ${formatDuration(card.timings.netRepairMinutes)}`);
+    tLines.push(`• *Net Active Labor:* ${formatDuration(card.timings.netRepairMinutes)}`);
     timingsSection = `${tLines.join('\n')}\n`;
   }
 
   let techniciansSection = '';
   if (card.technicians && card.technicians.length > 0) {
-    const techNames = card.technicians.map((t) => t.name || t.technician?.name).filter(Boolean).join(', ');
+    const techNames = card.technicians
+      .map((t) => t.name || t.technician?.name)
+      .filter(Boolean)
+      .join(', ');
     if (techNames) {
-      techniciansSection = `━━━━━━━━━━━━━━━━━━━━━━━━━\n👷 *Assigned Technicians:* ${techNames}\n`;
+      techniciansSection = `━━━━━━━━━━━━━━━━━━━━━━━━━\n*Assigned Technicians:* ${techNames}\n`;
     }
   }
 
   let partsSection = '';
   if (card.parts && card.parts.length > 0) {
-    const pLines = ['━━━━━━━━━━━━━━━━━━━━━━━━━', `🔩 *REPLACED SPARE PARTS (${card.parts.length}):*`];
+    const pLines = [
+      '━━━━━━━━━━━━━━━━━━━━━━━━━',
+      `*REPLACED SPARE PARTS (${card.parts.length}):*`,
+    ];
     card.parts.forEach((p, idx) => {
       const pName = p.partName || p.name || 'Spare Part';
       const pCode = p.partCode ? ` [${p.partCode}]` : '';
@@ -122,43 +121,33 @@ export function buildJobCardWhatsAppMessage(card: JobCardShareData): string {
 
   let actionsSection = '';
   if (card.diagnosis || card.correctiveAction || card.preventiveAction) {
-    const aLines = ['━━━━━━━━━━━━━━━━━━━━━━━━━', '📋 *TECHNICAL ACTIONS TAKEN:*'];
+    const aLines = ['━━━━━━━━━━━━━━━━━━━━━━━━━', '*TECHNICAL ACTIONS TAKEN:*'];
     if (card.diagnosis) aLines.push(`• *Diagnosis:* ${card.diagnosis}`);
     if (card.correctiveAction) aLines.push(`• *Corrective:* ${card.correctiveAction}`);
     if (card.preventiveAction) aLines.push(`• *Preventive:* ${card.preventiveAction}`);
     actionsSection = `${aLines.join('\n')}\n`;
   }
 
-  const template = resolveWhatsAppTemplate('maintenanceJobCard', DEFAULT_JOB_CARD_WHATSAPP_TEMPLATE);
-  return renderWhatsAppTemplate(template, {
-    '{job_card_no}': card.jobCardNo || '',
-    '{status}': statusLabel,
-    '{priority_line}': card.priority ? `⚡ *Priority:* ${card.priority}\n` : '',
-    '{machine}': `${mName}${mCode}`,
-    '{hierarchy_line}': hierarchyParts.length > 0 ? `🏢 *Hierarchy:* ${hierarchyParts.join(' • ')}\n` : '',
-    '{location_line}': card.machine?.location ? `📍 *Location:* ${card.machine.location}\n` : '',
-    '{team_line}': card.team?.name ? `👥 *Team:* ${card.team.name}\n` : '',
-    '{complaint}': card.complaint || 'No complaint notes logged.',
-    '{reported_by_line}': card.reportedByName ? `👤 *Reported By:* ${card.reportedByName}\n` : '',
-    '{timings_section}': timingsSection,
-    '{technicians_section}': techniciansSection,
-    '{parts_section}': partsSection,
-    '{actions_section}': actionsSection,
-    '{generated_at}': new Date().toLocaleString(),
+  return renderWhatsAppTemplate('[MNT-JC]', {
+    company: DEFAULT_COMPANY_NAME,
+    job_card_no: card.jobCardNo || '',
+    status: statusLabel,
+    priority_line: card.priority ? `*Priority:* ${card.priority}\n` : '',
+    machine: `${mName}${mCode}`,
+    hierarchy_line: hierarchyParts.length > 0 ? `*Hierarchy:* ${hierarchyParts.join(' • ')}\n` : '',
+    location_line: card.machine?.location ? `*Location:* ${card.machine.location}\n` : '',
+    team_line: card.team?.name ? `*Team:* ${card.team.name}\n` : '',
+    complaint: card.complaint || 'No complaint notes logged.',
+    reported_by_line: card.reportedByName ? `*Reported By:* ${card.reportedByName}\n` : '',
+    timings_section: timingsSection,
+    technicians_section: techniciansSection,
+    parts_section: partsSection,
+    actions_section: actionsSection,
+    generated_at: new Date().toLocaleString(),
   });
 }
 
-/**
- * Opens WhatsApp Web or WhatsApp Desktop/Mobile app
- * If phone is provided, sends direct message. If not, allows picking any group or contact.
- */
 export function openWhatsAppShare(text: string, phone?: string): void {
-  const formattedPhone = formatWhatsAppPhoneWithCountryCode(phone);
-  const encodedText = encodeURIComponent(text);
-
-  const url = formattedPhone
-    ? `https://api.whatsapp.com/send?phone=${formattedPhone}&text=${encodedText}`
-    : `https://api.whatsapp.com/send?text=${encodedText}`;
-
+  const url = buildWhatsAppShareUrl(text, phone);
   window.open(url, '_blank', 'noopener,noreferrer');
 }

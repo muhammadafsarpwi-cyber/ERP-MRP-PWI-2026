@@ -17,8 +17,20 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   margin-bottom: 20px;
   gap: 12px;
+}
+.ca-header-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.ca-header-division-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
 }
 .ca-header-left {
   display: flex;

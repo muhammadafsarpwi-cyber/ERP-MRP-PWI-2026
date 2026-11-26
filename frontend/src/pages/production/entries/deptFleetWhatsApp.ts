@@ -191,9 +191,9 @@ export function buildDepartmentFleetWhatsAppText(params: DeptFleetWhatsAppParams
     machineRows.push(`   *Actual:* ${formatNumber(actual, 0)} ${uom}`);
     machineRows.push(`   *Achievement:* ${achievement.toFixed(2)}% ${achTone}`);
 
-    // Items Breakdown & Item totals accumulation - multi-line bullet list as requested
+    // Items Breakdown & Item totals accumulation - multi-line bullet list without forced emojis
     if (hasEntries) {
-      machineRows.push('   🏷️ *Items:*');
+      machineRows.push('   *Items:*');
       m.entries.forEach((e) => {
         const iName = e.itemName || e.itemCode || 'Item';
         const eUom = e.uom || uom;
@@ -248,27 +248,29 @@ export function buildDepartmentFleetWhatsAppText(params: DeptFleetWhatsAppParams
   const shiftLine = shiftText ? `*Shift:* ${shiftText}\n` : '';
   const sectionLine = sectionName ? `*Section:* *${sectionName}*\n` : '';
 
-  // Load custom template from Settings > WhatsApp Messages if configured by user
-  const customTemplate = getStoredFleetTemplate();
-  const templateToUse = customTemplate || DEFAULT_FLEET_TEMPLATE;
-
-  return templateToUse
-    .replace(/\{company\}/gi, 'PAKISTAN WIRE INDUSTRIES (PVT.) LTD')
-    .replace(/\{department\}/gi, department.name.toUpperCase())
-    .replace(/\{date\}/gi, formattedDate)
-    .replace(/\{shift_line\}/gi, shiftLine)
-    .replace(/\{shift\}/gi, shiftText || '—')
-    .replace(/\{division\}/gi, divisionName || '—')
-    .replace(/\{section_line\}/gi, sectionLine)
-    .replace(/\{section\}/gi, sectionName || '—')
-    .replace(/\{fleet_status\}/gi, fleetStatusText)
-    .replace(/\{machines_count\}/gi, String(deptMachines.length))
-    .replace(/\{entered_count\}/gi, String(enteredCount))
-    .replace(/\{pending_count\}/gi, String(pendingCount))
-    .replace(/\{total_production\}/gi, totalProdText)
-    .replace(/\{overall_achievement\}/gi, overallAchText)
-    .replace(/\{machine_rows\}/gi, machineRows.join('\n'))
-    .replace(/\{item_summary\}/gi, itemSummaryLines.join('\n'));
+  // Render via centralized 0ms template renderer ([PROD-FLEET])
+  return renderWhatsAppTemplate(
+    '[PROD-FLEET]',
+    {
+      company: 'PAKISTAN WIRE INDUSTRIES (PVT.) LTD',
+      department: department.name.toUpperCase(),
+      date: formattedDate,
+      shift_line: shiftLine,
+      shift: shiftText || '—',
+      division: divisionName || '—',
+      section_line: sectionLine,
+      section: sectionName || '—',
+      fleet_status: fleetStatusText,
+      machines_count: String(deptMachines.length),
+      entered_count: String(enteredCount),
+      pending_count: String(pendingCount),
+      total_production: totalProdText,
+      overall_achievement: overallAchText,
+      machine_rows: machineRows.join('\n'),
+      item_summary: itemSummaryLines.join('\n'),
+    },
+    true,
+  );
 }
 
 /**

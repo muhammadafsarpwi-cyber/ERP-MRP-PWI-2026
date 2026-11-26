@@ -1265,6 +1265,12 @@ export class ItemFilterDto {
   @IsOptional()
   @IsIn(['ASC', 'DESC'])
   sortOrder?: string;
+
+  @ApiPropertyOptional({ description: "Projection view: 'directory' (lean list) or 'full'" })
+  @IsString()
+  @IsOptional()
+  @IsIn(['directory', 'full'])
+  view?: 'directory' | 'full';
 }
 
 export class ConvertUomDto {

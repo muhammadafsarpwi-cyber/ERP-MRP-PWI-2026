@@ -3228,3 +3228,47 @@ html[data-theme='dark'] .ant-table-cell .fg-plan-prod-btn--normal span,
 [data-theme='dark'] .ant-table-cell .fg-plan-prod-btn--normal span {
   color: inherit !important;
 }
+
+/* =====================================================================
+   Deliveries Compact Single-Line ERP Table Rules (Multi-Theme Safe)
+   ===================================================================== */
+.dn-compact-table .ant-table-thead > tr > th {
+  padding: 8px 10px !important;
+  white-space: nowrap !important;
+  font-size: 11px !important;
+  letter-spacing: 0.03em;
+}
+
+.dn-compact-table .ant-table-tbody > tr > td {
+  padding: 7px 10px !important;
+  vertical-align: top !important;
+  font-variant-numeric: tabular-nums;
+}
+
+.dn-compact-table .inv-doc-cell {
+  gap: 2px;
+}
+
+.dn-compact-table .inv-doc-code {
+  font-size: 13px;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+.dn-compact-table .inv-sub-row {
+  gap: 4px;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.dn-compact-table .inv-amount-total,
+.dn-compact-table .inv-amount-row {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.dn-compact-table .inv-action-group {
+  flex-wrap: nowrap !important;
+  gap: 4px !important;
+}
+

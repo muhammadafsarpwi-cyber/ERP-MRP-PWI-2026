@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   Table, Tag, Input, Select, Button, Spin, Empty, Tooltip,
   Progress, Row, Col, Statistic, Card, Tabs, Badge, Modal, theme,
@@ -13,20 +13,36 @@ import {
 import { useNavigate } from 'react-router-dom';
 import apiService from '../../services/api';
 import DraggableResizableModal from '../../components/shared/DraggableResizableModal';
+import { matchesTabRefresh, tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import {
+  AnalyticsUomBucket,
   DivisionOptionRecord,
   ItemMasterUomRecord,
+  SPOKE_DIVISION_DEFAULT_ID,
   SafetyItemDetail,
   UomConversionRecord,
   buildItemMasterIndex,
   buildSafetyBufferDockSummary,
   buildSafetyItemMetrics,
+  buildUnifiedItemRollupFromCustomers,
+  canonicalizeSocKey,
   cleanDisplayNumber,
   convertGrossToExactPcsAndCartons,
+  formatUomBreakdownDisplay,
+  inferDivisionFromItemCode,
+  isExplicitRealSocToken,
+  isSpokeDivisionRecord,
+  matchesDivisionFilter,
+  normalizeUomCode,
   reconcileCustomerSocContracts,
   resolveBufferEntryMetrics,
+  resolveDefaultAnalyticsDivision,
+  resolveDivisionDefaultPackagingUnit,
+  resolveDivisionPrimaryUom,
   resolveExactPcsPerCarton,
   splitItemDisplayName,
+  summarizeUomBuckets,
+  toPackagingShortCode,
 } from './safetyStockBufferUtils';
 import './CustomerAnalytics.css';
 
@@ -60,6 +76,15 @@ export interface SocItemDetail {
   grossPerCarton: number;
   fulfillmentPct: number;
   isOrderItem?: boolean;
+  primaryUom?: string;
+  packagingUnitCode?: string;
+  isGrossUnit?: boolean;
+  orderedQtyRaw?: number;
+  packedQtyRaw?: number;
+  dispatchedQtyRaw?: number;
+  totalPackedGross?: number;
+  totalPackedCartons?: number;
+  warehouseFgrGross?: number;
 }
 
 export interface SocContractSummary {
@@ -88,6 +113,8 @@ export interface SocContractSummary {
   fulfillmentPct: number;
   items: SocItemDetail[];
   isOfficialOrder?: boolean;
+  primaryUom?: string;
+  packagingUnitCode?: string;
 }
 
 interface CustomerStat {
@@ -112,6 +139,14 @@ interface CustomerStat {
   isSafetyStock?: boolean;
   safetyItems?: SafetyItemDetail[];
   socContracts?: SocContractSummary[];
+  primaryUom?: string;
+  packagingUnitCode?: string;
+  isGrossUnit?: boolean;
+  orderedUomBuckets?: AnalyticsUomBucket[];
+  packedUomBuckets?: AnalyticsUomBucket[];
+  dispatchedUomBuckets?: AnalyticsUomBucket[];
+  readyUomBuckets?: AnalyticsUomBucket[];
+  pendingUomBuckets?: AnalyticsUomBucket[];
 }
 
 export interface ItemCustomerRef {
@@ -196,7 +231,59 @@ interface ItemStat {
   customerCount: number;
   customerNames: string[];
   customers: ItemCustomerRef[];
+  primaryUom?: string;
+  packagingUnitCode?: string;
+  isGrossUnit?: boolean;
+  orderedQtyRaw?: number;
+  packedQtyRaw?: number;
+  dispatchedQtyRaw?: number;
+  totalPackedGross?: number;
+  totalPackedCartons?: number;
+  warehouseFgrGross?: number;
 }
+
+const CUSTOMER_ANALYTICS_SNAPSHOT_PREFIX = 'customer_analytics_snapshot_v2_';
+const CUSTOMER_ANALYTICS_MASTERS_KEY = 'customer_analytics_masters_v2';
+
+function purgeLegacyAnalyticsSessionCache() {
+  try {
+    if (typeof window === 'undefined' || !window.sessionStorage) return;
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < window.sessionStorage.length; i++) {
+      const k = window.sessionStorage.key(i);
+      if (!k) continue;
+      if (
+        k.startsWith('erp_tab_session_customer_analytics_snapshot_v1_') ||
+        k === 'erp_tab_session_customer_analytics_masters_v1'
+      ) {
+        keysToRemove.push(k);
+      }
+    }
+    keysToRemove.forEach((k) => window.sessionStorage.removeItem(k));
+  } catch {
+    // Ignore storage access errors
+  }
+}
+
+interface CustomerAnalyticsSnapshot {
+  customers: CustomerStat[];
+  itemStats: ItemStat[];
+  safetyDivisions: DivisionOptionRecord[];
+  safetyBatchesMeta: Array<{ divisionId?: string; divisionCode?: string }>;
+  divisionOptions: DivisionOptionRecord[];
+  fetchedAt: number;
+}
+
+interface CustomerAnalyticsMasters {
+  divisionsRaw: DivisionOptionRecord[];
+  uomConversionsList: UomConversionRecord[];
+}
+
+const FALLBACK_ANALYTICS_DIVISIONS: DivisionOptionRecord[] = [
+  { id: SPOKE_DIVISION_DEFAULT_ID, divisionCode: 'DIV-001-SPI', name: 'Spoke Division' },
+  { id: 'd1000000-0000-0000-0000-000000000002', divisionCode: 'DIV-002-CCD', name: 'Control Cable Division' },
+  { id: 'd1000000-0000-0000-0000-000000000005', divisionCode: 'DIV-005-WRD', name: 'WRD Division' },
+];
 
 interface ActionKpiCardProps {
   value: string | number;
@@ -217,6 +304,7 @@ const ActionKpiCard: React.FC<ActionKpiCardProps> = ({
   onAction,
   suffix,
 }) => {
+  const isCompactMulti = !suffix && typeof value === 'string' && value.includes('·');
   return (
     <div
       onClick={onAction}
@@ -224,7 +312,10 @@ const ActionKpiCard: React.FC<ActionKpiCardProps> = ({
       style={{ background: gradient, cursor: onAction ? 'pointer' : 'default' }}
     >
       <div className="action-kpi-body">
-        <div className="action-kpi-val">
+        <div
+          className="action-kpi-val"
+          style={isCompactMulti ? { fontSize: 15, lineHeight: 1.35 } : undefined}
+        >
           {value}
           {suffix ? <span style={{ fontSize: 13, marginLeft: 4, opacity: 0.9 }}>{suffix}</span> : null}
         </div>
@@ -389,7 +480,27 @@ function parsePackingEntry(e: any, masterCtx?: BufferMasterContext): PackedEntry
 
 function parseOpenStockEntry(os: any, masterCtx?: BufferMasterContext): PackedEntryInfo | null {
   if (!os) return null;
+  const dir = String(os.direction || '').toUpperCase().trim();
+  const txType = String(os.transactionType || '').toUpperCase().trim();
+  const refType = String(os.referenceType || '').toUpperCase().trim();
+  if (dir === 'OUT' || txType.includes('REVERSAL') || refType === 'PRODUCTION_STOCK_ADJUSTMENT') {
+    return null;
+  }
+  if (txType && txType !== 'OPENING') {
+    return null;
+  }
+  const itemType = String(os.itemType || os.item?.itemType || '').toUpperCase().trim();
+  if (itemType && itemType !== 'FINISHED_GOOD' && itemType !== 'FINISHED_GOODS') {
+    return null;
+  }
   const notes = String(os.notes || '');
+  const whCode = String(os.warehouseCode || os.warehouse?.warehouseCode || '').toUpperCase().trim();
+  if (whCode && !whCode.includes('FGDW') && !whCode.includes('FG-')) {
+    const notesUpper = notes.toUpperCase();
+    if (!notesUpper.includes('CUSTOMER:') && !notesUpper.includes('SOC:')) {
+      return null;
+    }
+  }
   const custMatch = notes.match(/Customer:\s*([^|\]]+)/i);
   const socMatch = notes.match(/SOC:\s*([^|\]]+)/i);
   const ctnMatch = notes.match(/Cartons:\s*([\d.]+)/i) || notes.match(/\[([\d.]+)\s*CTN/i);
@@ -494,20 +605,71 @@ function getCustomerDisplayCode(c: any): string {
 const CustomerAnalytics: React.FC = () => {
   const { token } = theme.useToken();
   const navigate = useNavigate();
+  const [selectedDivisionId, setSelectedDivisionId] = useState<string>(SPOKE_DIVISION_DEFAULT_ID);
+  const initialSnapshot = useMemo(() => {
+    purgeLegacyAnalyticsSessionCache();
+    return tabSessionCache.get<CustomerAnalyticsSnapshot>(
+      `${CUSTOMER_ANALYTICS_SNAPSHOT_PREFIX}${SPOKE_DIVISION_DEFAULT_ID}`,
+    );
+  }, []);
   const [loading, setLoading] = useState(false);
   const [viewMode, setViewMode] = useState<'card' | 'table'>('card');
   const [searchText, setSearchText] = useState('');
   const [sortBy, setSortBy] = useState<'orders' | 'dispatched' | 'packed' | 'value' | 'pending' | 'ready'>('dispatched');
   const [chartView, setChartView] = useState<'customers' | 'items'>('customers');
   const [customerPage, setCustomerPage] = useState(1);
-  const [customers, setCustomers] = useState<CustomerStat[]>([]);
-  const [itemStats, setItemStats] = useState<ItemStat[]>([]);
-  const [safetyDivisions, setSafetyDivisions] = useState<DivisionOptionRecord[]>([]);
-  const [safetyBatchesMeta, setSafetyBatchesMeta] = useState<Array<{ divisionId?: string; divisionCode?: string }>>([]);
-  const [selectedSafetyDivision, setSelectedSafetyDivision] = useState<string>('ALL');
+  const [customers, setCustomers] = useState<CustomerStat[]>(initialSnapshot?.customers || []);
+  const [itemStats, setItemStats] = useState<ItemStat[]>(initialSnapshot?.itemStats || []);
+  const [safetyDivisions, setSafetyDivisions] = useState<DivisionOptionRecord[]>(
+    initialSnapshot?.safetyDivisions || FALLBACK_ANALYTICS_DIVISIONS,
+  );
+  const [safetyBatchesMeta, setSafetyBatchesMeta] = useState<Array<{ divisionId?: string; divisionCode?: string }>>(
+    initialSnapshot?.safetyBatchesMeta || [],
+  );
+  const [divisionOptions, setDivisionOptions] = useState<DivisionOptionRecord[]>(
+    initialSnapshot?.divisionOptions || FALLBACK_ANALYTICS_DIVISIONS,
+  );
   const [activeTab, setActiveTab] = useState<'pending' | 'done' | 'all' | 'items'>('all');
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
   const [selectedSocNumber, setSelectedSocNumber] = useState<string | null>(null);
+  const loadedDivisionRef = useRef<string | null>(initialSnapshot ? SPOKE_DIVISION_DEFAULT_ID : null);
+
+  const selectedDivisionObj = useMemo(() => {
+    if (!selectedDivisionId || selectedDivisionId === 'ALL') return null;
+    return (
+      divisionOptions.find(
+        (d) => d.id === selectedDivisionId || d.divisionCode === selectedDivisionId,
+      ) ||
+      safetyDivisions.find(
+        (d) => d.id === selectedDivisionId || d.divisionCode === selectedDivisionId,
+      ) ||
+      null
+    );
+  }, [selectedDivisionId, divisionOptions, safetyDivisions]);
+
+  const activeDivisionUnitFallback = useMemo(() => {
+    if (!selectedDivisionId || selectedDivisionId === 'ALL') return '';
+    return resolveDivisionPrimaryUom(selectedDivisionObj) || 'GRS';
+  }, [selectedDivisionId, selectedDivisionObj]);
+
+  const isSpokeActive = useMemo(() => {
+    if (selectedDivisionId === 'ALL') return false;
+    return isSpokeDivisionRecord(selectedDivisionObj) || selectedDivisionId === SPOKE_DIVISION_DEFAULT_ID;
+  }, [selectedDivisionId, selectedDivisionObj]);
+
+  const evictAllAnalyticsSnapshots = useCallback(() => {
+    purgeLegacyAnalyticsSessionCache();
+    tabSessionCache.remove(CUSTOMER_ANALYTICS_MASTERS_KEY);
+    tabSessionCache.remove(`${CUSTOMER_ANALYTICS_SNAPSHOT_PREFIX}ALL`);
+    tabSessionCache.remove(`${CUSTOMER_ANALYTICS_SNAPSHOT_PREFIX}${SPOKE_DIVISION_DEFAULT_ID}`);
+    for (const d of divisionOptions) {
+      if (d.id) tabSessionCache.remove(`${CUSTOMER_ANALYTICS_SNAPSHOT_PREFIX}${d.id}`);
+      if (d.divisionCode) tabSessionCache.remove(`${CUSTOMER_ANALYTICS_SNAPSHOT_PREFIX}${d.divisionCode}`);
+    }
+    for (const d of FALLBACK_ANALYTICS_DIVISIONS) {
+      tabSessionCache.remove(`${CUSTOMER_ANALYTICS_SNAPSHOT_PREFIX}${d.id}`);
+    }
+  }, [divisionOptions]);
 
   const openCustomerSocModal = useCallback((c: CustomerStat) => {
     setSelectedCustomerId(c.id);
@@ -543,10 +705,34 @@ const CustomerAnalytics: React.FC = () => {
     [customers, openCustomerSocModal]
   );
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (targetDivisionId?: string, forceRefresh = false) => {
+    const activeDivId = targetDivisionId || selectedDivisionId || SPOKE_DIVISION_DEFAULT_ID;
+    const isAllDiv = activeDivId === 'ALL';
+    const snapKey = `${CUSTOMER_ANALYTICS_SNAPSHOT_PREFIX}${activeDivId}`;
+
+    if (!forceRefresh) {
+      const cachedSnap = tabSessionCache.get<CustomerAnalyticsSnapshot>(snapKey);
+      if (cachedSnap) {
+        setCustomers(cachedSnap.customers);
+        setItemStats(cachedSnap.itemStats);
+        if (cachedSnap.safetyDivisions?.length) setSafetyDivisions(cachedSnap.safetyDivisions);
+        setSafetyBatchesMeta(cachedSnap.safetyBatchesMeta || []);
+        if (cachedSnap.divisionOptions?.length) setDivisionOptions(cachedSnap.divisionOptions);
+        loadedDivisionRef.current = activeDivId;
+        setLoading(false);
+        return;
+      }
+    }
+
     setLoading(true);
     try {
-      // Load sales orders, deliveries, customers, packing entries, FGR matrix, item master UOMs, divisions, and UOM conversions in parallel
+      const divParam = isAllDiv ? '' : `&divisionId=${encodeURIComponent(activeDivId)}`;
+      const divOnlyParam = isAllDiv ? '' : `?divisionId=${encodeURIComponent(activeDivId)}`;
+      const cachedMasters = !forceRefresh
+        ? tabSessionCache.get<CustomerAnalyticsMasters>(CUSTOMER_ANALYTICS_MASTERS_KEY)
+        : undefined;
+
+      // Fetch strictly division-scoped transactional data + cached master lookups in parallel
       const [
         ordersRes,
         deliveriesRes,
@@ -559,16 +745,20 @@ const CustomerAnalytics: React.FC = () => {
         divisionsRes,
         uomConvRes,
       ] = await Promise.allSettled([
-        apiService.get('/sales/orders?limit=500&status=all'),
-        apiService.get('/sales/deliveries?limit=500&status=all'),
-        apiService.get('/sales/orders/meta/customers'),
-        apiService.get('/customer/customers?limit=500'),
-        apiService.get('/production/entries?machineNo=HAND-PACK&limit=500'),
-        apiService.get('/production/open-stock/history?limit=200'),
-        apiService.get('/production/open-stock/matrix'),
-        apiService.get('/production/open-stock/items'),
-        apiService.get('/divisions?limit=200&status=ACTIVE'),
-        apiService.get('/master-data/uom-conversions?limit=500'),
+        apiService.get(`/sales/orders?limit=500&status=all${divParam}`),
+        apiService.get(`/sales/deliveries?limit=500&status=all${divParam}`),
+        apiService.get(`/sales/orders/meta/customers${divOnlyParam}`),
+        apiService.get(`/customer/customers?limit=500${divParam}`),
+        apiService.get(`/production/entries?machineNo=HAND-PACK&limit=500&allDates=true${divParam}`),
+        apiService.get(`/production/open-stock/history?limit=200${divParam}`),
+        apiService.get(`/production/open-stock/matrix${divOnlyParam}`),
+        apiService.get(`/production/open-stock/items${divOnlyParam}`),
+        cachedMasters?.divisionsRaw?.length
+          ? Promise.resolve({ data: cachedMasters.divisionsRaw })
+          : apiService.get('/divisions?limit=200&status=ACTIVE'),
+        Array.isArray(cachedMasters?.uomConversionsList)
+          ? Promise.resolve({ data: cachedMasters.uomConversionsList })
+          : apiService.get('/master-data/uom-conversions?limit=500'),
       ]);
 
       const unwrapList = (res: PromiseSettledResult<any>): any[] => {
@@ -584,20 +774,6 @@ const CustomerAnalytics: React.FC = () => {
         ? ((deliveriesRes.value as any)?.data?.data || (deliveriesRes.value as any)?.data || [])
         : [];
 
-      // Exclude uncommitted orders (DRAFT, CANCELLED, VOID) — active demand must strictly derive from committed SOCs
-      const isCommittedOrder = (o: any) => {
-        if (!o) return false;
-        const s = String(o.status || '').toUpperCase().trim();
-        return s !== 'DRAFT' && s !== 'CANCELLED' && s !== 'VOID';
-      };
-      const orders: any[] = rawOrders.filter(isCommittedOrder);
-
-      // Exclude cancelled / draft deliveries
-      const deliveries: any[] = rawDeliveries.filter((d: any) => {
-        if (!d) return false;
-        const s = String(d.status || '').toUpperCase().trim();
-        return s !== 'CANCELLED' && s !== 'DRAFT' && s !== 'VOID';
-      });
       const salesCustList: any[] = salesCustRes.status === 'fulfilled'
         ? ((salesCustRes.value as any)?.data?.data || (salesCustRes.value as any)?.data || [])
         : [];
@@ -608,12 +784,82 @@ const CustomerAnalytics: React.FC = () => {
       const prodItemsList: any[] = unwrapList(prodItemsRes);
       const divisionsRaw: DivisionOptionRecord[] = unwrapList(divisionsRes);
       const uomConversionsList: UomConversionRecord[] = unwrapList(uomConvRes);
+
+      if (divisionsRaw.length > 0 && (uomConvRes.status === 'fulfilled' || Array.isArray(cachedMasters?.uomConversionsList))) {
+        tabSessionCache.set<CustomerAnalyticsMasters>(CUSTOMER_ANALYTICS_MASTERS_KEY, {
+          divisionsRaw,
+          uomConversionsList,
+        });
+      }
+
+      const resolveRecordDivision = (rec: any) => {
+        const dId = rec?.divisionId || rec?.division_id || rec?.division?.id || rec?.salesOrder?.divisionId || rec?.salesOrder?.division?.id;
+        const dCode = rec?.divisionCode || rec?.division_code || rec?.division?.divisionCode || rec?.salesOrder?.division?.divisionCode;
+        const dName = rec?.divisionName || rec?.division_name || rec?.division?.name || rec?.salesOrder?.division?.name;
+        return { divisionId: dId, divisionCode: dCode, divisionName: dName };
+      };
+
+      // Track excluded uncommitted orders (DRAFT, CANCELLED, VOID) canonically so explicit
+      // deliveries or hand-packing batches tagged to them NEVER leak into committed orders.
+      const excludedSocKeys = new Set<string>();
+      const excludedOrderIds = new Set<string>();
+      for (const o of rawOrders) {
+        if (!o) continue;
+        const st = String(o.status || '').toUpperCase().trim();
+        if (st === 'DRAFT' || st === 'CANCELLED' || st === 'VOID') {
+          if (o.id) excludedOrderIds.add(String(o.id));
+          const oNum = String(o.orderNumber || o.order_number || o.socNumber || '');
+          const cKey = canonicalizeSocKey(oNum);
+          if (cKey) excludedSocKeys.add(cKey);
+        }
+      }
+
+      // Exclude uncommitted orders (DRAFT, CANCELLED, VOID) and enforce division filter safety belt
+      const isCommittedOrder = (o: any) => {
+        if (!o) return false;
+        const s = String(o.status || '').toUpperCase().trim();
+        if (s === 'DRAFT' || s === 'CANCELLED' || s === 'VOID') return false;
+        if (!isAllDiv) {
+          const recDiv = resolveRecordDivision(o);
+          if (recDiv.divisionId || recDiv.divisionCode || recDiv.divisionName) {
+            return matchesDivisionFilter(recDiv, activeDivId, divisionsRaw);
+          }
+        }
+        return true;
+      };
+      const orders: any[] = rawOrders.filter(isCommittedOrder);
+
+      // Strictly keep CONFIRMED / DELIVERED / SHIPPED deliveries (exclude CANCELLED, DRAFT, VOID & deliveries for excluded orders)
+      const deliveries: any[] = rawDeliveries.filter((d: any) => {
+        if (!d) return false;
+        const s = String(d.status || '').toUpperCase().trim();
+        if (s === 'CANCELLED' || s === 'DRAFT' || s === 'VOID') return false;
+        const dOrderId = String(d.salesOrderId || d.sales_order_id || d.salesOrder?.id || '');
+        if (dOrderId && excludedOrderIds.has(dOrderId)) return false;
+        const dSocNo = canonicalizeSocKey(
+          d.salesOrderNumber || d.sales_order_number || d.salesOrder?.orderNumber || d.salesOrder?.order_number || ''
+        );
+        if (dSocNo && excludedSocKeys.has(dSocNo)) return false;
+        if (!isAllDiv) {
+          const recDiv = resolveRecordDivision(d);
+          if (recDiv.divisionId || recDiv.divisionCode || recDiv.divisionName) {
+            return matchesDivisionFilter(recDiv, activeDivId, divisionsRaw);
+          }
+        }
+        return true;
+      });
       const itemMasterMap = buildItemMasterIndex(prodItemsList, divisionsRaw);
       const bufferMasterCtx: BufferMasterContext = {
         itemMasterMap,
         uomConversions: uomConversionsList,
         divisions: divisionsRaw,
       };
+      const activeDivisionMeta = isAllDiv
+        ? null
+        : divisionsRaw.find((d) => d.id === activeDivId || d.divisionCode === activeDivId) ||
+          FALLBACK_ANALYTICS_DIVISIONS.find((d) => d.id === activeDivId || d.divisionCode === activeDivId) ||
+          null;
+      const isActiveSpokeDiv = isAllDiv ? true : isSpokeDivisionRecord(activeDivisionMeta);
 
       // Build customer directory mapping ID and code to real genuine names
       const customerDirectory = new Map<string, { id: string; name: string; code: string; type: string }>();
@@ -652,20 +898,50 @@ const CustomerAnalytics: React.FC = () => {
       const custMap = new Map<string, CustomerStat>();
       const custSocMap = new Map<string, SocContractSummary[]>();
 
-      const resolveItemPackSpec = (code: string, name: string, hintPkgSize?: number) => {
+      const resolveItemPackSpec = (
+        code: string,
+        name: string,
+        hintPkgSize?: number,
+        hintUomCode?: string,
+        hintDiv?: { id?: string; divisionCode?: string; name?: string } | null,
+      ) => {
         const resolved = resolveFgItem(code, name);
         const master =
           itemMasterMap.get(normKey(resolved.code)) ||
           itemMasterMap.get(normKey(code)) ||
           itemMasterMap.get(normKey(resolved.name)) ||
           itemMasterMap.get(normKey(name));
+        const inferredDiv = inferDivisionFromItemCode(resolved.code || code, divisionsRaw);
+        const effectiveDiv =
+          hintDiv?.id || hintDiv?.divisionCode
+            ? hintDiv
+            : master?.divisionId || master?.divisionCode
+            ? { id: master.divisionId, divisionCode: master.divisionCode, name: master.divisionName }
+            : inferredDiv;
+        const rawUomHint = normalizeUomCode(hintUomCode);
+        const primaryUom = normalizeUomCode(
+          rawUomHint ||
+            master?.salesUomCode ||
+            master?.baseUomCode ||
+            resolveDivisionPrimaryUom(effectiveDiv) ||
+            resolveDivisionPrimaryUom(activeDivisionMeta) ||
+            'GRS',
+        );
+        const isGrossUnit =
+          primaryUom === 'GRS' ||
+          (primaryUom === 'PCS' && (!master || master.salesUomCode === 'GRS'));
+        const packagingUnitCode = isGrossUnit
+          ? 'CTN'
+          : toPackagingShortCode(master?.packagingUnit, master?.packagingType) ||
+            resolveDivisionDefaultPackagingUnit(effectiveDiv);
         const grossPerCarton =
           (Number(hintPkgSize) > 0 ? Number(hintPkgSize) : 0) ||
           (master?.packagingSize && master.packagingSize > 0 ? master.packagingSize : 0) ||
-          resolved.packagingSize ||
-          10;
-        const pcsPerCarton = resolveExactPcsPerCarton(grossPerCarton, resolved.code, resolved.name);
-        return { resolved, grossPerCarton, pcsPerCarton };
+          (isGrossUnit ? resolved.packagingSize || 10 : 0);
+        const pcsPerCarton = isGrossUnit
+          ? resolveExactPcsPerCarton(grossPerCarton, resolved.code, resolved.name)
+          : 0;
+        return { resolved, grossPerCarton, pcsPerCarton, primaryUom, packagingUnitCode, isGrossUnit, master, effectiveDiv };
       };
 
       const findOrCreateSocItem = (
@@ -673,8 +949,11 @@ const CustomerAnalytics: React.FC = () => {
         code: string,
         name: string,
         hintPkgSize?: number,
+        hintUomCode?: string,
+        hintDiv?: { id?: string; divisionCode?: string; name?: string } | null,
       ): SocItemDetail => {
-        const { resolved, grossPerCarton, pcsPerCarton } = resolveItemPackSpec(code, name, hintPkgSize);
+        const { resolved, grossPerCarton, pcsPerCarton, primaryUom, packagingUnitCode, isGrossUnit } =
+          resolveItemPackSpec(code, name, hintPkgSize, hintUomCode, hintDiv);
         const nResolvedCode = normKey(resolved.code);
         let found = soc.items.find((it) => {
           const itRes = resolveFgItem(it.itemCode, it.itemName);
@@ -706,8 +985,16 @@ const CustomerAnalytics: React.FC = () => {
             pcsPerCarton,
             grossPerCarton,
             fulfillmentPct: 0,
+            primaryUom,
+            packagingUnitCode,
+            isGrossUnit,
+            orderedQtyRaw: 0,
+            packedQtyRaw: 0,
+            dispatchedQtyRaw: 0,
           };
           soc.items.push(found);
+          if (!soc.primaryUom) soc.primaryUom = primaryUom;
+          if (!soc.packagingUnitCode) soc.packagingUnitCode = packagingUnitCode;
         } else if (hintPkgSize && hintPkgSize > 0 && found.grossPerCarton !== hintPkgSize) {
           found.grossPerCarton = grossPerCarton;
           found.pcsPerCarton = pcsPerCarton;
@@ -770,7 +1057,11 @@ const CustomerAnalytics: React.FC = () => {
         const custSocs = custSocMap.get(custId)!;
         const socNumberLabel = orderNo || `SOC-${custSocs.length + 1}`;
         let socEntry = custSocs.find(
-          (s) => (order.id && s.orderId === String(order.id)) || normKey(s.socNumber) === normKey(socNumberLabel)
+          (s) =>
+            (order.id && s.orderId === String(order.id)) ||
+            (canonicalizeSocKey(socNumberLabel) &&
+              canonicalizeSocKey(s.socNumber) === canonicalizeSocKey(socNumberLabel)) ||
+            normKey(s.socNumber) === normKey(socNumberLabel)
         );
         if (!socEntry) {
           socEntry = {
@@ -805,26 +1096,34 @@ const CustomerAnalytics: React.FC = () => {
 
         // Sum order items
         const items = order.items || order.orderItems || order.lines || [];
+        const orderDiv = order.division || (order.divisionId ? { id: order.divisionId, divisionCode: order.divisionCode, name: order.divisionName } : null);
         for (const item of items) {
           const itemObj = item.item || {};
           const code = itemObj.itemCode || item.itemCode || item.item_code || '';
           const name = itemObj.name || item.description || item.itemName || item.item_name || code || 'Item';
           const qty = Number(item.quantity || item.qty || 0);
           const hintPkgSize = Number(itemObj.packagingSize || item.packageQuantity || item.packagingSize || 0);
+          const lineUom = item.uom?.code || item.uom?.symbol || item.uomCode || itemObj.salesUom?.code || itemObj.baseUom?.code;
           const lineTotal = Number(item.lineTotal || item.line_total || (qty * Number(item.unitPrice || item.unit_price || 0)));
 
-          const socItem = findOrCreateSocItem(socEntry, code, name, hintPkgSize);
-          const exactOrd = convertGrossToExactPcsAndCartons(qty, socItem.grossPerCarton, socItem.itemCode, socItem.itemName);
-
-          stat.totalOrderedGross += exactOrd.exactGross;
+          const socItem = findOrCreateSocItem(socEntry, code, name, hintPkgSize, lineUom, orderDiv);
+          if (socItem.isGrossUnit) {
+            const exactOrd = convertGrossToExactPcsAndCartons(qty, socItem.grossPerCarton, socItem.itemCode, socItem.itemName);
+            stat.totalOrderedGross += qty;
+            socItem.orderedQty += qty;
+            socItem.orderedPcs += exactOrd.pcs;
+            socItem.orderedQtyRaw = (socItem.orderedQtyRaw || 0) + qty;
+          } else {
+            stat.totalOrderedGross += qty;
+            socItem.orderedQty += qty;
+            socItem.orderedQtyRaw = (socItem.orderedQtyRaw || 0) + qty;
+          }
           stat.totalOrderValue += lineTotal;
 
           if (!stat.topItem && name) {
             stat.topItem = name;
           }
 
-          socItem.orderedQty += exactOrd.exactGross;
-          socItem.orderedPcs += exactOrd.pcs;
           socItem.isOrderItem = true;
         }
       }
@@ -870,6 +1169,7 @@ const CustomerAnalytics: React.FC = () => {
         }
         const custSocs = custSocMap.get(custId)!;
 
+        const delivDiv = delivery.salesOrder?.division || delivery.division || null;
         const delivOrderId = String(delivery.salesOrderId || delivery.sales_order_id || delivery.salesOrder?.id || '');
         const delivSocNo = String(
           delivery.salesOrderNumber ||
@@ -887,86 +1187,97 @@ const CustomerAnalytics: React.FC = () => {
           const name = lineItemObj.name || line.description || line.itemName || line.item_name || code || 'Item';
           const qty = Number(line.quantity || line.qty || 0);
           const hintPkgSize = Number(lineItemObj.packagingSize || line.packageQuantity || line.packagingSize || 0);
-          const { resolved, grossPerCarton } = resolveItemPackSpec(code, name, hintPkgSize);
-          const exactDel = convertGrossToExactPcsAndCartons(qty, grossPerCarton, resolved.code, resolved.name);
+          const lineUom = line.uom?.code || line.uom?.symbol || line.uomCode || lineItemObj.salesUom?.code || lineItemObj.baseUom?.code;
+          const { resolved, grossPerCarton, primaryUom, packagingUnitCode, isGrossUnit } =
+            resolveItemPackSpec(code, name, hintPkgSize, lineUom, delivDiv);
+          const exactDel = isGrossUnit
+            ? convertGrossToExactPcsAndCartons(qty, grossPerCarton, resolved.code, resolved.name)
+            : {
+                pcs: 0,
+                cartons: grossPerCarton > 0 ? Math.round((qty / grossPerCarton) * 100) / 100 : 0,
+                exactGross: qty,
+                pcsPerCarton: 0,
+                grossPerCarton,
+              };
 
-          stat.totalDispatchedGross += exactDel.exactGross;
+          if (qty <= 0) continue;
+
+          // Check line-level SOC first: e.g. [SOC: SOC-2026-05814] or [SOC: SOC-2026-5810]
+          const lineSocMatch = (line.description || '').match(/\[SOC:\s*([^\]]+)\]/i) || (line.description || '').match(/SOC[:\s]+(SOC-[A-Za-z0-9-]+|[0-9A-Za-z-]+)/i);
+          const lineSocNo = line.socNumber || line.salesOrderNumber || (lineSocMatch ? lineSocMatch[1].trim() : '');
+          const lineOrderId = line.salesOrderId || line.orderId || '';
+
+          const cLineSoc = canonicalizeSocKey(lineSocNo);
+          const cDelivSoc = canonicalizeSocKey(delivSocNo);
+          if (cLineSoc && excludedSocKeys.has(cLineSoc)) continue;
+          if (!cLineSoc && lineOrderId && excludedOrderIds.has(String(lineOrderId))) continue;
+          if (!cLineSoc && cDelivSoc && excludedSocKeys.has(cDelivSoc)) continue;
+
+          stat.totalDispatchedGross += qty;
           stat.totalDispatchedCartons += exactDel.cartons;
           if (!stat.topItem) {
             stat.topItem = name;
           }
 
-          if (qty <= 0) continue;
-
           const nResolvedCode = normKey(resolved.code);
+          const matchesCanonSoc = (soc: SocContractSummary, targetCanon: string, rawToken: string) => {
+            if (!targetCanon) return false;
+            const cSoc = canonicalizeSocKey(soc.socNumber);
+            if (cSoc && cSoc === targetCanon) return true;
+            const nSoc = normKey(soc.socNumber);
+            const nRaw = normKey(rawToken);
+            return Boolean(nRaw && (nSoc === nRaw || nSoc.endsWith(nRaw) || nRaw.endsWith(nSoc)));
+          };
+          const socHasItem = (soc: SocContractSummary) =>
+            soc.items.some((it) => normKey(resolveFgItem(it.itemCode, it.itemName).code) === nResolvedCode);
 
-          // Check line-level SOC first: e.g. [SOC: SOC-2026-05814] or line.socNumber / line.salesOrderNumber
-          const lineSocMatch = (line.description || '').match(/\[SOC:\s*([^\]]+)\]/i) || (line.description || '').match(/SOC[:\s]+(SOC-[A-Za-z0-9-]+|[0-9A-Za-z-]+)/i);
-          const lineSocNo = line.socNumber || line.salesOrderNumber || (lineSocMatch ? lineSocMatch[1].trim() : '');
-          const lineOrderId = line.salesOrderId || line.orderId || '';
-
-          const nLineSoc = normKey(lineSocNo);
-          const nDelivSoc = normKey(delivSocNo);
           let targetSoc: SocContractSummary | undefined;
 
-          // Priority 1: Match explicit Line-Level SOC first (e.g. [SOC: SOC-2026-05645] in line.description or line.socNumber)
-          // Crucial for multi-SOC gate passes where different lines belong to different contracts
-          if (nLineSoc) {
-            targetSoc = custSocs.find(
-              (s) =>
-                (normKey(s.socNumber) === nLineSoc ||
-                 normKey(s.socNumber).endsWith(nLineSoc) ||
-                 nLineSoc.endsWith(normKey(s.socNumber))) &&
-                s.items.some((it) => normKey(resolveFgItem(it.itemCode, it.itemName).code) === nResolvedCode)
-            );
-            if (!targetSoc) {
-              targetSoc = custSocs.find(
-                (s) =>
-                  normKey(s.socNumber) === nLineSoc ||
-                  normKey(s.socNumber).endsWith(nLineSoc) ||
-                  nLineSoc.endsWith(normKey(s.socNumber))
-              );
-            }
+          // Priority 1: Match explicit Line-Level SOC (canonical 4/5-digit normalized, including DELIVERED/CLOSED)
+          if (cLineSoc) {
+            targetSoc =
+              custSocs.find((s) => matchesCanonSoc(s, cLineSoc, lineSocNo) && socHasItem(s)) ||
+              custSocs.find((s) => matchesCanonSoc(s, cLineSoc, lineSocNo));
           }
 
-          // Priority 2: Match line-level salesOrderId
+          // Priority 2: Match explicit line-level salesOrderId (including DELIVERED/CLOSED)
           if (!targetSoc && lineOrderId) {
-            targetSoc = custSocs.find(
-              (s) =>
-                s.orderId === lineOrderId &&
-                s.items.some((it) => normKey(resolveFgItem(it.itemCode, it.itemName).code) === nResolvedCode)
-            );
+            targetSoc =
+              custSocs.find((s) => s.orderId === lineOrderId && socHasItem(s)) ||
+              custSocs.find((s) => s.orderId === lineOrderId);
           }
 
-          // Priority 3: Match delivery-level order ID or SOC against active open contracts
-          if (!targetSoc && (delivOrderId || nDelivSoc)) {
-            targetSoc = custSocs.find(
-              (s) =>
-                ((delivOrderId && s.orderId === delivOrderId) ||
-                 (nDelivSoc && (normKey(s.socNumber) === nDelivSoc || normKey(s.socNumber).endsWith(nDelivSoc) || nDelivSoc.endsWith(normKey(s.socNumber))))) &&
-                String(s.status).toUpperCase() !== 'DELIVERED' &&
-                String(s.status).toUpperCase() !== 'CLOSED' &&
-                s.items.some((it) => normKey(resolveFgItem(it.itemCode, it.itemName).code) === nResolvedCode)
-            );
+          // Priority 3: Match delivery-level order ID or canonical delivSocNo across ALL customer SOCs
+          // (Never reject DELIVERED/CLOSED here, otherwise delivered DN lines fall through onto open SOCs!)
+          if (!targetSoc && (delivOrderId || cDelivSoc)) {
+            targetSoc =
+              custSocs.find(
+                (s) =>
+                  ((delivOrderId && s.orderId === delivOrderId) ||
+                    (cDelivSoc && matchesCanonSoc(s, cDelivSoc, delivSocNo))) &&
+                  socHasItem(s),
+              ) ||
+              custSocs.find(
+                (s) =>
+                  (delivOrderId && s.orderId === delivOrderId) ||
+                  (cDelivSoc && matchesCanonSoc(s, cDelivSoc, delivSocNo)),
+              );
           }
 
-          // Priority 4: Fallback to any active/open SOC for this customer that has this ordered item
-          if (!targetSoc) {
-            targetSoc = custSocs.find(
-              (s) =>
-                String(s.status).toUpperCase() !== 'DELIVERED' &&
-                String(s.status).toUpperCase() !== 'CLOSED' &&
-                s.items.some((it) => normKey(resolveFgItem(it.itemCode, it.itemName).code) === nResolvedCode)
-            );
-          }
-
-          // Priority 5: Fallback to delivery-level order ID / SOC on delivered/closed contracts
-          if (!targetSoc && (delivOrderId || nDelivSoc)) {
-            targetSoc = custSocs.find(
-              (s) =>
-                (delivOrderId && s.orderId === delivOrderId) ||
-                (nDelivSoc && (normKey(s.socNumber) === nDelivSoc || normKey(s.socNumber).endsWith(nDelivSoc) || nDelivSoc.endsWith(normKey(s.socNumber))))
-            );
+          // Priority 4: Fallback ONLY when no explicit SOC/Order reference was given on line or header
+          const hasExplicitRef =
+            isExplicitRealSocToken(lineSocNo) ||
+            isExplicitRealSocToken(delivSocNo) ||
+            Boolean(lineOrderId) ||
+            Boolean(delivOrderId);
+          if (!targetSoc && !hasExplicitRef) {
+            targetSoc =
+              custSocs.find(
+                (s) =>
+                  String(s.status).toUpperCase() !== 'DELIVERED' &&
+                  String(s.status).toUpperCase() !== 'CLOSED' &&
+                  socHasItem(s),
+              ) || custSocs.find((s) => socHasItem(s));
           }
 
           if (targetSoc) {
@@ -986,28 +1297,34 @@ const CustomerAnalytics: React.FC = () => {
             }
 
             if (socItem) {
-              socItem.dispatchedQty += exactDel.exactGross;
+              socItem.dispatchedQty += qty;
               socItem.dispatchedPcs += exactDel.pcs;
+              socItem.dispatchedQtyRaw = (socItem.dispatchedQtyRaw || 0) + qty;
             } else if (targetSoc.isOfficialOrder) {
-              // Item was not ordered in targetSoc, check other customer SOCs that ordered this item
-              const altSoc = custSocs.find((s) => s.items.some((it) => it.isOrderItem && normKey(resolveFgItem(it.itemCode, it.itemName).code) === nResolvedCode));
+              // Item was not ordered in targetSoc, check other customer SOCs ONLY if un-tagged
+              const altSoc = !hasExplicitRef
+                ? custSocs.find((s) => s.items.some((it) => it.isOrderItem && normKey(resolveFgItem(it.itemCode, it.itemName).code) === nResolvedCode))
+                : undefined;
               if (altSoc) {
-                const altItem = findOrCreateSocItem(altSoc, resolved.code, resolved.name, grossPerCarton);
-                altItem.dispatchedQty += exactDel.exactGross;
+                const altItem = findOrCreateSocItem(altSoc, resolved.code, resolved.name, grossPerCarton, primaryUom, delivDiv);
+                altItem.dispatchedQty += qty;
                 altItem.dispatchedPcs += exactDel.pcs;
+                altItem.dispatchedQtyRaw = (altItem.dispatchedQtyRaw || 0) + qty;
               } else {
-                const created = findOrCreateSocItem(targetSoc, resolved.code, resolved.name, grossPerCarton);
-                created.dispatchedQty += exactDel.exactGross;
+                const created = findOrCreateSocItem(targetSoc, resolved.code, resolved.name, grossPerCarton, primaryUom, delivDiv);
+                created.dispatchedQty += qty;
                 created.dispatchedPcs += exactDel.pcs;
+                created.dispatchedQtyRaw = (created.dispatchedQtyRaw || 0) + qty;
               }
             } else {
-              const created = findOrCreateSocItem(targetSoc, resolved.code, resolved.name, grossPerCarton);
-              created.dispatchedQty += exactDel.exactGross;
+              const created = findOrCreateSocItem(targetSoc, resolved.code, resolved.name, grossPerCarton, primaryUom, delivDiv);
+              created.dispatchedQty += qty;
               created.dispatchedPcs += exactDel.pcs;
+              created.dispatchedQtyRaw = (created.dispatchedQtyRaw || 0) + qty;
             }
-          } else if (custSocs.length > 0) {
-            // Allocate FIFO strictly across customer's SOCs that ALREADY have this ordered item (using exact PCS)
-            let remainingPcsToAllocate = exactDel.pcs;
+          } else if (custSocs.length > 0 && !hasExplicitRef) {
+            // Allocate FIFO strictly across customer's SOCs that ALREADY have this ordered item
+            let remainingUnitsToAllocate = isGrossUnit ? exactDel.pcs : qty;
             const matchingItems: SocItemDetail[] = [];
 
             for (const s of custSocs) {
@@ -1021,22 +1338,41 @@ const CustomerAnalytics: React.FC = () => {
 
             if (matchingItems.length > 0) {
               for (const it of matchingItems) {
-                const roomPcs = Math.max(0, it.orderedPcs - it.dispatchedPcs);
-                if (roomPcs > 0 && remainingPcsToAllocate > 0) {
-                  const allocPcs = Math.min(roomPcs, remainingPcsToAllocate);
-                  it.dispatchedPcs += allocPcs;
-                  it.dispatchedQty += Math.round((allocPcs / 144) * 100) / 100;
-                  remainingPcsToAllocate -= allocPcs;
+                if (it.isGrossUnit !== false) {
+                  const roomPcs = Math.max(0, it.orderedPcs - it.dispatchedPcs);
+                  if (roomPcs > 0 && remainingUnitsToAllocate > 0) {
+                    const allocPcs = Math.min(roomPcs, remainingUnitsToAllocate);
+                    const allocGross = Math.round((allocPcs / 144) * 100) / 100;
+                    it.dispatchedPcs += allocPcs;
+                    it.dispatchedQty += allocGross;
+                    it.dispatchedQtyRaw = (it.dispatchedQtyRaw || 0) + allocGross;
+                    remainingUnitsToAllocate -= allocPcs;
+                  }
+                } else {
+                  const roomQty = Math.max(0, (it.orderedQtyRaw || 0) - (it.dispatchedQtyRaw || 0));
+                  if (roomQty > 0 && remainingUnitsToAllocate > 0) {
+                    const allocQty = Math.min(roomQty, remainingUnitsToAllocate);
+                    it.dispatchedQty += allocQty;
+                    it.dispatchedQtyRaw = (it.dispatchedQtyRaw || 0) + allocQty;
+                    remainingUnitsToAllocate -= allocQty;
+                  }
                 }
               }
-              if (remainingPcsToAllocate > 0) {
+              if (remainingUnitsToAllocate > 0) {
                 const last = matchingItems[matchingItems.length - 1];
-                last.dispatchedPcs += remainingPcsToAllocate;
-                last.dispatchedQty += Math.round((remainingPcsToAllocate / 144) * 100) / 100;
+                if (last.isGrossUnit !== false) {
+                  const allocGross = Math.round((remainingUnitsToAllocate / 144) * 100) / 100;
+                  last.dispatchedPcs += remainingUnitsToAllocate;
+                  last.dispatchedQty += allocGross;
+                  last.dispatchedQtyRaw = (last.dispatchedQtyRaw || 0) + allocGross;
+                } else {
+                  last.dispatchedQty += remainingUnitsToAllocate;
+                  last.dispatchedQtyRaw = (last.dispatchedQtyRaw || 0) + remainingUnitsToAllocate;
+                }
               }
             }
             // If no matching item exists across existing orders, do NOT inject ghost items
-          } else {
+          } else if (!hasExplicitRef || !excludedSocKeys.has(cLineSoc || cDelivSoc)) {
             // Customer has delivery without an order record in orders list
             const synthSocNo = delivSocNo || `SOC-${stat.customerCode || 'DIRECT'}`;
             const newSoc: SocContractSummary = {
@@ -1044,6 +1380,8 @@ const CustomerAnalytics: React.FC = () => {
               socNumber: synthSocNo,
               orderDate: delivery.deliveryDate || delivery.created_at,
               status: 'DISPATCHED',
+              primaryUom,
+              packagingUnitCode,
               totalOrderedQty: 0,
               totalOrderedPcs: 0,
               totalOrderedCartons: 0,
@@ -1067,20 +1405,21 @@ const CustomerAnalytics: React.FC = () => {
             };
             custSocs.push(newSoc);
             targetSoc = newSoc;
-            const socItem = findOrCreateSocItem(newSoc, code, name, grossPerCarton);
+            const socItem = findOrCreateSocItem(newSoc, resolved.code, resolved.name, grossPerCarton, primaryUom, delivDiv);
             socItem.dispatchedQty += exactDel.exactGross;
             socItem.dispatchedPcs += exactDel.pcs;
+            socItem.dispatchedQtyRaw = (socItem.dispatchedQtyRaw || 0) + exactDel.exactGross;
           }
         }
       }
 
-      // Parse all hand-packing and opening-stock entries with strict cross-table deduplication
+      // Parse all hand-packing and opening-stock entries with strict cross-table deduplication & division guard
       const allPackedEntries: PackedEntryInfo[] = [];
       const seenEntryKeys = new Set<string>();
 
       prodEntries.forEach((e) => {
         const p = parsePackingEntry(e, bufferMasterCtx);
-        if (p) {
+        if (p && (isAllDiv || matchesDivisionFilter(p, activeDivId, divisionsRaw))) {
           const key = `${normKey(p.fgItemCode || '')}_${normKey(p.socNo || '')}_${normKey(p.customerName || '')}_${p.cartons}_${p.gross}_${Math.round(p.baseQty || p.pcs || 0)}`;
           seenEntryKeys.add(key);
           allPackedEntries.push(p);
@@ -1088,7 +1427,7 @@ const CustomerAnalytics: React.FC = () => {
       });
       openStockEntries.forEach((os) => {
         const p = parseOpenStockEntry(os, bufferMasterCtx);
-        if (p) {
+        if (p && (isAllDiv || matchesDivisionFilter(p, activeDivId, divisionsRaw))) {
           const key = `${normKey(p.fgItemCode || '')}_${normKey(p.socNo || '')}_${normKey(p.customerName || '')}_${p.cartons}_${p.gross}_${Math.round(p.baseQty || p.pcs || 0)}`;
           if (!seenEntryKeys.has(key)) {
             seenEntryKeys.add(key);
@@ -1136,18 +1475,29 @@ const CustomerAnalytics: React.FC = () => {
         }
 
         const rawSoc = String(entry.socNo || '').trim();
+        const cEntrySoc = canonicalizeSocKey(rawSoc);
+        const hasExplicitRealSoc = isExplicitRealSocToken(rawSoc);
         const nEntrySoc = normKey(rawSoc);
 
-        // Find customer and SOC: first check if rawSoc matches ANY customer's SOC contract directly
+        // Strictly isolate Hand-Packing & Open Stock tagged to Draft/Cancelled/Void SOCs (e.g. SOC-2026-05832)
+        if (hasExplicitRealSoc && excludedSocKeys.has(cEntrySoc)) {
+          continue;
+        }
+
+        const matchesPackedCanonSoc = (soc: SocContractSummary) => {
+          const cSoc = canonicalizeSocKey(soc.socNumber);
+          if (cEntrySoc && cSoc && cSoc === cEntrySoc) return true;
+          const nSoc = normKey(soc.socNumber);
+          return Boolean(nEntrySoc && (nSoc === nEntrySoc || nSoc.endsWith(nEntrySoc) || nEntrySoc.endsWith(nSoc)));
+        };
+
+        // Find customer and SOC: check canonical SOC match across committed SOCs first
         let matchedCustId: string | null = null;
         let matchedSoc: SocContractSummary | undefined;
 
-        if (nEntrySoc && rawSoc !== '—') {
+        if (cEntrySoc && rawSoc !== '—') {
           for (const [cId, socList] of custSocMap.entries()) {
-            const found = socList.find((s) => {
-              const nSoc = normKey(s.socNumber);
-              return nSoc === nEntrySoc || nSoc.endsWith(nEntrySoc) || nEntrySoc.endsWith(nSoc);
-            });
+            const found = socList.find(matchesPackedCanonSoc);
             if (found) {
               matchedCustId = cId;
               matchedSoc = found;
@@ -1156,58 +1506,73 @@ const CustomerAnalytics: React.FC = () => {
           }
         }
 
-        // Fallback to customer name matching if not already found via SOC number
+        // Fallback to customer name matching ONLY if not already matched via SOC number
         if (!matchedCustId) {
           matchedCustId = findMatchingCustomerId(entry.customerName);
         }
 
         if (matchedCustId) {
-          const prev = custPackedMap.get(matchedCustId) || { gross: 0, cartons: 0, topItem: '' };
-          custPackedMap.set(matchedCustId, {
-            gross: prev.gross + entry.gross,
-            cartons: prev.cartons + entry.cartons,
-            topItem: prev.topItem || entry.fgItemName || '',
-          });
+          const pCode = entry.fgItemCode || '';
+          const pName = entry.fgItemName || '';
+          const entryDivMeta = entry.divisionId || entry.divisionCode
+            ? { id: entry.divisionId, divisionCode: entry.divisionCode, name: entry.divisionName }
+            : null;
+          const { resolved, grossPerCarton, primaryUom, packagingUnitCode, isGrossUnit } =
+            resolveItemPackSpec(pCode, pName, entry.packagingSize, entry.salesUomCode || entry.baseUomCode, entryDivMeta);
+          const nResolvedCode = normKey(resolved.code);
+          const entryPcs = isGrossUnit
+            ? (entry.pcs > 0
+                ? Math.round(entry.pcs)
+                : convertGrossToExactPcsAndCartons(entry.gross, grossPerCarton, resolved.code, resolved.name).pcs)
+            : 0;
+          const entryQtyPrimary = isGrossUnit
+            ? Math.round((entryPcs / 144) * 100) / 100
+            : (Number(entry.salesQty || entry.baseQty || 0) || 0);
 
           if (!custSocMap.has(matchedCustId)) {
             custSocMap.set(matchedCustId, []);
           }
           const custSocs = custSocMap.get(matchedCustId)!;
 
-          if (!matchedSoc && nEntrySoc && rawSoc !== '—') {
-            matchedSoc = custSocs.find((s) => {
-              const nSoc = normKey(s.socNumber);
-              return nSoc === nEntrySoc || nSoc.endsWith(nEntrySoc) || nEntrySoc.endsWith(nSoc);
-            });
+          if (!matchedSoc && cEntrySoc && rawSoc !== '—') {
+            matchedSoc = custSocs.find(matchesPackedCanonSoc);
           }
 
-          const pCode = entry.fgItemCode || '';
-          const pName = entry.fgItemName || '';
-          const { resolved, grossPerCarton } = resolveItemPackSpec(pCode, pName, entry.packagingSize);
-          const nResolvedCode = normKey(resolved.code);
-          const entryPcs =
-            entry.pcs > 0
-              ? Math.round(entry.pcs)
-              : convertGrossToExactPcsAndCartons(entry.gross, grossPerCarton, resolved.code, resolved.name).pcs;
-          const entryExactGross = Math.round((entryPcs / 144) * 100) / 100;
+          // If entry explicitly references a concrete SOC that belongs to no committed customer order,
+          // do NOT fall back onto unrelated customer SOCs (prevents Draft/cross-division stock leaks).
+          if (!matchedSoc && hasExplicitRealSoc) {
+            continue;
+          }
+
+          const prev = custPackedMap.get(matchedCustId) || { gross: 0, cartons: 0, topItem: '' };
+          custPackedMap.set(matchedCustId, {
+            gross: prev.gross + entryQtyPrimary,
+            cartons: prev.cartons + entry.cartons,
+            topItem: prev.topItem || entry.fgItemName || '',
+          });
 
           if (matchedSoc) {
             let socItem = matchedSoc.items.find((it) => {
               const itRes = resolveFgItem(it.itemCode, it.itemName);
               return normKey(itRes.code) === nResolvedCode;
-            }) || (matchedSoc.items.length === 1 ? matchedSoc.items[0] : null);
+            });
+            if (!socItem && !nResolvedCode && matchedSoc.items.length === 1) {
+              socItem = matchedSoc.items[0];
+            }
 
             if (socItem) {
-              socItem.packedQty += entryExactGross;
+              socItem.packedQty += entryQtyPrimary;
               socItem.packedPcs += entryPcs;
-            } else if (!matchedSoc.isOfficialOrder) {
-              const created = findOrCreateSocItem(matchedSoc, resolved.code, resolved.name, grossPerCarton);
-              created.packedQty += entryExactGross;
+              socItem.packedQtyRaw = (socItem.packedQtyRaw || 0) + entryQtyPrimary;
+            } else {
+              const created = findOrCreateSocItem(matchedSoc, resolved.code, resolved.name, grossPerCarton, primaryUom, entryDivMeta);
+              created.packedQty += entryQtyPrimary;
               created.packedPcs += entryPcs;
+              created.packedQtyRaw = (created.packedQtyRaw || 0) + entryQtyPrimary;
             }
           } else if (custSocs.length > 0) {
-            // Match by item across customer's SOCs in FIFO order using exact PCS
-            let remPackedPcs = entryPcs;
+            // Match by item across customer's SOCs in FIFO order ONLY for untagged entries
+            let remPackedUnits = isGrossUnit ? entryPcs : entryQtyPrimary;
             const candidateItems: SocItemDetail[] = [];
 
             for (const s of custSocs) {
@@ -1221,21 +1586,39 @@ const CustomerAnalytics: React.FC = () => {
 
             if (candidateItems.length > 0) {
               for (const it of candidateItems) {
-                const roomPcs = Math.max(0, it.orderedPcs - it.packedPcs);
-                if (roomPcs > 0 && remPackedPcs > 0) {
-                  const allocPcs = Math.min(roomPcs, remPackedPcs);
-                  it.packedPcs += allocPcs;
-                  it.packedQty += Math.round((allocPcs / 144) * 100) / 100;
-                  remPackedPcs -= allocPcs;
+                if (it.isGrossUnit !== false) {
+                  const roomPcs = Math.max(0, it.orderedPcs - it.packedPcs);
+                  if (roomPcs > 0 && remPackedUnits > 0) {
+                    const allocPcs = Math.min(roomPcs, remPackedUnits);
+                    const allocGross = Math.round((allocPcs / 144) * 100) / 100;
+                    it.packedPcs += allocPcs;
+                    it.packedQty += allocGross;
+                    it.packedQtyRaw = (it.packedQtyRaw || 0) + allocGross;
+                    remPackedUnits -= allocPcs;
+                  }
+                } else {
+                  const roomQty = Math.max(0, (it.orderedQtyRaw || 0) - (it.packedQtyRaw || 0));
+                  if (roomQty > 0 && remPackedUnits > 0) {
+                    const allocQty = Math.min(roomQty, remPackedUnits);
+                    it.packedQty += allocQty;
+                    it.packedQtyRaw = (it.packedQtyRaw || 0) + allocQty;
+                    remPackedUnits -= allocQty;
+                  }
                 }
               }
-              if (remPackedPcs > 0) {
+              if (remPackedUnits > 0) {
                 const last = candidateItems[candidateItems.length - 1];
-                last.packedPcs += remPackedPcs;
-                last.packedQty += Math.round((remPackedPcs / 144) * 100) / 100;
+                if (last.isGrossUnit !== false) {
+                  const allocGross = Math.round((remPackedUnits / 144) * 100) / 100;
+                  last.packedPcs += remPackedUnits;
+                  last.packedQty += allocGross;
+                  last.packedQtyRaw = (last.packedQtyRaw || 0) + allocGross;
+                } else {
+                  last.packedQty += remPackedUnits;
+                  last.packedQtyRaw = (last.packedQtyRaw || 0) + remPackedUnits;
+                }
               }
             }
-            // If no matching item exists across existing orders, do NOT inject ghost items
           } else {
             const synthSocNo = (rawSoc && rawSoc !== '—') ? rawSoc : 'SOC-PACKED';
             const newSoc: SocContractSummary = {
@@ -1243,6 +1626,8 @@ const CustomerAnalytics: React.FC = () => {
               socNumber: synthSocNo,
               orderDate: entry.date,
               status: 'PACKED',
+              primaryUom,
+              packagingUnitCode,
               totalOrderedQty: 0,
               totalOrderedPcs: 0,
               totalOrderedCartons: 0,
@@ -1265,9 +1650,10 @@ const CustomerAnalytics: React.FC = () => {
               items: [],
             };
             custSocs.push(newSoc);
-            const socItem = findOrCreateSocItem(newSoc, pCode, pName, grossPerCarton);
-            socItem.packedQty += entryExactGross;
+            const socItem = findOrCreateSocItem(newSoc, resolved.code, resolved.name, grossPerCarton, primaryUom, entryDivMeta);
+            socItem.packedQty += entryQtyPrimary;
             socItem.packedPcs += entryPcs;
+            socItem.packedQtyRaw = (socItem.packedQtyRaw || 0) + entryQtyPrimary;
           }
         }
       }
@@ -1293,7 +1679,8 @@ const CustomerAnalytics: React.FC = () => {
         fgrGross = 0,
         fgrPieces = 0,
         fgrCartons = 0,
-        fgrKgs = 0
+        fgrKgs = 0,
+        fgrNative = 0
       ) => {
         const keys = [normKey(rawCode), normKey(rawName)].filter(Boolean);
         for (const k of keys) {
@@ -1304,7 +1691,8 @@ const CustomerAnalytics: React.FC = () => {
             matrixFgrPieces: 0,
             matrixFgrCartons: 0,
             matrixFgrKgs: 0,
-          };
+            matrixFgrNative: 0,
+          } as any;
           itemMetaMap.set(k, {
             weightPerPiece: wpp > 0 ? wpp : prev.weightPerPiece,
             packagingSize: pkg > 0 ? pkg : prev.packagingSize,
@@ -1312,7 +1700,8 @@ const CustomerAnalytics: React.FC = () => {
             matrixFgrPieces: prev.matrixFgrPieces + fgrPieces,
             matrixFgrCartons: prev.matrixFgrCartons + fgrCartons,
             matrixFgrKgs: prev.matrixFgrKgs + fgrKgs,
-          });
+            matrixFgrNative: (prev.matrixFgrNative || 0) + fgrNative,
+          } as any);
         }
       };
 
@@ -1336,6 +1725,16 @@ const CustomerAnalytics: React.FC = () => {
         );
         const mItems: any[] = whRow.items || [];
         for (const mIt of mItems) {
+          if (!isAllDiv) {
+            const mDiv = {
+              divisionId: mIt.divisionId || whRow.divisionId,
+              divisionCode: mIt.divisionCode || whRow.divisionCode,
+              divisionName: mIt.divisionName || whRow.divisionName,
+            };
+            if (mDiv.divisionId || mDiv.divisionCode || mDiv.divisionName) {
+              if (!matchesDivisionFilter(mDiv, activeDivId, divisionsRaw)) continue;
+            }
+          }
           const wpp = Number(mIt.weightPerPiece) || 0;
           const pkg = Number(mIt.packagingSize || mIt.grossPerCarton) || 0;
           const isFgItem = isFgrWh || mIt.itemType === 'FINISHED_GOOD';
@@ -1345,7 +1744,8 @@ const CustomerAnalytics: React.FC = () => {
             : 0;
           const fgrCtn = isFgItem ? Number(mIt.convertedCartons || 0) : 0;
           const fgrKg = isFgItem ? Number(mIt.convertedWeightKg || 0) : 0;
-          registerItemMeta(mIt.itemCode || '', mIt.itemName || '', wpp, pkg, fgrGrs, fgrPcs, fgrCtn, fgrKg);
+          const fgrNative = isFgItem ? Number(mIt.onHand ?? mIt.quantity ?? mIt.convertedQuantity ?? 0) : 0;
+          registerItemMeta(mIt.itemCode || '', mIt.itemName || '', wpp, pkg, fgrGrs, fgrPcs, fgrCtn, fgrKg, fgrNative);
         }
       }
 
@@ -1394,6 +1794,34 @@ const CustomerAnalytics: React.FC = () => {
             ? Math.min(100, Math.round((totalDispatchedGross / totalOrderedGross) * 100))
             : (totalDispatchedGross > 0 ? 100 : 0);
 
+        const socItemsFlat = finalizedSocs.flatMap((s) => s.items || []);
+        const divFallbackUnit = resolveDivisionPrimaryUom(activeDivisionMeta) || 'GRS';
+        const orderedUomBuckets = summarizeUomBuckets(
+          socItemsFlat.map((it) => ({ unitCode: it.primaryUom || divFallbackUnit, qty: it.orderedQty })),
+        );
+        const packedUomBuckets = summarizeUomBuckets(
+          socItemsFlat.map((it) => ({ unitCode: it.primaryUom || divFallbackUnit, qty: it.packedQty })),
+        );
+        const dispatchedUomBuckets = summarizeUomBuckets(
+          socItemsFlat.map((it) => ({ unitCode: it.primaryUom || divFallbackUnit, qty: it.dispatchedQty })),
+        );
+        const readyUomBuckets = summarizeUomBuckets(
+          socItemsFlat.map((it) => ({ unitCode: it.primaryUom || divFallbackUnit, qty: it.readyToDispatchQty })),
+        );
+        const pendingUomBuckets = summarizeUomBuckets(
+          socItemsFlat.map((it) => ({ unitCode: it.primaryUom || divFallbackUnit, qty: it.remainingPendingQty })),
+        );
+        const primaryUom =
+          orderedUomBuckets[0]?.unitCode ||
+          dispatchedUomBuckets[0]?.unitCode ||
+          packedUomBuckets[0]?.unitCode ||
+          finalizedSocs[0]?.primaryUom ||
+          divFallbackUnit;
+        const packagingUnitCode =
+          finalizedSocs[0]?.packagingUnitCode ||
+          resolveDivisionDefaultPackagingUnit(activeDivisionMeta);
+        const isGrossUnit = socItemsFlat.some((it) => it.isGrossUnit !== false) || primaryUom === 'GRS';
+
         return {
           ...c,
           totalOrders,
@@ -1409,6 +1837,14 @@ const CustomerAnalytics: React.FC = () => {
           topItem: c.topItem || packed.topItem || '',
           isSafetyStock: false,
           socContracts: finalizedSocs,
+          primaryUom,
+          packagingUnitCode,
+          isGrossUnit,
+          orderedUomBuckets,
+          packedUomBuckets,
+          dispatchedUomBuckets,
+          readyUomBuckets,
+          pendingUomBuckets,
         };
       });
 
@@ -1507,17 +1943,36 @@ const CustomerAnalytics: React.FC = () => {
           });
         }
       }
-      const sortedSafetyDivisions = Array.from(safetyDivOptionMap.values()).sort((a, b) =>
-        (a.divisionCode || a.name).localeCompare(b.divisionCode || b.name),
-      );
-      setSafetyDivisions(sortedSafetyDivisions);
-      setSafetyBatchesMeta(safetyBatches.map((b) => ({ divisionId: b.divisionId, divisionCode: b.divisionCode })));
+      const sortedSafetyDivisions = Array.from(safetyDivOptionMap.values()).sort((a, b) => {
+        const aSpk = isSpokeDivisionRecord(a) ? 0 : 1;
+        const bSpk = isSpokeDivisionRecord(b) ? 0 : 1;
+        if (aSpk !== bSpk) return aSpk - bSpk;
+        return (a.divisionCode || a.name).localeCompare(b.divisionCode || b.name);
+      });
+      const resolvedDivisionOptions =
+        sortedSafetyDivisions.length > 0 ? sortedSafetyDivisions : FALLBACK_ANALYTICS_DIVISIONS;
+      const batchMetaList = safetyBatches.map((b) => ({ divisionId: b.divisionId, divisionCode: b.divisionCode }));
+      setSafetyDivisions(resolvedDivisionOptions);
+      setDivisionOptions(resolvedDivisionOptions);
+      setSafetyBatchesMeta(batchMetaList);
 
-      // Add dedicated SAFETY STOCK customer card
-      const totalSafetyGross = Math.round(safetyBatches.reduce((s, b) => s + b.gross, 0));
+      // Add dedicated SAFETY STOCK customer card scoped to the selected division
+      const divSafetyVolumeBuckets = summarizeUomBuckets(
+        safetyItems.map((it) => ({
+          unitCode: it.hasGrossUom ? 'GRS' : it.salesUomCode || it.baseUomCode,
+          qty: it.hasGrossUom ? it.gross : it.salesQty || it.baseQty,
+        })),
+      );
+      const totalSafetyPrimaryQty = Math.round(
+        safetyBatches.reduce((s, b) => s + (b.hasGrossUom ? b.gross : b.salesQty || b.baseQty), 0),
+      );
       const totalSafetyCartons = Math.round(safetyBatches.reduce((s, b) => s + b.cartons, 0));
       const topSafetyItem = safetyItems[0]?.itemName || 'Finished Goods Safety Buffer Stock';
       const lastSafetyDate = safetyBatches[0]?.date || new Date().toISOString().slice(0, 10);
+      const safetyPrimaryUom =
+        divSafetyVolumeBuckets[0]?.unitCode || resolveDivisionPrimaryUom(activeDivisionMeta) || 'GRS';
+      const safetyPkgCode =
+        safetyItems[0]?.packagingUnitCode || resolveDivisionDefaultPackagingUnit(activeDivisionMeta);
 
       const safetyStockStat: CustomerStat = {
         id: 'cust-safety-stock-buffer-01',
@@ -1525,21 +1980,26 @@ const CustomerAnalytics: React.FC = () => {
         name: 'SAFETY STOCK',
         customerType: 'BUFFER_STOCK',
         totalOrders: safetyBatches.length,
-        totalOrderedGross: totalSafetyGross,
-        totalPackedGross: totalSafetyGross,
+        totalOrderedGross: 0,
+        totalPackedGross: totalSafetyPrimaryQty,
         totalPackedCartons: totalSafetyCartons,
         totalDispatchedGross: 0,
         totalDispatchedCartons: 0,
         totalOrderValue: 0,
         pendingGross: 0,
         fulfillmentPct: 100, // 100% available ready buffer
-        readyToDispatchGross: totalSafetyGross,
+        readyToDispatchGross: totalSafetyPrimaryQty,
         readyToDispatchCartons: totalSafetyCartons,
         topItem: topSafetyItem,
         orderNumbers: [],
         lastOrderDate: lastSafetyDate,
         isSafetyStock: true,
         safetyItems,
+        primaryUom: safetyPrimaryUom,
+        packagingUnitCode: safetyPkgCode,
+        isGrossUnit: safetyPrimaryUom === 'GRS',
+        packedUomBuckets: divSafetyVolumeBuckets,
+        readyUomBuckets: divSafetyVolumeBuckets,
       };
 
       result.push(safetyStockStat);
@@ -1562,258 +2022,71 @@ const CustomerAnalytics: React.FC = () => {
         return 0.0155; // Standard Finished Goods Spoke & Nipple set (~2.23 KG/Gross, ~22.3 KG/Carton)
       };
 
-      const computeGrossPerCarton = (code: string, name: string, pkgSize: number): number => {
-        if (pkgSize > 0) return pkgSize;
-        const isCS =
-          code.toUpperCase().includes('011') ||
-          code.toUpperCase().includes('012') ||
-          name.toUpperCase().includes('(CS)') ||
-          name.toUpperCase().includes('CS');
-        return isCS ? 10.555556 : 10;
-      };
-
-      // Build item stats pre-seeded with all 12 standard Finished Goods catalog items
-      const itemMap = new Map<string, ItemStat>();
-      for (const std of STANDARD_FG_CATALOG) {
-        const wpp = inferDefaultWeightPerPiece(std.itemCode, std.name);
-        const grossPerCarton = std.packagingSize || computeGrossPerCarton(std.itemCode, std.name, 0);
-        itemMap.set(std.itemCode, {
-          itemCode: std.itemCode,
-          itemName: std.name,
-          totalGross: 0,
-          totalPieces: 0,
-          totalCartons: 0,
-          totalOrderedKgs: 0,
-          readyFgrGross: 0,
-          readyFgrPieces: 0,
-          readyFgrCartons: 0,
-          readyFgrKgs: 0,
-          balancePendingGross: 0,
-          balancePendingPieces: 0,
-          balancePendingCartons: 0,
-          balancePendingKgs: 0,
-          totalDispatchedGross: 0,
-          totalDispatchedCartons: 0,
-          undispatchedGross: 0,
-          undispatchedPieces: 0,
-          undispatchedCartons: 0,
-          undispatchedKgs: 0,
-          weightPerPiece: wpp,
-          grossPerCarton,
-          customerCount: 0,
-          customerNames: [],
-          customers: [],
-        });
-      }
-
-      // Aggregate all committed customer order requirements
-      for (const order of orders) {
-        const custId = String(order.customerId || order.customer_id || order.customer?.id || '');
-        const custInfo = customerDirectory.get(custId);
-        const custName = custInfo?.name || getCustomerDisplayName(order.customer) || 'Customer';
-        const custCode = custInfo?.code || getCustomerDisplayCode(order.customer) || '';
-        const items = order.items || order.orderItems || order.lines || [];
-        for (const item of items) {
-          const itemObj = item.item || {};
-          const rawCode = itemObj.itemCode || item.itemCode || item.item_code || '';
-          const rawName = itemObj.name || item.description || item.itemName || item.item_name || rawCode || 'Item';
-          const qty = Number(item.quantity || item.qty || 0);
-
-          if (!rawCode && !rawName) continue;
-          const resolved = resolveFgItem(rawCode, rawName);
-          const key = resolved.code;
-          const meta = itemMetaMap.get(normKey(key)) || itemMetaMap.get(normKey(rawCode)) || itemMetaMap.get(normKey(rawName));
-          const rawPkgSize = Number(
-            itemObj.packagingSize || item.packageQuantity || item.packagingSize || resolved.packagingSize || meta?.packagingSize || 0
-          );
-          const grossPerCarton = computeGrossPerCarton(resolved.code, resolved.name, rawPkgSize);
-          const rawWpp =
-            Number(itemObj.weightPerPiece) > 0
-              ? Number(itemObj.weightPerPiece)
-              : Number(itemObj.piecesPerKg) > 0
-              ? 1 / Number(itemObj.piecesPerKg)
-              : meta?.weightPerPiece || 0;
-          const weightPerPiece = rawWpp > 0 ? rawWpp : inferDefaultWeightPerPiece(resolved.code, resolved.name);
-
-          if (!itemMap.has(key)) {
-            itemMap.set(key, {
-              itemCode: resolved.code,
-              itemName: resolved.name,
-              totalGross: 0,
-              totalPieces: 0,
-              totalCartons: 0,
-              totalOrderedKgs: 0,
-              readyFgrGross: 0,
-              readyFgrPieces: 0,
-              readyFgrCartons: 0,
-              readyFgrKgs: 0,
-              balancePendingGross: 0,
-              balancePendingPieces: 0,
-              balancePendingCartons: 0,
-              balancePendingKgs: 0,
-              totalDispatchedGross: 0,
-              totalDispatchedCartons: 0,
-              undispatchedGross: 0,
-              undispatchedPieces: 0,
-              undispatchedCartons: 0,
-              undispatchedKgs: 0,
-              weightPerPiece,
-              grossPerCarton,
-              customerCount: 0,
-              customerNames: [],
-              customers: [],
-            });
-          }
-          const s = itemMap.get(key)!;
-          if (rawWpp > 0) s.weightPerPiece = rawWpp;
-          if (rawPkgSize > 0) s.grossPerCarton = grossPerCarton;
-          const exactOrdItem = convertGrossToExactPcsAndCartons(qty, s.grossPerCarton, s.itemCode, s.itemName);
-          s.totalGross += exactOrdItem.exactGross;
-          s.totalPieces += exactOrdItem.pcs;
-          s.totalCartons += exactOrdItem.cartons;
-          if (custName && !s.customerNames.includes(custName)) {
-            s.customerNames.push(custName);
-            s.customerCount += 1;
-            s.customers.push({
-              customerId: custId || custName,
-              customerName: custName,
-              customerCode: custCode,
-            });
-          }
-        }
-      }
-
-      // Add dispatched quantities to items from genuine delivery documents
-      for (const delivery of deliveries) {
-        if (String(delivery.status || '').toUpperCase() === 'CANCELLED') continue;
-        const lines = delivery.lines || delivery.items || [];
-        for (const line of lines) {
-          const lineItemObj = line.item || {};
-          const rawCode = lineItemObj.itemCode || line.itemCode || line.item_code || '';
-          const rawName = lineItemObj.name || line.description || line.itemName || line.item_name || rawCode || 'Item';
-          const qty = Number(line.quantity || line.qty || 0);
-
-          if (!rawCode && !rawName) continue;
-          if (qty <= 0) continue;
-
-          const resolved = resolveFgItem(rawCode, rawName);
-          const s = itemMap.get(resolved.code);
-          if (s) {
-            const exactDelItem = convertGrossToExactPcsAndCartons(qty, s.grossPerCarton, s.itemCode, s.itemName);
-            s.totalDispatchedGross = (s.totalDispatchedGross || 0) + exactDelItem.exactGross;
-            s.totalDispatchedCartons = (s.totalDispatchedCartons || 0) + exactDelItem.cartons;
-          }
-        }
-      }
-
-      // Compute per-item Ready in FGR (from customer SOC packed-minus-dispatched + safety stock buffer + FGR warehouse matrix)
-      const itemPackedReadyMap = new Map<string, number>();
-      for (const cust of result) {
-        if (cust.isSafetyStock) {
-          for (const sItem of cust.safetyItems || []) {
-            const resolved = resolveFgItem(sItem.itemCode, sItem.itemName);
-            const kCode = normKey(resolved.code);
-            const kName = normKey(resolved.name);
-            if (kCode) itemPackedReadyMap.set(kCode, (itemPackedReadyMap.get(kCode) || 0) + sItem.gross);
-            if (kName && kName !== kCode) itemPackedReadyMap.set(kName, (itemPackedReadyMap.get(kName) || 0) + sItem.gross);
-          }
-          continue;
-        }
-        for (const soc of cust.socContracts || []) {
-          for (const socIt of soc.items) {
-            const netReadyGross = Math.max(0, socIt.readyToDispatchQty);
-            if (netReadyGross > 0) {
-              const resolved = resolveFgItem(socIt.itemCode, socIt.itemName);
-              const kCode = normKey(resolved.code);
-              const kName = normKey(resolved.name);
-              if (kCode) itemPackedReadyMap.set(kCode, (itemPackedReadyMap.get(kCode) || 0) + netReadyGross);
-              if (kName && kName !== kCode) itemPackedReadyMap.set(kName, (itemPackedReadyMap.get(kName) || 0) + netReadyGross);
-            }
-          }
-        }
-      }
-
-      const itemResult: ItemStat[] = Array.from(itemMap.values())
-        .map((it) => {
-          const nCode = normKey(it.itemCode);
-          const nName = normKey(it.itemName);
-          const meta = itemMetaMap.get(nCode) || itemMetaMap.get(nName);
-          const grossPerCarton = it.grossPerCarton > 0 ? it.grossPerCarton : 10;
-          const pcsPerCarton = resolveExactPcsPerCarton(grossPerCarton, it.itemCode, it.itemName);
-          const weightPerPiece = it.weightPerPiece > 0 ? it.weightPerPiece : inferDefaultWeightPerPiece(it.itemCode, it.itemName);
-
-          const totalPieces = Math.round(it.totalPieces || it.totalGross * 144);
-          const totalGross = Math.round((totalPieces / 144) * 100) / 100;
-          const totalCartons = Math.round((totalPieces / pcsPerCarton) * 10) / 10;
-          const totalOrderedKgs = Math.round(totalPieces * weightPerPiece * 10) / 10;
-
-          const totalDispatchedCartons = Math.round((it.totalDispatchedCartons || 0) * 10) / 10;
-          const totalDispatchedPieces = Math.round(totalDispatchedCartons * pcsPerCarton);
-          const totalDispatchedGross = Math.round((totalDispatchedPieces / 144) * 100) / 100;
-
-          // FGR Ready Stock is strictly the physical inventory on hand in Finished Goods Warehouse (SPI-FGDW-007)
-          const readyFgrPieces =
-            meta && meta.matrixFgrPieces > 0
-              ? Math.round(meta.matrixFgrPieces)
-              : Math.round((meta?.matrixFgrGross || 0) * 144);
-          const readyFgrGross = Math.round((readyFgrPieces / 144) * 100) / 100;
-          const readyFgrCartons =
-            readyFgrPieces > 0
-              ? Math.round((readyFgrPieces / pcsPerCarton) * 10) / 10
-              : 0;
-          const readyFgrKgs =
-            meta?.matrixFgrKgs !== undefined && meta.matrixFgrKgs >= 0 && readyFgrGross > 0
-              ? Math.round(meta.matrixFgrKgs * 10) / 10
-              : Math.round(readyFgrPieces * weightPerPiece * 10) / 10;
-
-          // B. Pending Dispatch (To Ship): Total Ordered (A) - Total Dispatched
-          const undispatchedPieces = Math.max(0, totalPieces - totalDispatchedPieces);
-          const undispatchedGross = Math.round((undispatchedPieces / 144) * 100) / 100;
-          const undispatchedCartons = Math.max(0, Math.round((undispatchedPieces / pcsPerCarton) * 10) / 10);
-          const undispatchedKgs = Math.max(0, Math.round(undispatchedPieces * weightPerPiece * 10) / 10);
-
-          // D. Pending Production (To Produce): Core business formula: D = B - C
-          // Pending Dispatch (B) - Ready in Stock FGR (C) = Net remaining quantity to produce
-          const balancePendingPieces = Math.max(0, undispatchedPieces - readyFgrPieces);
-          const balancePendingGross = Math.round((balancePendingPieces / 144) * 100) / 100;
-          const balancePendingCartons = Math.max(0, Math.round((balancePendingPieces / pcsPerCarton) * 10) / 10);
-          const balancePendingKgs = Math.max(0, Math.round(balancePendingPieces * weightPerPiece * 10) / 10);
-
-          return {
-            ...it,
-            totalGross,
-            totalPieces,
-            totalDispatchedGross,
-            totalCartons,
-            totalOrderedKgs,
-            readyFgrGross,
-            readyFgrPieces,
-            readyFgrCartons,
-            readyFgrKgs,
-            balancePendingGross,
-            balancePendingPieces,
-            balancePendingCartons,
-            balancePendingKgs,
-            undispatchedGross,
-            undispatchedPieces,
-            undispatchedCartons,
-            undispatchedKgs,
-            totalDispatchedCartons,
-            weightPerPiece,
-            grossPerCarton,
-          };
-        })
-        .sort((a, b) => a.itemCode.localeCompare(b.itemCode, undefined, { numeric: true }));
+      // Single Unified Calculation Pipeline: build ItemStat[] strictly from the reconciled regular
+      // customer SOC contracts so Top KPIs, Top Customers/Items Charts, Customer Cards, Item Cards,
+      // and SOC Drill-Down Modals match 100% down to the exact unit.
+      const regularCustomersReconciled = result.filter((c) => !c.isSafetyStock);
+      const itemResult: ItemStat[] = buildUnifiedItemRollupFromCustomers({
+        regularCustomers: regularCustomersReconciled,
+        preSeedCatalog: isActiveSpokeDiv ? STANDARD_FG_CATALOG : [],
+        resolveStandardCode: resolveFgItem,
+        resolveMeta: (code, name) => {
+          const nCode = normKey(code);
+          const nName = normKey(name);
+          return (itemMetaMap.get(nCode) || itemMetaMap.get(nName)) as any;
+        },
+        inferDefaultWpp: inferDefaultWeightPerPiece,
+      });
 
       setItemStats(itemResult);
+      tabSessionCache.set<CustomerAnalyticsSnapshot>(snapKey, {
+        customers: result,
+        itemStats: itemResult,
+        safetyDivisions: resolvedDivisionOptions,
+        safetyBatchesMeta: batchMetaList,
+        divisionOptions: resolvedDivisionOptions,
+        fetchedAt: Date.now(),
+      });
+      loadedDivisionRef.current = activeDivId;
     } catch (err) {
       console.error('CustomerAnalytics load error:', err);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [selectedDivisionId]);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => {
+    loadData(selectedDivisionId, false);
+  }, [selectedDivisionId, loadData]);
+
+  useEffect(() => {
+    const onTabRefresh = (evt: Event) => {
+      const detail = (evt as CustomEvent).detail;
+      if (
+        matchesTabRefresh(detail, '/customers/analytics') ||
+        matchesTabRefresh(detail, '/sales/orders') ||
+        matchesTabRefresh(detail, '/sales/deliveries') ||
+        matchesTabRefresh(detail, '/production/entries')
+      ) {
+        evictAllAnalyticsSnapshots();
+        loadData(selectedDivisionId, true);
+      }
+    };
+    window.addEventListener(TAB_REFRESH_EVENT, onTabRefresh);
+    return () => window.removeEventListener(TAB_REFRESH_EVENT, onTabRefresh);
+  }, [evictAllAnalyticsSnapshots, loadData, selectedDivisionId]);
+
+  const handleManualRefresh = useCallback(() => {
+    evictAllAnalyticsSnapshots();
+    loadData(selectedDivisionId, true);
+  }, [evictAllAnalyticsSnapshots, loadData, selectedDivisionId]);
+
+  const handleDivisionChange = useCallback((divId: string) => {
+    setSelectedCustomerId(null);
+    setSelectedSocNumber(null);
+    setCustomerPage(1);
+    setSelectedDivisionId(divId || SPOKE_DIVISION_DEFAULT_ID);
+  }, []);
 
   const filteredCustomers = useMemo(() => {
     let list = [...customers];
@@ -1888,17 +2161,18 @@ const CustomerAnalytics: React.FC = () => {
       buildSafetyBufferDockSummary(
         safetyStockStat?.safetyItems || [],
         safetyBatchesMeta,
-        selectedSafetyDivision,
+        selectedDivisionId,
       ),
-    [safetyStockStat, safetyBatchesMeta, selectedSafetyDivision],
+    [safetyStockStat, safetyBatchesMeta, selectedDivisionId],
   );
-  const selectedSafetyDivisionName = useMemo(() => {
-    if (selectedSafetyDivision === 'ALL') return 'All Divisions';
+  const selectedDivisionName = useMemo(() => {
+    if (!selectedDivisionId || selectedDivisionId === 'ALL') return 'All Divisions';
     return (
-      safetyDivisions.find((d) => d.id === selectedSafetyDivision || d.divisionCode === selectedSafetyDivision)
-        ?.name || selectedSafetyDivision
+      selectedDivisionObj?.name ||
+      safetyDivisions.find((d) => d.id === selectedDivisionId || d.divisionCode === selectedDivisionId)?.name ||
+      selectedDivisionId
     );
-  }, [selectedSafetyDivision, safetyDivisions]);
+  }, [selectedDivisionId, selectedDivisionObj, safetyDivisions]);
   const totalCustomerPages = Math.max(1, Math.ceil(onlyCustomers.length / CARDS_PER_ROW));
 
   const selectedCustomerModal = useMemo(
@@ -1928,13 +2202,96 @@ const CustomerAnalytics: React.FC = () => {
     return onlyCustomers.slice(start, start + CARDS_PER_ROW);
   }, [onlyCustomers, customerPage]);
 
-  const totalDispatchedGross = useMemo(() => customers.reduce((s, c) => s + c.totalDispatchedGross, 0), [customers]);
-  const totalOrderedGross = useMemo(() => customers.reduce((s, c) => s + c.totalOrderedGross, 0), [customers]);
-  const totalOrders = useMemo(() => customers.reduce((s, c) => s + c.totalOrders, 0), [customers]);
-  const totalPackedGrossAll = useMemo(() => customers.reduce((s, c) => s + (c.totalPackedGross || 0), 0), [customers]);
-  const totalReadyToDispatchGross = useMemo(() => customers.reduce((s, c) => s + (c.readyToDispatchGross || 0), 0), [customers]);
+  const regularCustomers = useMemo(() => customers.filter((c) => !c.isSafetyStock), [customers]);
+  const totalDispatchedGross = useMemo(
+    () => Math.round(regularCustomers.reduce((s, c) => s + c.totalDispatchedGross, 0) * 100) / 100,
+    [regularCustomers],
+  );
+  const totalOrderedGross = useMemo(
+    () => Math.round(regularCustomers.reduce((s, c) => s + c.totalOrderedGross, 0) * 100) / 100,
+    [regularCustomers],
+  );
+  const totalOrders = useMemo(
+    () => regularCustomers.reduce((s, c) => s + c.totalOrders, 0),
+    [regularCustomers],
+  );
+  const totalPackedGrossAll = useMemo(
+    () => Math.round(regularCustomers.reduce((s, c) => s + (c.totalPackedGross || 0), 0) * 100) / 100,
+    [regularCustomers],
+  );
+  const totalReadyToDispatchGross = useMemo(
+    () => Math.round(regularCustomers.reduce((s, c) => s + (c.readyToDispatchGross || 0), 0) * 100) / 100,
+    [regularCustomers],
+  );
   const overallFulfillment = totalOrderedGross > 0 ? Math.round((totalDispatchedGross / totalOrderedGross) * 100) : 0;
-  const maxDispatch = customers.length > 0 ? Math.max(...customers.map((c) => c.totalDispatchedGross)) : 1;
+
+  const kpiOrderedBuckets = useMemo(() => {
+    const entries = regularCustomers.flatMap((c) =>
+      c.orderedUomBuckets && c.orderedUomBuckets.length > 0
+        ? c.orderedUomBuckets.map((b) => ({ unitCode: b.unitCode, qty: b.value }))
+        : [{ unitCode: c.primaryUom || activeDivisionUnitFallback || 'GRS', qty: c.totalOrderedGross }],
+    );
+    return summarizeUomBuckets(entries);
+  }, [regularCustomers, activeDivisionUnitFallback]);
+
+  const kpiPackedBuckets = useMemo(() => {
+    const entries = regularCustomers.flatMap((c) =>
+      c.packedUomBuckets && c.packedUomBuckets.length > 0
+        ? c.packedUomBuckets.map((b) => ({ unitCode: b.unitCode, qty: b.value }))
+        : [{ unitCode: c.primaryUom || activeDivisionUnitFallback || 'GRS', qty: c.totalPackedGross || 0 }],
+    );
+    return summarizeUomBuckets(entries);
+  }, [regularCustomers, activeDivisionUnitFallback]);
+
+  const kpiDispatchedBuckets = useMemo(() => {
+    const entries = regularCustomers.flatMap((c) =>
+      c.dispatchedUomBuckets && c.dispatchedUomBuckets.length > 0
+        ? c.dispatchedUomBuckets.map((b) => ({ unitCode: b.unitCode, qty: b.value }))
+        : [{ unitCode: c.primaryUom || activeDivisionUnitFallback || 'GRS', qty: c.totalDispatchedGross }],
+    );
+    return summarizeUomBuckets(entries);
+  }, [regularCustomers, activeDivisionUnitFallback]);
+
+  const kpiReadyBuckets = useMemo(() => {
+    const entries = regularCustomers.flatMap((c) =>
+      c.readyUomBuckets && c.readyUomBuckets.length > 0
+        ? c.readyUomBuckets.map((b) => ({ unitCode: b.unitCode, qty: b.value }))
+        : [{ unitCode: c.primaryUom || activeDivisionUnitFallback || 'GRS', qty: c.readyToDispatchGross || 0 }],
+    );
+    return summarizeUomBuckets(entries);
+  }, [regularCustomers, activeDivisionUnitFallback]);
+
+  const orderedKpiDisplay = useMemo(
+    () => formatUomBreakdownDisplay(kpiOrderedBuckets, fmtNum, activeDivisionUnitFallback),
+    [kpiOrderedBuckets, activeDivisionUnitFallback],
+  );
+  const packedKpiDisplay = useMemo(
+    () => formatUomBreakdownDisplay(kpiPackedBuckets, fmtNum, activeDivisionUnitFallback),
+    [kpiPackedBuckets, activeDivisionUnitFallback],
+  );
+  const dispatchedKpiDisplay = useMemo(
+    () => formatUomBreakdownDisplay(kpiDispatchedBuckets, fmtNum, activeDivisionUnitFallback),
+    [kpiDispatchedBuckets, activeDivisionUnitFallback],
+  );
+  const readyKpiDisplay = useMemo(
+    () => formatUomBreakdownDisplay(kpiReadyBuckets, fmtNum, activeDivisionUnitFallback),
+    [kpiReadyBuckets, activeDivisionUnitFallback],
+  );
+
+  const unitHdrSuffix = activeDivisionUnitFallback ? ` (${activeDivisionUnitFallback})` : '';
+  const formatCustomerMetric = (
+    val: number,
+    unitFallback: string | undefined,
+    buckets?: AnalyticsUomBucket[],
+    showSuffix = false,
+  ) => {
+    if (buckets && buckets.length > 1) {
+      return buckets.map((b) => `${fmtNum(b.value, b.decimals)} ${b.unitCode}`).join(' · ');
+    }
+    const unit = buckets?.[0]?.unitCode || unitFallback || activeDivisionUnitFallback || 'GRS';
+    const numStr = fmtNum(val, 0);
+    return showSuffix || !activeDivisionUnitFallback ? `${numStr} ${unit}` : numStr;
+  };
 
   const tableColumns = [
     {
@@ -1972,62 +2329,71 @@ const CustomerAnalytics: React.FC = () => {
       ),
     },
     {
-      title: 'ORDERED (GRS)',
+      title: `ORDERED${unitHdrSuffix}`,
       key: 'ordered',
-      width: 130,
-      align: 'right' as const,
-      render: (_: any, c: CustomerStat) => (
-        <span style={{ fontWeight: 700, color: 'var(--theme-text, #1e293b)' }}>
-          {c.isSafetyStock ? '—' : fmtNum(c.totalOrderedGross, 0)}
-        </span>
-      ),
-    },
-    {
-      title: 'TOTAL PACKED (GRS)',
-      key: 'packed',
-      width: 150,
-      align: 'right' as const,
-      render: (_: any, c: CustomerStat) => (
-        <span style={{ fontWeight: 700, color: '#0d9488' }}>
-          {fmtNum(c.totalPackedGross, 0)}
-          {c.totalPackedCartons > 0 && (
-            <span style={{ fontSize: 10, color: 'var(--theme-text-muted, #64748b)', display: 'block' }}>
-              ({fmtNum(c.totalPackedCartons, 0)} CTN)
-            </span>
-          )}
-        </span>
-      ),
-    },
-    {
-      title: 'DISPATCHED (GRS)',
-      key: 'dispatched',
       width: 140,
       align: 'right' as const,
       render: (_: any, c: CustomerStat) => (
-        <span style={{ fontWeight: 700, color: '#10b981' }}>{fmtNum(c.totalDispatchedGross, 0)}</span>
+        <span style={{ fontWeight: 700, color: 'var(--theme-text, #1e293b)' }}>
+          {c.isSafetyStock ? '—' : formatCustomerMetric(c.totalOrderedGross, c.primaryUom, c.orderedUomBuckets)}
+        </span>
+      ),
+    },
+    {
+      title: `TOTAL PACKED${unitHdrSuffix}`,
+      key: 'packed',
+      width: 155,
+      align: 'right' as const,
+      render: (_: any, c: CustomerStat) => {
+        const pkgLabel = c.packagingUnitCode || 'CTN';
+        return (
+          <span style={{ fontWeight: 700, color: '#0d9488' }}>
+            {formatCustomerMetric(c.totalPackedGross, c.primaryUom, c.packedUomBuckets)}
+            {c.totalPackedCartons > 0 && (
+              <span style={{ fontSize: 10, color: 'var(--theme-text-muted, #64748b)', display: 'block' }}>
+                ({fmtNum(c.totalPackedCartons, 0)} {pkgLabel})
+              </span>
+            )}
+          </span>
+        );
+      },
+    },
+    {
+      title: `DISPATCHED${unitHdrSuffix}`,
+      key: 'dispatched',
+      width: 145,
+      align: 'right' as const,
+      render: (_: any, c: CustomerStat) => (
+        <span style={{ fontWeight: 700, color: '#10b981' }}>
+          {formatCustomerMetric(c.totalDispatchedGross, c.primaryUom, c.dispatchedUomBuckets)}
+        </span>
       ),
     },
     {
       title: 'READY TO DISPATCH',
       key: 'readyToDispatch',
-      width: 160,
+      width: 170,
       align: 'right' as const,
-      render: (_: any, c: CustomerStat) => (
-        <span style={{ fontWeight: 700, color: c.readyToDispatchGross > 0 ? '#0284c7' : 'var(--theme-text-muted, #94a3b8)' }}>
-          {c.readyToDispatchGross > 0
-            ? `${fmtNum(c.readyToDispatchGross, 0)} GRS${c.readyToDispatchCartons ? ` (${fmtNum(c.readyToDispatchCartons, 0)} CTN)` : ''}`
-            : '0 GRS'}
-        </span>
-      ),
+      render: (_: any, c: CustomerStat) => {
+        const unit = c.readyUomBuckets?.[0]?.unitCode || c.primaryUom || activeDivisionUnitFallback || 'GRS';
+        const pkgLabel = c.packagingUnitCode || 'CTN';
+        return (
+          <span style={{ fontWeight: 700, color: c.readyToDispatchGross > 0 ? '#0284c7' : 'var(--theme-text-muted, #94a3b8)' }}>
+            {c.readyToDispatchGross > 0
+              ? `${formatCustomerMetric(c.readyToDispatchGross, c.primaryUom, c.readyUomBuckets, true)}${c.readyToDispatchCartons ? ` (${fmtNum(c.readyToDispatchCartons, 0)} ${pkgLabel})` : ''}`
+              : `0 ${unit}`}
+          </span>
+        );
+      },
     },
     {
-      title: 'PENDING (GRS)',
+      title: `PENDING${unitHdrSuffix}`,
       key: 'pending',
-      width: 130,
+      width: 135,
       align: 'right' as const,
       render: (_: any, c: CustomerStat) => (
         <span style={{ fontWeight: 700, color: c.pendingGross > 0 ? '#f59e0b' : '#10b981' }}>
-          {c.pendingGross > 0 ? fmtNum(c.pendingGross, 0) : '✅ 0'}
+          {c.pendingGross > 0 ? formatCustomerMetric(c.pendingGross, c.primaryUom, c.pendingUomBuckets) : '✅ 0'}
         </span>
       ),
     },
@@ -2085,85 +2451,157 @@ const CustomerAnalytics: React.FC = () => {
       title: 'TOTAL ORDERED',
       key: 'ordered',
       align: 'right' as const,
-      render: (_: any, it: ItemStat) => (
-        <div>
-          <div style={{ fontWeight: 800, color: 'var(--theme-heading, #1e293b)', fontSize: 13 }}>
-            {fmtNum(it.totalOrderedKgs, 1)} KGS • {fmtNum(it.totalCartons, 1)} CTN
+      render: (_: any, it: ItemStat) => {
+        const unit = it.primaryUom || 'GRS';
+        const pkg = it.packagingUnitCode || 'CTN';
+        if (it.isGrossUnit === false) {
+          return (
+            <div>
+              <div style={{ fontWeight: 800, color: 'var(--theme-heading, #1e293b)', fontSize: 13 }}>
+                {fmtNum(it.totalGross, 0)} {unit}
+              </div>
+              {it.totalCartons > 0 && (
+                <div style={{ fontSize: 11, color: '#6366f1', fontWeight: 700 }}>
+                  {fmtNum(it.totalCartons, 1)} {pkg}
+                </div>
+              )}
+            </div>
+          );
+        }
+        return (
+          <div>
+            <div style={{ fontWeight: 800, color: 'var(--theme-heading, #1e293b)', fontSize: 13 }}>
+              {fmtNum(it.totalOrderedKgs, 1)} KGS • {fmtNum(it.totalCartons, 1)} {pkg}
+            </div>
+            <div style={{ fontSize: 11, color: '#6366f1', fontWeight: 700 }}>
+              {fmtNum(it.totalGross, 0)} {unit} • {fmtNum(it.totalPieces, 0)} PCS
+            </div>
           </div>
-          <div style={{ fontSize: 11, color: '#6366f1', fontWeight: 700 }}>
-            {fmtNum(it.totalGross, 0)} GRS • {fmtNum(it.totalPieces, 0)} PCS
-          </div>
-        </div>
-      ),
+        );
+      },
     },
     {
       title: 'READY IN FGR',
       key: 'readyFgr',
       align: 'right' as const,
-      render: (_: any, it: ItemStat) => (
-        <div>
-          <div style={{ fontWeight: 800, color: '#10b981', fontSize: 13 }}>
-            {fmtNum(it.readyFgrKgs, 1)} KGS • {fmtNum(it.readyFgrCartons, 1)} CTN
+      render: (_: any, it: ItemStat) => {
+        const unit = it.primaryUom || 'GRS';
+        const pkg = it.packagingUnitCode || 'CTN';
+        if (it.isGrossUnit === false) {
+          return (
+            <div>
+              <div style={{ fontWeight: 800, color: '#10b981', fontSize: 13 }}>
+                {fmtNum(it.readyFgrGross, 0)} {unit}
+              </div>
+              {it.readyFgrCartons > 0 && (
+                <div style={{ fontSize: 11, color: '#0d9488', fontWeight: 700 }}>
+                  {fmtNum(it.readyFgrCartons, 1)} {pkg}
+                </div>
+              )}
+            </div>
+          );
+        }
+        return (
+          <div>
+            <div style={{ fontWeight: 800, color: '#10b981', fontSize: 13 }}>
+              {fmtNum(it.readyFgrKgs, 1)} KGS • {fmtNum(it.readyFgrCartons, 1)} {pkg}
+            </div>
+            <div style={{ fontSize: 11, color: '#0d9488', fontWeight: 700 }}>
+              {fmtNum(it.readyFgrGross, 0)} {unit} • {fmtNum(it.readyFgrPieces, 0)} PCS
+            </div>
           </div>
-          <div style={{ fontSize: 11, color: '#0d9488', fontWeight: 700 }}>
-            {fmtNum(it.readyFgrGross, 0)} GRS • {fmtNum(it.readyFgrPieces, 0)} PCS
-          </div>
-        </div>
-      ),
+        );
+      },
     },
     {
       title: 'PENDING DISPATCH',
       key: 'undispatched',
       align: 'right' as const,
-      render: (_: any, it: ItemStat) => (
-        <div>
-          <div
-            style={{
-              fontWeight: 800,
-              color: it.undispatchedGross > 0 ? '#3b82f6' : '#10b981',
-              fontSize: 13,
-            }}
-          >
-            {fmtNum(it.undispatchedGross, 0)} GRS • {fmtNum(it.undispatchedPieces, 0)} PCS
+      render: (_: any, it: ItemStat) => {
+        const unit = it.primaryUom || 'GRS';
+        const pkg = it.packagingUnitCode || 'CTN';
+        if (it.isGrossUnit === false) {
+          return (
+            <div>
+              <div style={{ fontWeight: 800, color: it.undispatchedGross > 0 ? '#3b82f6' : '#10b981', fontSize: 13 }}>
+                {fmtNum(it.undispatchedGross, 0)} {unit}
+              </div>
+              {it.undispatchedCartons > 0 && (
+                <div style={{ fontSize: 11, color: it.undispatchedCartons > 0 ? '#2563eb' : '#10b981', fontWeight: 700 }}>
+                  {fmtNum(it.undispatchedCartons, 1)} {pkg}
+                </div>
+              )}
+            </div>
+          );
+        }
+        return (
+          <div>
+            <div
+              style={{
+                fontWeight: 800,
+                color: it.undispatchedGross > 0 ? '#3b82f6' : '#10b981',
+                fontSize: 13,
+              }}
+            >
+              {fmtNum(it.undispatchedGross, 0)} {unit} • {fmtNum(it.undispatchedPieces, 0)} PCS
+            </div>
+            <div
+              style={{
+                fontSize: 11,
+                color: it.undispatchedCartons > 0 ? '#2563eb' : '#10b981',
+                fontWeight: 700,
+              }}
+            >
+              {fmtNum(it.undispatchedCartons, 1)} {pkg} • {fmtNum(it.undispatchedKgs, 1)} KGS
+            </div>
           </div>
-          <div
-            style={{
-              fontSize: 11,
-              color: it.undispatchedCartons > 0 ? '#2563eb' : '#10b981',
-              fontWeight: 700,
-            }}
-          >
-            {fmtNum(it.undispatchedCartons, 1)} CTN • {fmtNum(it.undispatchedKgs, 1)} KGS
-          </div>
-        </div>
-      ),
+        );
+      },
     },
     {
       title: 'PENDING PRODUCTION',
       key: 'balancePending',
       align: 'right' as const,
-      render: (_: any, it: ItemStat) => (
-        <div>
-          <div
-            style={{
-              fontWeight: 800,
-              color: it.balancePendingGross > 0 ? '#f59e0b' : '#10b981',
-              fontSize: 13,
-            }}
-          >
-            {fmtNum(it.balancePendingGross, 0)} GRS • {fmtNum(it.balancePendingPieces, 0)} PCS
+      render: (_: any, it: ItemStat) => {
+        const unit = it.primaryUom || 'GRS';
+        const pkg = it.packagingUnitCode || 'CTN';
+        if (it.isGrossUnit === false) {
+          return (
+            <div>
+              <div style={{ fontWeight: 800, color: it.balancePendingGross > 0 ? '#f59e0b' : '#10b981', fontSize: 13 }}>
+                {fmtNum(it.balancePendingGross, 0)} {unit}
+              </div>
+              {it.balancePendingCartons > 0 && (
+                <div style={{ fontSize: 11, color: it.balancePendingCartons > 0 ? '#d97706' : '#10b981', fontWeight: 700 }}>
+                  {fmtNum(it.balancePendingCartons, 1)} {pkg}
+                </div>
+              )}
+            </div>
+          );
+        }
+        return (
+          <div>
+            <div
+              style={{
+                fontWeight: 800,
+                color: it.balancePendingGross > 0 ? '#f59e0b' : '#10b981',
+                fontSize: 13,
+              }}
+            >
+              {fmtNum(it.balancePendingGross, 0)} {unit} • {fmtNum(it.balancePendingPieces, 0)} PCS
+            </div>
+            <div
+              style={{
+                fontSize: 11,
+                color: it.balancePendingCartons > 0 ? '#d97706' : '#10b981',
+                fontWeight: 700,
+              }}
+            >
+              {fmtNum(it.balancePendingCartons, 1)} {pkg} • {fmtNum(it.balancePendingKgs, 1)} KGS
+            </div>
           </div>
-          <div
-            style={{
-              fontSize: 11,
-              color: it.balancePendingCartons > 0 ? '#d97706' : '#10b981',
-              fontWeight: 700,
-            }}
-          >
-            {fmtNum(it.balancePendingCartons, 1)} CTN • {fmtNum(it.balancePendingKgs, 1)} KGS
-          </div>
-        </div>
-      ),
+        );
+      },
     },
     {
       title: 'ASSOCIATED CUSTOMERS',
@@ -2208,17 +2646,49 @@ const CustomerAnalytics: React.FC = () => {
           <div className="ca-title-icon">📊</div>
           <div>
             <h1 className="ca-title">Customer Analytics</h1>
-            <p className="ca-subtitle">Dispatch history, order fulfillment & product analysis</p>
+            <p className="ca-subtitle">Dispatch history, order fulfillment &amp; product analysis</p>
           </div>
         </div>
-        <Button
-          icon={<ReloadOutlined spin={loading} />}
-          onClick={loadData}
-          loading={loading}
-          className="ca-refresh-btn"
-        >
-          Refresh
-        </Button>
+        <div className="ca-header-actions">
+          <div className="ca-header-division-filter">
+            <span className="ca-dock-filter-label" style={{ color: token.colorTextSecondary }}>
+              Division
+            </span>
+            <Select
+              aria-label="Filter Customer Analytics by division"
+              value={selectedDivisionId}
+              onChange={handleDivisionChange}
+              style={{ minWidth: 235 }}
+              optionLabelProp="label"
+              popupMatchSelectWidth={false}
+              disabled={loading}
+            >
+              {(divisionOptions.length > 0 ? divisionOptions : FALLBACK_ANALYTICS_DIVISIONS).map((div) => (
+                <Option key={div.id} value={div.id} label={div.name}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                    <span>{div.name}</span>
+                    {div.divisionCode && (
+                      <Tag style={{ margin: 0, fontSize: 10, fontWeight: 600 }}>
+                        {div.divisionCode}
+                      </Tag>
+                    )}
+                  </div>
+                </Option>
+              ))}
+              <Option value="ALL" label="All Divisions">
+                <span>All Divisions</span>
+              </Option>
+            </Select>
+          </div>
+          <Button
+            icon={<ReloadOutlined spin={loading} />}
+            onClick={handleManualRefresh}
+            loading={loading}
+            className="ca-refresh-btn"
+          >
+            Refresh
+          </Button>
+        </div>
       </div>
 
       {/* ── KPI Strip (Executive Action KPI Cards) ── */}
@@ -2240,8 +2710,8 @@ const CustomerAnalytics: React.FC = () => {
           onAction={() => navigate('/sales/orders')}
         />
         <ActionKpiCard
-          value={fmtNum(totalOrderedGross, 0)}
-          suffix="GRS"
+          value={orderedKpiDisplay.text}
+          suffix={orderedKpiDisplay.suffix}
           label="Ordered Demand"
           icon={<ClockCircleOutlined />}
           gradient="linear-gradient(135deg, #ea580c 0%, #c2410c 100%)"
@@ -2249,8 +2719,8 @@ const CustomerAnalytics: React.FC = () => {
           onAction={() => navigate('/sales/orders')}
         />
         <ActionKpiCard
-          value={fmtNum(totalPackedGrossAll, 0)}
-          suffix="GRS"
+          value={packedKpiDisplay.text}
+          suffix={packedKpiDisplay.suffix}
           label="Total Packed"
           icon={<AppstoreOutlined />}
           gradient="linear-gradient(135deg, #0d9488 0%, #0f766e 100%)"
@@ -2258,8 +2728,8 @@ const CustomerAnalytics: React.FC = () => {
           onAction={() => navigate('/production/entries')}
         />
         <ActionKpiCard
-          value={fmtNum(totalDispatchedGross, 0)}
-          suffix="GRS"
+          value={dispatchedKpiDisplay.text}
+          suffix={dispatchedKpiDisplay.suffix}
           label="Dispatched Goods"
           icon={<RocketOutlined />}
           gradient="linear-gradient(135deg, #16a34a 0%, #15803d 100%)"
@@ -2267,8 +2737,8 @@ const CustomerAnalytics: React.FC = () => {
           onAction={() => navigate('/sales/deliveries')}
         />
         <ActionKpiCard
-          value={fmtNum(totalReadyToDispatchGross, 0)}
-          suffix="GRS"
+          value={readyKpiDisplay.text}
+          suffix={readyKpiDisplay.suffix}
           label="Ready to Dispatch"
           icon={<InboxOutlined />}
           gradient="linear-gradient(135deg, #0284c7 0%, #0369a1 100%)"
@@ -2342,13 +2812,17 @@ const CustomerAnalytics: React.FC = () => {
                 const orderedGross = c.totalOrderedGross || 0;
                 const dispatchedGross = c.totalDispatchedGross || 0;
                 const readyGross = c.readyToDispatchGross || 0;
-                const pendingGross = c.pendingGross || Math.max(0, orderedGross - dispatchedGross);
+                const pendingGross = c.pendingGross ?? Math.max(0, orderedGross - dispatchedGross);
+                const cUnit = c.primaryUom || activeDivisionUnitFallback || 'GRS';
 
+                const sameUnitPeers = customers.filter(
+                  (x) => !x.isSafetyStock && (x.primaryUom || activeDivisionUnitFallback || 'GRS') === cUnit,
+                );
                 const maxVol = Math.max(
-                  ...customers
-                    .filter((x) => !x.isSafetyStock)
-                    .map((x) => Math.max(x.totalOrderedGross, (x.totalDispatchedGross || 0) + (x.readyToDispatchGross || 0))),
-                  1
+                  ...sameUnitPeers.map((x) =>
+                    Math.max(x.totalOrderedGross, (x.totalDispatchedGross || 0) + (x.readyToDispatchGross || 0)),
+                  ),
+                  1,
                 );
                 const envelopeTotal = Math.max(orderedGross, dispatchedGross + readyGross);
                 const capsuleWidth = Math.min(100, Math.max(8, (envelopeTotal / maxVol) * 100));
@@ -2357,6 +2831,10 @@ const CustomerAnalytics: React.FC = () => {
                 const readyPct = envelopeTotal > 0 ? (readyGross / envelopeTotal) * 100 : 0;
                 const pendingPct = Math.max(0, 100 - dispatchedPct - readyPct);
                 const clr = COLORS[i % COLORS.length];
+                const orderedStr = formatCustomerMetric(orderedGross, cUnit, c.orderedUomBuckets, true);
+                const dispatchedStr = formatCustomerMetric(dispatchedGross, cUnit, c.dispatchedUomBuckets, true);
+                const readyStr = formatCustomerMetric(readyGross, cUnit, c.readyUomBuckets, true);
+                const pendingStr = formatCustomerMetric(pendingGross, cUnit, c.pendingUomBuckets, true);
 
                 return (
                   <div key={c.id} className="ca-dual-row">
@@ -2378,10 +2856,10 @@ const CustomerAnalytics: React.FC = () => {
                           title={
                             <div>
                               <div style={{ fontWeight: 800, marginBottom: 4 }}>{c.name}</div>
-                              <div>📦 Ordered Demand: <strong>{fmtNum(orderedGross, 0)} GRS</strong></div>
-                              <div style={{ color: '#818cf8' }}>🚚 Dispatched: <strong>{fmtNum(dispatchedGross, 0)} GRS</strong> ({Math.round((dispatchedGross / Math.max(orderedGross, 1)) * 100)}%)</div>
-                              <div style={{ color: '#34d399' }}>🛡️ Ready to Dispatch: <strong>{fmtNum(readyGross, 0)} GRS</strong> ({Math.round((readyGross / Math.max(orderedGross, 1)) * 100)}%)</div>
-                              <div style={{ color: '#fbbf24' }}>⏳ Pending Production: <strong>{fmtNum(pendingGross, 0)} GRS</strong></div>
+                              <div>📦 Ordered Demand: <strong>{orderedStr}</strong></div>
+                              <div style={{ color: '#818cf8' }}>🚚 Dispatched: <strong>{dispatchedStr}</strong> ({Math.round((dispatchedGross / Math.max(orderedGross, 1)) * 100)}%)</div>
+                              <div style={{ color: '#34d399' }}>🛡️ Ready to Dispatch: <strong>{readyStr}</strong> ({Math.round((readyGross / Math.max(orderedGross, 1)) * 100)}%)</div>
+                              <div style={{ color: '#fbbf24' }}>⏳ Pending Production: <strong>{pendingStr}</strong></div>
                             </div>
                           }
                         >
@@ -2413,19 +2891,19 @@ const CustomerAnalytics: React.FC = () => {
 
                       <div className="ca-multi-submetrics">
                         <span className="ca-submetric-pill">
-                          <span>📦 Demand:</span> <strong>{fmtNum(orderedGross, 0)} GRS</strong>
+                          <span>📦 Demand:</span> <strong>{orderedStr}</strong>
                         </span>
                         <span className="ca-submetric-pill pill-dispatched">
-                          <span>🚚 Dispatched:</span> <strong>{fmtNum(dispatchedGross, 0)} GRS</strong>
+                          <span>🚚 Dispatched:</span> <strong>{dispatchedStr}</strong>
                         </span>
                         {readyGross > 0 && (
                           <span className="ca-submetric-pill pill-ready">
-                            <span>🛡️ Ready:</span> <strong>{fmtNum(readyGross, 0)} GRS</strong>
+                            <span>🛡️ Ready:</span> <strong>{readyStr}</strong>
                           </span>
                         )}
                         {pendingGross > 0 && (
                           <span className="ca-submetric-pill pill-pending">
-                            <span>⏳ Pending:</span> <strong>{fmtNum(pendingGross, 0)} GRS</strong>
+                            <span>⏳ Pending:</span> <strong>{pendingStr}</strong>
                           </span>
                         )}
                       </div>
@@ -2444,7 +2922,7 @@ const CustomerAnalytics: React.FC = () => {
                         </span>
                       )}
                       <span className="ca-dual-fraction">
-                        {fmtNum(dispatchedGross, 0)} / {fmtNum(orderedGross, 0)} GRS
+                        {fmtNum(dispatchedGross, 0)} / {fmtNum(orderedGross, 0)} {cUnit}
                       </span>
                     </div>
                   </div>
@@ -2460,11 +2938,15 @@ const CustomerAnalytics: React.FC = () => {
               const orderedGross = it.totalGross || 0;
               const dispatchedGross = it.totalDispatchedGross || 0;
               const readyGross = it.readyFgrGross || 0;
-              const pendingGross = it.balancePendingGross || Math.max(0, orderedGross - dispatchedGross);
+              const pendingGross = it.balancePendingGross ?? Math.max(0, orderedGross - dispatchedGross);
+              const itUnit = it.primaryUom || activeDivisionUnitFallback || 'GRS';
 
+              const sameUnitItems = itemStats.filter(
+                (x) => (x.primaryUom || activeDivisionUnitFallback || 'GRS') === itUnit,
+              );
               const maxVol = Math.max(
-                ...itemStats.map((x) => Math.max(x.totalGross, (x.totalDispatchedGross || 0) + (x.readyFgrGross || 0))),
-                1
+                ...sameUnitItems.map((x) => Math.max(x.totalGross, (x.totalDispatchedGross || 0) + (x.readyFgrGross || 0))),
+                1,
               );
               const envelopeTotal = Math.max(orderedGross, dispatchedGross + readyGross);
               const capsuleWidth = Math.min(100, Math.max(8, (envelopeTotal / maxVol) * 100));
@@ -2496,10 +2978,10 @@ const CustomerAnalytics: React.FC = () => {
                         title={
                           <div>
                             <div style={{ fontWeight: 800, marginBottom: 4 }}>{it.itemName}</div>
-                            <div>📦 Ordered Demand: <strong>{fmtNum(orderedGross, 0)} GRS</strong></div>
-                            <div style={{ color: '#818cf8' }}>🚚 Dispatched: <strong>{fmtNum(dispatchedGross, 0)} GRS</strong> ({Math.round((dispatchedGross / Math.max(orderedGross, 1)) * 100)}%)</div>
-                            <div style={{ color: '#34d399' }}>🛡️ Ready in Warehouse: <strong>{fmtNum(readyGross, 0)} GRS</strong> ({Math.round((readyGross / Math.max(orderedGross, 1)) * 100)}%)</div>
-                            <div style={{ color: '#fbbf24' }}>⏳ Pending Production: <strong>{fmtNum(pendingGross, 0)} GRS</strong></div>
+                            <div>📦 Ordered Demand: <strong>{fmtNum(orderedGross, 0)} {itUnit}</strong></div>
+                            <div style={{ color: '#818cf8' }}>🚚 Dispatched: <strong>{fmtNum(dispatchedGross, 0)} {itUnit}</strong> ({Math.round((dispatchedGross / Math.max(orderedGross, 1)) * 100)}%)</div>
+                            <div style={{ color: '#34d399' }}>🛡️ Ready in Warehouse: <strong>{fmtNum(readyGross, 0)} {itUnit}</strong> ({Math.round((readyGross / Math.max(orderedGross, 1)) * 100)}%)</div>
+                            <div style={{ color: '#fbbf24' }}>⏳ Pending Production: <strong>{fmtNum(pendingGross, 0)} {itUnit}</strong></div>
                           </div>
                         }
                       >
@@ -2531,19 +3013,19 @@ const CustomerAnalytics: React.FC = () => {
 
                     <div className="ca-multi-submetrics">
                       <span className="ca-submetric-pill">
-                        <span>📦 Demand:</span> <strong>{fmtNum(orderedGross, 0)} GRS</strong>
+                        <span>📦 Demand:</span> <strong>{fmtNum(orderedGross, 0)} {itUnit}</strong>
                       </span>
                       <span className="ca-submetric-pill pill-dispatched">
-                        <span>🚚 Dispatched:</span> <strong>{fmtNum(dispatchedGross, 0)} GRS</strong>
+                        <span>🚚 Dispatched:</span> <strong>{fmtNum(dispatchedGross, 0)} {itUnit}</strong>
                       </span>
                       {readyGross > 0 && (
                         <span className="ca-submetric-pill pill-ready">
-                          <span>🛡️ Ready:</span> <strong>{fmtNum(readyGross, 0)} GRS</strong>
+                          <span>🛡️ Ready:</span> <strong>{fmtNum(readyGross, 0)} {itUnit}</strong>
                         </span>
                       )}
                       {pendingGross > 0 && (
                         <span className="ca-submetric-pill pill-pending">
-                          <span>⏳ Pending:</span> <strong>{fmtNum(pendingGross, 0)} GRS</strong>
+                          <span>⏳ Pending:</span> <strong>{fmtNum(pendingGross, 0)} {itUnit}</strong>
                         </span>
                       )}
                     </div>
@@ -2562,7 +3044,7 @@ const CustomerAnalytics: React.FC = () => {
                       </span>
                     )}
                     <span className="ca-dual-fraction">
-                      {fmtNum(dispatchedGross, 0)} / {fmtNum(orderedGross, 0)} GRS
+                      {fmtNum(dispatchedGross, 0)} / {fmtNum(orderedGross, 0)} {itUnit}
                     </span>
                   </div>
                 </div>
@@ -2747,31 +3229,36 @@ const CustomerAnalytics: React.FC = () => {
                             />
 
                             <div className="ca-card-stats">
+                              {(() => {
+                                const cUnit = c.primaryUom || activeDivisionUnitFallback || 'GRS';
+                                const cPkg = c.packagingUnitCode || 'CTN';
+                                return (
+                                  <>
                               <div className="ca-stat">
                                 <div className="ca-stat-label">Ordered</div>
                                 <div className="ca-stat-val">
-                                  {fmtNum(c.totalOrderedGross, 0)} GRS
+                                  {c.isSafetyStock ? '—' : formatCustomerMetric(c.totalOrderedGross, cUnit, c.orderedUomBuckets, true)}
                                 </div>
                               </div>
                               <div className="ca-stat">
                                 <div className="ca-stat-label" style={{ color: '#0d9488' }}>Total Packed</div>
                                 <div className="ca-stat-val" style={{ color: '#0d9488' }}>
-                                  {fmtNum(c.totalPackedGross, 0)} GRS
+                                  {formatCustomerMetric(c.totalPackedGross, cUnit, c.packedUomBuckets, true)}
                                 </div>
                                 {c.totalPackedCartons > 0 && (
                                   <div style={{ fontSize: 10, color: 'var(--theme-text-muted, #64748b)', fontWeight: 600, marginTop: 1 }}>
-                                    ({fmtNum(c.totalPackedCartons, 0)} CTN)
+                                    ({fmtNum(c.totalPackedCartons, 0)} {cPkg})
                                   </div>
                                 )}
                               </div>
                               <div className="ca-stat">
                                 <div className="ca-stat-label">Dispatched</div>
                                 <div className="ca-stat-val" style={{ color: '#10b981' }}>
-                                  {fmtNum(c.totalDispatchedGross, 0)} GRS
+                                  {formatCustomerMetric(c.totalDispatchedGross, cUnit, c.dispatchedUomBuckets, true)}
                                 </div>
                                 {c.totalDispatchedCartons > 0 && (
                                   <div style={{ fontSize: 10, color: '#10b981', fontWeight: 600, marginTop: 1 }}>
-                                    ({fmtNum(c.totalDispatchedCartons, 0)} CTN)
+                                    ({fmtNum(c.totalDispatchedCartons, 0)} {cPkg})
                                   </div>
                                 )}
                               </div>
@@ -2781,12 +3268,12 @@ const CustomerAnalytics: React.FC = () => {
                                 </div>
                                 <div className="ca-stat-val ca-stat-val-ready">
                                   {c.readyToDispatchGross > 0
-                                    ? `${fmtNum(c.readyToDispatchGross, 0)} GRS`
-                                    : '0 GRS'}
+                                    ? formatCustomerMetric(c.readyToDispatchGross, cUnit, c.readyUomBuckets, true)
+                                    : `0 ${cUnit}`}
                                 </div>
                                 {c.readyToDispatchCartons > 0 && (
                                   <div className="ca-stat-sub-ready">
-                                    ({fmtNum(c.readyToDispatchCartons, 0)} CTN)
+                                    ({fmtNum(c.readyToDispatchCartons, 0)} {cPkg})
                                   </div>
                                 )}
                               </div>
@@ -2799,7 +3286,7 @@ const CustomerAnalytics: React.FC = () => {
                                     fontWeight: 700,
                                   }}
                                 >
-                                  {c.pendingGross > 0 ? `${fmtNum(c.pendingGross, 0)} GRS` : '✅ Done'}
+                                  {c.pendingGross > 0 ? formatCustomerMetric(c.pendingGross, cUnit, c.pendingUomBuckets, true) : '✅ Done'}
                                 </div>
                               </div>
                               <div className="ca-stat">
@@ -2808,6 +3295,9 @@ const CustomerAnalytics: React.FC = () => {
                                   {c.totalOrders}
                                 </div>
                               </div>
+                                  </>
+                                );
+                              })()}
                             </div>
 
                             {c.topItem && (
@@ -2891,7 +3381,7 @@ const CustomerAnalytics: React.FC = () => {
                   </div>
                 )}
 
-                {/* ── Permanent Dedicated Safety Stock Buffer Dock Below (shown in All view) ── */}
+                {/* ── Permanent Dedicated Safety Stock Buffer Dock Below (driven by top header DIVISION) ── */}
                 {activeTab === 'all' && safetyStockStat && (
                   <div className="ca-safety-dock">
                     <div className="ca-safety-dock-header">
@@ -2903,43 +3393,16 @@ const CustomerAnalytics: React.FC = () => {
                             <Tag color="cyan" style={{ marginLeft: 8, fontWeight: 700, borderRadius: 4 }}>
                               Permanent Buffer
                             </Tag>
+                            <Tag color="blue" style={{ marginLeft: 4, fontWeight: 600, borderRadius: 4 }}>
+                              {selectedDivisionName}
+                            </Tag>
                           </div>
                           <div className="ca-safety-dock-desc">
-                            Finished goods held in safety buffer inventory — dynamically calculated from Item Master UOM conversions
+                            Finished goods held in safety buffer inventory for {selectedDivisionName} — dynamically calculated from Item Master UOM conversions
                           </div>
                         </div>
                       </div>
                       <div className="ca-safety-dock-controls">
-                        <div className="ca-safety-dock-filter">
-                          <span className="ca-dock-filter-label" style={{ color: token.colorTextSecondary }}>
-                            Division
-                          </span>
-                          <Select
-                            aria-label="Filter safety stock buffer by division"
-                            value={selectedSafetyDivision}
-                            onChange={setSelectedSafetyDivision}
-                            style={{ minWidth: 215 }}
-                            optionLabelProp="label"
-                            popupMatchSelectWidth={false}
-                          >
-                            <Option value="ALL" label="All Divisions">
-                              <span>All Divisions</span>
-                            </Option>
-                            {safetyDivisions.map((div) => (
-                              <Option key={div.id} value={div.id} label={div.name}>
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-                                  <span>{div.name}</span>
-                                  {div.divisionCode && (
-                                    <Tag style={{ margin: 0, fontSize: 10, fontWeight: 600 }}>
-                                      {div.divisionCode}
-                                    </Tag>
-                                  )}
-                                </div>
-                              </Option>
-                            ))}
-                          </Select>
-                        </div>
-
                         <div className="ca-safety-dock-kpis">
                           <div className="ca-dock-kpi">
                             <span className="ca-dock-kpi-label">{safetyBufferSummary.volumeLabel}</span>
@@ -3045,7 +3508,7 @@ const CustomerAnalytics: React.FC = () => {
                           image={Empty.PRESENTED_IMAGE_SIMPLE}
                           description={
                             <span style={{ color: token.colorTextSecondary }}>
-                              No safety stock buffer inventory found for {selectedSafetyDivisionName}.
+                              No safety stock buffer inventory found for {selectedDivisionName}.
                             </span>
                           }
                         />
@@ -3078,17 +3541,104 @@ const CustomerAnalytics: React.FC = () => {
                 <div className="ca-item-pro-grid">
                   {filteredItemStats.map((it, i) => {
                     const accentClr = COLORS[i % COLORS.length];
-                    const fgrCoveragePct =
-                      it.totalOrderedKgs > 0
+                    const itemUnit = it.primaryUom || 'GRS';
+                    const itemPkgUnit = it.packagingUnitCode || (it.isGrossUnit === false ? 'PKG' : 'CTN');
+                    const isItemGross = it.isGrossUnit !== false;
+                    const fgrCoveragePct = isItemGross
+                      ? it.totalOrderedKgs > 0
                         ? Math.min(100, Math.round((it.readyFgrKgs / it.totalOrderedKgs) * 100))
-                        : it.readyFgrKgs > 0
+                        : it.totalGross > 0
+                        ? Math.min(100, Math.round((it.readyFgrGross / it.totalGross) * 100))
+                        : it.readyFgrGross > 0
                         ? 100
-                        : 0;
+                        : 0
+                      : it.totalGross > 0
+                      ? Math.min(100, Math.round((it.readyFgrGross / it.totalGross) * 100))
+                      : it.readyFgrGross > 0
+                      ? 100
+                      : 0;
                     const fgrStatusColor = getFulfillmentColor(fgrCoveragePct);
                     const associatedCusts =
                       it.customers && it.customers.length > 0
                         ? it.customers
                         : it.customerNames.map((n) => ({ customerId: n, customerName: n }));
+
+                    const pendingDispatchTone = it.undispatchedGross > 0 ? 'ca-val-amber' : 'ca-val-emerald';
+                    const pendingProdTone = it.balancePendingGross > 0 ? 'ca-val-rose' : 'ca-val-emerald';
+                    const matrixSegments = [
+                      {
+                        key: 'ordered',
+                        segClass: 'ca-matrix-seg-ordered',
+                        dotColor: '#6366f1',
+                        title: 'A. Total Order Requirements',
+                        weightLabel: 'Total Weight',
+                        weightVal: it.totalOrderedKgs,
+                        pkgLabel: isItemGross ? 'Total Cartons' : `Total ${itemPkgUnit}`,
+                        pkgVal: it.totalCartons,
+                        primaryLabel: isItemGross ? 'Total Gross' : `Total ${itemUnit}`,
+                        primaryVal: it.totalGross,
+                        pcsLabel: 'Total Pieces',
+                        pcsVal: it.totalPieces,
+                        weightCls: 'ca-val-primary',
+                        pkgCls: 'ca-val-indigo',
+                        primaryCls: 'ca-val-primary',
+                        pcsCls: 'ca-val-teal',
+                      },
+                      {
+                        key: 'dispatch',
+                        segClass: 'ca-matrix-seg-dispatch',
+                        dotColor: '#f59e0b',
+                        title: 'B. Pending Dispatch (To Ship)',
+                        weightLabel: 'Bal. Weight',
+                        weightVal: it.undispatchedKgs,
+                        pkgLabel: isItemGross ? 'Bal. Cartons' : `Bal. ${itemPkgUnit}`,
+                        pkgVal: it.undispatchedCartons,
+                        primaryLabel: isItemGross ? 'Bal. Gross' : `Bal. ${itemUnit}`,
+                        primaryVal: it.undispatchedGross,
+                        pcsLabel: 'Bal. Pieces',
+                        pcsVal: it.undispatchedPieces,
+                        weightCls: it.undispatchedKgs > 0 ? 'ca-val-amber' : 'ca-val-emerald',
+                        pkgCls: it.undispatchedCartons > 0 ? 'ca-val-amber' : pendingDispatchTone,
+                        primaryCls: pendingDispatchTone,
+                        pcsCls: it.undispatchedPieces > 0 ? 'ca-val-amber' : 'ca-val-emerald',
+                      },
+                      {
+                        key: 'fgr',
+                        segClass: 'ca-matrix-seg-fgr',
+                        dotColor: '#10b981',
+                        title: 'C. Current Inventory & Ready Stock (FGR)',
+                        weightLabel: 'Ready Weight',
+                        weightVal: it.readyFgrKgs,
+                        pkgLabel: isItemGross ? 'Ready Cartons' : `Ready ${itemPkgUnit}`,
+                        pkgVal: it.readyFgrCartons,
+                        primaryLabel: isItemGross ? 'Ready Gross' : `Ready ${itemUnit}`,
+                        primaryVal: it.readyFgrGross,
+                        pcsLabel: 'Ready Pieces',
+                        pcsVal: it.readyFgrPieces,
+                        weightCls: 'ca-val-emerald',
+                        pkgCls: 'ca-val-teal',
+                        primaryCls: 'ca-val-emerald',
+                        pcsCls: 'ca-val-teal',
+                      },
+                      {
+                        key: 'production',
+                        segClass: 'ca-matrix-seg-production',
+                        dotColor: it.balancePendingGross > 0 ? '#ef4444' : '#10b981',
+                        title: 'D. Pending Production (To Produce)',
+                        weightLabel: 'Prod. Weight',
+                        weightVal: it.balancePendingKgs,
+                        pkgLabel: isItemGross ? 'Prod. Cartons' : `Prod. ${itemPkgUnit}`,
+                        pkgVal: it.balancePendingCartons,
+                        primaryLabel: isItemGross ? 'Prod. Gross' : `Prod. ${itemUnit}`,
+                        primaryVal: it.balancePendingGross,
+                        pcsLabel: 'Prod. Pieces',
+                        pcsVal: it.balancePendingPieces,
+                        weightCls: it.balancePendingKgs > 0 ? 'ca-val-rose' : 'ca-val-emerald',
+                        pkgCls: it.balancePendingCartons > 0 ? 'ca-val-rose' : pendingProdTone,
+                        primaryCls: pendingProdTone,
+                        pcsCls: it.balancePendingPieces > 0 ? 'ca-val-rose' : 'ca-val-emerald',
+                      },
+                    ];
 
                     return (
                       <div
@@ -3106,7 +3656,7 @@ const CustomerAnalytics: React.FC = () => {
                               #{i + 1}
                             </span>
                             <span className="ca-item-pro-grs-pill">
-                              {fmtNum(it.totalGross, 0)} GRS Demand
+                              {fmtNum(it.totalGross, 0)} {itemUnit} Demand
                             </span>
                           </div>
 
@@ -3166,202 +3716,48 @@ const CustomerAnalytics: React.FC = () => {
 
                         {/* ── 4-Segment Structured Inventory Matrix (A, B, C, D) ── */}
                         <div className="ca-item-matrix">
-                          {/* Segment A: Total Order Requirements */}
-                          <div className="ca-matrix-segment ca-matrix-seg-ordered">
-                            <div className="ca-matrix-seg-header">
-                              <span className="ca-matrix-seg-dot" style={{ background: '#6366f1' }} />
-                              <span className="ca-matrix-seg-title">A. Total Order Requirements</span>
-                            </div>
-                            <div className="ca-matrix-cells">
-                              {/* Left Column: Weight & Cartons stacked */}
-                              <div className="ca-matrix-col">
-                                <div className="ca-matrix-subrow">
-                                  <span className="ca-matrix-cell-label">Total Weight</span>
-                                  <span className="ca-matrix-cell-val ca-val-primary">
-                                    {fmtNum(it.totalOrderedKgs, 1)} <small>KGS</small>
-                                  </span>
-                                </div>
-                                <div className="ca-matrix-subrow">
-                                  <span className="ca-matrix-cell-label">Total Cartons</span>
-                                  <span className="ca-matrix-cell-val ca-val-indigo">
-                                    {fmtNum(it.totalCartons, 1)} <small>CTN</small>
-                                  </span>
-                                </div>
+                          {matrixSegments.map((seg) => (
+                            <div key={seg.key} className={`ca-matrix-segment ${seg.segClass}`}>
+                              <div className="ca-matrix-seg-header">
+                                <span className="ca-matrix-seg-dot" style={{ background: seg.dotColor }} />
+                                <span className="ca-matrix-seg-title">{seg.title}</span>
                               </div>
-                              {/* Right Column: Gross & Pieces stacked */}
-                              <div className="ca-matrix-col">
-                                <div className="ca-matrix-subrow">
-                                  <span className="ca-matrix-cell-label">Total Gross</span>
-                                  <span className="ca-matrix-cell-val ca-val-primary">
-                                    {fmtNum(it.totalGross, 0)} <small>GRS</small>
-                                  </span>
+                              <div className="ca-matrix-cells">
+                                <div className="ca-matrix-col">
+                                  {isItemGross && (
+                                    <div className="ca-matrix-subrow">
+                                      <span className="ca-matrix-cell-label">{seg.weightLabel}</span>
+                                      <span className={`ca-matrix-cell-val ${seg.weightCls}`}>
+                                        {fmtNum(seg.weightVal, 1)} <small>KGS</small>
+                                      </span>
+                                    </div>
+                                  )}
+                                  <div className="ca-matrix-subrow">
+                                    <span className="ca-matrix-cell-label">{seg.pkgLabel}</span>
+                                    <span className={`ca-matrix-cell-val ${seg.pkgCls}`}>
+                                      {fmtNum(seg.pkgVal, 1)} <small>{itemPkgUnit}</small>
+                                    </span>
+                                  </div>
                                 </div>
-                                <div className="ca-matrix-subrow">
-                                  <span className="ca-matrix-cell-label">Total Pieces</span>
-                                  <span className="ca-matrix-cell-val ca-val-teal">
-                                    {fmtNum(it.totalPieces, 0)} <small>PCS</small>
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Segment B: Pending Dispatch (To Ship) [Formula: A - Dispatched] */}
-                          <div className="ca-matrix-segment ca-matrix-seg-dispatch">
-                            <div className="ca-matrix-seg-header">
-                              <span className="ca-matrix-seg-dot" style={{ background: '#f59e0b' }} />
-                              <span className="ca-matrix-seg-title">B. Pending Dispatch (To Ship)</span>
-                            </div>
-                            <div className="ca-matrix-cells">
-                              {/* Left Column: Bal. Weight & Cartons stacked */}
-                              <div className="ca-matrix-col">
-                                <div className="ca-matrix-subrow">
-                                  <span className="ca-matrix-cell-label">Bal. Weight</span>
-                                  <span
-                                    className={`ca-matrix-cell-val ${
-                                      it.undispatchedKgs > 0 ? 'ca-val-amber' : 'ca-val-emerald'
-                                    }`}
-                                  >
-                                    {fmtNum(it.undispatchedKgs, 1)} <small>KGS</small>
-                                  </span>
-                                </div>
-                                <div className="ca-matrix-subrow">
-                                  <span className="ca-matrix-cell-label">Bal. Cartons</span>
-                                  <span
-                                    className={`ca-matrix-cell-val ${
-                                      it.undispatchedCartons > 0 ? 'ca-val-amber' : 'ca-val-emerald'
-                                    }`}
-                                  >
-                                    {fmtNum(it.undispatchedCartons, 1)} <small>CTN</small>
-                                  </span>
-                                </div>
-                              </div>
-                              {/* Right Column: Bal. Gross & Pieces stacked */}
-                              <div className="ca-matrix-col">
-                                <div className="ca-matrix-subrow">
-                                  <span className="ca-matrix-cell-label">Bal. Gross</span>
-                                  <span
-                                    className={`ca-matrix-cell-val ${
-                                      it.undispatchedGross > 0 ? 'ca-val-amber' : 'ca-val-emerald'
-                                    }`}
-                                  >
-                                    {fmtNum(it.undispatchedGross, 0)} <small>GRS</small>
-                                  </span>
-                                </div>
-                                <div className="ca-matrix-subrow">
-                                  <span className="ca-matrix-cell-label">Bal. Pieces</span>
-                                  <span
-                                    className={`ca-matrix-cell-val ${
-                                      it.undispatchedPieces > 0 ? 'ca-val-amber' : 'ca-val-emerald'
-                                    }`}
-                                  >
-                                    {fmtNum(it.undispatchedPieces, 0)} <small>PCS</small>
-                                  </span>
+                                <div className="ca-matrix-col">
+                                  <div className="ca-matrix-subrow">
+                                    <span className="ca-matrix-cell-label">{seg.primaryLabel}</span>
+                                    <span className={`ca-matrix-cell-val ${seg.primaryCls}`}>
+                                      {fmtNum(seg.primaryVal, 0)} <small>{itemUnit}</small>
+                                    </span>
+                                  </div>
+                                  {isItemGross && (
+                                    <div className="ca-matrix-subrow">
+                                      <span className="ca-matrix-cell-label">{seg.pcsLabel}</span>
+                                      <span className={`ca-matrix-cell-val ${seg.pcsCls}`}>
+                                        {fmtNum(seg.pcsVal, 0)} <small>PCS</small>
+                                      </span>
+                                    </div>
+                                  )}
                                 </div>
                               </div>
                             </div>
-                          </div>
-
-                          {/* Segment C: Current Inventory & Ready Stock (FGR) */}
-                          <div className="ca-matrix-segment ca-matrix-seg-fgr">
-                            <div className="ca-matrix-seg-header">
-                              <span className="ca-matrix-seg-dot" style={{ background: '#10b981' }} />
-                              <span className="ca-matrix-seg-title">C. Current Inventory &amp; Ready Stock (FGR)</span>
-                            </div>
-                            <div className="ca-matrix-cells">
-                              {/* Left Column: Ready Weight & Cartons stacked */}
-                              <div className="ca-matrix-col">
-                                <div className="ca-matrix-subrow">
-                                  <span className="ca-matrix-cell-label">Ready Weight</span>
-                                  <span className="ca-matrix-cell-val ca-val-emerald">
-                                    {fmtNum(it.readyFgrKgs, 1)} <small>KGS</small>
-                                  </span>
-                                </div>
-                                <div className="ca-matrix-subrow">
-                                  <span className="ca-matrix-cell-label">Ready Cartons</span>
-                                  <span className="ca-matrix-cell-val ca-val-teal">
-                                    {fmtNum(it.readyFgrCartons, 1)} <small>CTN</small>
-                                  </span>
-                                </div>
-                              </div>
-                              {/* Right Column: Ready Gross & Pieces stacked */}
-                              <div className="ca-matrix-col">
-                                <div className="ca-matrix-subrow">
-                                  <span className="ca-matrix-cell-label">Ready Gross</span>
-                                  <span className="ca-matrix-cell-val ca-val-emerald">
-                                    {fmtNum(it.readyFgrGross, 0)} <small>GRS</small>
-                                  </span>
-                                </div>
-                                <div className="ca-matrix-subrow">
-                                  <span className="ca-matrix-cell-label">Ready Pieces</span>
-                                  <span className="ca-matrix-cell-val ca-val-teal">
-                                    {fmtNum(it.readyFgrPieces, 0)} <small>PCS</small>
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Segment D: Pending Production (To Produce) [Formula: D = B - C] */}
-                          <div className="ca-matrix-segment ca-matrix-seg-production">
-                            <div className="ca-matrix-seg-header">
-                              <span
-                                className="ca-matrix-seg-dot"
-                                style={{
-                                  background: it.balancePendingGross > 0 ? '#ef4444' : '#10b981',
-                                }}
-                              />
-                              <span className="ca-matrix-seg-title">D. Pending Production (To Produce)</span>
-                            </div>
-                            <div className="ca-matrix-cells">
-                              {/* Left Column: Prod. Weight & Cartons stacked */}
-                              <div className="ca-matrix-col">
-                                <div className="ca-matrix-subrow">
-                                  <span className="ca-matrix-cell-label">Prod. Weight</span>
-                                  <span
-                                    className={`ca-matrix-cell-val ${
-                                      it.balancePendingKgs > 0 ? 'ca-val-rose' : 'ca-val-emerald'
-                                    }`}
-                                  >
-                                    {fmtNum(it.balancePendingKgs, 1)} <small>KGS</small>
-                                  </span>
-                                </div>
-                                <div className="ca-matrix-subrow">
-                                  <span className="ca-matrix-cell-label">Prod. Cartons</span>
-                                  <span
-                                    className={`ca-matrix-cell-val ${
-                                      it.balancePendingCartons > 0 ? 'ca-val-rose' : 'ca-val-emerald'
-                                    }`}
-                                  >
-                                    {fmtNum(it.balancePendingCartons, 1)} <small>CTN</small>
-                                  </span>
-                                </div>
-                              </div>
-                              {/* Right Column: Prod. Gross & Pieces stacked */}
-                              <div className="ca-matrix-col">
-                                <div className="ca-matrix-subrow">
-                                  <span className="ca-matrix-cell-label">Prod. Gross</span>
-                                  <span
-                                    className={`ca-matrix-cell-val ${
-                                      it.balancePendingGross > 0 ? 'ca-val-rose' : 'ca-val-emerald'
-                                    }`}
-                                  >
-                                    {fmtNum(it.balancePendingGross, 0)} <small>GRS</small>
-                                  </span>
-                                </div>
-                                <div className="ca-matrix-subrow">
-                                  <span className="ca-matrix-cell-label">Prod. Pieces</span>
-                                  <span
-                                    className={`ca-matrix-cell-val ${
-                                      it.balancePendingPieces > 0 ? 'ca-val-rose' : 'ca-val-emerald'
-                                    }`}
-                                  >
-                                    {fmtNum(it.balancePendingPieces, 0)} <small>PCS</small>
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
+                          ))}
                         </div>
 
                         {/* ── Associated Customers Quick View (Interactive Hyperlinks/Tags) ── */}
@@ -3462,6 +3858,31 @@ const CustomerAnalytics: React.FC = () => {
             const clean = cleanDisplayNumber(ctn);
             return fmtNum(clean.value, clean.decimals);
           };
+          const modalFallbackUom = selectedCustomerModal.primaryUom || activeDivisionUnitFallback || 'GRS';
+          const socUnit = selectedSocContract
+            ? selectedSocContract.primaryUom || modalFallbackUom
+            : modalFallbackUom;
+          const socPkgUnit = selectedSocContract
+            ? selectedSocContract.packagingUnitCode ||
+              (socUnit === 'GRS' ? 'CTN' : selectedSocContract.items[0]?.packagingUnitCode || 'PKG')
+            : selectedCustomerModal.packagingUnitCode || (modalFallbackUom === 'GRS' ? 'CTN' : 'PKG');
+          const socIsGross = selectedSocContract
+            ? selectedSocContract.items.every((i) => i.isGrossUnit !== false)
+            : selectedCustomerModal.isGrossUnit !== false;
+
+          const formatSocSubLine = (
+            pkgCount: number,
+            pcsCount: number,
+            pkgCode: string,
+            isGrossItem: boolean,
+            extraSuffix?: string,
+          ) => {
+            const base = isGrossItem
+              ? `${fmtCleanCtn(pkgCount)} ${pkgCode} • ${fmtNum(pcsCount, 0)} PCS`
+              : `${fmtCleanCtn(pkgCount)} ${pkgCode}`;
+            return extraSuffix ? `${base} • ${extraSuffix}` : base;
+          };
+
           return (
           <div className="ca-soc-modal-body">
             {/* Customer Summary Strip */}
@@ -3475,25 +3896,45 @@ const CustomerAnalytics: React.FC = () => {
               <div className="ca-soc-kpi-box">
                 <span className="ca-soc-kpi-label">Ordered Qty</span>
                 <span className="ca-soc-kpi-val">
-                  {fmtNum(selectedCustomerModal.totalOrderedGross, 0)} GRS
+                  {formatCustomerMetric(
+                    selectedCustomerModal.totalOrderedGross,
+                    modalFallbackUom,
+                    selectedCustomerModal.orderedUomBuckets,
+                    true,
+                  )}
                 </span>
               </div>
               <div className="ca-soc-kpi-box">
                 <span className="ca-soc-kpi-label">Packed Qty</span>
                 <span className="ca-soc-kpi-val" style={{ color: '#0d9488' }}>
-                  {fmtNum(selectedCustomerModal.totalPackedGross, 0)} GRS
+                  {formatCustomerMetric(
+                    selectedCustomerModal.totalPackedGross,
+                    modalFallbackUom,
+                    selectedCustomerModal.packedUomBuckets,
+                    true,
+                  )}
                 </span>
               </div>
               <div className="ca-soc-kpi-box">
                 <span className="ca-soc-kpi-label">Dispatched Qty</span>
                 <span className="ca-soc-kpi-val" style={{ color: '#0284c7' }}>
-                  {fmtNum(selectedCustomerModal.totalDispatchedGross, 0)} GRS
+                  {formatCustomerMetric(
+                    selectedCustomerModal.totalDispatchedGross,
+                    modalFallbackUom,
+                    selectedCustomerModal.dispatchedUomBuckets,
+                    true,
+                  )}
                 </span>
               </div>
               <div className="ca-soc-kpi-box">
                 <span className="ca-soc-kpi-label">Ready to Dispatch</span>
                 <span className="ca-soc-kpi-val" style={{ color: '#10b981' }}>
-                  {fmtNum(selectedCustomerModal.readyToDispatchGross, 0)} GRS
+                  {formatCustomerMetric(
+                    selectedCustomerModal.readyToDispatchGross,
+                    modalFallbackUom,
+                    selectedCustomerModal.readyUomBuckets,
+                    true,
+                  )}
                 </span>
               </div>
               <div className="ca-soc-kpi-box">
@@ -3504,7 +3945,12 @@ const CustomerAnalytics: React.FC = () => {
                     color: selectedCustomerModal.pendingGross > 0 ? '#f59e0b' : '#10b981',
                   }}
                 >
-                  {fmtNum(selectedCustomerModal.pendingGross, 0)} GRS
+                  {formatCustomerMetric(
+                    selectedCustomerModal.pendingGross,
+                    modalFallbackUom,
+                    selectedCustomerModal.pendingUomBuckets,
+                    true,
+                  )}
                 </span>
               </div>
             </div>
@@ -3527,6 +3973,7 @@ const CustomerAnalytics: React.FC = () => {
                     {selectedCustomerModal.socContracts.map((soc) => {
                       const socColor = getFulfillmentColor(soc.fulfillmentPct);
                       const isDone = soc.fulfillmentPct >= 100 && soc.totalPendingQty <= 0;
+                      const cardUom = soc.primaryUom || modalFallbackUom;
                       return (
                         <div
                           key={soc.orderId + soc.socNumber}
@@ -3575,24 +4022,26 @@ const CustomerAnalytics: React.FC = () => {
                             </div>
                             <div className="ca-soc-metric">
                               <span className="ca-soc-metric-lbl">Ordered</span>
-                              <span className="ca-soc-metric-val">{fmtNum(soc.totalOrderedQty, 0)} GRS</span>
+                              <span className="ca-soc-metric-val">
+                                {fmtNum(soc.totalOrderedQty, 0)} {cardUom}
+                              </span>
                             </div>
                             <div className="ca-soc-metric">
                               <span className="ca-soc-metric-lbl" style={{ color: '#0d9488' }}>Packed</span>
                               <span className="ca-soc-metric-val" style={{ color: '#0d9488' }}>
-                                {fmtNum(soc.totalPackedQty, 0)} GRS
+                                {fmtNum(soc.totalPackedQty, 0)} {cardUom}
                               </span>
                             </div>
                             <div className="ca-soc-metric">
                               <span className="ca-soc-metric-lbl" style={{ color: '#0284c7' }}>Dispatched</span>
                               <span className="ca-soc-metric-val" style={{ color: '#0284c7' }}>
-                                {fmtNum(soc.totalDispatchedQty, 0)} GRS
+                                {fmtNum(soc.totalDispatchedQty, 0)} {cardUom}
                               </span>
                             </div>
                             <div className="ca-soc-metric">
                               <span className="ca-soc-metric-lbl" style={{ color: '#10b981' }}>Ready FG</span>
                               <span className="ca-soc-metric-val" style={{ color: '#10b981' }}>
-                                {fmtNum(soc.totalReadyToDispatchQty, 0)} GRS
+                                {fmtNum(soc.totalReadyToDispatchQty, 0)} {cardUom}
                               </span>
                             </div>
                             <div className="ca-soc-metric">
@@ -3601,7 +4050,7 @@ const CustomerAnalytics: React.FC = () => {
                                 className="ca-soc-metric-val"
                                 style={{ color: soc.totalPendingQty > 0 ? '#f59e0b' : '#10b981' }}
                               >
-                                {soc.totalPendingQty > 0 ? `${fmtNum(soc.totalPendingQty, 0)} GRS` : '0 GRS'}
+                                {soc.totalPendingQty > 0 ? `${fmtNum(soc.totalPendingQty, 0)} ${cardUom}` : `0 ${cardUom}`}
                               </span>
                             </div>
                           </div>
@@ -3670,27 +4119,27 @@ const CustomerAnalytics: React.FC = () => {
                   </div>
                   <div className="ca-soc-active-right">
                     <span>
-                      Ordered: <strong>{fmtNum(selectedSocContract.totalOrderedQty, 0)} GRS</strong>
+                      Ordered: <strong>{fmtNum(selectedSocContract.totalOrderedQty, 0)} {socUnit}</strong>
                     </span>
                     <span>•</span>
                     <span style={{ color: '#0d9488' }}>
-                      Packed: <strong>{fmtNum(selectedSocContract.totalPackedQty, 0)} GRS</strong>
+                      Packed: <strong>{fmtNum(selectedSocContract.totalPackedQty, 0)} {socUnit}</strong>
                     </span>
                     <span>•</span>
                     <span style={{ color: '#0284c7' }}>
-                      Dispatched: <strong>{fmtNum(selectedSocContract.totalDispatchedQty, 0)} GRS</strong>
+                      Dispatched: <strong>{fmtNum(selectedSocContract.totalDispatchedQty, 0)} {socUnit}</strong>
                     </span>
                     <span>•</span>
                     <span className="ca-soc-ready-banner-chip">
                       Ready to Dispatch:{' '}
                       <strong>
-                        {fmtNum(selectedSocContract.totalReadyToDispatchQty, 0)} GRS (
-                        {fmtCleanCtn(selectedSocContract.totalReadyToDispatchCartons)} CTN)
+                        {fmtNum(selectedSocContract.totalReadyToDispatchQty, 0)} {socUnit} (
+                        {fmtCleanCtn(selectedSocContract.totalReadyToDispatchCartons)} {socPkgUnit})
                       </strong>
                     </span>
                     <span>•</span>
                     <span style={{ color: selectedSocContract.totalPendingQty > 0 ? '#f59e0b' : '#10b981' }}>
-                      Remaining Balance: <strong>{fmtNum(selectedSocContract.totalPendingQty, 0)} GRS</strong>
+                      Remaining Balance: <strong>{fmtNum(selectedSocContract.totalPendingQty, 0)} {socUnit}</strong>
                     </span>
                   </div>
                 </div>
@@ -3739,48 +4188,63 @@ const CustomerAnalytics: React.FC = () => {
                       key: 'orderedQty',
                       align: 'right' as const,
                       width: 145,
-                      render: (_: any, item: SocItemDetail) => (
-                        <div>
-                          <div style={{ fontWeight: 700, color: token.colorText, fontSize: 13 }}>
-                            {fmtNum(item.orderedQty, 0)} GRS
+                      render: (_: any, item: SocItemDetail) => {
+                        const uom = item.primaryUom || socUnit;
+                        const pkg = item.packagingUnitCode || socPkgUnit;
+                        const isGrossItem = item.isGrossUnit !== false;
+                        return (
+                          <div>
+                            <div style={{ fontWeight: 700, color: token.colorText, fontSize: 13 }}>
+                              {fmtNum(item.orderedQty, 0)} {uom}
+                            </div>
+                            <div style={{ fontSize: 10.5, color: token.colorTextSecondary }}>
+                              {formatSocSubLine(item.orderedCartons, item.orderedPcs, pkg, isGrossItem)}
+                            </div>
                           </div>
-                          <div style={{ fontSize: 10.5, color: token.colorTextSecondary }}>
-                            {fmtCleanCtn(item.orderedCartons)} CTN • {fmtNum(item.orderedPcs, 0)} PCS
-                          </div>
-                        </div>
-                      ),
+                        );
+                      },
                     },
                     {
                       title: 'PACKED QTY',
                       key: 'packedQty',
                       align: 'right' as const,
                       width: 145,
-                      render: (_: any, item: SocItemDetail) => (
-                        <div>
-                          <div style={{ fontWeight: 700, color: '#0d9488', fontSize: 13 }}>
-                            {fmtNum(item.packedQty, 0)} GRS
+                      render: (_: any, item: SocItemDetail) => {
+                        const uom = item.primaryUom || socUnit;
+                        const pkg = item.packagingUnitCode || socPkgUnit;
+                        const isGrossItem = item.isGrossUnit !== false;
+                        return (
+                          <div>
+                            <div style={{ fontWeight: 700, color: '#0d9488', fontSize: 13 }}>
+                              {fmtNum(item.packedQty, 0)} {uom}
+                            </div>
+                            <div style={{ fontSize: 10.5, color: token.colorTextSecondary }}>
+                              {formatSocSubLine(item.packedCartons, item.packedPcs, pkg, isGrossItem)}
+                            </div>
                           </div>
-                          <div style={{ fontSize: 10.5, color: token.colorTextSecondary }}>
-                            {fmtCleanCtn(item.packedCartons)} CTN • {fmtNum(item.packedPcs, 0)} PCS
-                          </div>
-                        </div>
-                      ),
+                        );
+                      },
                     },
                     {
                       title: 'DISPATCHED QTY',
                       key: 'dispatchedQty',
                       align: 'right' as const,
                       width: 145,
-                      render: (_: any, item: SocItemDetail) => (
-                        <div>
-                          <div style={{ fontWeight: 700, color: '#0284c7', fontSize: 13 }}>
-                            {fmtNum(item.dispatchedQty, 0)} GRS
+                      render: (_: any, item: SocItemDetail) => {
+                        const uom = item.primaryUom || socUnit;
+                        const pkg = item.packagingUnitCode || socPkgUnit;
+                        const isGrossItem = item.isGrossUnit !== false;
+                        return (
+                          <div>
+                            <div style={{ fontWeight: 700, color: '#0284c7', fontSize: 13 }}>
+                              {fmtNum(item.dispatchedQty, 0)} {uom}
+                            </div>
+                            <div style={{ fontSize: 10.5, color: token.colorTextSecondary }}>
+                              {formatSocSubLine(item.dispatchedCartons, item.dispatchedPcs, pkg, isGrossItem)}
+                            </div>
                           </div>
-                          <div style={{ fontSize: 10.5, color: token.colorTextSecondary }}>
-                            {fmtCleanCtn(item.dispatchedCartons)} CTN • {fmtNum(item.dispatchedPcs, 0)} PCS
-                          </div>
-                        </div>
-                      ),
+                        );
+                      },
                     },
                     {
                       title: (
@@ -3791,53 +4255,70 @@ const CustomerAnalytics: React.FC = () => {
                       key: 'readyToDispatchQty',
                       align: 'right' as const,
                       width: 170,
-                      render: (_: any, item: SocItemDetail) => (
-                        <div className={item.readyToDispatchPcs > 0 ? 'ca-soc-ready-pill' : undefined}>
-                          <div
-                            style={{
-                              fontWeight: 800,
-                              color: item.readyToDispatchPcs > 0 ? '#10b981' : token.colorTextSecondary,
-                              fontSize: 13,
-                            }}
-                          >
-                            {fmtNum(item.readyToDispatchQty, 0)} GRS
+                      render: (_: any, item: SocItemDetail) => {
+                        const uom = item.primaryUom || socUnit;
+                        const pkg = item.packagingUnitCode || socPkgUnit;
+                        const isGrossItem = item.isGrossUnit !== false;
+                        const hasReady = item.readyToDispatchQty > 0;
+                        return (
+                          <div className={hasReady ? 'ca-soc-ready-pill' : undefined}>
+                            <div
+                              style={{
+                                fontWeight: 800,
+                                color: hasReady ? '#10b981' : token.colorTextSecondary,
+                                fontSize: 13,
+                              }}
+                            >
+                              {fmtNum(item.readyToDispatchQty, 0)} {uom}
+                            </div>
+                            <div style={{ fontSize: 10.5, color: token.colorTextSecondary, whiteSpace: 'nowrap' }}>
+                              {formatSocSubLine(item.readyToDispatchCartons, item.readyToDispatchPcs, pkg, isGrossItem)}
+                            </div>
                           </div>
-                          <div style={{ fontSize: 10.5, color: token.colorTextSecondary, whiteSpace: 'nowrap' }}>
-                            {fmtCleanCtn(item.readyToDispatchCartons)} CTN • {fmtNum(item.readyToDispatchPcs, 0)} PCS
-                          </div>
-                        </div>
-                      ),
+                        );
+                      },
                     },
                     {
                       title: 'REMAINING ORDER BALANCE',
                       key: 'remainingPendingQty',
                       align: 'right' as const,
                       width: 195,
-                      render: (_: any, item: SocItemDetail) => (
-                        <div>
-                          <div
-                            style={{
-                              fontWeight: 800,
-                              color: item.remainingPendingQty > 0 ? '#f59e0b' : '#10b981',
-                              fontSize: 13,
-                            }}
-                          >
-                            {item.remainingPendingQty > 0
-                              ? `${fmtNum(item.remainingPendingQty, 0)} GRS`
-                              : '0 GRS (Done)'}
-                          </div>
-                          <div style={{ fontSize: 10.5, color: token.colorTextSecondary }}>
-                            {fmtCleanCtn(item.remainingPendingCartons)} CTN • {fmtNum(item.remainingPendingPcs, 0)} PCS • {item.fulfillmentPct}%
-                          </div>
-                          {item.remainingPendingPcs > 0 && (
-                            <div className="ca-soc-topack-sub">
-                              {item.toPackPcs > 0
-                                ? `To Pack: ${fmtNum(item.toPackQty, 0)} GRS (${fmtCleanCtn(item.toPackCartons)} CTN)`
-                                : 'Fully Packed • Ready to Ship'}
+                      render: (_: any, item: SocItemDetail) => {
+                        const uom = item.primaryUom || socUnit;
+                        const pkg = item.packagingUnitCode || socPkgUnit;
+                        const isGrossItem = item.isGrossUnit !== false;
+                        return (
+                          <div>
+                            <div
+                              style={{
+                                fontWeight: 800,
+                                color: item.remainingPendingQty > 0 ? '#f59e0b' : '#10b981',
+                                fontSize: 13,
+                              }}
+                            >
+                              {item.remainingPendingQty > 0
+                                ? `${fmtNum(item.remainingPendingQty, 0)} ${uom}`
+                                : `0 ${uom} (Done)`}
                             </div>
-                          )}
-                        </div>
-                      ),
+                            <div style={{ fontSize: 10.5, color: token.colorTextSecondary }}>
+                              {formatSocSubLine(
+                                item.remainingPendingCartons,
+                                item.remainingPendingPcs,
+                                pkg,
+                                isGrossItem,
+                                `${item.fulfillmentPct}%`,
+                              )}
+                            </div>
+                            {item.remainingPendingQty > 0 && (
+                              <div className="ca-soc-topack-sub">
+                                {item.toPackQty > 0
+                                  ? `To Pack: ${fmtNum(item.toPackQty, 0)} ${uom} (${fmtCleanCtn(item.toPackCartons)} ${pkg})`
+                                  : 'Fully Packed • Ready to Ship'}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      },
                     },
                   ]}
                   summary={() => (
@@ -3848,40 +4329,40 @@ const CustomerAnalytics: React.FC = () => {
                         </Table.Summary.Cell>
                         <Table.Summary.Cell index={2} align="right">
                           <div>
-                            <strong>{fmtNum(selectedSocContract.totalOrderedQty, 0)} GRS</strong>
+                            <strong>{fmtNum(selectedSocContract.totalOrderedQty, 0)} {socUnit}</strong>
                           </div>
                           <div style={{ fontSize: 10.5, color: token.colorTextSecondary }}>
-                            {fmtCleanCtn(selectedSocContract.totalOrderedCartons)} CTN • {fmtNum(selectedSocContract.totalOrderedPcs, 0)} PCS
+                            {formatSocSubLine(selectedSocContract.totalOrderedCartons, selectedSocContract.totalOrderedPcs, socPkgUnit, socIsGross)}
                           </div>
                         </Table.Summary.Cell>
                         <Table.Summary.Cell index={3} align="right">
                           <div>
                             <strong style={{ color: '#0d9488' }}>
-                              {fmtNum(selectedSocContract.totalPackedQty, 0)} GRS
+                              {fmtNum(selectedSocContract.totalPackedQty, 0)} {socUnit}
                             </strong>
                           </div>
                           <div style={{ fontSize: 10.5, color: token.colorTextSecondary }}>
-                            {fmtCleanCtn(selectedSocContract.totalPackedCartons)} CTN • {fmtNum(selectedSocContract.totalPackedPcs, 0)} PCS
+                            {formatSocSubLine(selectedSocContract.totalPackedCartons, selectedSocContract.totalPackedPcs, socPkgUnit, socIsGross)}
                           </div>
                         </Table.Summary.Cell>
                         <Table.Summary.Cell index={4} align="right">
                           <div>
                             <strong style={{ color: '#0284c7' }}>
-                              {fmtNum(selectedSocContract.totalDispatchedQty, 0)} GRS
+                              {fmtNum(selectedSocContract.totalDispatchedQty, 0)} {socUnit}
                             </strong>
                           </div>
                           <div style={{ fontSize: 10.5, color: token.colorTextSecondary }}>
-                            {fmtCleanCtn(selectedSocContract.totalDispatchedCartons)} CTN • {fmtNum(selectedSocContract.totalDispatchedPcs, 0)} PCS
+                            {formatSocSubLine(selectedSocContract.totalDispatchedCartons, selectedSocContract.totalDispatchedPcs, socPkgUnit, socIsGross)}
                           </div>
                         </Table.Summary.Cell>
                         <Table.Summary.Cell index={5} align="right">
                           <div>
                             <strong style={{ color: '#10b981' }}>
-                              {fmtNum(selectedSocContract.totalReadyToDispatchQty, 0)} GRS
+                              {fmtNum(selectedSocContract.totalReadyToDispatchQty, 0)} {socUnit}
                             </strong>
                           </div>
                           <div style={{ fontSize: 10.5, color: token.colorTextSecondary }}>
-                            {fmtCleanCtn(selectedSocContract.totalReadyToDispatchCartons)} CTN • {fmtNum(selectedSocContract.totalReadyToDispatchPcs, 0)} PCS
+                            {formatSocSubLine(selectedSocContract.totalReadyToDispatchCartons, selectedSocContract.totalReadyToDispatchPcs, socPkgUnit, socIsGross)}
                           </div>
                         </Table.Summary.Cell>
                         <Table.Summary.Cell index={6} align="right">
@@ -3891,15 +4372,15 @@ const CustomerAnalytics: React.FC = () => {
                                 color: selectedSocContract.totalPendingQty > 0 ? '#f59e0b' : '#10b981',
                               }}
                             >
-                              {fmtNum(selectedSocContract.totalPendingQty, 0)} GRS
+                              {fmtNum(selectedSocContract.totalPendingQty, 0)} {socUnit}
                             </strong>
                           </div>
                           <div style={{ fontSize: 10.5, color: token.colorTextSecondary }}>
-                            {fmtCleanCtn(selectedSocContract.totalPendingCartons)} CTN • {fmtNum(selectedSocContract.totalPendingPcs, 0)} PCS
+                            {formatSocSubLine(selectedSocContract.totalPendingCartons, selectedSocContract.totalPendingPcs, socPkgUnit, socIsGross)}
                           </div>
-                          {selectedSocContract.totalToPackPcs > 0 && (
+                          {selectedSocContract.totalToPackQty > 0 && (
                             <div className="ca-soc-topack-sub">
-                              To Pack: {fmtNum(selectedSocContract.totalToPackQty, 0)} GRS ({fmtCleanCtn(selectedSocContract.totalToPackCartons)} CTN)
+                              To Pack: {fmtNum(selectedSocContract.totalToPackQty, 0)} {socUnit} ({fmtCleanCtn(selectedSocContract.totalToPackCartons)} {socPkgUnit})
                             </div>
                           )}
                         </Table.Summary.Cell>

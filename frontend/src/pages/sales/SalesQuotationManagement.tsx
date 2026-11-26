@@ -9,7 +9,7 @@ import {
   CheckOutlined, StopOutlined, CloseOutlined, ReloadOutlined, FileExcelOutlined,
   PrinterOutlined, FilterOutlined, CloseCircleOutlined, UserOutlined,
   CalendarOutlined, FileTextOutlined, DollarOutlined,
-  HistoryOutlined, ShoppingCartOutlined, SaveOutlined, ClearOutlined,
+  HistoryOutlined, ShoppingCartOutlined, SaveOutlined, ClearOutlined, WhatsAppOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import apiService from '../../services/api';
@@ -23,6 +23,10 @@ import isSameOrBefore from 'dayjs/plugin/isSameOrBefore';
 import isSameOrAfter from 'dayjs/plugin/isSameOrAfter';
 import './SalesInvoiceManagement.css';
 import { printQuotationDocument } from '../../utils/printTemplates';
+import {
+  DEFAULT_COMPANY_NAME,
+  openWhatsAppWithTemplate,
+} from '../../utils/whatsappTemplateRenderer';
 
 dayjs.extend(isSameOrBefore);
 dayjs.extend(isSameOrAfter);
@@ -868,6 +872,47 @@ const SalesQuotationManagement: React.FC = () => {
             <Tooltip title="Print Commercial Quotation">
               <button className="inv-action-btn inv-btn-print" onClick={() => printQuotationDocument(record)}>
                 <PrinterOutlined />
+              </button>
+            </Tooltip>
+
+            <Tooltip title="Share Quotation via WhatsApp">
+              <button
+                className="inv-action-btn inv-btn-wa"
+                onClick={() => {
+                  const cust = customers.find((c) => c.id === record.customerId);
+                  const custName =
+                    record.customerName ||
+                    record.companyName ||
+                    cust?.name ||
+                    cust?.companyName ||
+                    'Customer';
+                  const itemLines = Array.isArray(record.items) && record.items.length > 0
+                    ? [
+                        '*Quoted Items:*',
+                        ...record.items.slice(0, 6).map((it: any, idx: number) => {
+                          const desc = it.description || it.item?.name || `Item ${idx + 1}`;
+                          const qty = formatDecimal(Number(it.quantity || 0));
+                          return `• ${desc}: ${qty}`;
+                        }),
+                      ].join('\n')
+                    : '';
+                  openWhatsAppWithTemplate(
+                    '[QUO-SHARE]',
+                    {
+                      company: DEFAULT_COMPANY_NAME,
+                      customer: custName,
+                      doc_no: record.quotationNumber || '',
+                      date: record.quotationDate || dayjs().format('YYYY-MM-DD'),
+                      due_date: record.validUntil || 'N/A',
+                      amount: `${record.currency || 'Rs'} ${formatDecimal(record.totalAmount || 0)}`,
+                      items: itemLines,
+                      link: typeof window !== 'undefined' ? window.location.origin : '',
+                    },
+                    cust?.phone,
+                  );
+                }}
+              >
+                <WhatsAppOutlined />
               </button>
             </Tooltip>
 

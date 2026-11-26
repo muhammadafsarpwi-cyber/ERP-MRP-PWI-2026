@@ -1,42 +1,20 @@
 /* ==========================================================================
    WhatsApp Messages Settings CSS
-   100% Theme Reactive (Light/Dark Modes & Dynamic Accent Palette)
+   100% Theme Reactive (Light, Dark & Crystal Glass Modes via CSS Variables)
    ========================================================================== */
 
-:root {
-  --wa-accent: var(--theme-accent, #00e5ff);
-  --wa-accent-soft: var(--theme-accent-soft, rgba(0, 229, 255, 0.16));
-  --wa-card-bg: var(--settings-surface-elevated, #ffffff);
-  --wa-card-border: var(--theme-border, #e2e8f0);
-  --wa-subcard-bg: var(--theme-surface-alt, #f8fafc);
-  --wa-subcard-border: var(--theme-border, #e2e8f0);
-  --wa-text-primary: var(--settings-text-primary, #0f172a);
-  --wa-text-secondary: var(--settings-text-secondary, #64748b);
-  --wa-text-muted: var(--settings-text-muted, #94a3b8);
-  --wa-input-bg: rgba(0, 0, 0, 0.03);
-  --wa-input-color: var(--settings-text-primary, #0f172a);
-  --wa-input-border: var(--theme-accent-soft, rgba(0, 229, 255, 0.25));
-}
-
-html[data-theme='dark'],
-:root[data-theme='dark'],
-[data-theme='dark'],
-.dark {
-  --wa-card-bg: var(--settings-surface-elevated, #131d2a);
-  --wa-card-border: var(--theme-border, rgba(255, 255, 255, 0.08));
-  --wa-subcard-bg: var(--theme-surface-alt, #162232);
-  --wa-subcard-border: var(--theme-border, rgba(255, 255, 255, 0.08));
-  --wa-text-primary: var(--settings-text-primary, #f1f5f9);
-  --wa-text-secondary: var(--settings-text-secondary, #cbd5e1);
-  --wa-text-muted: var(--settings-text-muted, #94a3b8);
-  --wa-input-bg: rgba(0, 0, 0, 0.45);
-  --wa-input-color: #f8fafc;
-  --wa-input-border: var(--theme-accent-soft, rgba(0, 229, 255, 0.25));
-}
-
 .whatsapp-settings-container {
+  --wa-accent: var(--theme-primary, var(--theme-accent, #0284c7));
+  --wa-accent-soft: var(--theme-accent-soft, rgba(2, 132, 199, 0.12));
+  --wa-card-bg: var(--theme-surface, var(--settings-surface-elevated));
+  --wa-card-border: var(--theme-border);
+  --wa-subcard-bg: var(--theme-surface-alt);
+  --wa-text-primary: var(--theme-text, var(--settings-text-primary));
+  --wa-text-secondary: var(--theme-text-secondary, var(--settings-text-secondary));
+  --wa-text-muted: var(--theme-text-muted, var(--settings-text-muted));
+
   width: 100%;
-  max-width: 1200px;
+  max-width: 1240px;
   margin: 0 auto;
   padding: 8px 12px 32px;
   box-sizing: border-box;
@@ -46,24 +24,22 @@ html[data-theme='dark'],
   background: var(--wa-card-bg);
   border: 1px solid var(--wa-card-border);
   border-radius: 12px;
-  padding: 22px 24px;
+  padding: 20px 24px;
   margin-bottom: 20px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .wa-settings-card:hover {
   border-color: var(--wa-accent);
-  box-shadow: 0 4px 18px var(--wa-accent-soft);
 }
 
 .wa-settings-card-header {
-  margin-bottom: 18px;
+  margin-bottom: 16px;
 }
 
 .wa-settings-card-title {
   margin: 0 0 4px 0;
-  font-size: 16.5px;
+  font-size: 16px;
   font-weight: 600;
   color: var(--wa-text-primary);
   display: flex;
@@ -117,70 +93,129 @@ html[data-theme='dark'],
   color: var(--wa-accent);
 }
 
-/* ── Variables Row ── */
-.wa-variables-row {
+/* ── Filter Bar ── */
+.wa-filter-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--wa-card-border);
+}
+
+.wa-category-pills {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 12px;
 }
 
-.wa-variable-tag {
-  background: var(--wa-accent-soft) !important;
-  border: 1px solid var(--wa-accent) !important;
-  color: var(--wa-accent) !important;
-  border-radius: 6px !important;
-  font-size: 11.5px !important;
-  font-weight: 600 !important;
-  padding: 2px 8px !important;
+/* ── Category Section Header ── */
+.wa-category-section {
+  margin-top: 18px;
+}
+
+.wa-category-heading {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--wa-text-primary);
+  margin: 0 0 12px 0;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--wa-card-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
 /* ── Templates Grid ── */
 .wa-templates-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
   gap: 16px;
-  margin-top: 10px;
+}
+
+@media (max-width: 640px) {
+  .wa-templates-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .wa-template-box {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  background: var(--wa-subcard-bg);
+  border: 1px solid var(--wa-card-border);
+}
+
+.wa-template-header-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .wa-template-label {
-  font-size: 13px;
+  font-size: 13.5px;
   font-weight: 600;
   color: var(--wa-text-primary);
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
-.wa-glowing-input,
-.wa-glowing-input input,
-.wa-glowing-input.ant-input {
-  background: var(--wa-input-bg) !important;
-  color: var(--wa-input-color) !important;
-  border: 1.5px solid var(--wa-input-border) !important;
-  border-radius: 8px !important;
-  font-size: 13px !important;
-  line-height: 1.45 !important;
-  transition: all 0.2s ease !important;
+.wa-template-desc {
+  font-size: 12px;
+  color: var(--wa-text-secondary);
+  margin: 0;
+  line-height: 1.35;
 }
 
-.wa-glowing-input:focus,
-.wa-glowing-input:focus-within,
-.wa-glowing-input.ant-input:focus {
-  border-color: var(--wa-accent) !important;
-  box-shadow: 0 0 12px var(--wa-accent-soft) !important;
-  outline: none !important;
+/* ── Supported Placeholders Below TextArea ── */
+.wa-placeholders-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 2px;
+}
+
+.wa-placeholders-caption {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--wa-text-secondary);
+}
+
+.wa-variables-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.wa-variable-tag {
+  cursor: pointer;
+  user-select: none;
+  border-radius: 6px;
+  font-family: monospace;
+  font-size: 11.5px;
+  font-weight: 600;
+  margin-inline-end: 0;
+}
+
+.wa-glowing-input {
+  border-radius: 8px;
+  font-family: monospace;
+  font-size: 12.5px;
+  line-height: 1.45;
 }
 
 /* ── Action Bar ── */
 .wa-action-bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
   gap: 12px;
@@ -189,24 +224,17 @@ html[data-theme='dark'],
   border: 1px solid var(--wa-card-border);
   border-radius: 12px;
   margin-top: 10px;
+  position: sticky;
+  bottom: 12px;
+  z-index: 10;
 }
 
 .wa-btn-secondary {
-  border-radius: 8px !important;
+  border-radius: 8px;
 }
 
 .wa-save-btn {
-  background: var(--wa-accent) !important;
-  border-color: var(--wa-accent) !important;
-  color: var(--theme-on-accent, #ffffff) !important;
-  box-shadow: 0 4px 14px var(--wa-accent-soft) !important;
-  font-weight: 600 !important;
-  border-radius: 8px !important;
-  min-width: 200px !important;
-  transition: all 0.2s ease !important;
-}
-
-.wa-save-btn:hover {
-  filter: brightness(1.1);
-  transform: translateY(-1px);
+  font-weight: 600;
+  border-radius: 8px;
+  min-width: 210px;
 }

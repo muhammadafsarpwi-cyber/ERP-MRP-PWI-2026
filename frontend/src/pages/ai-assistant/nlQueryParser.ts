@@ -161,6 +161,31 @@ function resolveRequestedUnit(query: string): ReportingUnit | undefined {
   return undefined;
 }
 
+/**
+ * Detects whether a Raw Material Receiving prompt asks for a Gate Pass-Wise / Receipt-Wise / Detailed breakdown
+ * instead of an item-collapsed summary.
+ */
+export function isGatePassWiseReceivingQuery(rawQuery?: string): boolean {
+  if (!rawQuery) return false;
+  const q = rawQuery.toLowerCase().trim();
+  if (
+    /\b(gate[\s-]*pass(?:es)?(?:\s*wise|-wise)?|gatepass(?:es)?|gp[\s-]*wise|receipt[\s-]*wise|grn[\s-]*wise|challan[\s-]*wise)\b/i.test(
+      q,
+    )
+  ) {
+    return true;
+  }
+  if (
+    /\b(detailed|detail|line[\s-]*wise|each\s+(?:receipt|grn|entry)|every\s+(?:receipt|grn|entry)|individual\s+(?:receipts?|grns?))\b/i.test(
+      q,
+    ) &&
+    /\b(raw\s+material(?:s)?|rm|receiv(?:ed|ing)|grns?|receipts?)\b/i.test(q)
+  ) {
+    return true;
+  }
+  return false;
+}
+
 /** Normalize live DB division codes (e.g. DIV-002-CCD, DIV-001-SPI, DIV-004-MDE51) & names to canonical keys. */
 export function canonicalizeDivisionCode(codeOrName?: string, id?: string): string {
   const s = (codeOrName || '').trim().toLowerCase();
@@ -243,11 +268,26 @@ export function parseNaturalLanguageQuery(
   const isSwitchDimensionFollowUp =
     /^(?:now\s+)?(?:show\s+it\s+)?(?:now\s+)?(machine|operator|item|shift|department)(?:-wise)?$/i.test(q) ||
     /^(?:switch\s+to\s+)(machine|operator|item|shift|department)(?:-wise)?$/i.test(q);
+  const isRmBreakdownFollowUp =
+    context?.lastIntent?.dimension === 'raw_material_receiving' &&
+    /^(?:now\s+)?(?:show\s+(?:it\s+)?)?(gate[\s-]*pass(?:[\s-]*wise)?|receipt[\s-]*wise|grn[\s-]*wise|detailed|summary(?:\s+only)?)$/i.test(
+      q,
+    );
   const isCompareFollowUp =
     /^(?:compare\s+(?:it\s+)?with\s+)(august|september|october|last\s+month|previous\s+month)/i.test(q);
 
-  if (context?.lastIntent && (isUnitFollowUp || isOnlyDeptFollowUp || isSwitchDimensionFollowUp || isCompareFollowUp)) {
+  if (
+    context?.lastIntent &&
+    (isUnitFollowUp || isOnlyDeptFollowUp || isSwitchDimensionFollowUp || isRmBreakdownFollowUp || isCompareFollowUp)
+  ) {
     const inherited = { ...context.lastIntent };
+
+    if (isRmBreakdownFollowUp) {
+      inherited.receivingBreakdown = /\bsummary\b/i.test(q) ? 'summary' : 'gate_pass_wise';
+      inherited.rawQuery = rawQuery;
+      inherited.isFollowUp = true;
+      return inherited;
+    }
 
     if (isUnitFollowUp && detectedUnit) {
       inherited.requestedUnit = detectedUnit;
@@ -500,6 +540,15 @@ export function parseNaturalLanguageQuery(
     (mentionsRawMaterial && mentionsReceivingTerms) ||
     mentionsReceivingTerms ||
     (mentionsRawMaterial && !mentionsStockBalanceTerms && !isRejectionOrScrapQuery);
+  const isGatePassWiseReceiving = isRawMaterialReceivingQuery && isGatePassWiseReceivingQuery(rawQuery);
+  const mentionsCurrentDivisionPhrase =
+    /\b(this\s+division|selected\s+division|current\s+division)\b/i.test(q) || q.includes('اس ڈویژن');
+
+  // When the user asks for a Gate Pass-Wise Raw Material Receiving report without naming a division,
+  // include all divisions cleanly (honoring any division explicitly mentioned in the prompt).
+  if (isGatePassWiseReceiving && !explicitDivision && !mentionsCurrentDivisionPhrase) {
+    divisionCode = 'ALL';
+  }
 
   const isCustomerOrSalesVolumeQuery =
     Boolean(specificCustomer) ||
@@ -698,6 +747,11 @@ export function parseNaturalLanguageQuery(
     specificItem,
     specificCustomer,
     rawQuery,
+    receivingBreakdown: isRawMaterialReceivingQuery
+      ? isGatePassWiseReceiving
+        ? 'gate_pass_wise'
+        : 'summary'
+      : undefined,
     confidence,
     requestedUnit: detectedUnit,
     sortBy,

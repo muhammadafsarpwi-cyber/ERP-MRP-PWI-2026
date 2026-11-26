@@ -1,0 +1,15 @@
+/* Theme-neutral single-line table polish for Production Routings Directory.
+ * Intentionally avoids hardcoded colors so Light, Dark, and Crystal themes apply cleanly.
+ */
+.pwi-routing-directory-table .ant-table-thead > tr > th {
+  white-space: nowrap;
+  word-break: keep-all;
+  padding: 8px 12px;
+}
+
+.pwi-routing-directory-table .ant-table-tbody > tr > td {
+  white-space: nowrap;
+  word-break: keep-all;
+  padding: 7px 12px;
+  font-variant-numeric: tabular-nums;
+}

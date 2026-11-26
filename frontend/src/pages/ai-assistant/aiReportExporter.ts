@@ -4,6 +4,14 @@ import autoTable from 'jspdf-autotable';
 import { AiColumn, KpiCardData } from './types';
 import { AiAnswer } from '../../services/aiAssistantService';
 import { formatQty } from './reportGenerator';
+import {
+  DEFAULT_AI_REPORT_WHATSAPP_TEMPLATE,
+  DEFAULT_COMPANY_NAME,
+  buildWhatsAppShareUrl,
+  renderWhatsAppTemplate,
+} from '../../utils/whatsappTemplateRenderer';
+
+export { DEFAULT_AI_REPORT_WHATSAPP_TEMPLATE };
 
 export interface ExportableAiMessage {
   id: string;
@@ -210,15 +218,8 @@ export function buildAiReportWhatsAppText(msg: ExportableAiMessage): string {
   const deptScope = msg.departmentScope && msg.departmentScope !== 'ALL' ? msg.departmentScope : 'All Departments';
   const period = msg.periodLabel || dayjs().format('DD-MMM-YYYY');
 
-  const out: string[] = [];
-  out.push('🏭 *PAKISTAN WIRE INDUSTRIES (PVT.) LTD*');
-  out.push(`📋 *${title.toUpperCase()}*`);
-  out.push('━━━━━━━━━━━━━━━━━━━━');
-  out.push(`🏢 *Division:* *${divScope}*`);
-  out.push(`🏭 *Department:* *${deptScope}*`);
-  out.push(`📅 *Date / Period:* *${period}*`);
-  out.push('━━━━━━━━━━━━━━━━━━━━');
-
+  const itemLines: string[] = [];
+  const summaryLines: string[] = [];
   const rawRows = msg.tableData?.rows || [];
 
   // Case 1: Granular Daily Production Ledger (has itemCode/itemName + actualProduction + runtimeDynamicTarget)
@@ -233,18 +234,15 @@ export function buildAiReportWhatsAppText(msg: ExportableAiMessage): string {
 
     let grandActual = 0;
     let grandTarget = 0;
-    let primaryUom = dataRows[0]?.uom || 'PCS';
+    const primaryUom = dataRows[0]?.uom || 'PCS';
     const allMachinesSet = new Set<string>();
 
     categories.forEach((cat) => {
       const catRows = dataRows.filter((r: any) => (r.categoryGroup || r.departmentName || 'Production') === cat);
       if (catRows.length === 0) return;
 
-      out.push('');
-      out.push(`⚙️ *${String(cat).toUpperCase()}:*`);
-      out.push('');
+      itemLines.push(`*${String(cat).toUpperCase()}:*`);
 
-      // Group lines by machine within this category
       const machineOrder: string[] = [];
       const machineGroupMap = new Map<
         string,
@@ -280,7 +278,6 @@ export function buildAiReportWhatsAppText(msg: ExportableAiMessage): string {
         mEntry.target += target;
         mEntry.items.push({ name: itemLabel, qty: actual, uom });
 
-        // Accumulate item-wise total across report
         const itemKey = `${r.itemCode || ''}__${itemLabel}`;
         const existingItem = itemTotalsMap.get(itemKey);
         if (existingItem) {
@@ -297,40 +294,44 @@ export function buildAiReportWhatsAppText(msg: ExportableAiMessage): string {
         const m = machineGroupMap.get(mCode)!;
         const ach = m.target > 0 ? Number(((m.actual / m.target) * 100).toFixed(2)) : m.actual > 0 ? 100 : 0;
         const achTone = ach >= 70 ? '▲' : '▼';
-        const numEmoji = idx < NUMBER_EMOJIS.length ? NUMBER_EMOJIS[idx] : `#${idx + 1}`;
 
-        out.push(`${numEmoji} *${m.machine}* [✅ Entered]`);
-        out.push(`   📦 *Actual:* ${formatQty(m.actual)} ${m.uom}`);
-        out.push(`   📊 *Achievement:* ${ach.toFixed(2)}% ${achTone}`);
+        itemLines.push(`${idx + 1}. *${m.machine}* [Entered]`);
+        itemLines.push(`   • *Actual:* ${formatQty(m.actual)} ${m.uom}`);
+        itemLines.push(`   • *Achievement:* ${ach.toFixed(2)}% ${achTone}`);
         if (m.items.length > 0) {
           const itemsStr = m.items.map((it) => `${it.name} (${formatQty(it.qty)} ${it.uom})`).join(', ');
-          out.push(`   🏷️ *Items:* ${itemsStr}`);
+          itemLines.push(`   • *Items:* ${itemsStr}`);
         }
-        out.push('   ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄');
+        itemLines.push('   ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄');
       });
     });
 
     const overallAch = grandTarget > 0 ? Number(((grandActual / grandTarget) * 100).toFixed(2)) : 0;
     const overallTone = overallAch >= 70 ? '▲' : '▼';
 
-    out.push('');
-    out.push('━━━━━━━━━━━━━━━━━━━━');
-    out.push(`📊 *REPORT TOTALS (${period}):*`);
-    out.push(`• *Total Machines:* ${allMachinesSet.size} Machines`);
-    out.push(`• *Total Production:* *${formatQty(grandActual)} ${primaryUom}*`);
-    out.push(`• *Overall Achievement:* *${overallAch.toFixed(2)}%* ${overallTone}`);
+    summaryLines.push('━━━━━━━━━━━━━━━━━━━━');
+    summaryLines.push(`*REPORT TOTALS (${period}):*`);
+    summaryLines.push(`• *Total Machines:* ${allMachinesSet.size} Machines`);
+    summaryLines.push(`• *Total Production:* *${formatQty(grandActual)} ${primaryUom}*`);
+    summaryLines.push(`• *Overall Achievement:* *${overallAch.toFixed(2)}%* ${overallTone}`);
 
     if (itemTotalsMap.size > 0) {
-      out.push('');
-      out.push('📦 *ITEM-WISE TOTAL SUMMARY:*');
+      summaryLines.push('');
+      summaryLines.push('*ITEM-WISE TOTAL SUMMARY:*');
       Array.from(itemTotalsMap.values()).forEach((item) => {
-        out.push(`• *${item.itemName}:* *${formatQty(item.totalQty)} ${item.uom}*`);
+        summaryLines.push(`• *${item.itemName}:* *${formatQty(item.totalQty)} ${item.uom}*`);
       });
     }
 
-    out.push('━━━━━━━━━━━━━━━━━━━━');
-    out.push('📱 _Generated via PWI ERP AI Assistant_');
-    return out.join('\n');
+    return renderWhatsAppTemplate('[AI-REPORT]', {
+      company: DEFAULT_COMPANY_NAME.toUpperCase(),
+      title: title.toUpperCase(),
+      division: divScope,
+      department: deptScope,
+      date: period,
+      items: itemLines.join('\n'),
+      summary: summaryLines.join('\n'),
+    });
   }
 
   // Case 2: Machine-wise Summary Report (totalProduction, totalTarget, avgDaily, efficiency)
@@ -343,80 +344,142 @@ export function buildAiReportWhatsAppText(msg: ExportableAiMessage): string {
     const grandRow = rawRows.find((r: any) => r.isGrandTotal);
     const uom = msg.kpiCards?.[0]?.unit || 'PCS';
 
-    out.push('');
-    out.push('⚙️ *MACHINE-WISE PRODUCTION:*');
-    out.push('');
-
+    itemLines.push('*MACHINE-WISE PRODUCTION:*');
     machineRows.forEach((r: any, idx: number) => {
-      const numEmoji = idx < NUMBER_EMOJIS.length ? NUMBER_EMOJIS[idx] : `#${idx + 1}`;
       const eff = Number(r.efficiency || 0);
       const achTone = eff >= 70 ? '▲' : '▼';
-      out.push(`${numEmoji} *${r.machine}* (${r.department || deptScope})`);
-      out.push(`   📦 *Actual:* ${formatQty(r.totalProduction)} ${uom}`);
-      out.push(`   📊 *Achievement:* ${eff}% ${achTone}`);
+      itemLines.push(`${idx + 1}. *${r.machine}* (${r.department || deptScope})`);
+      itemLines.push(`   • *Actual:* ${formatQty(r.totalProduction)} ${uom}`);
+      itemLines.push(`   • *Achievement:* ${eff}% ${achTone}`);
       if (r.avgDaily !== undefined) {
-        out.push(`   📈 *Daily Avg:* ${formatQty(r.avgDaily)} ${uom}/day`);
+        itemLines.push(`   • *Daily Avg:* ${formatQty(r.avgDaily)} ${uom}/day`);
       }
-      out.push('   ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄');
+      itemLines.push('   ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄');
     });
 
     if (grandRow) {
       const overallEff = Number(grandRow.efficiency || 0);
       const overallTone = overallEff >= 70 ? '▲' : '▼';
-      out.push('');
-      out.push('━━━━━━━━━━━━━━━━━━━━');
-      out.push(`📊 *TOTAL SUMMARY (${period}):*`);
-      out.push(`• *Total Machines:* ${machineRows.length} Machines`);
-      out.push(`• *Total Production:* *${formatQty(grandRow.totalProduction)} ${uom}*`);
-      out.push(`• *Overall Achievement:* *${overallEff}%* ${overallTone}`);
+      summaryLines.push('━━━━━━━━━━━━━━━━━━━━');
+      summaryLines.push(`*TOTAL SUMMARY (${period}):*`);
+      summaryLines.push(`• *Total Machines:* ${machineRows.length} Machines`);
+      summaryLines.push(`• *Total Production:* *${formatQty(grandRow.totalProduction)} ${uom}*`);
+      summaryLines.push(`• *Overall Achievement:* *${overallEff}%* ${overallTone}`);
     }
 
-    out.push('━━━━━━━━━━━━━━━━━━━━');
-    out.push('📱 _Generated via PWI ERP AI Assistant_');
-    return out.join('\n');
+    return renderWhatsAppTemplate('[AI-REPORT]', {
+      company: DEFAULT_COMPANY_NAME.toUpperCase(),
+      title: title.toUpperCase(),
+      division: divScope,
+      department: deptScope,
+      date: period,
+      items: itemLines.join('\n'),
+      summary: summaryLines.join('\n'),
+    });
+  }
+
+  // Case 2B: Gate Pass-Wise Raw Material Receiving Report (grouped by Item with Subtotals & Grand Total)
+  const isRmGatePassWise = rawRows.some((r: any) => r.isRmGatePassLine);
+
+  if (isRmGatePassWise) {
+    const lineRows = rawRows.filter((r: any) => r.isRmGatePassLine);
+    const subtotalRows = rawRows.filter((r: any) => r.isSubtotal);
+    const grandRow = rawRows.find((r: any) => r.isGrandTotal);
+
+    const groupedByItem = new Map<string, any[]>();
+    lineRows.forEach((r: any) => {
+      const k = String(r.itemCode || 'RM');
+      if (!groupedByItem.has(k)) groupedByItem.set(k, []);
+      groupedByItem.get(k)!.push(r);
+    });
+
+    let groupIdx = 0;
+    groupedByItem.forEach((lines, itemCode) => {
+      groupIdx += 1;
+      const itemName = lines[0]?.itemName || 'Raw Material';
+      const sub = subtotalRows.find((s: any) => s.itemCode === itemCode);
+
+      itemLines.push(`${groupIdx}. *${itemCode} — ${itemName}*`);
+      lines.forEach((l: any) => {
+        const parts = [
+          l.dateDisplay,
+          `*${l.gatePassDisplay}*`,
+          `*${l.receivedDisplay}*`,
+          l.divisionName && l.divisionName !== '—' ? l.divisionName : '',
+          l.supplierParty && l.supplierParty !== '—' ? `Party: ${l.supplierParty}` : '',
+          l.vehicleChallan && l.vehicleChallan !== '—' ? l.vehicleChallan : '',
+        ].filter(Boolean);
+        itemLines.push(`   • ${parts.join(' | ')}`);
+      });
+      if (sub) {
+        itemLines.push(`   • *Subtotal (${sub.gatePassDisplay}):* *${sub.receivedDisplay}*`);
+      }
+      itemLines.push('   ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄');
+    });
+
+    if (grandRow) {
+      summaryLines.push('━━━━━━━━━━━━━━━━━━━━');
+      summaryLines.push(`*GRAND TOTAL (${period}):*`);
+      summaryLines.push(`• *Confirmed Gate Passes:* ${grandRow.gatePassDisplay}`);
+      summaryLines.push(`• *Items / Lines:* ${grandRow.itemDisplay}`);
+      summaryLines.push(`• *Total Received Qty / Weight:* *${grandRow.receivedDisplay}*`);
+      summaryLines.push(`• *Divisions:* ${grandRow.divisionName}`);
+    }
+
+    return renderWhatsAppTemplate('[AI-REPORT]', {
+      company: DEFAULT_COMPANY_NAME.toUpperCase(),
+      title: title.toUpperCase(),
+      division: divScope,
+      department: deptScope,
+      date: period,
+      items: itemLines.join('\n'),
+      summary: summaryLines.join('\n'),
+    });
   }
 
   // Case 3: Generic Table or Backend Answer
   const { headers, rows } = extractStructuredTable(msg);
   if (rows.length > 0 && headers.length > 0) {
-    out.push('');
     let itemIdx = 0;
     rows.forEach((row) => {
       if (row.isSectionHeader) {
-        out.push(`\n🏭 *${row.cells[0]}*`);
+        itemLines.push(`\n*${row.cells[0]}*`);
         return;
       }
       if (row.isSubtotal || row.isGrandTotal) {
-        out.push('━━━━━━━━━━━━━━━━━━━━');
-        out.push(`📊 *${row.cells[0]}:* ${row.cells.slice(1).filter(Boolean).join(' | ')}`);
+        itemLines.push('━━━━━━━━━━━━━━━━━━━━');
+        itemLines.push(`*${row.cells[0]}:* ${row.cells.slice(1).filter(Boolean).join(' | ')}`);
         return;
       }
-      const numEmoji = itemIdx < NUMBER_EMOJIS.length ? NUMBER_EMOJIS[itemIdx] : `#${itemIdx + 1}`;
       itemIdx += 1;
-      out.push(`${numEmoji} *${row.cells[0]}*`);
+      itemLines.push(`${itemIdx}. *${row.cells[0]}*`);
       for (let i = 1; i < headers.length; i++) {
         if (row.cells[i] && row.cells[i] !== '—') {
-          out.push(`   • *${headers[i]}:* ${row.cells[i]}`);
+          itemLines.push(`   • *${headers[i]}:* ${row.cells[i]}`);
         }
       }
-      out.push('   ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄');
+      itemLines.push('   ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄');
     });
   } else if (msg.text) {
-    out.push('');
-    out.push(msg.text.replace(/\*\*/g, '*'));
+    itemLines.push(msg.text.replace(/\*\*/g, '*'));
   }
 
   if (msg.kpiCards && msg.kpiCards.length > 0) {
-    out.push('');
-    out.push('📊 *KEY SUMMARY METRICS:*');
+    summaryLines.push('*KEY SUMMARY METRICS:*');
     msg.kpiCards.forEach((k) => {
-      out.push(`• *${k.title}:* *${k.value} ${k.unit || ''}*`.trim());
+      summaryLines.push(`• *${k.title}:* *${k.value} ${k.unit || ''}*`.trim());
     });
   }
 
-  out.push('━━━━━━━━━━━━━━━━━━━━');
-  out.push('📱 _Generated via PWI ERP AI Assistant_');
-  return out.join('\n');
+  return renderWhatsAppTemplate('[AI-REPORT]', {
+    company: DEFAULT_COMPANY_NAME.toUpperCase(),
+    title: title.toUpperCase(),
+    division: divScope,
+    department: deptScope,
+    date: period,
+    items: itemLines.join('\n'),
+    summary: summaryLines.join('\n'),
+  });
 }
 
 /**
@@ -653,12 +716,11 @@ export function exportAiReportToExcel(msg: ExportableAiMessage): string {
 /**
  * Copies WhatsApp text to clipboard and opens WhatsApp Web / Desktop to share.
  */
-export function shareAiReportOnWhatsApp(whatsappText: string): void {
+export function shareAiReportOnWhatsApp(whatsappText: string, phone?: string): void {
   if (!whatsappText) return;
   try {
     navigator.clipboard.writeText(whatsappText);
   } catch {}
-  const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(whatsappText)}`;
-  window.open(url, '_blank', 'noopener,noreferrer');
+  window.open(buildWhatsAppShareUrl(whatsappText, phone), '_blank', 'noopener,noreferrer');
 }
 

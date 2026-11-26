@@ -326,6 +326,57 @@ const AiAnswerCard: React.FC<AiAnswerCardProps> = ({ answer, isDark, uomOverride
   const renderStyledCell = (col: string, rawVal: unknown): React.ReactNode => {
     const formatted = formatCell(rawVal);
     const colLow = col.toLowerCase().trim();
+    if (
+      formatted !== '—' &&
+      (colLow === 'gate pass # / grn #' ||
+        colLow === 'gate_pass_no' ||
+        colLow === 'gate pass #' ||
+        colLow === 'grn #')
+    ) {
+      return (
+        <span
+          style={{
+            display: 'inline-block',
+            padding: '1px 8px',
+            borderRadius: 5,
+            fontFamily: 'monospace',
+            fontWeight: 700,
+            fontSize: 11.5,
+            whiteSpace: 'nowrap',
+            background: 'var(--theme-surface-alt)',
+            color: 'var(--theme-text)',
+            border: '1px solid var(--theme-border-strong, var(--theme-border))',
+          }}
+        >
+          {formatted}
+        </span>
+      );
+    }
+    if (formatted !== '—' && colLow === 'item code & name' && formatted.includes(' — ')) {
+      const sepIdx = formatted.indexOf(' — ');
+      const codePart = formatted.slice(0, sepIdx).trim();
+      const namePart = formatted.slice(sepIdx + 3).trim();
+      return (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
+          <span
+            style={{
+              display: 'inline-block',
+              padding: '1px 7px',
+              borderRadius: 5,
+              fontFamily: 'monospace',
+              fontWeight: 700,
+              fontSize: 11.5,
+              background: isDark ? 'rgba(249, 115, 22, 0.2)' : '#fff7ed',
+              color: isDark ? '#fdba74' : '#c2410c',
+              border: isDark ? '1px solid rgba(251, 146, 60, 0.45)' : '1px solid #fdba74',
+            }}
+          >
+            {codePart}
+          </span>
+          <strong style={{ fontWeight: 600, color: 'var(--theme-text)' }}>{namePart}</strong>
+        </span>
+      );
+    }
     if (formatted !== '—' && (colLow === 'item code' || colLow === 'item_code' || colLow === 'sku')) {
       return (
         <span

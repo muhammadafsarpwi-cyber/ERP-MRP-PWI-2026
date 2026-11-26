@@ -7,6 +7,7 @@ import RawMaterialReceiving from './RawMaterialReceiving';
 import RawReceiptMinimizedDock from '../../../components/layout/RawReceiptMinimizedDock';
 import { useHeaderActions } from '../../../components/layout/headerActionsStore';
 import { useRawReceiptDraftStore, RmDraftLine } from '../../../store/rawReceiptDraftStore';
+import { tabSessionCache } from '../../../services/tabSessionCache';
 import apiService from '../../../services/api';
 
 jest.mock('../../../services/api');
@@ -1563,5 +1564,82 @@ describe('RawMaterialReceiving RMR-01-C-C — Inventory Impact Preview (New Rece
     // 9,940 + 120 + 130 = 10,190
     await pollUntil(() => !!screen.queryByText(/10,190/), 'combined after');
     expect(summaryGroup('item-ccd-1').getByText(/250/).parentElement).toBeInTheDocument();
+  });
+});
+
+describe('RawMaterialReceiving Audit Summary & Period Presets', () => {
+  it('16. separates Opening Stock (KG) from GP Received (KG) and supports Period presets', async () => {
+    tabSessionCache.remove('/production/raw-material-receiving');
+    const auditCalls: any[] = [];
+    apiMock.get.mockImplementation((url: string, params?: any) => {
+      if (url === '/inventory/receipts/gate-pass/form-data') {
+        return Promise.resolve({ data: mockRefData } as any);
+      }
+      if (url === '/inventory/receipts/gate-pass') {
+        return Promise.resolve({ data: mockReceipts, total: 1 } as any);
+      }
+      if (url === '/inventory/receipts/gate-pass/audit-summary') {
+        auditCalls.push(params || {});
+        return Promise.resolve({
+          success: true,
+          data: {
+            kpiSummary: {
+              receiptsCount: 78,
+              linesCount: 78,
+              uniquePoCount: 12,
+              totalGatePassKg: 117193,
+              totalReceivedKg: 116562.5,
+              totalDifferenceKg: -630.5,
+              totalReturnedKg: 100,
+              returnsCount: 1,
+              totalOpeningKg: 15227,
+              totalUsedInProdKg: 69749.24,
+              totalClosingBalanceKg: 61940.26,
+            },
+            items: [
+              {
+                itemId: 'item-ccd-1',
+                itemCode: 'RM-WIRE-002',
+                itemName: 'GALVANIZED STEEL WIRE 1.00 MM',
+                uomCode: 'KG',
+                openingStock: 2463,
+                gatePassTotal: 38805,
+                receivedTotal: 38355.5,
+                returnedTotal: 0,
+                netBalanceTotal: 40818.5,
+                usedInProduction: 23947.75,
+                stockAdjustmentTotal: 0,
+                currentStoreBalance: 16870.75,
+                differenceTotal: -449.5,
+                receiptCount: 25,
+                gatePassNumbers: ['GP-1001'],
+                poNumbers: ['PO-2026-0001'],
+              },
+            ],
+          },
+        } as any);
+      }
+      return Promise.resolve({ data: [] } as any);
+    });
+
+    renderHarness();
+    await screen.findByText('116,562.5');
+    expect(screen.getAllByText('117,193').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText(/-630\.5/).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('Opening Stock (KG)').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('GP Received (KG)').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('2,463').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('38,355.5').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('16,870.75').length).toBeGreaterThanOrEqual(1);
+
+    // Switch Period dropdown to "This Quarter"
+    const periodCombobox = screen.getByRole('combobox', { name: 'Period Filter' });
+    fireEvent.mouseDown(periodCombobox.closest('.ant-select-selector') as HTMLElement);
+    const quarterOpt = await screen.findByText('This Quarter');
+    fireEvent.click(quarterOpt);
+
+    await waitFor(() => {
+      expect(auditCalls.some((p) => !!p.dateFrom && !!p.dateTo)).toBe(true);
+    });
   });
 });

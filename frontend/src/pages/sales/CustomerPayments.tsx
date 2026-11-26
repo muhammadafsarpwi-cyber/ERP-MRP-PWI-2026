@@ -42,6 +42,7 @@ import {
   UserOutlined,
   WalletOutlined,
   WarningOutlined,
+  WhatsAppOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -49,6 +50,10 @@ import dayjs from 'dayjs';
 import apiService from '../../services/api';
 import { formatDecimal } from '../../utils/numberFormat';
 import { printPaymentReceiptVoucher, printTableList } from '../../utils/printTemplates';
+import {
+  DEFAULT_COMPANY_NAME,
+  openWhatsAppWithTemplate,
+} from '../../utils/whatsappTemplateRenderer';
 import { matchesTabRefresh, triggerTabRefresh, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import { DraggableResizableModal, PageHeader, TableColumnSelector, useColumnVisibility } from '../../components/shared';
 import './CustomerPayments.css';
@@ -878,6 +883,34 @@ const CustomerPayments: React.FC = () => {
               size="small"
               icon={<PrinterOutlined />}
               onClick={() => printPaymentReceiptVoucher(r)}
+            />
+          </Tooltip>
+          <Tooltip title="Share Receipt via WhatsApp">
+            <Button
+              size="small"
+              icon={<WhatsAppOutlined style={{ color: token.colorSuccess }} />}
+              onClick={() => {
+                const custName =
+                  r.customer?.name || r.customerName || r.customer?.customerCode || 'Customer';
+                const totalAmt = Number(r.amount || 0);
+                const unallocAmt = Number(r.unallocatedAdvanceAmount || 0);
+                const allocAmt = Math.max(0, totalAmt - unallocAmt);
+                openWhatsAppWithTemplate(
+                  '[PAY-RECEIPT]',
+                  {
+                    company: DEFAULT_COMPANY_NAME,
+                    customer: custName,
+                    doc_no: r.receiptNumber || r.voucherNo || '—',
+                    date: r.paymentDate ? dayjs(r.paymentDate).format('YYYY-MM-DD') : '—',
+                    payment_mode: String(r.paymentMode || 'CASH').replace(/_/g, ' '),
+                    reference_no: r.chequeNumber || r.referenceNo || '—',
+                    amount: `Rs ${formatDecimal(totalAmt)}`,
+                    allocated_amount: `Rs ${formatDecimal(allocAmt)}`,
+                    unallocated_amount: `Rs ${formatDecimal(unallocAmt)}`,
+                  },
+                  r.customer?.phone || r.customerPhone,
+                );
+              }}
             />
           </Tooltip>
           {Number(r.unallocatedAdvanceAmount) > 0 && r.status === 'POSTED' && r.clearanceStatus !== 'BOUNCED' && (

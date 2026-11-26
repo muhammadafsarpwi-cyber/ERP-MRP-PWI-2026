@@ -177,6 +177,40 @@ describe('TextToSqlService — machine-wise shape enforcement & chart payload', 
       itemWiseSql,
     );
     expect(wrongProdIssue).toMatch(/Raw Material Receiving/i);
+
+    // Gate Pass-Wise must reject item-collapsed COUNT(DISTINCT r.id) summary and require individual gate_pass_no/receipt_code lines + table chart
+    const collapsedIssue = service.assertKeyphraseShape(
+      'Item-Wise Raw Material Receiving Report Gate pass wise',
+      validRmSql,
+    );
+    expect(collapsedIssue).toMatch(/Gate Pass-Wise/i);
+
+    const validGatePassWiseSql = `SELECT r.division_id,
+      TO_CHAR(r.receipt_date, 'DD-Mon-YYYY') AS "DATE",
+      'GP #' || r.gate_pass_no || ' · ' || r.receipt_code AS "GATE PASS # / GRN #",
+      i.item_code || ' — ' || i.name AS "ITEM CODE & NAME",
+      COALESCE(s.name, '—') AS "SUPPLIER / PARTY",
+      '—' AS "VEHICLE / CHALLAN #",
+      ROUND(l.received_quantity::numeric, 2)::text || ' ' || COALESCE(u.code, 'KG') AS "RECEIVED QTY / WEIGHT",
+      COALESCE(dv.name, '—') AS "DIVISION"
+      FROM raw_material_receipts r
+      JOIN raw_material_receipt_lines l ON l.receipt_id = r.id
+      JOIN items i ON i.id = l.item_id
+      LEFT JOIN uoms u ON u.id = l.uom_id
+      LEFT JOIN divisions dv ON dv.id = r.division_id
+      LEFT JOIN purchase_orders po ON po.id = r.purchase_order_id
+      LEFT JOIN suppliers s ON s.id = po.supplier_id
+      ORDER BY i.item_code ASC, r.receipt_date DESC`;
+    expect(
+      service.assertKeyphraseShape('Item-Wise Raw Material Receiving Report Gate pass wise', validGatePassWiseSql),
+    ).toBeNull();
+
+    const gpChart = service.buildChartMetadata(
+      'Item-Wise Raw Material Receiving Report Gate pass wise',
+      ['division_id', 'DATE', 'GATE PASS # / GRN #', 'ITEM CODE & NAME', 'RECEIVED QTY / WEIGHT'],
+      undefined,
+    );
+    expect(gpChart.chartType).toBe('table');
   });
 
   it('returns a polite clarification response without executing SQL when LLM flags needs_clarification', async () => {

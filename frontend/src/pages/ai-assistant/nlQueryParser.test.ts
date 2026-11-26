@@ -5,7 +5,7 @@ import {
   canonicalizeDivisionCode,
   extractSpecificCustomer,
 } from './nlQueryParser';
-import { detectExportCommand, buildAiReportWhatsAppText } from './aiReportExporter';
+import { detectExportCommand, buildAiReportWhatsAppText, extractStructuredTable } from './aiReportExporter';
 import {
   aggregateLastEntryByDepartment,
   matchesEntryDivision,
@@ -149,7 +149,7 @@ describe('nlQueryParser — Date & Urdu/English Natural Language Resolution', ()
     });
 
     expect(wa).toContain('PAKISTAN WIRE INDUSTRIES (PVT.) LTD');
-    expect(wa).toContain('*SPK-01* [✅ Entered]');
+    expect(wa).toContain('*SPK-01* [Entered]');
     expect(wa).toContain('*Actual:* 28,001 PCS');
     expect(wa).toContain('*ITEM-WISE TOTAL SUMMARY:*');
     expect(wa).toContain('*250X17 Inner Butted:* *56,501 PCS*');
@@ -626,6 +626,167 @@ describe('nlQueryParser — Date & Urdu/English Natural Language Resolution', ()
       totalReceivedQty: 5913.02,
       lastReceivedDate: '2026-11-19',
     });
+
+    // Gate Pass-Wise mode: "Item-Wise Raw Material Receiving Report Gate pass wise"
+    // - Defaults to ALL divisions when none is mentioned in the prompt
+    // - Honors specific division when mentioned in the prompt
+    // - Produces 7 single-line columns, Item Subtotals, Grand Total, and complete structured/WhatsApp exports
+    const gpAllIntent = parseNaturalLanguageQuery(
+      'Item-Wise Raw Material Receiving Report Gate pass wise',
+      'DIV-002-CCD',
+      'ALL',
+    );
+    expect(gpAllIntent.dimension).toBe('raw_material_receiving');
+    expect(gpAllIntent.receivingBreakdown).toBe('gate_pass_wise');
+    expect(gpAllIntent.divisionCode).toBe('ALL');
+
+    const gpSpokeIntent = parseNaturalLanguageQuery(
+      'Spoke Division Item-Wise Raw Material Receiving Report Gate pass wise',
+      'DIV-002-CCD',
+      'ALL',
+    );
+    expect(gpSpokeIntent.receivingBreakdown).toBe('gate_pass_wise');
+    expect(gpSpokeIntent.divisionCode).toBe('DIV-SPD');
+
+    const allDivMeta = {
+      id: 'ALL',
+      code: 'ALL',
+      name: 'All Divisions',
+      uom: 'Multi-UOM',
+      color: '#3b82f6',
+    };
+    const gpReceipts = [
+      {
+        id: 'rmr-gp-1',
+        receiptCode: 'RMR-00252',
+        gatePassNo: '3574',
+        sourceNo: '3573',
+        receiptDate: '2026-11-23',
+        status: 'CONFIRMED',
+        divisionId: 'd1000000-0000-0000-0000-000000000001',
+        division: { id: 'd1000000-0000-0000-0000-000000000001', name: 'Spoke Division', divisionCode: 'DIV-001-SPI' },
+        supplierName: 'Pakistan Wire Industries (Pvt.) LTD',
+        lines: [
+          {
+            lineNumber: 1,
+            receivedQuantity: 1103,
+            item: { itemCode: 'RM-WIRE-010', name: 'Steel Wire Coil 3.14 mm SR' },
+            uom: { code: 'KG' },
+          },
+        ],
+      },
+      {
+        id: 'rmr-gp-2',
+        receiptCode: 'RMR-00238',
+        gatePassNo: '3551',
+        sourceNo: '3551',
+        receiptDate: '2026-11-16',
+        status: 'CONFIRMED',
+        divisionId: 'd1000000-0000-0000-0000-000000000001',
+        division: { id: 'd1000000-0000-0000-0000-000000000001', name: 'Spoke Division', divisionCode: 'DIV-001-SPI' },
+        supplierName: 'Pakistan Wire Industries (Pvt.) LTD',
+        lines: [
+          {
+            lineNumber: 1,
+            receivedQuantity: 1195,
+            item: { itemCode: 'RM-WIRE-010', name: 'Steel Wire Coil 3.14 mm SR' },
+            uom: { code: 'KG' },
+          },
+        ],
+      },
+      {
+        id: 'rmr-gp-3',
+        receiptCode: 'RMR-00243',
+        gatePassNo: '3559',
+        sourceNo: '3559',
+        receiptDate: '2026-11-18',
+        status: 'CONFIRMED',
+        divisionId: 'd1000000-0000-0000-0000-000000000002',
+        division: { id: 'd1000000-0000-0000-0000-000000000002', name: 'Control Cable Division', divisionCode: 'DIV-002-CCD' },
+        supplierName: 'Pakistan Wire Industries (Pvt.) LTD',
+        lines: [
+          {
+            lineNumber: 1,
+            receivedQuantity: 553,
+            item: { itemCode: 'RM-WIRE-002', name: '1.45 mm-B4 Wire' },
+            uom: { code: 'KG' },
+          },
+        ],
+      },
+    ];
+
+    const gpReport = aggregateRawMaterialReceiving({
+      receipts: gpReceipts,
+      division: allDivMeta,
+      intent: {
+        ...gpAllIntent,
+        period: { type: 'this_month', label: 'November 2026', startDate: '2026-11-01', endDate: '2026-11-30' },
+      },
+      isDark: false,
+    });
+
+    expect(gpReport.title).toContain('Item-Wise & Gate Pass-Wise Raw Material Receiving Report');
+    expect(gpReport.tableData?.columns.map((c) => c.title)).toEqual([
+      'DATE',
+      'GATE PASS # / GRN #',
+      'ITEM CODE & NAME',
+      'SUPPLIER / PARTY',
+      'VEHICLE / CHALLAN #',
+      'RECEIVED QTY / WEIGHT',
+      'DIVISION',
+    ]);
+
+    const gpRows = gpReport.tableData?.rows || [];
+    // 3 Gate Pass lines + 2 Item Subtotals + 1 Grand Total = 6 rows
+    expect(gpRows).toHaveLength(6);
+    expect(gpRows[0]).toMatchObject({
+      dateDisplay: '23-Nov-2026',
+      gatePassDisplay: 'GP #3574 · RMR-00252',
+      itemCode: 'RM-WIRE-010',
+      supplierParty: 'Pakistan Wire Industries (Pvt.) LTD',
+      vehicleChallan: 'DC: 3573',
+      receivedDisplay: '1,103 KG',
+      divisionName: 'Spoke Division',
+    });
+    expect(gpRows.find((r) => r.isSubtotal && r.itemCode === 'RM-WIRE-010')).toMatchObject({
+      gatePassDisplay: '2 Gate Passes',
+      receivedDisplay: '2,298 KG',
+      divisionName: 'Spoke Division',
+    });
+    expect(gpRows.find((r) => r.isGrandTotal)).toMatchObject({
+      gatePassDisplay: '3 Gate Passes',
+      receivedDisplay: '2,851 KG',
+    });
+
+    // Verify PDF / Excel structured table & WhatsApp export contain all Gate Pass lines, Subtotals & Grand Total
+    const exportMsg = {
+      id: 'gp-exp-1',
+      text: gpReport.summaryText,
+      reportTitle: gpReport.title,
+      divisionScope: gpReport.divisionScope,
+      periodLabel: gpReport.periodLabel,
+      kpiCards: gpReport.kpiCards,
+      tableData: gpReport.tableData,
+    };
+    const structured = extractStructuredTable(exportMsg);
+    expect(structured.headers).toEqual([
+      'DATE',
+      'GATE PASS # / GRN #',
+      'ITEM CODE & NAME',
+      'SUPPLIER / PARTY',
+      'VEHICLE / CHALLAN #',
+      'RECEIVED QTY / WEIGHT',
+      'DIVISION',
+    ]);
+    expect(structured.rows).toHaveLength(6);
+    expect(structured.rows.filter((r) => r.isSubtotal)).toHaveLength(2);
+    expect(structured.rows.filter((r) => r.isGrandTotal)).toHaveLength(1);
+
+    const waText = buildAiReportWhatsAppText(exportMsg);
+    expect(waText).toContain('GP #3574 · RMR-00252');
+    expect(waText).toContain('GP #3559 · RMR-00243');
+    expect(waText).toContain('Subtotal (2 Gate Passes):* *2,298 KG*');
+    expect(waText).toContain('*Total Received Qty / Weight:* *2,851 KG*');
 
     const stockReport = aggregateRawMaterialStock({
       balances: [

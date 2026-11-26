@@ -5,27 +5,14 @@ import { message } from 'antd';
 import apiService from '../services/api';
 import { formatNumber } from './numberFormat';
 import type { ItemStockLedgerData, StockLedgerMovement } from '../components/shared/ItemStockLedgerModal';
-import { renderWhatsAppTemplate, resolveWhatsAppTemplate } from './whatsappSettingsStore';
+import {
+  DEFAULT_COMPANY_NAME,
+  DEFAULT_ITEM_LEDGER_WHATSAPP_TEMPLATE,
+  buildWhatsAppShareUrl,
+  renderWhatsAppTemplate,
+} from './whatsappTemplateRenderer';
 
-export const DEFAULT_ITEM_LEDGER_WHATSAPP_TEMPLATE = `*PAKISTAN WIRE INDUSTRIES (PVT.) LTD.*
-📦 *ITEM STOCK LEDGER & AUDIT TRAIL*
-────────────────────────────
-🏷 *Item:* {item_code}
-📝 *Description:* {item_name}
-📍 *Warehouse:* {warehouse}
-📏 *Base Unit:* {uom}
-📅 *Date:* {date}
-
-📊 *STOCK SUMMARY:*
-• Total Received (+IN): {total_in}
-• Total Issued (-OUT): {total_out}
-• *Current Live Balance:* {current_balance}
-• Total Audit Records: {movements_count} entries
-
-📋 *RECENT MOVEMENTS:*
-{recent_movements}
-────────────────────────────
-_PWI Enterprise ERP & MRP System_`;
+export { DEFAULT_ITEM_LEDGER_WHATSAPP_TEMPLATE };
 
 /**
  * Breakdown quantity into Cartons (CTN), Gross (GRS), and Pieces (PCS)
@@ -758,21 +745,25 @@ export function shareItemLedgerWhatsApp(data: ItemStockLedgerData, warehouseName
     return `${i + 1}. ${dt} | ${sign} ${qtyStr}${ref}${cust}`;
   }).join('\n');
 
-  const template = resolveWhatsAppTemplate(
-    'itemStockLedger',
-    DEFAULT_ITEM_LEDGER_WHATSAPP_TEMPLATE,
-  );
-  const text = renderWhatsAppTemplate(template, {
-    '{item_code}': itemCode,
-    '{item_name}': itemName,
-    '{warehouse}': whName,
-    '{uom}': uom,
-    '{date}': dayjs().format('DD-MMM-YYYY HH:mm'),
-    '{total_in}': inStr,
-    '{total_out}': outStr,
-    '{current_balance}': balStr,
-    '{movements_count}': String(movements.length),
-    '{recent_movements}': recentMovements || 'No movement records.',
+  const openingRaw = Number((data.summary as any)?.openingBalance ?? 0);
+  const openingBreakdown = formatItemUnitBreakdown(openingRaw, uom, itemCode);
+  const openingStr = openingBreakdown
+    ? `${openingBreakdown.fmtCtn} • ${openingBreakdown.fmtGrs} (= ${openingBreakdown.fmtPcs})`
+    : `${formatNumber(openingRaw, 0)} ${uom}`;
+
+  const text = renderWhatsAppTemplate('[INV-LEDGER]', {
+    company: DEFAULT_COMPANY_NAME.toUpperCase(),
+    item_code: itemCode,
+    item_name: itemName,
+    warehouse: whName,
+    uom,
+    date: dayjs().format('DD-MMM-YYYY HH:mm'),
+    opening_balance: openingStr,
+    total_in: inStr,
+    total_out: outStr,
+    current_balance: balStr,
+    movements_count: String(movements.length),
+    recent_movements: recentMovements || 'No movement records.',
   });
 
   try {
@@ -783,8 +774,7 @@ export function shareItemLedgerWhatsApp(data: ItemStockLedgerData, warehouseName
     console.warn('Clipboard write failed:', e);
   }
 
-  const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
-  window.open(waUrl, '_blank');
+  window.open(buildWhatsAppShareUrl(text), '_blank', 'noopener,noreferrer');
   message.success('Stock ledger summary copied to clipboard & WhatsApp opened!');
 }
 

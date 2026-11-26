@@ -70,6 +70,8 @@ export interface QueryIntent {
   specificItem?: string;
   specificCustomer?: string;
   rawQuery?: string;
+  /** 'summary' (item totals) vs 'gate_pass_wise' (every Gate Pass / GRN line with item subtotals & grand total). */
+  receivingBreakdown?: 'summary' | 'gate_pass_wise';
   /** 'high' when an explicit ERP intent matched; 'fallback' for open-ended / custom queries routed to LLM. */
   confidence?: 'high' | 'fallback';
   requestedUnit?: ReportingUnit;

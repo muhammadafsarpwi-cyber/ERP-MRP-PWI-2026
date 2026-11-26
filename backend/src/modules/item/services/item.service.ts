@@ -111,6 +111,8 @@ export class ItemService implements OnModuleInit {
         ALTER TABLE items ADD COLUMN IF NOT EXISTS source_item_id UUID;
         ALTER TABLE items ADD COLUMN IF NOT EXISTS operational_sequence_mask JSONB DEFAULT '[]'::jsonb;
         UPDATE items SET source_item_id = production_in_item_id WHERE source_item_id IS NULL AND production_in_item_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_items_company_active_code ON public.items (company_id, is_active, item_code);
+        CREATE INDEX IF NOT EXISTS idx_items_company_division_type ON public.items (company_id, division_id, item_type_id);
       `);
     } catch (err: any) {
       this.logger.warn(`Notice during items schema ensure: ${err?.message}`);
@@ -839,7 +841,39 @@ export class ItemService implements OnModuleInit {
   }
 
   async findAll(filter: ItemFilterDto): Promise<{ data: Item[]; total: number }> {
-    const { page = 1, limit = 20, search, status, itemType, itemTypes, itemTypeId, materialRoleUsage, categoryId, companyId, divisionId, sectionId, departmentId, routeType, routeTypeId, wireSizeMm, thicknessMm, widthMm, active, isPurchasable, isSellable, isManufacturable, isStockItem, trackInventory, sortField = 'createdAt', sortOrder = 'DESC' } = filter;
+    const {
+      page = 1,
+      limit = 20,
+      search,
+      status,
+      itemType,
+      itemTypes,
+      itemTypeId,
+      materialRoleUsage,
+      categoryId,
+      companyId,
+      divisionId,
+      sectionId,
+      departmentId,
+      routeType,
+      routeTypeId,
+      wireSizeMm,
+      thicknessMm,
+      widthMm,
+      active,
+      isPurchasable,
+      isSellable,
+      isManufacturable,
+      isStockItem,
+      trackInventory,
+      sortField = 'createdAt',
+      sortOrder = 'DESC',
+      view,
+    } = filter;
+    const isDirectoryView = view === 'directory';
+    const safePage = Math.max(Number(page) || 1, 1);
+    const safeLimit = Math.min(Math.max(Number(limit) || 20, 1), 10000);
+    const searchText = typeof search === 'string' ? search.trim() : '';
 
     const qb = this.itemRepository.createQueryBuilder('item');
     const canNarrowSelect =
@@ -848,120 +882,178 @@ export class ItemService implements OnModuleInit {
       typeof (qb as any).addSelect === 'function';
 
     if (canNarrowSelect) {
-      qb.select([
-        'item.id',
-        'item.companyId',
-        'item.itemCode',
-        'item.sku',
-        'item.name',
-        'item.shortName',
-        'item.itemType',
-        'item.itemTypeId',
-        'item.status',
-        'item.isDemo',
-        'item.materialRoleUsage',
-        'item.barcode',
-        'item.manufacturerPartNumber',
-        'item.brand',
-        'item.model',
-        'item.categoryId',
-        'item.baseUomId',
-        'item.purchaseUomId',
-        'item.salesUomId',
-        'item.trackInventory',
-        'item.batchTracked',
-        'item.serialTracked',
-        'item.expiryTracked',
-        'item.isPurchasable',
-        'item.isSellable',
-        'item.isManufacturable',
-        'item.isStockItem',
-        'item.isStoreItem',
-        'item.storageLocation',
-        'item.minimumStockLevel',
-        'item.maximumStockLevel',
-        'item.reorderLevel',
-        'item.safetyStockLevel',
-        'item.leadTimeDays',
-        'item.divisionId',
-        'item.sectionId',
-        'item.departmentId',
-        'item.wireSizeMm',
-        'item.diameterMm',
-        'item.thicknessMm',
-        'item.widthMm',
-        'item.routeType',
-        'item.routeTypeId',
-        'item.process1',
-        'item.process2',
-        'item.process3',
-        'item.process4',
-        'item.process5',
-        'item.process6',
-        'item.processes',
-        'item.finalProduct',
-        'item.packingNextStep',
-        'item.packagingType',
-        'item.packagingSize',
-        'item.packagingUnit',
-        'item.weightPerPiece',
-        'item.piecesPerKg',
-        'item.weightPerMeter',
-        'item.finishedWeightPerMeter',
-        'item.lengthPerPiece',
-        'item.sourceItemId',
-        'item.operationalSequenceMask',
-        'item.productionInItemId',
-        'item.productionInItemId2',
-        'item.productionInItemId3',
-        'item.productionOutItemId',
-        'item.costPrice',
-        'item.sellingPrice',
-        'item.manualMonthlyUsageGrs',
-        'item.importLeadTimeMonths',
-        'item.safetyBufferMonths',
-        'item.createdAt',
-        'item.updatedAt',
-        'item.createdBy',
-        'item.updatedBy',
-        'item.isActive',
-      ])
-        .leftJoin('item.category', 'category')
-        .addSelect(['category.id', 'category.name', 'category.categoryCode'])
-        .leftJoin('item.baseUom', 'baseUom')
-        .addSelect(['baseUom.id', 'baseUom.code', 'baseUom.name', 'baseUom.symbol'])
-        .leftJoin('item.salesUom', 'salesUom')
-        .addSelect(['salesUom.id', 'salesUom.code', 'salesUom.symbol'])
-        .leftJoin('item.purchaseUom', 'purchaseUom')
-        .addSelect(['purchaseUom.id', 'purchaseUom.code', 'purchaseUom.symbol'])
-        .leftJoin('item.division', 'division')
-        .addSelect(['division.id', 'division.name', 'division.divisionCode'])
-        .leftJoin('item.section', 'section')
-        .addSelect(['section.id', 'section.name', 'section.sectionCode'])
-        .leftJoin('item.department', 'department')
-        .addSelect(['department.id', 'department.name', 'department.departmentCode', 'department.divisionId', 'department.sectionId'])
-        .leftJoin('department.division', 'deptDivision')
-        .addSelect(['deptDivision.id', 'deptDivision.name', 'deptDivision.divisionCode'])
-        .leftJoin('department.section', 'deptSection')
-        .addSelect(['deptSection.id', 'deptSection.name']);
+      if (isDirectoryView) {
+        // Ultra-lean directory projection: excludes base64 imageUrl blobs, long text
+        // (description, notes, searchKeywords), heavy JSONB processes/masks, and 10
+        // unused secondary joins so directory fetches finish fast and stay small.
+        qb.select([
+          'item.id',
+          'item.companyId',
+          'item.itemCode',
+          'item.sku',
+          'item.name',
+          'item.shortName',
+          'item.itemType',
+          'item.itemTypeId',
+          'item.status',
+          'item.isDemo',
+          'item.materialRoleUsage',
+          'item.barcode',
+          'item.categoryId',
+          'item.baseUomId',
+          'item.isPurchasable',
+          'item.isSellable',
+          'item.isManufacturable',
+          'item.isStockItem',
+          'item.divisionId',
+          'item.sectionId',
+          'item.departmentId',
+          'item.wireSizeMm',
+          'item.diameterMm',
+          'item.thicknessMm',
+          'item.widthMm',
+          'item.lengthPerPiece',
+          'item.weightPerPiece',
+          'item.piecesPerKg',
+          'item.weightPerMeter',
+          'item.finishedWeightPerMeter',
+          'item.packagingType',
+          'item.packagingSize',
+          'item.packagingUnit',
+          'item.routeType',
+          'item.routeTypeId',
+          'item.createdBy',
+          'item.updatedBy',
+          'item.createdAt',
+          'item.updatedAt',
+          'item.isActive',
+        ])
+          .leftJoin('item.category', 'category')
+          .addSelect(['category.id', 'category.name'])
+          .leftJoin('item.baseUom', 'baseUom')
+          .addSelect(['baseUom.id', 'baseUom.code', 'baseUom.name', 'baseUom.symbol'])
+          .leftJoin('item.division', 'division')
+          .addSelect(['division.id', 'division.name', 'division.divisionCode'])
+          .leftJoin('item.section', 'section')
+          .addSelect(['section.id', 'section.name'])
+          .leftJoin('item.department', 'department')
+          .addSelect(['department.id', 'department.name', 'department.departmentCode']);
+      } else {
+        qb.select([
+          'item.id',
+          'item.companyId',
+          'item.itemCode',
+          'item.sku',
+          'item.name',
+          'item.shortName',
+          'item.itemType',
+          'item.itemTypeId',
+          'item.status',
+          'item.isDemo',
+          'item.materialRoleUsage',
+          'item.barcode',
+          'item.manufacturerPartNumber',
+          'item.brand',
+          'item.model',
+          'item.categoryId',
+          'item.baseUomId',
+          'item.purchaseUomId',
+          'item.salesUomId',
+          'item.trackInventory',
+          'item.batchTracked',
+          'item.serialTracked',
+          'item.expiryTracked',
+          'item.isPurchasable',
+          'item.isSellable',
+          'item.isManufacturable',
+          'item.isStockItem',
+          'item.isStoreItem',
+          'item.storageLocation',
+          'item.minimumStockLevel',
+          'item.maximumStockLevel',
+          'item.reorderLevel',
+          'item.safetyStockLevel',
+          'item.leadTimeDays',
+          'item.divisionId',
+          'item.sectionId',
+          'item.departmentId',
+          'item.wireSizeMm',
+          'item.diameterMm',
+          'item.thicknessMm',
+          'item.widthMm',
+          'item.routeType',
+          'item.routeTypeId',
+          'item.process1',
+          'item.process2',
+          'item.process3',
+          'item.process4',
+          'item.process5',
+          'item.process6',
+          'item.processes',
+          'item.finalProduct',
+          'item.packingNextStep',
+          'item.packagingType',
+          'item.packagingSize',
+          'item.packagingUnit',
+          'item.weightPerPiece',
+          'item.piecesPerKg',
+          'item.weightPerMeter',
+          'item.finishedWeightPerMeter',
+          'item.lengthPerPiece',
+          'item.sourceItemId',
+          'item.operationalSequenceMask',
+          'item.productionInItemId',
+          'item.productionInItemId2',
+          'item.productionInItemId3',
+          'item.productionOutItemId',
+          'item.costPrice',
+          'item.sellingPrice',
+          'item.manualMonthlyUsageGrs',
+          'item.importLeadTimeMonths',
+          'item.safetyBufferMonths',
+          'item.createdAt',
+          'item.updatedAt',
+          'item.createdBy',
+          'item.updatedBy',
+          'item.isActive',
+        ])
+          .leftJoin('item.category', 'category')
+          .addSelect(['category.id', 'category.name', 'category.categoryCode'])
+          .leftJoin('item.baseUom', 'baseUom')
+          .addSelect(['baseUom.id', 'baseUom.code', 'baseUom.name', 'baseUom.symbol'])
+          .leftJoin('item.salesUom', 'salesUom')
+          .addSelect(['salesUom.id', 'salesUom.code', 'salesUom.symbol'])
+          .leftJoin('item.purchaseUom', 'purchaseUom')
+          .addSelect(['purchaseUom.id', 'purchaseUom.code', 'purchaseUom.symbol'])
+          .leftJoin('item.division', 'division')
+          .addSelect(['division.id', 'division.name', 'division.divisionCode'])
+          .leftJoin('item.section', 'section')
+          .addSelect(['section.id', 'section.name', 'section.sectionCode'])
+          .leftJoin('item.department', 'department')
+          .addSelect(['department.id', 'department.name', 'department.departmentCode', 'department.divisionId', 'department.sectionId'])
+          .leftJoin('department.division', 'deptDivision')
+          .addSelect(['deptDivision.id', 'deptDivision.name', 'deptDivision.divisionCode'])
+          .leftJoin('department.section', 'deptSection')
+          .addSelect(['deptSection.id', 'deptSection.name']);
 
-      if (limit <= 200) {
-        qb.leftJoin('item.routeTypeRef', 'routeTypeRef')
-          .addSelect(['routeTypeRef.id', 'routeTypeRef.routeCode', 'routeTypeRef.name'])
-          .leftJoin('item.itemTypeRef', 'itemTypeRef')
-          .addSelect(['itemTypeRef.id', 'itemTypeRef.code', 'itemTypeRef.name'])
-          .leftJoin('item.productionInItem', 'productionInItem')
-          .addSelect(['productionInItem.id', 'productionInItem.itemCode', 'productionInItem.name', 'productionInItem.baseUomId'])
-          .leftJoin('item.productionInItem2', 'productionInItem2')
-          .addSelect(['productionInItem2.id', 'productionInItem2.itemCode', 'productionInItem2.name', 'productionInItem2.baseUomId'])
-          .leftJoin('item.productionInItem3', 'productionInItem3')
-          .addSelect(['productionInItem3.id', 'productionInItem3.itemCode', 'productionInItem3.name', 'productionInItem3.baseUomId'])
-          .leftJoin('item.productionOutItem', 'productionOutItem')
-          .addSelect(['productionOutItem.id', 'productionOutItem.itemCode', 'productionOutItem.name', 'productionOutItem.baseUomId']);
+        if (safeLimit <= 200) {
+          qb.leftJoin('item.routeTypeRef', 'routeTypeRef')
+            .addSelect(['routeTypeRef.id', 'routeTypeRef.routeCode', 'routeTypeRef.name'])
+            .leftJoin('item.itemTypeRef', 'itemTypeRef')
+            .addSelect(['itemTypeRef.id', 'itemTypeRef.code', 'itemTypeRef.name'])
+            .leftJoin('item.productionInItem', 'productionInItem')
+            .addSelect(['productionInItem.id', 'productionInItem.itemCode', 'productionInItem.name', 'productionInItem.baseUomId'])
+            .leftJoin('item.productionInItem2', 'productionInItem2')
+            .addSelect(['productionInItem2.id', 'productionInItem2.itemCode', 'productionInItem2.name', 'productionInItem2.baseUomId'])
+            .leftJoin('item.productionInItem3', 'productionInItem3')
+            .addSelect(['productionInItem3.id', 'productionInItem3.itemCode', 'productionInItem3.name', 'productionInItem3.baseUomId'])
+            .leftJoin('item.productionOutItem', 'productionOutItem')
+            .addSelect(['productionOutItem.id', 'productionOutItem.itemCode', 'productionOutItem.name', 'productionOutItem.baseUomId']);
+        }
       }
     } else {
       // Fallback for simplified test mocks that stub leftJoinAndSelect only
-      if (limit > 200) {
+      if (safeLimit > 200) {
         qb.leftJoinAndSelect('item.category', 'category')
           .leftJoinAndSelect('item.baseUom', 'baseUom')
           .leftJoinAndSelect('item.salesUom', 'salesUom')
@@ -991,16 +1083,15 @@ export class ItemService implements OnModuleInit {
       }
     }
 
-    if (search) {
-      const sTrim = search.trim();
-      const isRmAlias = /^rm$/i.test(sTrim) || /^raw$/i.test(sTrim) || /^raw[-_\s]?mat/i.test(sTrim);
+    if (searchText) {
+      const isRmAlias = /^rm$/i.test(searchText) || /^raw$/i.test(searchText) || /^raw[-_\s]?mat/i.test(searchText);
       if (isRmAlias) {
         qb.where('(item.itemType = :rmType OR item.itemCode ILIKE :search OR item.name ILIKE :search)', {
           rmType: ItemType.RAW_MATERIAL,
-          search: `%${sTrim}%`,
+          search: `%${searchText}%`,
         });
       } else {
-        qb.where('(item.itemCode ILIKE :search OR item.sku ILIKE :search OR item.name ILIKE :search OR item.description ILIKE :search OR category.name ILIKE :search OR item.barcode ILIKE :search OR item.itemType ILIKE :search OR item.materialRoleUsage ILIKE :search OR CAST(item.wireSizeMm AS TEXT) ILIKE :search OR CAST(item.diameterMm AS TEXT) ILIKE :search)', { search: `%${sTrim}%` });
+        qb.where('(item.itemCode ILIKE :search OR item.sku ILIKE :search OR item.name ILIKE :search OR item.description ILIKE :search OR category.name ILIKE :search OR item.barcode ILIKE :search OR item.itemType ILIKE :search OR item.materialRoleUsage ILIKE :search OR CAST(item.wireSizeMm AS TEXT) ILIKE :search OR CAST(item.diameterMm AS TEXT) ILIKE :search)', { search: `%${searchText}%` });
       }
     }
     if (status) qb.andWhere('item.status = :status', { status });
@@ -1066,36 +1157,66 @@ export class ItemService implements OnModuleInit {
     const field = validSortFields.includes(sortField) ? sortField : 'createdAt';
     const order = sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
     qb.orderBy(`item.${field}`, order);
-    qb.skip((page - 1) * limit).take(limit);
+
+    const canSingleQueryLimit =
+      isDirectoryView &&
+      typeof (qb as any).limit === 'function' &&
+      typeof (qb as any).offset === 'function' &&
+      typeof (qb as any).getMany === 'function';
+
+    if (canSingleQueryLimit) {
+      qb.limit(safeLimit).offset((safePage - 1) * safeLimit);
+    } else {
+      qb.skip((safePage - 1) * safeLimit).take(safeLimit);
+    }
 
     try {
-      const [data, total] = await qb.getManyAndCount();
+      let data: Item[];
+      let total: number;
+      if (canSingleQueryLimit) {
+        // Because all directory joins are ManyToOne (1-to-1 per item), single-query
+        // LIMIT/OFFSET eliminates TypeORM's multi-step DISTINCT subquery overhead.
+        data = await qb.getMany();
+        if (safePage === 1 && data.length < safeLimit) {
+          total = data.length;
+        } else {
+          total = await qb.limit(undefined as any).offset(undefined as any).getCount();
+        }
+      } else {
+        [data, total] = await qb.getManyAndCount();
+      }
       data.forEach(item => {
-        this.ensureProcessesArray(item);
+        if (!isDirectoryView) {
+          this.ensureProcessesArray(item);
+        }
         (item as any).baseUomName = item.baseUom?.name ?? item.baseUom?.code ?? null;
-        if (item.productionInItem) {
-          (item.productionInItem as any).baseUomName = item.productionInItem.baseUom?.name ?? item.productionInItem.baseUom?.code ?? null;
-        }
-        if (item.productionInItem2) {
-          (item.productionInItem2 as any).baseUomName = item.productionInItem2.baseUom?.name ?? item.productionInItem2.baseUom?.code ?? null;
-        }
-        if (item.productionInItem3) {
-          (item.productionInItem3 as any).baseUomName = item.productionInItem3.baseUom?.name ?? item.productionInItem3.baseUom?.code ?? null;
-        }
-        if (item.productionOutItem) {
-          (item.productionOutItem as any).baseUomName = item.productionOutItem.baseUom?.name ?? item.productionOutItem.baseUom?.code ?? null;
+        if (!isDirectoryView) {
+          if (item.productionInItem) {
+            (item.productionInItem as any).baseUomName = item.productionInItem.baseUom?.name ?? item.productionInItem.baseUom?.code ?? null;
+          }
+          if (item.productionInItem2) {
+            (item.productionInItem2 as any).baseUomName = item.productionInItem2.baseUom?.name ?? item.productionInItem2.baseUom?.code ?? null;
+          }
+          if (item.productionInItem3) {
+            (item.productionInItem3 as any).baseUomName = item.productionInItem3.baseUom?.name ?? item.productionInItem3.baseUom?.code ?? null;
+          }
+          if (item.productionOutItem) {
+            (item.productionOutItem as any).baseUomName = item.productionOutItem.baseUom?.name ?? item.productionOutItem.baseUom?.code ?? null;
+          }
         }
       });
-      await this.enrichProcessesBatch(data);
+      if (!isDirectoryView) {
+        await this.enrichProcessesBatch(data);
+      }
       await populateAuditNames(this.dataSource, data);
 
       const result = { data, total };
-      if (!search && (!page || page === 1)) {
+      if (!searchText && safePage === 1 && !isDirectoryView) {
         this.lastSuccessfulFindAll = result;
       }
       return result;
     } catch (err: any) {
-      if (this.lastSuccessfulFindAll) {
+      if (this.lastSuccessfulFindAll && !isDirectoryView) {
         this.logger.warn(`Database connection interrupted in findAll (${err?.message}) — returning last successful cached items`);
         return this.lastSuccessfulFindAll;
       }
@@ -1169,6 +1290,8 @@ export class ItemService implements OnModuleInit {
     total: number;
     active: number;
     inactive: number;
+    stock: number;
+    manufactured: number;
     types: Array<{ key: string; label: string; count: number }>;
   }> {
     const baseQb = () => {
@@ -1187,9 +1310,13 @@ export class ItemService implements OnModuleInit {
       return qb;
     };
 
-    const totalPromise = baseQb().getCount();
-    const activePromise = baseQb().andWhere("item.status = 'ACTIVE'").getCount();
-    const inactivePromise = baseQb().andWhere("item.status = 'INACTIVE'").getCount();
+    const summaryPromise = baseQb()
+      .select('COUNT(item.id)::int', 'total')
+      .addSelect(`COUNT(item.id) FILTER (WHERE item.status = 'ACTIVE')::int`, 'active')
+      .addSelect(`COUNT(item.id) FILTER (WHERE item.status = 'INACTIVE')::int`, 'inactive')
+      .addSelect('COUNT(item.id) FILTER (WHERE item.isStockItem = true)::int', 'stock')
+      .addSelect('COUNT(item.id) FILTER (WHERE item.isManufacturable = true)::int', 'manufactured')
+      .getRawOne();
 
     const typesPromise = baseQb()
       .select('item.itemType', 'itemType')
@@ -1199,12 +1326,16 @@ export class ItemService implements OnModuleInit {
       .orderBy('COUNT(item.id)', 'DESC')
       .getRawMany();
 
-    const [total, active, inactive, rawTypes] = await Promise.all([
-      totalPromise,
-      activePromise,
-      inactivePromise,
+    const [summaryRow, rawTypes] = await Promise.all([
+      summaryPromise,
       typesPromise,
     ]);
+
+    const total = parseInt(summaryRow?.total, 10) || 0;
+    const active = parseInt(summaryRow?.active, 10) || 0;
+    const inactive = parseInt(summaryRow?.inactive, 10) || 0;
+    const stock = parseInt(summaryRow?.stock, 10) || 0;
+    const manufactured = parseInt(summaryRow?.manufactured, 10) || 0;
 
     const formatTypeLabel = (code: string) => {
       if (!code) return 'Other';
@@ -1233,6 +1364,8 @@ export class ItemService implements OnModuleInit {
       total,
       active,
       inactive,
+      stock,
+      manufactured,
       types,
     };
   }

@@ -883,6 +883,23 @@
   background: transparent;
 }
 
+/* Single-line compact table polish for Products & Items directory
+ * Strictly theme-neutral (no hardcoded colors) so Light, Dark, and Crystal themes apply cleanly.
+ */
+.pwi-items-directory-table .ant-table-thead > tr > th {
+  white-space: nowrap;
+  word-break: keep-all;
+  padding: 8px 10px;
+}
+
+.pwi-items-directory-table .ant-table-tbody > tr > td {
+  white-space: nowrap;
+  word-break: keep-all;
+  padding: 6px 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+
 
 
 

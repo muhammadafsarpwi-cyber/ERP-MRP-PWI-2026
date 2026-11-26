@@ -27,7 +27,7 @@ import {
   AiColumn,
   KpiCardData,
 } from './types';
-import { canonicalizeDivisionCode } from './nlQueryParser';
+import { canonicalizeDivisionCode, isGatePassWiseReceivingQuery } from './nlQueryParser';
 
 /**
  * Enriches a raw ProductionEntry record with the exact authoritative ERP metrics
@@ -249,7 +249,9 @@ export async function generateReportData(
         d.id === intent.divisionCode ||
         canonicalizeDivisionCode(d.code, d.id) === intentCanon,
     ) ||
-    divisionsList[1] || {
+    (intentCanon === 'ALL'
+      ? { id: 'ALL', code: 'ALL', name: 'All Divisions', uom: 'Multi-UOM', color: '#3b82f6' }
+      : divisionsList[1]) || {
       id: 'd1000000-0000-0000-0000-000000000002',
       code: 'DIV-CCD',
       name: 'Control Cable Division',
@@ -3480,13 +3482,87 @@ function resolveGenuineCustomerCode(c: any, fallbackCode = ''): string {
 // ═════════════════════════════════════════════════════════════════════════════
 // 11B. ITEM-WISE RAW MATERIAL RECEIVING & CURRENT RAW MATERIAL STOCK BALANCE
 // ═════════════════════════════════════════════════════════════════════════════
+function resolveReceiptDivisionLabel(r: any, fallbackDivision: DivisionMeta): string {
+  const direct = String(r?.division?.name || r?.divisionName || r?.div_name || '').trim();
+  if (direct && direct.toUpperCase() !== 'ALL') return direct;
+  const canon = canonicalizeDivisionCode(
+    r?.division?.divisionCode || r?.divisionCode || r?.div_code || '',
+    r?.divisionId || r?.division_id || r?.division?.id || '',
+  );
+  if (canon === 'DIV-SPD') return 'Spoke Division';
+  if (canon === 'DIV-CCD') return 'Control Cable Division';
+  if (canon === 'DIV-WRD') return 'WRD Division';
+  if (canon === 'DIV-PWI') return 'Main Division E-51';
+  if (canon === 'DIV-NB') return 'NB Division';
+  return fallbackDivision.code !== 'ALL' ? fallbackDivision.name : 'All Divisions';
+}
+
+function resolveReceiptSupplierLabel(r: any): string {
+  const sup = String(
+    r?.supplierName ||
+      r?.supplier_name ||
+      r?.supplier?.name ||
+      r?.purchaseOrder?.supplier?.name ||
+      r?.partyName ||
+      '',
+  ).trim();
+  if (sup) return sup;
+  const src = String(r?.sourceNo || r?.source_no || '').trim();
+  if (src && /^e-?\d+/i.test(src)) return `Main Division (${src.toUpperCase()})`;
+  const poRef = String(r?.poCode || r?.po_code || r?.reference || '').trim();
+  if (poRef) return `Ref: ${poRef}`;
+  return '—';
+}
+
+function resolveReceiptVehicleChallan(r: any, l?: any): string {
+  const directVeh = String(
+    r?.vehicleNo ||
+      r?.vehicle_no ||
+      r?.challanNo ||
+      r?.challan_no ||
+      r?.deliveryNoteNumber ||
+      r?.delivery_note_number ||
+      '',
+  ).trim();
+  if (directVeh) return directVeh;
+
+  const gpNo = String(r?.gatePassNo || r?.gate_pass_no || '').trim();
+  const srcNo = String(r?.sourceNo || r?.source_no || '').trim();
+  const combinedRemarks = `${String(r?.remarks || '')} ${String(l?.remarks || '')}`.trim();
+
+  if (combinedRemarks) {
+    const vehMatch = combinedRemarks.match(
+      /\b((?:vehicle|truck|lorry|trailer|challan|dc|mtn)\s*(?:no\.?|#|:|-)?\s*[A-Za-z0-9/-]{2,18})\b/i,
+    );
+    if (vehMatch && vehMatch[1]) {
+      return vehMatch[1].replace(/\s+/g, ' ').trim();
+    }
+  }
+
+  if (srcNo && srcNo.toLowerCase() !== gpNo.toLowerCase()) {
+    return `DC: ${srcNo}`;
+  }
+
+  return '—';
+}
+
+function formatUomTotalsSummary(uomTotals: Map<string, number>, defaultUom = 'KG'): string {
+  if (uomTotals.size === 0) return `0 ${defaultUom}`;
+  return Array.from(uomTotals.entries())
+    .map(([u, total]) => `${formatQty(Math.round(total * 100) / 100)} ${u}`)
+    .join(' · ');
+}
+
 export function aggregateRawMaterialReceiving(params: {
   receipts: any[];
   division: DivisionMeta;
   intent: QueryIntent;
   isDark: boolean;
 }): NormalizedReportResult {
-  const { receipts, division, intent, isDark } = params;
+  const { receipts, division, intent } = params;
+  const isGatePassWise =
+    intent.receivingBreakdown === 'gate_pass_wise' ||
+    isGatePassWiseReceivingQuery(intent.rawQuery);
 
   const isValidStatus = (status: any): boolean => {
     const s = String(status || '').toUpperCase().trim();
@@ -3508,27 +3584,65 @@ export function aggregateRawMaterialReceiving(params: {
     return true;
   });
 
+  interface RmGatePassLineRow {
+    id: string;
+    receiptId: string;
+    isoDate: string;
+    dateDisplay: string;
+    gatePassNo: string;
+    receiptCode: string;
+    gatePassDisplay: string;
+    itemCode: string;
+    itemName: string;
+    itemDisplay: string;
+    supplierParty: string;
+    vehicleChallan: string;
+    receivedQty: number;
+    uom: string;
+    receivedDisplay: string;
+    divisionName: string;
+    isRmGatePassLine: boolean;
+  }
+
   interface RmRecvBucket {
     itemCode: string;
     itemName: string;
     uom: string;
+    uomTotals: Map<string, number>;
     receiptIds: Set<string>;
     gatePasses: Set<string>;
+    divisions: Set<string>;
     totalReceivedQty: number;
     lastReceivedDate: string;
+    lines: RmGatePassLineRow[];
   }
 
   const itemMap = new Map<string, RmRecvBucket>();
   const distinctReceiptIds = new Set<string>();
+  const distinctSuppliers = new Set<string>();
+  const distinctDivisions = new Set<string>();
+  const grandUomTotals = new Map<string, number>();
+  let totalReceiptLines = 0;
 
   filteredReceipts.forEach((r: any, rIdx: number) => {
     const rId = String(r.id || r.receiptCode || `rmr-${rIdx}`);
-    const gpNo = String(r.gatePassNo || r.gate_pass_no || r.receiptCode || r.receipt_code || '').trim();
+    const gpNo = String(r.gatePassNo || r.gate_pass_no || '').trim();
+    const receiptCode = String(r.receiptCode || r.receipt_code || '').trim();
+    const gatePassDisplay =
+      gpNo && receiptCode && gpNo.toLowerCase() !== receiptCode.toLowerCase()
+        ? `GP #${gpNo} · ${receiptCode}`
+        : gpNo
+        ? `GP #${gpNo}`
+        : receiptCode || '—';
     const rawDate = r.receiptDate || r.receipt_date || r.createdAt;
-    const rDateStr = rawDate && dayjs(rawDate).isValid() ? dayjs(rawDate).format('YYYY-MM-DD') : '';
+    const validDate = rawDate && dayjs(rawDate).isValid() ? dayjs(rawDate) : null;
+    const rDateIso = validDate ? validDate.format('YYYY-MM-DD') : '';
+    const rDateDisplay = validDate ? validDate.format('DD-MMM-YYYY') : '—';
+    const supplierParty = resolveReceiptSupplierLabel(r);
+    const divisionName = resolveReceiptDivisionLabel(r, division);
     const lines = Array.isArray(r.lines) ? r.lines : [];
 
-    lines.forEach((l: any) => {
+    lines.forEach((l: any, lIdx: number) => {
       const itemCode = String(l.item?.itemCode || l.itemCode || l.item_code || 'RM-ITEM').trim().toUpperCase();
       const itemName = String(l.item?.name || l.itemName || l.item_name || 'Raw Material').trim();
       if (intent.specificItem && !matchesSpecificItem(itemCode, itemName, intent.specificItem)) {
@@ -3537,47 +3651,390 @@ export function aggregateRawMaterialReceiving(params: {
 
       const qty = Number(l.receivedQuantity ?? l.received_quantity ?? l.quantity ?? 0);
       if (!Number.isFinite(qty) || qty <= 0) return;
-      const uom = String(l.uom?.code || l.uomCode || l.uom_code || 'KG').trim().toUpperCase();
+      const rawUom = String(l.uom?.code || l.uomCode || l.uom_code || 'KG').trim().toUpperCase();
+      const uom = rawUom === 'MTR' || rawUom === 'METER' || rawUom === 'METERS' ? 'M' : rawUom || 'KG';
+      const roundedQty = Math.round(qty * 100) / 100;
+      const vehicleChallan = resolveReceiptVehicleChallan(r, l);
 
       distinctReceiptIds.add(rId);
+      if (supplierParty && supplierParty !== '—') distinctSuppliers.add(supplierParty);
+      if (divisionName && divisionName !== '—') distinctDivisions.add(divisionName);
+      grandUomTotals.set(uom, (grandUomTotals.get(uom) || 0) + qty);
+      totalReceiptLines += 1;
+
+      const lineRow: RmGatePassLineRow = {
+        id: `rm-gp-${rId}-${l.id || l.lineNumber || lIdx}-${itemCode}`,
+        receiptId: rId,
+        isoDate: rDateIso,
+        dateDisplay: rDateDisplay,
+        gatePassNo: gpNo || receiptCode,
+        receiptCode,
+        gatePassDisplay,
+        itemCode,
+        itemName,
+        itemDisplay: `${itemCode} — ${itemName}`,
+        supplierParty,
+        vehicleChallan,
+        receivedQty: roundedQty,
+        uom,
+        receivedDisplay: `${formatQty(roundedQty)} ${uom}`,
+        divisionName,
+        isRmGatePassLine: true,
+      };
+
       const existing = itemMap.get(itemCode);
       if (!existing) {
+        const uomTotals = new Map<string, number>([[uom, qty]]);
         itemMap.set(itemCode, {
           itemCode,
           itemName,
           uom,
+          uomTotals,
           receiptIds: new Set([rId]),
-          gatePasses: new Set(gpNo ? [gpNo] : []),
+          gatePasses: new Set(gpNo ? [gpNo] : receiptCode ? [receiptCode] : []),
+          divisions: new Set(divisionName ? [divisionName] : []),
           totalReceivedQty: qty,
-          lastReceivedDate: rDateStr,
+          lastReceivedDate: rDateIso,
+          lines: [lineRow],
         });
       } else {
         existing.receiptIds.add(rId);
         if (gpNo) existing.gatePasses.add(gpNo);
+        else if (receiptCode) existing.gatePasses.add(receiptCode);
+        if (divisionName) existing.divisions.add(divisionName);
+        existing.uomTotals.set(uom, (existing.uomTotals.get(uom) || 0) + qty);
         existing.totalReceivedQty += qty;
-        if (rDateStr && (!existing.lastReceivedDate || rDateStr > existing.lastReceivedDate)) {
-          existing.lastReceivedDate = rDateStr;
+        if (rDateIso && (!existing.lastReceivedDate || rDateIso > existing.lastReceivedDate)) {
+          existing.lastReceivedDate = rDateIso;
         }
+        existing.lines.push(lineRow);
       }
     });
   });
 
-  const rows: any[] = Array.from(itemMap.values())
-    .map((b) => ({
-      id: `rm-recv-${b.itemCode}`,
-      itemCode: b.itemCode,
-      itemName: b.itemName,
-      receiptsCount: b.receiptIds.size,
-      gatePassSample: Array.from(b.gatePasses).slice(0, 3).join(', '),
-      totalReceivedQty: Math.round(b.totalReceivedQty * 100) / 100,
-      uom: b.uom || 'KG',
-      lastReceivedDate: b.lastReceivedDate || '—',
-    }))
-    .sort((a, b) => b.totalReceivedQty - a.totalReceivedQty);
-
+  const sortedBuckets = Array.from(itemMap.values()).sort((a, b) => b.totalReceivedQty - a.totalReceivedQty);
   const totalReceipts = distinctReceiptIds.size;
-  const distinctItemsCount = rows.length;
-  const grandTotalWeight = Math.round(rows.reduce((s, r) => s + r.totalReceivedQty, 0) * 100) / 100;
+  const distinctItemsCount = sortedBuckets.length;
+  const grandTotalWeight = Math.round(sortedBuckets.reduce((s, b) => s + b.totalReceivedQty, 0) * 100) / 100;
+  const latestIsoDate = sortedBuckets
+    .map((b) => b.lastReceivedDate)
+    .filter(Boolean)
+    .sort((a, b) => b.localeCompare(a))[0] || '';
+  const latestFormattedDate =
+    latestIsoDate && dayjs(latestIsoDate).isValid() ? dayjs(latestIsoDate).format('DD-MMM-YYYY') : '—';
+  const scopeLabel =
+    division.code === 'ALL'
+      ? distinctDivisions.size > 0
+        ? Array.from(distinctDivisions).join(' · ')
+        : 'All Divisions'
+      : division.name;
+
+  // ── MODE 1: GATE PASS-WISE DETAILED BREAKDOWN (GROUPED BY ITEM + SUBTOTALS + GRAND TOTAL) ──
+  if (isGatePassWise) {
+    const detailedRows: any[] = [];
+
+    sortedBuckets.forEach((b) => {
+      const sortedLines = [...b.lines].sort((x, y) => {
+        const dCmp = (y.isoDate || '').localeCompare(x.isoDate || '');
+        if (dCmp !== 0) return dCmp;
+        return String(y.gatePassNo || '').localeCompare(String(x.gatePassNo || ''), undefined, { numeric: true });
+      });
+
+      sortedLines.forEach((line) => detailedRows.push(line));
+
+      const itemSubQty = Math.round(b.totalReceivedQty * 100) / 100;
+      const itemSubDisplay = formatUomTotalsSummary(b.uomTotals, b.uom || 'KG');
+      const itemDivDisplay =
+        b.divisions.size === 1
+          ? Array.from(b.divisions)[0]
+          : b.divisions.size > 1
+          ? Array.from(b.divisions).join(', ')
+          : scopeLabel;
+
+      detailedRows.push({
+        id: `rm-gp-subtotal-${b.itemCode}`,
+        isSubtotal: true,
+        dateDisplay: 'Item Subtotal',
+        gatePassDisplay: `${b.receiptIds.size} ${b.receiptIds.size === 1 ? 'Gate Pass' : 'Gate Passes'}`,
+        itemCode: b.itemCode,
+        itemName: b.itemName,
+        itemDisplay: `Subtotal — ${b.itemCode} (${b.itemName})`,
+        supplierParty: '—',
+        vehicleChallan: '—',
+        receivedQty: itemSubQty,
+        uom: b.uom || 'KG',
+        receivedDisplay: itemSubDisplay,
+        divisionName: itemDivDisplay,
+      });
+    });
+
+    const grandReceivedDisplay = formatUomTotalsSummary(grandUomTotals, 'KG');
+
+    if (detailedRows.length > 0) {
+      detailedRows.push({
+        id: 'rm-gp-grand-total',
+        isGrandTotal: true,
+        dateDisplay: 'GRAND TOTAL',
+        gatePassDisplay: `${totalReceipts} ${totalReceipts === 1 ? 'Gate Pass' : 'Gate Passes'}`,
+        itemCode: 'TOTAL',
+        itemName: `${distinctItemsCount} Items`,
+        itemDisplay: `${distinctItemsCount} Raw Material ${distinctItemsCount === 1 ? 'Item' : 'Items'} (${totalReceiptLines} ${totalReceiptLines === 1 ? 'Line' : 'Lines'})`,
+        supplierParty:
+          distinctSuppliers.size > 0
+            ? `${distinctSuppliers.size} ${distinctSuppliers.size === 1 ? 'Supplier / Party' : 'Suppliers / Parties'}`
+            : '—',
+        vehicleChallan: '—',
+        receivedQty: grandTotalWeight,
+        uom: 'KG',
+        receivedDisplay: grandReceivedDisplay,
+        divisionName: scopeLabel,
+      });
+    }
+
+    const detailedColumns: AiColumn[] = [
+      {
+        title: 'DATE',
+        dataIndex: 'dateDisplay',
+        key: 'dateDisplay',
+        width: 120,
+        render: (v: string, r: any) =>
+          React.createElement(
+            'span',
+            {
+              style: {
+                whiteSpace: 'nowrap',
+                fontFamily: r?.isSubtotal || r?.isGrandTotal ? 'inherit' : 'monospace',
+                fontWeight: r?.isGrandTotal ? 800 : r?.isSubtotal ? 700 : 600,
+                color: r?.isGrandTotal || r?.isSubtotal ? 'var(--theme-text)' : 'var(--theme-primary)',
+              },
+            },
+            v || '—',
+          ),
+      },
+      {
+        title: 'GATE PASS # / GRN #',
+        dataIndex: 'gatePassDisplay',
+        key: 'gatePassDisplay',
+        width: 175,
+        render: (v: string, r: any) => {
+          if (r?.isGrandTotal || r?.isSubtotal) {
+            return React.createElement(
+              Tag,
+              {
+                color: r?.isGrandTotal ? 'cyan' : 'blue',
+                style: { margin: 0, fontWeight: 700, whiteSpace: 'nowrap' },
+              },
+              v,
+            );
+          }
+          return React.createElement(
+            'span',
+            {
+              style: {
+                display: 'inline-block',
+                padding: '1px 8px',
+                borderRadius: 5,
+                fontFamily: 'monospace',
+                fontWeight: 700,
+                fontSize: 11.5,
+                whiteSpace: 'nowrap',
+                background: 'var(--theme-surface-alt)',
+                color: 'var(--theme-text)',
+                border: '1px solid var(--theme-border-strong, var(--theme-border))',
+              },
+            },
+            v || '—',
+          );
+        },
+      },
+      {
+        title: 'ITEM CODE & NAME',
+        dataIndex: 'itemDisplay',
+        key: 'itemDisplay',
+        width: 280,
+        render: (v: string, r: any) => {
+          if (r?.isGrandTotal || r?.isSubtotal) {
+            return React.createElement(
+              'strong',
+              { style: { fontWeight: r?.isGrandTotal ? 800 : 700, whiteSpace: 'nowrap', color: 'var(--theme-text)' } },
+              v,
+            );
+          }
+          return React.createElement(
+            'span',
+            { style: { display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' } },
+            React.createElement(
+              Tag,
+              {
+                color: 'orange',
+                style: { margin: 0, fontWeight: 700, fontFamily: 'monospace', fontSize: 11.5 },
+              },
+              r?.itemCode || 'RM',
+            ),
+            React.createElement(
+              'strong',
+              { style: { fontWeight: 600, color: 'var(--theme-text)' } },
+              r?.itemName || v,
+            ),
+          );
+        },
+      },
+      {
+        title: 'SUPPLIER / PARTY',
+        dataIndex: 'supplierParty',
+        key: 'supplierParty',
+        width: 210,
+        render: (v: string, r: any) =>
+          React.createElement(
+            'span',
+            {
+              style: {
+                whiteSpace: 'nowrap',
+                fontWeight: r?.isGrandTotal ? 700 : 500,
+                color: v && v !== '—' ? 'var(--theme-text)' : 'var(--theme-text-muted)',
+              },
+            },
+            v || '—',
+          ),
+      },
+      {
+        title: 'VEHICLE / CHALLAN #',
+        dataIndex: 'vehicleChallan',
+        key: 'vehicleChallan',
+        width: 150,
+        render: (v: string) =>
+          React.createElement(
+            'span',
+            {
+              style: {
+                whiteSpace: 'nowrap',
+                fontFamily: v && v !== '—' ? 'monospace' : 'inherit',
+                fontWeight: v && v !== '—' ? 600 : 400,
+                color: v && v !== '—' ? 'var(--theme-text-secondary)' : 'var(--theme-text-muted)',
+              },
+            },
+            v || '—',
+          ),
+      },
+      {
+        title: 'RECEIVED QTY / WEIGHT',
+        dataIndex: 'receivedDisplay',
+        key: 'receivedDisplay',
+        align: 'right',
+        width: 170,
+        render: (v: string, r: any) =>
+          React.createElement(
+            'span',
+            {
+              style: {
+                whiteSpace: 'nowrap',
+                fontVariantNumeric: 'tabular-nums',
+                fontWeight: r?.isGrandTotal ? 800 : r?.isSubtotal ? 700 : 700,
+                color: '#059669',
+              },
+            },
+            v || '0 KG',
+          ),
+      },
+      {
+        title: 'DIVISION',
+        dataIndex: 'divisionName',
+        key: 'divisionName',
+        width: 175,
+        render: (v: string, r: any) => {
+          if (!v || v === '—') return '—';
+          if (r?.isGrandTotal || r?.isSubtotal) {
+            return React.createElement(
+              'strong',
+              { style: { whiteSpace: 'nowrap', fontWeight: 700, color: 'var(--theme-text)' } },
+              v,
+            );
+          }
+          const tagColor = /spoke/i.test(v)
+            ? 'cyan'
+            : /control\s*cable|ccd/i.test(v)
+            ? 'green'
+            : /wrd|wire\s*rope/i.test(v)
+            ? 'purple'
+            : 'geekblue';
+          return React.createElement(
+            Tag,
+            { color: tagColor, style: { margin: 0, fontWeight: 600, whiteSpace: 'nowrap' } },
+            v,
+          );
+        },
+      },
+    ];
+
+    const chartData = sortedBuckets.slice(0, 15).map((b) => ({
+      name: b.itemCode,
+      'Received (KG)': Math.round(b.totalReceivedQty * 100) / 100,
+    }));
+
+    const headerScopeName = division.code === 'ALL' ? 'All Divisions' : division.name;
+    const summaryText =
+      totalReceiptLines > 0
+        ? `**${headerScopeName} — Item-Wise & Gate Pass-Wise Raw Material Receiving Report (${intent.period.label})**\n\n` +
+          `• **Confirmed Gate Passes / GRNs:** **${totalReceipts}** gate passes (**${totalReceiptLines}** receipt lines)\n` +
+          `• **Distinct Raw Material Items:** **${distinctItemsCount}** items (with item subtotals below)\n` +
+          `• **Total Received Qty / Weight:** **${grandReceivedDisplay}**\n` +
+          `• **Divisions Covered:** **${scopeLabel}**\n` +
+          `• **Latest Gate Pass Date:** **${latestFormattedDate}**`
+        : `**${headerScopeName} — Item-Wise & Gate Pass-Wise Raw Material Receiving Report (${intent.period.label})**\n\n` +
+          `• **Confirmed Gate Passes / GRNs:** **0**\n` +
+          `• **Total Received Qty / Weight:** **0 KG**\n` +
+          `• No confirmed raw material receiving gate passes were found for **${headerScopeName}** in **${intent.period.label}**.`;
+
+    return {
+      title: `Item-Wise & Gate Pass-Wise Raw Material Receiving Report — ${headerScopeName} (${intent.period.label})`,
+      summaryText,
+      divisionScope: division.code,
+      departmentScope: 'ALL',
+      periodLabel: intent.period.label,
+      recordsCount: totalReceiptLines,
+      kpiCards: [
+        { title: 'Confirmed Gate Passes', value: totalReceipts, subtitle: `${totalReceiptLines} Receipt Lines`, color: '#3b82f6' },
+        { title: 'Distinct RM Items', value: distinctItemsCount, subtitle: 'Grouped w/ Subtotals', color: '#f97316' },
+        { title: 'Total Received Weight', value: grandReceivedDisplay, subtitle: intent.period.label, color: '#10b981' },
+        { title: 'Latest Gate Pass Date', value: latestFormattedDate, subtitle: scopeLabel, color: '#1d4ed8' },
+      ],
+      chartData:
+        chartData.length > 0
+          ? {
+              type: 'bar',
+              data: chartData,
+              xKey: 'name',
+              title: `${headerScopeName} — Raw Material Received by Item Code`,
+              dataKeys: [{ key: 'Received (KG)', color: '#10b981', name: 'Total Received (KG)' }],
+            }
+          : undefined,
+      tableData: { columns: detailedColumns, rows: detailedRows },
+      auditTrail: {
+        dataSource: 'Raw Material Receiving Gate Passes (/inventory/receipts/gate-pass)',
+        filters: [
+          `Division: ${headerScopeName} (${division.code})`,
+          `Mode: Gate Pass-Wise Detailed`,
+          `Period: ${intent.period.label}`,
+        ],
+        period: intent.period.label,
+        timestamp: dayjs().format('YYYY-MM-DD HH:mm:ss'),
+        recordsExamined: filteredReceipts.length,
+      },
+    };
+  }
+
+  // ── MODE 2: ITEM-LEVEL SUMMARY MODE (DEFAULT WHEN NOT GATE PASS-WISE) ──────
+  const rows: any[] = sortedBuckets.map((b) => ({
+    id: `rm-recv-${b.itemCode}`,
+    itemCode: b.itemCode,
+    itemName: b.itemName,
+    receiptsCount: b.receiptIds.size,
+    gatePassSample: Array.from(b.gatePasses).slice(0, 3).join(', '),
+    totalReceivedQty: Math.round(b.totalReceivedQty * 100) / 100,
+    uom: b.uom || 'KG',
+    lastReceivedDate: b.lastReceivedDate || '—',
+  }));
+
   const latestOverallDate = rows
     .map((r) => r.lastReceivedDate)
     .filter((d) => d && d !== '—')
@@ -3605,10 +4062,10 @@ export function aggregateRawMaterialReceiving(params: {
       width: 150,
       render: (v: string, r: any) =>
         r?.isGrandTotal
-          ? React.createElement('strong', { style: { fontWeight: 800 } }, 'GRAND TOTAL')
+          ? React.createElement('strong', { style: { fontWeight: 800, whiteSpace: 'nowrap' } }, 'GRAND TOTAL')
           : React.createElement(
               Tag,
-              { color: 'orange', style: { margin: 0, fontWeight: 700, fontFamily: 'monospace', fontSize: 11.5 } },
+              { color: 'orange', style: { margin: 0, fontWeight: 700, fontFamily: 'monospace', fontSize: 11.5, whiteSpace: 'nowrap' } },
               v,
             ),
     },
@@ -3617,7 +4074,7 @@ export function aggregateRawMaterialReceiving(params: {
       dataIndex: 'itemName',
       key: 'itemName',
       render: (v: string, r: any) =>
-        React.createElement('strong', { style: { fontWeight: r?.isGrandTotal ? 700 : 600 } }, v),
+        React.createElement('strong', { style: { fontWeight: r?.isGrandTotal ? 700 : 600, whiteSpace: 'nowrap' } }, v),
     },
     {
       title: 'RECEIPTS / GATE PASSES',
@@ -3627,7 +4084,7 @@ export function aggregateRawMaterialReceiving(params: {
       render: (v: number, r: any) =>
         React.createElement(
           Tag,
-          { color: r?.isGrandTotal ? 'cyan' : 'blue', style: { margin: 0, fontWeight: 600 } },
+          { color: r?.isGrandTotal ? 'cyan' : 'blue', style: { margin: 0, fontWeight: 600, whiteSpace: 'nowrap' } },
           `${v} ${v === 1 ? 'Receipt' : 'Receipts'}`,
         ),
     },
@@ -3639,7 +4096,7 @@ export function aggregateRawMaterialReceiving(params: {
       render: (v: number, r: any) =>
         React.createElement(
           'span',
-          { style: { fontWeight: r?.isGrandTotal ? 800 : 700, color: '#059669' } },
+          { style: { fontWeight: r?.isGrandTotal ? 800 : 700, color: '#059669', whiteSpace: 'nowrap' } },
           `${formatQty(v)} ${r?.uom || 'KG'}`,
         ),
     },
@@ -3655,7 +4112,8 @@ export function aggregateRawMaterialReceiving(params: {
             style: {
               fontFamily: 'monospace',
               fontWeight: 700,
-              color: isDark ? '#60a5fa' : '#1e3a8a',
+              whiteSpace: 'nowrap',
+              color: 'var(--theme-primary)',
             },
           },
           v,
