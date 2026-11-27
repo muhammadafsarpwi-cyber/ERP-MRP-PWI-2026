@@ -47,48 +47,69 @@ import type { NavItem } from '../layout/navigationConfig';
  * user or item records always come from the existing ERP API.
  */
 
-/** The five distinct Settings capabilities of the ERP permission matrix. */
+/** Canonical Settings capability groups + individual category permission codes. */
 export const SETTINGS_PERMISSIONS = {
-  /** Read the settings area and every standard category. */
-  view: 'settings.view',
-  /** Change values inside a standard settings category. */
-  edit: 'settings.edit',
-  /** Bank/payment details, messaging credentials, security and backups. */
-  sensitive: 'settings.sensitive.manage',
-  /** Company / division / branch level configuration. */
-  organization: 'settings.organization.manage',
-  /** Read the settings audit trail. */
+  /** Overview page (`/settings`). */
+  overview: 'settings.overview.view',
+  /** Appearance / Theme Studio (`/settings/appearance`). */
+  appearance: 'settings.appearance.view',
+  /** Profile & Branding (`/settings/profile-branding` and `/settings/company`). */
+  profileBranding: 'settings.profile_branding.view',
+  /** Multi-Provider AI (BYOK) (`/settings/ai-provider`). */
+  aiSettings: 'ai.settings.view',
+  /** Invoice Settings (`/settings/invoice`). */
+  invoice: 'settings.invoice.view',
+  /** Payment Details (`/settings/payment-details`). */
+  paymentDetails: 'settings.payment_details.view',
+  /** Reminders & Alerts (`/settings/reminders-alerts`). */
+  remindersAlerts: 'settings.reminders_alerts.view',
+  /** WhatsApp Messages (`/settings/whatsapp`). */
+  whatsapp: 'settings.whatsapp.view',
+  /** Inventory Options (`/settings/inventory`). */
+  inventory: 'settings.inventory.view',
+  /** Document Options (`/settings/document-options`). */
+  documentOptions: 'settings.document_options.view',
+  /** Edit Lock (`/settings/edit-lock`). */
+  editLock: 'settings.edit_lock.view',
+  /** Late Fees (`/settings/late-fees`). */
+  lateFees: 'settings.late_fees.view',
+  /** Loyalty Points (`/settings/loyalty`). */
+  loyalty: 'settings.loyalty.view',
+  /** Document Numbering (`/settings/document-numbering`). */
+  documentNumbering: 'settings.document_numbering.view',
+  /** Tax Settings (`/settings/tax`). */
+  tax: 'settings.tax.view',
+  /** Currency & Exchange (`/settings/currency`). */
+  currency: 'settings.currency.view',
+  /** Payment Terms (`/settings/payment-terms`). */
+  paymentTerms: 'settings.payment_terms.view',
+  /** Branches / Divisions (`/settings/organization`). */
+  organization: 'settings.organization.view',
+  /** Print & PDF Templates (`/settings/print-templates`). */
+  printTemplates: 'settings.print_templates.view',
+  /** Email Settings (`/settings/email`). */
+  email: 'settings.email.view',
+  /** Notification Settings (`/settings/notifications`). */
+  notifications: 'settings.notifications.view',
+  /** Security & Access (`/settings/security`). */
+  security: 'settings.security.view',
+  /** Audit & Change History (`/settings/audit`). */
   audit: 'settings.audit.view',
+  /** Backup / Data Tools (`/settings/data-tools`). */
+  dataTools: 'settings.data_tools.view',
+  /** Install App (`/settings/install-app`). */
+  installApp: 'settings.install_app.view',
 } as const;
 
 export type SettingsPermissionCode =
   (typeof SETTINGS_PERMISSIONS)[keyof typeof SETTINGS_PERMISSIONS];
 
-/**
- * Which of the five settings permission codes actually exist in the BACKEND
- * permission catalog today (supabase/migrations + permission seeds).
- *
- * PHASE 9 VERIFICATION (PROMPT #01-FIX): none of them does. A repo-wide search
- * for `settings.view` only ever matches `store.settings.view`; no migration,
- * seed script, backend matrix or captured token contains `settings.view`,
- * `settings.edit`, `settings.sensitive.manage`, `settings.organization.manage`
- * or `settings.audit.view`. Requiring a code that no role can hold hides the
- * settings area from every user — that is precisely the regression this
- * fallback exists to prevent, so the set is intentionally EMPTY.
- *
- * The application's long-standing convention is that an entry declaring no
- * required permission is protected by AUTHENTICATION alone — both
- * `MainLayout.buildMenuItems` (`if (!required || required.length === 0) return true`)
- * and `ProtectedRoute` (`requiredPermissions.length > 0`) implement it, and the
- * top-level `/settings` nav entry has never carried a `permissions` field at
- * all. The settings categories therefore fall back to that same existing model
- * instead of inventing a new gate.
- *
- * A future prompt that seeds these codes MUST add them here; the route guard
- * and the settings sidebar then start enforcing them automatically, with no
- * other code change.
- */
-export const SEEDED_SETTINGS_PERMISSIONS: ReadonlySet<string> = new Set<string>([]);
+/** Every settings category `.view` permission code seeded in PostgreSQL. */
+export const SEEDED_SETTINGS_PERMISSIONS: ReadonlySet<string> = new Set<string>(
+  Object.values(SETTINGS_PERMISSIONS),
+);
+
+export const SETTINGS_VIEW_PERMISSIONS: string[] = Array.from(SEEDED_SETTINGS_PERMISSIONS);
 
 /**
  * Permissions a settings category ACTUALLY requires right now: the intersection
@@ -145,16 +166,14 @@ export const SETTINGS_OVERVIEW: SettingsNavItem = {
   label: 'Overview',
   description: 'Theme Studio presets and background audio',
   icon: DashboardOutlined,
-  viewPermissions: [SETTINGS_PERMISSIONS.view],
-  editPermission: SETTINGS_PERMISSIONS.edit,
+  viewPermissions: [SETTINGS_PERMISSIONS.overview],
+  editPermission: 'settings.appearance.update',
   overview: true,
 };
 
 /**
- * The 23 configured settings categories, in the order mandated by the
- * settings architecture brief (Company Settings provides company profile).
- * `appearance` is the theme engine (mode, corner matrix, glass, custom
- * accent) — the same controls the header gear opens as a pop-up.
+ * The configured settings categories, in the order mandated by the
+ * settings architecture brief.
  */
 export const SETTINGS_CATEGORIES: SettingsNavItem[] = [
   {
@@ -163,8 +182,8 @@ export const SETTINGS_CATEGORIES: SettingsNavItem[] = [
     label: 'Appearance',
     description: 'Theme mode, corner style, glass effects and custom accent',
     icon: FormatPainterOutlined,
-    viewPermissions: [SETTINGS_PERMISSIONS.view],
-    editPermission: SETTINGS_PERMISSIONS.edit,
+    viewPermissions: [SETTINGS_PERMISSIONS.appearance],
+    editPermission: 'settings.appearance.update',
   },
   {
     id: 'profile-branding',
@@ -172,8 +191,8 @@ export const SETTINGS_CATEGORIES: SettingsNavItem[] = [
     label: 'Profile & Branding',
     description: 'Logo, identity and visual branding',
     icon: BgColorsOutlined,
-    viewPermissions: [SETTINGS_PERMISSIONS.view],
-    editPermission: SETTINGS_PERMISSIONS.edit,
+    viewPermissions: [SETTINGS_PERMISSIONS.profileBranding],
+    editPermission: 'settings.profile_branding.update',
   },
   {
     id: 'ai-provider',
@@ -181,8 +200,8 @@ export const SETTINGS_CATEGORIES: SettingsNavItem[] = [
     label: 'AI Configuration (BYOK)',
     description: 'Bring Your Own Key: Gemini, OpenRouter, Claude, OpenAI & Local Models',
     icon: RobotOutlined,
-    viewPermissions: [SETTINGS_PERMISSIONS.view],
-    editPermission: SETTINGS_PERMISSIONS.sensitive,
+    viewPermissions: [SETTINGS_PERMISSIONS.aiSettings],
+    editPermission: 'ai.settings.update',
   },
   {
     id: 'invoice',
@@ -190,8 +209,8 @@ export const SETTINGS_CATEGORIES: SettingsNavItem[] = [
     label: 'Invoice Settings',
     description: 'Invoice layout, numbering and billing configuration',
     icon: FileTextOutlined,
-    viewPermissions: [SETTINGS_PERMISSIONS.view],
-    editPermission: SETTINGS_PERMISSIONS.edit,
+    viewPermissions: [SETTINGS_PERMISSIONS.invoice],
+    editPermission: 'settings.invoice.update',
   },
   {
     id: 'payment-details',
@@ -199,8 +218,8 @@ export const SETTINGS_CATEGORIES: SettingsNavItem[] = [
     label: 'Payment Details',
     description: 'Bank accounts and payment instructions',
     icon: WalletOutlined,
-    viewPermissions: [SETTINGS_PERMISSIONS.sensitive],
-    editPermission: SETTINGS_PERMISSIONS.sensitive,
+    viewPermissions: [SETTINGS_PERMISSIONS.paymentDetails],
+    editPermission: 'settings.payment_details.update',
   },
   {
     id: 'reminders-alerts',
@@ -208,8 +227,8 @@ export const SETTINGS_CATEGORIES: SettingsNavItem[] = [
     label: 'Reminders & Alerts',
     description: 'Follow-ups, due dates and escalation alerts',
     icon: BellOutlined,
-    viewPermissions: [SETTINGS_PERMISSIONS.view],
-    editPermission: SETTINGS_PERMISSIONS.edit,
+    viewPermissions: [SETTINGS_PERMISSIONS.remindersAlerts],
+    editPermission: 'settings.reminders_alerts.update',
   },
   {
     id: 'whatsapp',
@@ -217,8 +236,8 @@ export const SETTINGS_CATEGORIES: SettingsNavItem[] = [
     label: 'WhatsApp Messages',
     description: 'WhatsApp templates, sender identity and defaults',
     icon: MessageOutlined,
-    viewPermissions: [SETTINGS_PERMISSIONS.sensitive],
-    editPermission: SETTINGS_PERMISSIONS.sensitive,
+    viewPermissions: [SETTINGS_PERMISSIONS.whatsapp],
+    editPermission: 'settings.whatsapp.update',
   },
   {
     id: 'inventory',
@@ -226,8 +245,8 @@ export const SETTINGS_CATEGORIES: SettingsNavItem[] = [
     label: 'Inventory Options',
     description: 'Stock behaviour, reservations and costing defaults',
     icon: InboxOutlined,
-    viewPermissions: [SETTINGS_PERMISSIONS.view],
-    editPermission: SETTINGS_PERMISSIONS.edit,
+    viewPermissions: [SETTINGS_PERMISSIONS.inventory],
+    editPermission: 'settings.inventory.update',
   },
   {
     id: 'document-options',
@@ -235,8 +254,8 @@ export const SETTINGS_CATEGORIES: SettingsNavItem[] = [
     label: 'Document Options',
     description: 'Shared document behaviour and defaults',
     icon: AppstoreOutlined,
-    viewPermissions: [SETTINGS_PERMISSIONS.view],
-    editPermission: SETTINGS_PERMISSIONS.edit,
+    viewPermissions: [SETTINGS_PERMISSIONS.documentOptions],
+    editPermission: 'settings.document_options.update',
   },
   {
     id: 'edit-lock',
@@ -244,8 +263,8 @@ export const SETTINGS_CATEGORIES: SettingsNavItem[] = [
     label: 'Edit Lock',
     description: 'Lock posted documents against further editing',
     icon: LockOutlined,
-    viewPermissions: [SETTINGS_PERMISSIONS.view],
-    editPermission: SETTINGS_PERMISSIONS.edit,
+    viewPermissions: [SETTINGS_PERMISSIONS.editLock],
+    editPermission: 'settings.edit_lock.update',
   },
   {
     id: 'late-fees',
@@ -253,8 +272,8 @@ export const SETTINGS_CATEGORIES: SettingsNavItem[] = [
     label: 'Late Fees',
     description: 'Late payment charges and calculation rules',
     icon: ClockCircleOutlined,
-    viewPermissions: [SETTINGS_PERMISSIONS.view],
-    editPermission: SETTINGS_PERMISSIONS.edit,
+    viewPermissions: [SETTINGS_PERMISSIONS.lateFees],
+    editPermission: 'settings.late_fees.update',
   },
   {
     id: 'loyalty',
@@ -262,8 +281,8 @@ export const SETTINGS_CATEGORIES: SettingsNavItem[] = [
     label: 'Loyalty Points',
     description: 'Points earning, redemption and expiry rules',
     icon: GiftOutlined,
-    viewPermissions: [SETTINGS_PERMISSIONS.view],
-    editPermission: SETTINGS_PERMISSIONS.edit,
+    viewPermissions: [SETTINGS_PERMISSIONS.loyalty],
+    editPermission: 'settings.loyalty.update',
   },
   {
     id: 'document-numbering',
@@ -271,8 +290,8 @@ export const SETTINGS_CATEGORIES: SettingsNavItem[] = [
     label: 'Document Numbering',
     description: 'Numbering series for ERP documents',
     icon: NumberOutlined,
-    viewPermissions: [SETTINGS_PERMISSIONS.view],
-    editPermission: SETTINGS_PERMISSIONS.edit,
+    viewPermissions: [SETTINGS_PERMISSIONS.documentNumbering],
+    editPermission: 'settings.document_numbering.update',
   },
   {
     id: 'tax',
@@ -280,8 +299,8 @@ export const SETTINGS_CATEGORIES: SettingsNavItem[] = [
     label: 'Tax Settings',
     description: 'Tax codes, rates and application rules',
     icon: PercentageOutlined,
-    viewPermissions: [SETTINGS_PERMISSIONS.view],
-    editPermission: SETTINGS_PERMISSIONS.edit,
+    viewPermissions: [SETTINGS_PERMISSIONS.tax],
+    editPermission: 'settings.tax.update',
   },
   {
     id: 'currency',
@@ -289,8 +308,8 @@ export const SETTINGS_CATEGORIES: SettingsNavItem[] = [
     label: 'Currency & Exchange',
     description: 'Base currency, exchange rates and rounding',
     icon: SwapOutlined,
-    viewPermissions: [SETTINGS_PERMISSIONS.view],
-    editPermission: SETTINGS_PERMISSIONS.edit,
+    viewPermissions: [SETTINGS_PERMISSIONS.currency],
+    editPermission: 'settings.currency.update',
   },
   {
     id: 'payment-terms',
@@ -298,8 +317,8 @@ export const SETTINGS_CATEGORIES: SettingsNavItem[] = [
     label: 'Payment Terms',
     description: 'Standard payment terms and due-date rules',
     icon: ScheduleOutlined,
-    viewPermissions: [SETTINGS_PERMISSIONS.view],
-    editPermission: SETTINGS_PERMISSIONS.edit,
+    viewPermissions: [SETTINGS_PERMISSIONS.paymentTerms],
+    editPermission: 'settings.payment_terms.update',
   },
   {
     id: 'organization',
@@ -308,7 +327,7 @@ export const SETTINGS_CATEGORIES: SettingsNavItem[] = [
     description: 'Branch and division structure used for scope',
     icon: ApartmentOutlined,
     viewPermissions: [SETTINGS_PERMISSIONS.organization],
-    editPermission: SETTINGS_PERMISSIONS.organization,
+    editPermission: 'settings.organization.update',
   },
   {
     id: 'print-templates',
@@ -316,8 +335,8 @@ export const SETTINGS_CATEGORIES: SettingsNavItem[] = [
     label: 'Print & PDF Templates',
     description: 'Print layouts and PDF templates',
     icon: PrinterOutlined,
-    viewPermissions: [SETTINGS_PERMISSIONS.view],
-    editPermission: SETTINGS_PERMISSIONS.edit,
+    viewPermissions: [SETTINGS_PERMISSIONS.printTemplates],
+    editPermission: 'settings.print_templates.update',
   },
   {
     id: 'email',
@@ -325,8 +344,8 @@ export const SETTINGS_CATEGORIES: SettingsNavItem[] = [
     label: 'Email Settings',
     description: 'SMTP sender, reply-to and delivery defaults',
     icon: MailOutlined,
-    viewPermissions: [SETTINGS_PERMISSIONS.sensitive],
-    editPermission: SETTINGS_PERMISSIONS.sensitive,
+    viewPermissions: [SETTINGS_PERMISSIONS.email],
+    editPermission: 'settings.email.update',
   },
   {
     id: 'notifications',
@@ -334,8 +353,8 @@ export const SETTINGS_CATEGORIES: SettingsNavItem[] = [
     label: 'Notification Settings',
     description: 'Channels, rules and notification preferences',
     icon: NotificationOutlined,
-    viewPermissions: [SETTINGS_PERMISSIONS.view],
-    editPermission: SETTINGS_PERMISSIONS.edit,
+    viewPermissions: [SETTINGS_PERMISSIONS.notifications],
+    editPermission: 'settings.notifications.update',
   },
   {
     id: 'security',
@@ -343,8 +362,8 @@ export const SETTINGS_CATEGORIES: SettingsNavItem[] = [
     label: 'Security & Access',
     description: 'Sessions, password and access policy',
     icon: SafetyCertificateOutlined,
-    viewPermissions: [SETTINGS_PERMISSIONS.sensitive],
-    editPermission: SETTINGS_PERMISSIONS.sensitive,
+    viewPermissions: [SETTINGS_PERMISSIONS.security],
+    editPermission: 'settings.security.update',
   },
   {
     id: 'audit',
@@ -353,7 +372,7 @@ export const SETTINGS_CATEGORIES: SettingsNavItem[] = [
     description: 'Configuration change history and audit trail',
     icon: HistoryOutlined,
     viewPermissions: [SETTINGS_PERMISSIONS.audit],
-    editPermission: SETTINGS_PERMISSIONS.audit,
+    editPermission: 'settings.audit.export',
   },
   {
     id: 'data-tools',
@@ -361,8 +380,8 @@ export const SETTINGS_CATEGORIES: SettingsNavItem[] = [
     label: 'Backup / Data Tools',
     description: 'Backup, export and maintenance utilities',
     icon: SaveOutlined,
-    viewPermissions: [SETTINGS_PERMISSIONS.sensitive],
-    editPermission: SETTINGS_PERMISSIONS.sensitive,
+    viewPermissions: [SETTINGS_PERMISSIONS.dataTools],
+    editPermission: 'settings.data_tools.update',
   },
   {
     id: 'install-app',
@@ -370,8 +389,8 @@ export const SETTINGS_CATEGORIES: SettingsNavItem[] = [
     label: 'Install App',
     description: 'Install the ERP as a desktop / mobile app',
     icon: DownloadOutlined,
-    viewPermissions: [SETTINGS_PERMISSIONS.view],
-    editPermission: SETTINGS_PERMISSIONS.edit,
+    viewPermissions: [SETTINGS_PERMISSIONS.installApp],
+    editPermission: 'settings.install_app.view',
   },
 ];
 

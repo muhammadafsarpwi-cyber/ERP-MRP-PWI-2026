@@ -107,7 +107,7 @@ export class PurchaseInvoiceController {
   @Patch(':id/cancel')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('procurement.invoice.create')
+  @RequirePermission('procurement.invoice.update', 'procurement.invoice.delete')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Cancel purchase invoice' })
   async cancel(@Param('id') id: string, @Request() req: any) {

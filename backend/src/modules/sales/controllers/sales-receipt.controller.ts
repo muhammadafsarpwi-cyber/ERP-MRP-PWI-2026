@@ -43,7 +43,7 @@ export class SalesReceiptController {
   @Get()
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('sales.invoices.view')
+  @RequirePermission('sales.receipts.view', 'sales.customers_ledger.view', 'sales.invoices.view')
   @ApiOperation({ summary: 'List customer payment receipts & advances' })
   async findAll(
     @Req() req: any,
@@ -79,7 +79,7 @@ export class SalesReceiptController {
   @Get('bank-accounts')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('sales.invoices.view')
+  @RequirePermission('sales.receipts.view', 'sales.customers_ledger.view', 'sales.invoices.view')
   @ApiOperation({ summary: 'List active Cash & Bank GL accounts for customer receipts' })
   async getBankAccounts(@Req() req: any) {
     const companyId = req.erpUser?.defaultCompanyId;
@@ -90,7 +90,7 @@ export class SalesReceiptController {
   @Get('aging-summary')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('sales.invoices.view')
+  @RequirePermission('sales.receipts.view', 'sales.customers_ledger.view', 'sales.invoices.view')
   @ApiOperation({ summary: 'Get 5-bucket customer AR aging summary across company/divisions' })
   async getAgingSummary(@Req() req: any, @Query('divisionId') divisionId?: string) {
     const companyId = req.erpUser?.defaultCompanyId;
@@ -101,7 +101,7 @@ export class SalesReceiptController {
   @Get('customer/:customerId/open-invoices')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('sales.invoices.view')
+  @RequirePermission('sales.receipts.view', 'sales.customers_ledger.view', 'sales.invoices.view')
   @ApiOperation({ summary: 'Get customer open invoices, available unadjusted advances, aging and credit policy' })
   async getCustomerOpenInvoices(@Req() req: any, @Param('customerId') customerId: string) {
     const companyId = req.erpUser?.defaultCompanyId;
@@ -135,7 +135,7 @@ export class SalesReceiptController {
   @Get(':id')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('sales.invoices.view')
+  @RequirePermission('sales.receipts.view', 'sales.customers_ledger.view', 'sales.invoices.view')
   @ApiOperation({ summary: 'Get Customer Receipt Voucher details with allocations' })
   async findOne(@Req() req: any, @Param('id') id: string) {
     const companyId = req.erpUser?.defaultCompanyId;
@@ -146,7 +146,7 @@ export class SalesReceiptController {
   @Post()
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('sales.invoices.post')
+  @RequirePermission('sales.receipts.create', 'sales.invoices.post')
   @ApiOperation({ summary: 'Record Customer Receipt / Advance Payment with optional bill-to-bill allocations' })
   async create(@Req() req: any, @Body() dto: CreateCustomerReceiptDto) {
     const companyId = req.erpUser?.defaultCompanyId;
@@ -158,7 +158,7 @@ export class SalesReceiptController {
   @Post('apply-advance')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('sales.invoices.post')
+  @RequirePermission('sales.receipts.create', 'sales.receipts.post', 'sales.invoices.post')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Adjust customer advance payment(s) against open invoices' })
   async applyAdvance(@Req() req: any, @Body() dto: ApplyAdvanceDto) {
@@ -175,7 +175,7 @@ export class SalesReceiptController {
   @Patch(':id/clear-cheque')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('sales.invoices.post')
+  @RequirePermission('sales.receipts.approve', 'sales.receipts.post', 'sales.invoices.post')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Mark pending cheque receipt cleared and transfer from Cheques-in-Hand to Bank GL' })
   async clearCheque(@Req() req: any, @Param('id') id: string, @Body() dto: ClearChequeDto) {
@@ -188,7 +188,7 @@ export class SalesReceiptController {
   @Patch(':id/bounce-cheque')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('sales.invoices.post')
+  @RequirePermission('sales.receipts.approve', 'sales.receipts.post', 'sales.invoices.post')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Mark cheque bounced and reverse invoice settlements, ledger, and GL' })
   async bounceCheque(@Req() req: any, @Param('id') id: string, @Body() dto: BounceChequeDto) {

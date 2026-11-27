@@ -37,6 +37,7 @@ export class DashboardController {
   @Get('summary')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
+  @RequirePermission('workspace.dashboard.view', 'manufacturing.dashboard.view')
   @ApiQuery({ name: 'divisionId', required: false })
   @ApiQuery({ name: 'sectionId', required: false })
   @ApiQuery({ name: 'departmentId', required: false })
@@ -58,6 +59,7 @@ export class DashboardController {
   @Get('last-entry-date')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
+  @RequirePermission('workspace.dashboard.view', 'manufacturing.dashboard.view', 'manufacturing.production.entries.view', 'manufacturing.production.entries.report', 'manufacturing.inventory_report.view', 'manufacturing.item_wise_ledger.view')
   @ApiQuery({ name: 'divisionId', required: false })
   @ApiQuery({ name: 'sectionId', required: false })
   @ApiQuery({ name: 'departmentId', required: false })
@@ -79,6 +81,7 @@ export class DashboardController {
   @Get('production')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
+  @RequirePermission('workspace.dashboard.view', 'manufacturing.dashboard.view', 'manufacturing.production.entries.view')
   @ApiQuery({ name: 'dateFrom', required: false })
   @ApiQuery({ name: 'dateTo', required: false })
   @ApiQuery({ name: 'divisionId', required: false })
@@ -110,6 +113,7 @@ export class DashboardController {
   @Get('department-ledger')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
+  @RequirePermission('workspace.dashboard.view', 'manufacturing.dashboard.view', 'manufacturing.production.entries.view')
   @ApiQuery({ name: 'departmentId', required: false, description: 'Selected department ID or code' })
   @ApiQuery({ name: 'divisionId', required: false })
   @ApiQuery({ name: 'dateFrom', required: false })
@@ -136,6 +140,7 @@ export class DashboardController {
   @Get('production/trend')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
+  @RequirePermission('workspace.dashboard.view', 'manufacturing.dashboard.view', 'manufacturing.production.entries.view')
   @ApiQuery({ name: 'days', required: false, description: 'Number of trailing days (default 14, max 90)' })
   @ApiQuery({ name: 'divisionId', required: false })
   @ApiQuery({ name: 'sectionId', required: false })
@@ -169,6 +174,7 @@ export class DashboardController {
   @Get('machines/performance')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
+  @RequirePermission('workspace.dashboard.view', 'manufacturing.dashboard.view', 'manufacturing.production.entries.view')
   @ApiQuery({ name: 'divisionId', required: false })
   @ApiQuery({ name: 'sectionId', required: false })
   @ApiQuery({ name: 'departmentId', required: false })
@@ -194,6 +200,7 @@ export class DashboardController {
   @Get('items/overview')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
+  @RequirePermission('workspace.dashboard.view', 'manufacturing.dashboard.view', 'manufacturing.production.entries.view', 'manufacturing.inventory_report.view', 'manufacturing.item_wise_ledger.view', 'item.view')
   @ApiQuery({ name: 'divisionId', required: false })
   @ApiQuery({ name: 'sectionId', required: false })
   @ApiQuery({ name: 'departmentId', required: false })
@@ -221,6 +228,7 @@ export class DashboardController {
   @Get('items/:itemId/route')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
+  @RequirePermission('workspace.dashboard.view', 'manufacturing.dashboard.view', 'manufacturing.routing.view', 'manufacturing.production.entries.view', 'item.view')
   @ApiOperation({ summary: 'Get effective production route for an item' })
   async itemRoute(
     @Req() req: any,
@@ -235,6 +243,7 @@ export class DashboardController {
   @Get('inventory')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
+  @RequirePermission('workspace.dashboard.view', 'inventory.view', 'manufacturing.inventory_report.view')
   @ApiQuery({ name: 'warehouseId', required: false })
   @ApiQuery({ name: 'divisionId', required: false })
   @ApiQuery({ name: 'sectionId', required: false })
@@ -261,6 +270,7 @@ export class DashboardController {
   @Get('procurement/summary')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
+  @RequirePermission('workspace.dashboard.view', 'procurement.order.view')
   @ApiOperation({ summary: 'Purchase order summary — recent POs and status breakdown' })
   async procurementSummary(@Req() req: any) {
     const companyId = this.getCompanyId(req);
@@ -271,6 +281,7 @@ export class DashboardController {
   @Get('sales/summary')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
+  @RequirePermission('workspace.dashboard.view', 'sales.analytics.view', 'sales.orders.view')
   @ApiOperation({ summary: 'Sales order summary — recent SOs and status breakdown' })
   async salesSummary(@Req() req: any) {
     const companyId = this.getCompanyId(req);
@@ -281,6 +292,7 @@ export class DashboardController {
   @Get('sales/top-customers')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
+  @RequirePermission('workspace.dashboard.view', 'sales.analytics.view', 'sales.orders.view', 'customer.analytics.view')
   @ApiQuery({ name: 'dateFrom', required: false })
   @ApiQuery({ name: 'dateTo', required: false })
   @ApiQuery({ name: 'divisionId', required: false })
@@ -304,6 +316,7 @@ export class DashboardController {
   @Get('schedule')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
+  @RequirePermission('workspace.dashboard.view', 'manufacturing.dashboard.view')
   @ApiOperation({ summary: 'Today and upcoming dispatch / production schedule' })
   async schedule(@Req() req: any) {
     const companyId = this.getCompanyId(req);
@@ -314,6 +327,7 @@ export class DashboardController {
   @Get('calendar-activity')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
+  @RequirePermission('workspace.dashboard.view', 'manufacturing.dashboard.view', 'manufacturing.production.entries.view')
   @ApiQuery({ name: 'year', required: false })
   @ApiQuery({ name: 'month', required: false })
   @ApiQuery({ name: 'divisionId', required: false })
@@ -338,6 +352,7 @@ export class DashboardController {
   @Get('alerts')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
+  @RequirePermission('workspace.dashboard.view', 'manufacturing.dashboard.view')
   @ApiQuery({ name: 'divisionId', required: false })
   @ApiQuery({ name: 'sectionId', required: false })
   @ApiQuery({ name: 'departmentId', required: false })
@@ -359,6 +374,7 @@ export class DashboardController {
   @Get('activity')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
+  @RequirePermission('workspace.dashboard.view', 'manufacturing.dashboard.view')
   @ApiQuery({ name: 'limit', required: false, description: 'Max records (default 15, max 50)' })
   @ApiOperation({ summary: 'Recent activity — last N audit log entries' })
   async activity(
@@ -373,6 +389,7 @@ export class DashboardController {
   @Get('divisions')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
+  @RequirePermission('workspace.dashboard.view', 'manufacturing.dashboard.view', 'manufacturing.production.entries.view', 'manufacturing.production.entries.report', 'manufacturing.inventory_report.view', 'manufacturing.item_wise_ledger.view', 'manufacturing.production.planning.view', 'manufacturing.open_stock.view', 'manufacturing.packing.view', 'manufacturing.rework_return.view', 'manufacturing.units.view', 'manufacturing.traceability.view', 'inventory.view', 'inventory.opening_stock.view', 'inventory.ledger.view', 'inventory.adjustment.view', 'inventory.transfer.view', 'sales.orders.view', 'sales.order_command.view', 'sales.division_review.view', 'sales.analytics.view', 'sales.finished_goods.view', 'store.view', 'workspace.reports.view', 'hr.dashboard.view', 'hr.employee.view', 'item.view', 'division.view')
   @ApiOperation({ summary: 'List divisions for filter dropdown' })
   // NOTE: the handler method is `listDivisions` (not `divisions`) so it does
   // not collide with the private `divisions(req)` scope helper. The HTTP
@@ -386,6 +403,7 @@ export class DashboardController {
   @Get('sections')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
+  @RequirePermission('workspace.dashboard.view', 'manufacturing.dashboard.view', 'manufacturing.production.entries.view', 'manufacturing.production.entries.report', 'manufacturing.inventory_report.view', 'manufacturing.item_wise_ledger.view', 'manufacturing.production.planning.view', 'manufacturing.open_stock.view', 'manufacturing.packing.view', 'manufacturing.rework_return.view', 'manufacturing.units.view', 'inventory.view', 'inventory.opening_stock.view', 'inventory.ledger.view', 'workspace.reports.view', 'item.view', 'section.view')
   @ApiQuery({ name: 'divisionId', required: false })
   @ApiOperation({ summary: 'List sections for filter dropdown (optionally by division)' })
   async sections(@Req() req: any, @Query('divisionId') divisionId?: string) {
@@ -397,6 +415,7 @@ export class DashboardController {
   @Get('departments')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
+  @RequirePermission('workspace.dashboard.view', 'manufacturing.dashboard.view', 'manufacturing.production.entries.view', 'manufacturing.production.entries.report', 'manufacturing.inventory_report.view', 'manufacturing.item_wise_ledger.view', 'manufacturing.production.planning.view', 'manufacturing.open_stock.view', 'manufacturing.packing.view', 'manufacturing.rework_return.view', 'manufacturing.units.view', 'inventory.view', 'inventory.opening_stock.view', 'inventory.ledger.view', 'workspace.reports.view', 'hr.dashboard.view', 'hr.employee.view', 'department.view')
   @ApiQuery({ name: 'divisionId', required: false })
   @ApiQuery({ name: 'sectionId', required: false })
   @ApiOperation({ summary: 'List departments for filter dropdown' })
@@ -412,7 +431,7 @@ export class DashboardController {
   @Get('shifts')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @ApiOperation({ summary: 'List shifts for filter dropdown' })
+  @RequirePermission('workspace.dashboard.view', 'manufacturing.dashboard.view', 'manufacturing.production.entries.view', 'manufacturing.production.entries.report', 'manufacturing.inventory_report.view', 'manufacturing.item_wise_ledger.view', 'manufacturing.packing.view', 'manufacturing.units.view', 'workspace.reports.view', 'hr.shift_roster.view')
   async shifts(@Req() req: any) {
     const companyId = this.getCompanyId(req);
     const data = await this.dashboardService.getFilterShifts(companyId);

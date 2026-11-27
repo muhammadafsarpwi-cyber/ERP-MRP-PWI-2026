@@ -97,7 +97,7 @@ export class QuotationController {
 
   @Post(':id/convert-to-po')
   @UseGuards(PermissionGuard)
-  @RequirePermission('procurement.po.create')
+  @RequirePermission('procurement.order.create')
   @ApiOperation({ summary: 'Convert winning quotation directly into a Draft Purchase Order' })
   async convertToPo(
     @Param('id') id: string,

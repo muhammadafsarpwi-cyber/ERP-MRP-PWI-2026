@@ -153,7 +153,7 @@ export class StockAdjustmentController {
   @Patch(':id')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('inventory.adjustment.create')
+  @RequirePermission('inventory.adjustment.update')
   @ApiOperation({ summary: 'Update a draft stock adjustment' })
   @ApiParam({ name: 'id' })
   async update(
@@ -170,7 +170,7 @@ export class StockAdjustmentController {
   @Delete(':id')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('inventory.adjustment.create')
+  @RequirePermission('inventory.adjustment.delete')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Delete a draft or returned stock adjustment' })
   @ApiParam({ name: 'id' })
@@ -183,7 +183,7 @@ export class StockAdjustmentController {
 
   @Post(':id/lines')
   @UseGuards(PermissionGuard)
-  @RequirePermission('inventory.adjustment.create')
+  @RequirePermission('inventory.adjustment.create', 'inventory.adjustment.update')
   @ApiOperation({ summary: 'Add line to stock adjustment' })
   @ApiParam({ name: 'id' })
   async addLine(@Param('id') id: string, @Body() dto: CreateStockAdjustmentLineDto) {
@@ -193,7 +193,7 @@ export class StockAdjustmentController {
 
   @Delete(':id/lines/:lineId')
   @UseGuards(PermissionGuard)
-  @RequirePermission('inventory.adjustment.create')
+  @RequirePermission('inventory.adjustment.update', 'inventory.adjustment.delete')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Remove line from stock adjustment' })
   @ApiParam({ name: 'id' })
@@ -320,7 +320,7 @@ export class StockAdjustmentController {
 
   @Patch(':id/cancel')
   @UseGuards(PermissionGuard)
-  @RequirePermission('inventory.adjustment.create')
+  @RequirePermission('inventory.adjustment.update', 'inventory.adjustment.delete')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Cancel stock adjustment' })
   @ApiParam({ name: 'id' })

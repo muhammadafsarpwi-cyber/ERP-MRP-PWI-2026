@@ -8,6 +8,7 @@ import {
   saveWhatsAppSettings,
 } from './whatsappTemplateRenderer';
 import { buildReceiptWhatsAppMessage, ShareReceiptInfo } from './receiptShare';
+import { buildStoreIssueWhatsAppMessage } from './storeIssueWhatsApp';
 
 const EMOJI_REGEX =
   /[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{2B50}\u{2795}\u{2796}\u{2713}\u{2705}\u{274C}]/u;
@@ -23,8 +24,8 @@ describe('whatsappTemplateRenderer — centralized 0ms template engine', () => {
     invalidateWhatsAppSettingsCache();
   });
 
-  it('registers all 33 ERP WhatsApp templates with unique keys, [CODES], and supported placeholders', () => {
-    expect(WHATSAPP_TEMPLATE_REGISTRY.length).toBe(33);
+  it('registers all 34 ERP WhatsApp templates with unique keys, [CODES], and supported placeholders', () => {
+    expect(WHATSAPP_TEMPLATE_REGISTRY.length).toBe(34);
     const keys = new Set(WHATSAPP_TEMPLATE_REGISTRY.map((t) => t.key));
     const codes = new Set(WHATSAPP_TEMPLATE_REGISTRY.map((t) => t.code));
     expect(keys.size).toBe(WHATSAPP_TEMPLATE_REGISTRY.length);
@@ -144,5 +145,69 @@ describe('whatsappTemplateRenderer — centralized 0ms template engine', () => {
       ].join('\n'),
     );
     expect(EMOJI_REGEX.test(customMsg)).toBe(false);
+  });
+
+  it('controls [SIN-ISSUE] Store Issue Note sharing cleanly from Settings with all required placeholders', () => {
+    const def = WHATSAPP_TEMPLATE_REGISTRY.find((t) => t.code === '[SIN-ISSUE]');
+    expect(def).toBeDefined();
+    expect(def?.key).toBe('storeIssueNote');
+    expect(def?.placeholders).toEqual(
+      expect.arrayContaining([
+        '{sin_number}',
+        '{date}',
+        '{division}',
+        '{section}',
+        '{machine}',
+        '{receiver}',
+        '{issued_by}',
+        '{items}',
+        '{last_issued_summary}',
+        '{remaining_stock}',
+        '{remarks}',
+      ]),
+    );
+
+    const sampleInput = {
+      sinNumber: 'SIN-20261016-65057',
+      date: '2026-10-16',
+      divisionName: 'Spoke Division',
+      sectionName: 'Spoke Section',
+      machineName: 'SPK-01 — Spoke Machine SPK-01',
+      operatorName: 'H.M.Sajeel',
+      shiftInchargeName: 'Muhammad Junaid',
+      issuedByName: 'Store Keeper',
+      purpose: 'Die Replacement',
+      lines: [
+        {
+          itemCode: 'SP-216021',
+          itemName: 'SPOKE THREADING ROLLING DIE (10G 3.2) 40G',
+          quantity: 1,
+          uomCode: 'SET',
+          lastIssuedSummary: 'Last Issued: 16-Oct-2026 (SIN-20261016-65057 · 1 SET) · Production Since Last Issue: 6,286.92 GRS (905,317 PCS) · Total Issues: 1',
+          remainingStock: 4,
+          remainingStockUom: 'SET',
+        },
+      ],
+    };
+
+    const defaultSinMsg = buildStoreIssueWhatsAppMessage(sampleInput);
+    expect(defaultSinMsg).toContain('SIN-20261016-65057');
+    expect(defaultSinMsg).toContain('SP-216021');
+    expect(defaultSinMsg).toContain(
+      'Last Issued: 16-Oct-2026 (SIN-20261016-65057 · 1 SET)\nProduction Since Last Issue: 6,286.92 GRS (905,317 PCS)\nTotal Issues on Machine: 1',
+    );
+    expect(defaultSinMsg).toContain('4 SET');
+    expect(EMOJI_REGEX.test(defaultSinMsg)).toBe(false);
+
+    saveWhatsAppSettings({
+      countryCode: '92',
+      templates: {
+        storeIssueNote: 'CUSTOM SIN {sin_number} | {date} | {division}/{section} | {machine} | {receiver} | {issued_by}\n{items}\n{last_issued_summary}\nStock: {remaining_stock}\nNote: {remarks}',
+      },
+    });
+    const customSinMsg = buildStoreIssueWhatsAppMessage(sampleInput);
+    expect(customSinMsg).toContain('CUSTOM SIN SIN-20261016-65057 | 16-Oct-2026 | Spoke Division/Spoke Section');
+    expect(customSinMsg).toContain('Stock: SP-216021 — SPOKE THREADING ROLLING DIE (10G 3.2) 40G: 4 SET');
+    expect(customSinMsg).toContain('Note: Die Replacement');
   });
 });

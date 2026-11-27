@@ -12,6 +12,15 @@
   -webkit-overflow-scrolling: touch;
 }
 
+.pwi-sin-compact-table .ant-table-thead > tr > th,
+.pwi-sin-compact-table .ant-table-tbody > tr > td.pwi-sin-nowrap-cell {
+  white-space: nowrap;
+}
+
+.pwi-sin-compact-table .pwi-sin-tabular {
+  font-variant-numeric: tabular-nums;
+}
+
 @media (max-width: 768px) {
   .store-approval-grid {
     grid-template-columns: 1fr !important;

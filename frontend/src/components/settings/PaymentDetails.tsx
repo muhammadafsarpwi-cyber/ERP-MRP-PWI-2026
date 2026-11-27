@@ -62,7 +62,7 @@ const STORAGE_KEY = 'erp_payment_details_v1';
 
 export const PaymentDetails: React.FC = () => {
   const { can } = usePermission();
-  const canEdit = can(SETTINGS_PERMISSIONS.sensitive);
+  const canEdit = can('settings.payment_details.update');
 
   const [methods, setMethods] = useState<PaymentMethodOption[]>(DEFAULT_METHODS);
   const [data, setData] = useState<PaymentDetailsData>(DEFAULT_PAYMENT_DETAILS);
@@ -166,19 +166,19 @@ export const PaymentDetails: React.FC = () => {
     <div
       className="payment-details-container"
       data-testid="payment-details"
-      data-edit-permission={SETTINGS_PERMISSIONS.sensitive}
+      data-edit-permission="settings.payment_details.update"
       id="payment-details-section"
     >
       {/* Hidden test identifier for backwards-compatibility with test suites */}
       <span
         data-testid="settings-placeholder-payment-details"
         style={{ display: 'none' }}
-        data-edit-permission={SETTINGS_PERMISSIONS.sensitive}
+        data-edit-permission="settings.payment_details.update"
       >
         <span data-testid="settings-placeholder-permission">
           {canEdit
-            ? `Your role includes “${SETTINGS_PERMISSIONS.sensitive}”.`
-            : `Read-only for your role: requires “${SETTINGS_PERMISSIONS.sensitive}”.`}
+            ? 'Your role includes “settings.payment_details.update”.'
+            : 'Read-only for your role: requires “settings.payment_details.update”.'}
         </span>
       </span>
 

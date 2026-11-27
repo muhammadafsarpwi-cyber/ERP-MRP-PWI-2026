@@ -12,6 +12,7 @@ export class DepartmentDivisionScopeController {
   constructor(private readonly scopeService: DepartmentDivisionScopeService) {}
 
   @Get('department/:departmentId')
+  @RequirePermission('admin.users.view', 'division.view', 'department.view')
   @ApiOperation({ summary: 'Get all division scopes for a department' })
   @ApiParam({ name: 'departmentId', description: 'Department ID' })
   async findByDepartment(@Param('departmentId') departmentId: string) {
@@ -20,6 +21,7 @@ export class DepartmentDivisionScopeController {
   }
 
   @Get('division/:divisionId')
+  @RequirePermission('admin.users.view', 'division.view', 'department.view')
   @ApiOperation({ summary: 'Get all department scopes for a division' })
   @ApiParam({ name: 'divisionId', description: 'Division ID' })
   async findByDivision(@Param('divisionId') divisionId: string) {
@@ -28,6 +30,7 @@ export class DepartmentDivisionScopeController {
   }
 
   @Post()
+  @RequirePermission('admin.users.update', 'admin.users.manage_scope')
   @ApiOperation({ summary: 'Add a division scope to a department' })
   @ApiBody({ schema: { properties: { departmentId: { type: 'string' }, divisionId: { type: 'string' } }, required: ['departmentId', 'divisionId'] } })
   async addScope(@Body() body: { departmentId: string; divisionId: string }) {
@@ -36,6 +39,7 @@ export class DepartmentDivisionScopeController {
   }
 
   @Delete('department/:departmentId/division/:divisionId')
+  @RequirePermission('admin.users.update', 'admin.users.manage_scope')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Remove a division scope from a department' })
   @ApiParam({ name: 'departmentId', description: 'Department ID' })

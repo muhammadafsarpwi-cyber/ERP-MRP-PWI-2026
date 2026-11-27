@@ -77,7 +77,7 @@ export class PurchaseReturnController {
 
   @Patch(':id/cancel')
   @UseGuards(PermissionGuard)
-  @RequirePermission('procurement.return.create')
+  @RequirePermission('procurement.return.update', 'procurement.return.delete')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Cancel purchase return' })
   async cancel(@Param('id') id: string) {

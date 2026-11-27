@@ -144,7 +144,7 @@ export class VisitorEntryController {
 
   // ─────────────────────────────────────────────────────── HOST LOOKUP ────
   @Get('hosts')
-  @RequirePermission('visitor.entry.create')
+  @RequirePermission('visitor.entry.view', 'visitor.entry.create')
   @RequireOrgScope()
   @ApiOperation({ summary: 'Search the employee master for the person being visited' })
   async findHosts(@Query() query: HostLookupQueryDto, @Req() req: any) {

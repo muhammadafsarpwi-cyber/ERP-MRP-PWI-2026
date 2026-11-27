@@ -56,7 +56,7 @@ export class GoodsReceiptController {
 
   @Patch(':id')
   @UseGuards(PermissionGuard)
-  @RequirePermission('procurement.receipt.create')
+  @RequirePermission('procurement.receipt.update', 'procurement.receipt.create')
   @ApiOperation({ summary: 'Update goods receipt' })
   async update(@Param('id') id: string, @Body() dto: UpdateGoodsReceiptDto, @Req() req: any) {
     const receipt = await this.service.update(id, dto, this.getUserId(req), this.getCompanyId(req));
@@ -65,7 +65,7 @@ export class GoodsReceiptController {
 
   @Patch(':id/cancel')
   @UseGuards(PermissionGuard)
-  @RequirePermission('procurement.receipt.create')
+  @RequirePermission('procurement.receipt.update', 'procurement.receipt.delete')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Cancel / Reverse goods receipt' })
   async cancel(@Param('id') id: string, @Req() req: any) {
@@ -75,7 +75,7 @@ export class GoodsReceiptController {
 
   @Patch(':id/receive')
   @UseGuards(PermissionGuard)
-  @RequirePermission('procurement.receipt.create')
+  @RequirePermission('procurement.receipt.update', 'procurement.receipt.create')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Mark goods receipt as received' })
   async receive(@Param('id') id: string) {
@@ -127,7 +127,7 @@ export class GoodsReceiptController {
 
   @Delete(':id')
   @UseGuards(PermissionGuard)
-  @RequirePermission('procurement.receipt.create')
+  @RequirePermission('procurement.receipt.delete')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Delete goods receipt' })
   async remove(@Param('id') id: string) {

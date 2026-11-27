@@ -88,7 +88,7 @@ export class StoreReceiptController {
   }
 
   @Patch(':id/receive')
-  @RequirePermission('store.receive.create')
+  @RequirePermission('store.receive.update', 'store.receive.create')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Mark goods receipt as received (store)' })
   async receive(@Param('id') id: string, @Req() req: any) {
@@ -97,7 +97,7 @@ export class StoreReceiptController {
   }
 
   @Patch(':id/inspect')
-  @RequirePermission('store.receive.create')
+  @RequirePermission('store.receive.update', 'store.receive.create')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Inspect goods receipt (store)' })
   async inspect(@Param('id') id: string, @Req() req: any) {
@@ -106,7 +106,7 @@ export class StoreReceiptController {
   }
 
   @Patch(':id/accept')
-  @RequirePermission('store.receive.create')
+  @RequirePermission('store.receive.update', 'store.receive.create')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Accept goods receipt (store)' })
   async accept(@Param('id') id: string, @Req() req: any) {
@@ -115,7 +115,7 @@ export class StoreReceiptController {
   }
 
   @Patch(':id/reject')
-  @RequirePermission('store.receive.create')
+  @RequirePermission('store.receive.update', 'store.receive.create')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Reject goods receipt (store)' })
   async reject(@Param('id') id: string, @Req() req: any) {
@@ -133,7 +133,7 @@ export class StoreReceiptController {
   }
 
   @Delete(':id')
-  @RequirePermission('store.receive.create')
+  @RequirePermission('store.receive.delete')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Delete goods receipt (store)' })
   async remove(@Param('id') id: string) {

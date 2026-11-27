@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Card,
   Form,
@@ -19,6 +19,7 @@ import {
   Divider,
   Alert,
   theme,
+  message as staticMessage,
 } from 'antd';
 import {
   RobotOutlined,
@@ -39,6 +40,7 @@ import {
   CheckCircleFilled,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
+import { usePermission } from '../../hooks/usePermission';
 import aiProviderConfigService, {
   AiProviderPlatform,
   MaskedAiProviderConfig,
@@ -112,9 +114,19 @@ const PLATFORM_PRESETS: Record<AiProviderPlatform, PlatformPreset> = {
 };
 
 export const AiProviderSettingsPage: React.FC = () => {
-  const { message } = App.useApp();
+  const app = App.useApp();
+  const message =
+    typeof (app?.message as { error?: unknown } | undefined)?.error === 'function'
+      ? app.message
+      : staticMessage;
+  const messageRef = useRef(message);
+  messageRef.current = message;
   const navigate = useNavigate();
   const { token } = theme.useToken();
+  const { can } = usePermission();
+  const canCreateAiConfig = can('ai.settings.create');
+  const canUpdateAiConfig = can('ai.settings.update');
+  const canDeleteAiConfig = can('ai.settings.delete');
   const [form] = Form.useForm();
 
   const [loading, setLoading] = useState(false);
@@ -260,11 +272,11 @@ export const AiProviderSettingsPage: React.FC = () => {
       setConfigs(data.configs || []);
       setActiveEngine(data.activeEngine || null);
     } catch (err) {
-      message.error((err as Error).message || 'Failed to load AI provider settings');
+      messageRef.current.error((err as Error).message || 'Failed to load AI provider settings');
     } finally {
       setLoading(false);
     }
-  }, [message]);
+  }, []);
 
   useEffect(() => {
     void loadData();
@@ -529,7 +541,7 @@ export const AiProviderSettingsPage: React.FC = () => {
       width: 220,
       render: (_: unknown, r: MaskedAiProviderConfig) => (
         <Space size="small">
-          {!r.isPrimaryDefault && r.isEnabled && (
+          {canUpdateAiConfig && !r.isPrimaryDefault && r.isEnabled && (
             <Button
               size="small"
               icon={<StarFilled style={{ color: '#eab308' }} />}
@@ -538,21 +550,25 @@ export const AiProviderSettingsPage: React.FC = () => {
               Set Primary
             </Button>
           )}
-          <Button
-            size="small"
-            icon={<EditOutlined />}
-            onClick={() => handleEdit(r)}
-          />
-          <Popconfirm
-            title="Delete this provider profile?"
-            description="Are you sure you want to remove this configuration?"
-            onConfirm={() => handleDelete(r.id)}
-            okText="Yes, Delete"
-            cancelText="Cancel"
-            okButtonProps={{ danger: true }}
-          >
-            <Button size="small" danger icon={<DeleteOutlined />} />
-          </Popconfirm>
+          {canUpdateAiConfig && (
+            <Button
+              size="small"
+              icon={<EditOutlined />}
+              onClick={() => handleEdit(r)}
+            />
+          )}
+          {canDeleteAiConfig && (
+            <Popconfirm
+              title="Delete this provider profile?"
+              description="Are you sure you want to remove this configuration?"
+              onConfirm={() => handleDelete(r.id)}
+              okText="Yes, Delete"
+              cancelText="Cancel"
+              okButtonProps={{ danger: true }}
+            >
+              <Button size="small" danger icon={<DeleteOutlined />} />
+            </Popconfirm>
+          )}
         </Space>
       ),
     },
@@ -1110,14 +1126,16 @@ export const AiProviderSettingsPage: React.FC = () => {
             >
               Test Connection
             </Button>
-            <Button
-              type="primary"
-              htmlType="submit"
-              loading={saving}
-              style={{ minWidth: 140 }}
-            >
-              {editingId ? 'Update Configuration' : 'Save Configuration'}
-            </Button>
+            {(editingId ? canUpdateAiConfig : canCreateAiConfig) && (
+              <Button
+                type="primary"
+                htmlType="submit"
+                loading={saving}
+                style={{ minWidth: 140 }}
+              >
+                {editingId ? 'Update Configuration' : 'Save Configuration'}
+              </Button>
+            )}
           </div>
         </Form>
       </Card>

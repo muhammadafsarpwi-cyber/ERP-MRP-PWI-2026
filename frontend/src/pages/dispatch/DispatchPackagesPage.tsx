@@ -48,12 +48,17 @@ import { MobilePackageBuilder } from './MobilePackageBuilder';
 import { DispatchPackagePrintModal } from './DispatchPackagePrint';
 import { GatePassExitModal } from './GatePassExitModal';
 import { matchesTabRefresh, tabSessionCache, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
+import { usePermission } from '../../hooks/usePermission';
 
 const { Title, Text } = Typography;
 
 const DISPATCH_PACKAGES_TAB_ID = '/dispatch/packages';
 
 export const DispatchPackagesPage: React.FC = () => {
+  const { can } = usePermission();
+  const canCreatePkg = can('sales.dispatch_packages.create');
+  const canPrintPkg = can('sales.dispatch_packages.print');
+  const canPostPkg = can('sales.dispatch_packages.post');
   const [packages, setPackages] = useState<DispatchPackage[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
@@ -316,7 +321,7 @@ export const DispatchPackagesPage: React.FC = () => {
             {r.status === DispatchPackageStatus.OPEN ? 'Scan & Pack' : 'View'}
           </Button>
 
-          {r.status !== DispatchPackageStatus.OPEN && (
+          {canPrintPkg && r.status !== DispatchPackageStatus.OPEN && (
             <Tooltip title="Print Package Document">
               <Button
                 size="small"
@@ -329,7 +334,7 @@ export const DispatchPackagesPage: React.FC = () => {
             </Tooltip>
           )}
 
-          {r.status === DispatchPackageStatus.FINALIZED && (
+          {canPostPkg && r.status === DispatchPackageStatus.FINALIZED && (
             <Tooltip title="Link Gate Pass / Exit">
               <Button
                 size="small"
@@ -372,14 +377,16 @@ export const DispatchPackagesPage: React.FC = () => {
         </div>
 
         <Space wrap>
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => setNewPkgModalOpen(true)}
-            style={{ fontWeight: 700 }}
-          >
-            New Package
-          </Button>
+          {canCreatePkg && (
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={() => setNewPkgModalOpen(true)}
+              style={{ fontWeight: 700 }}
+            >
+              New Package
+            </Button>
+          )}
           <Button
             icon={<CarOutlined />}
             onClick={() => {

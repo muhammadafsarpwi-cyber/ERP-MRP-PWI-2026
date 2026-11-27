@@ -49,7 +49,7 @@ const CATEGORIES_ORDER: readonly WhatsAppTemplateCategory[] = [
 export const WhatsAppSettings: React.FC = () => {
   const { token } = theme.useToken();
   const { can } = usePermission();
-  const canEdit = can(SETTINGS_PERMISSIONS.sensitive);
+  const canEdit = can('settings.whatsapp.update');
 
   const [data, setData] = useState<WhatsAppSettingsData>(DEFAULT_WHATSAPP_SETTINGS);
   const [initialData, setInitialData] = useState<WhatsAppSettingsData>(DEFAULT_WHATSAPP_SETTINGS);
@@ -177,19 +177,19 @@ export const WhatsAppSettings: React.FC = () => {
     <div
       className="whatsapp-settings-container"
       data-testid="whatsapp-settings"
-      data-edit-permission={SETTINGS_PERMISSIONS.sensitive}
+      data-edit-permission="settings.whatsapp.update"
       id="whatsapp-settings-section"
     >
       {/* Hidden test identifier for test backwards-compatibility */}
       <span
         data-testid="settings-placeholder-whatsapp"
         style={{ display: 'none' }}
-        data-edit-permission={SETTINGS_PERMISSIONS.sensitive}
+        data-edit-permission="settings.whatsapp.update"
       >
         <span data-testid="settings-placeholder-permission">
           {canEdit
-            ? `Your role includes “${SETTINGS_PERMISSIONS.sensitive}”.`
-            : `Read-only for your role: requires “${SETTINGS_PERMISSIONS.sensitive}”.`}
+            ? 'Your role includes “settings.whatsapp.update”.'
+            : 'Read-only for your role: requires “settings.whatsapp.update”.'}
         </span>
       </span>
 

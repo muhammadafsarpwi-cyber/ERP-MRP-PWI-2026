@@ -142,7 +142,10 @@ const OpeningStock: React.FC = () => {
   const { message } = App.useApp();
   const { token } = theme.useToken();
   const navigate = useNavigate();
-  usePermission();
+  const { can } = usePermission();
+  const canCreateOpening = can('inventory.opening_stock.create');
+  const canExportOpening = can('inventory.opening_stock.export');
+  const canPrintOpening = can('inventory.opening_stock.print');
 
   const [form] = Form.useForm();
   const selectedWarehouseId = Form.useWatch('warehouseId', form);
@@ -756,54 +759,63 @@ const OpeningStock: React.FC = () => {
 
   const { setHeaderActions, clearHeaderActions } = useHeaderActions.getState();
   useEffect(() => {
-    setHeaderActions([
-      {
-        key: 'os-template-modal',
-        node: (
-          <Tooltip title="Download pre-filled Division Excel (.xlsx) or CSV template">
-            <Button size="small" icon={<DownloadOutlined />} onClick={() => headerActionsRef.current.openTemplateModal()}>
-              Download Template
-            </Button>
-          </Tooltip>
-        ),
-      },
-      {
-        key: 'os-import-wizard',
-        node: (
-          <Tooltip title="Open 3-step Excel / CSV Opening Stock Import Wizard">
-            <Button size="small" type="primary" ghost icon={<UploadOutlined />} onClick={() => headerActionsRef.current.openImportWizard()}>
-              Import Excel / CSV
-            </Button>
-          </Tooltip>
-        ),
-      },
-      {
-        key: 'os-export-csv',
-        node: (
-          <Tooltip title="Export current table lines to CSV">
-            <Button size="small" icon={<DownloadOutlined />} disabled={lines.length === 0} onClick={() => headerActionsRef.current.exportToCsv()}>
-              Export CSV
-            </Button>
-          </Tooltip>
-        ),
-      },
-      {
-        key: 'os-export-excel',
-        node: (
-          <Tooltip title="Export styled Excel workbook (.xls)">
-            <Button
-              size="small"
-              icon={<FileExcelOutlined />}
-              disabled={lines.length === 0}
-              onClick={() => headerActionsRef.current.handleExportExcel()}
-              style={{ color: token.colorSuccess, borderColor: token.colorBorder, fontWeight: 600 }}
-            >
-              Excel
-            </Button>
-          </Tooltip>
-        ),
-      },
-      {
+    const actions: Array<{ key: string; node: React.ReactNode }> = [];
+    if (canCreateOpening) {
+      actions.push(
+        {
+          key: 'os-template-modal',
+          node: (
+            <Tooltip title="Download pre-filled Division Excel (.xlsx) or CSV template">
+              <Button size="small" icon={<DownloadOutlined />} onClick={() => headerActionsRef.current.openTemplateModal()}>
+                Download Template
+              </Button>
+            </Tooltip>
+          ),
+        },
+        {
+          key: 'os-import-wizard',
+          node: (
+            <Tooltip title="Open 3-step Excel / CSV Opening Stock Import Wizard">
+              <Button size="small" type="primary" ghost icon={<UploadOutlined />} onClick={() => headerActionsRef.current.openImportWizard()}>
+                Import Excel / CSV
+              </Button>
+            </Tooltip>
+          ),
+        },
+      );
+    }
+    if (canExportOpening) {
+      actions.push(
+        {
+          key: 'os-export-csv',
+          node: (
+            <Tooltip title="Export current table lines to CSV">
+              <Button size="small" icon={<DownloadOutlined />} disabled={lines.length === 0} onClick={() => headerActionsRef.current.exportToCsv()}>
+                Export CSV
+              </Button>
+            </Tooltip>
+          ),
+        },
+        {
+          key: 'os-export-excel',
+          node: (
+            <Tooltip title="Export styled Excel workbook (.xls)">
+              <Button
+                size="small"
+                icon={<FileExcelOutlined />}
+                disabled={lines.length === 0}
+                onClick={() => headerActionsRef.current.handleExportExcel()}
+                style={{ color: token.colorSuccess, borderColor: token.colorBorder, fontWeight: 600 }}
+              >
+                Excel
+              </Button>
+            </Tooltip>
+          ),
+        },
+      );
+    }
+    if (canPrintOpening) {
+      actions.push({
         key: 'os-print-pdf',
         node: (
           <Tooltip title="Download / Print Store Opening Stock PDF">
@@ -818,10 +830,11 @@ const OpeningStock: React.FC = () => {
             </Button>
           </Tooltip>
         ),
-      },
-    ]);
+      });
+    }
+    setHeaderActions(actions);
     return () => clearHeaderActions();
-  }, [lines.length, token.colorBorder, token.colorError, token.colorSuccess, setHeaderActions, clearHeaderActions]);
+  }, [lines.length, canCreateOpening, canExportOpening, canPrintOpening, token.colorBorder, token.colorError, token.colorSuccess, setHeaderActions, clearHeaderActions]);
 
   const visibleItems = useMemo(() => {
     const wh = warehouses.find((w) => w.id === selectedWarehouseId);
@@ -1323,6 +1336,7 @@ const OpeningStock: React.FC = () => {
             <Text type="secondary" style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
               Items: <strong>{lines.length}</strong> &nbsp;|&nbsp; Total Qty: <strong>{fmt(totalQuantity, 2)}</strong> &nbsp;|&nbsp; Total Value: <strong>PKR {fmt(totalValue, 2)}</strong>
             </Text>
+            {canCreateOpening && (
             <Button
               type="primary"
               icon={<SendOutlined />}
@@ -1336,6 +1350,7 @@ const OpeningStock: React.FC = () => {
             >
               Post Opening Stock
             </Button>
+            )}
           </div>
         )}
       </Card>

@@ -50,6 +50,7 @@ import ProductionUnitBulkWeightModal from './ProductionUnitBulkWeightModal';
 import ProductionUnitScanModal from './ProductionUnitScanModal';
 import ProductionUnitPrintHistoryDrawer from './ProductionUnitPrintHistoryDrawer';
 import ProductionUnitVoidModal from './ProductionUnitVoidModal';
+import { usePermission } from '../../../hooks/usePermission';
 
 const { Text, Title } = Typography;
 
@@ -74,6 +75,11 @@ export const ProductionUnitsPage: React.FC<ProductionUnitsPageProps> = ({
   initialValues,
   embedded = false,
 }) => {
+  const { can } = usePermission();
+  const canCreateUnits = can('manufacturing.units.create') || can('manufacturing.production.entries.create');
+  const canUpdateUnits = can('manufacturing.units.update') || can('manufacturing.production.entries.update');
+  const canPrintUnits = can('manufacturing.units.print') || canCreateUnits;
+  const canVoidUnits = can('manufacturing.units.delete') || can('manufacturing.units.update');
   const [units, setUnits] = useState<ProductionUnitItem[]>([]);
   const [total, setTotal] = useState<number>(0);
   const [loading, setLoading] = useState<boolean>(false);
@@ -379,7 +385,7 @@ export const ProductionUnitsPage: React.FC<ProductionUnitsPageProps> = ({
               >
                 Enter Weights ({selectedRowKeys.length > 0 ? selectedRowKeys.length : 'All'})
               </Button>
-              {modifiedCount > 0 && (
+              {canUpdateUnits && modifiedCount > 0 && (
                 <Button
                   type="primary"
                   icon={<SaveOutlined />}
@@ -390,13 +396,15 @@ export const ProductionUnitsPage: React.FC<ProductionUnitsPageProps> = ({
                   Save Table Changes ({modifiedCount})
                 </Button>
               )}
-              <Button
-                type="primary"
-                icon={<PlusOutlined />}
-                onClick={() => setGeneratorOpen(true)}
-              >
-                Generate Units
-              </Button>
+              {canCreateUnits && (
+                <Button
+                  type="primary"
+                  icon={<PlusOutlined />}
+                  onClick={() => setGeneratorOpen(true)}
+                >
+                  Generate Units
+                </Button>
+              )}
             </Space>
           </div>
         }
@@ -429,32 +437,36 @@ export const ProductionUnitsPage: React.FC<ProductionUnitsPageProps> = ({
             >
               Clear Selection
             </Button>
-            <Button
-              size="small"
-              type="primary"
-              icon={<PrinterOutlined />}
-              style={{ background: '#16a34a', borderColor: '#16a34a' }}
-              onClick={handleOpenPrintSelected}
-              disabled={selectedRowKeys.length === 0}
-            >
-              Print Selected ({selectedRowKeys.length})
-            </Button>
-            <Button
-              size="small"
-              icon={<PrinterOutlined />}
-              onClick={handlePrintAll}
-              disabled={units.length === 0}
-            >
-              Print All ({units.length})
-            </Button>
-            <Button
-              size="small"
-              icon={<ReloadOutlined />}
-              onClick={handleReprintSelected}
-              disabled={selectedRowKeys.length === 0}
-            >
-              Reprint Selected
-            </Button>
+            {canPrintUnits && (
+              <>
+                <Button
+                  size="small"
+                  type="primary"
+                  icon={<PrinterOutlined />}
+                  style={{ background: '#16a34a', borderColor: '#16a34a' }}
+                  onClick={handleOpenPrintSelected}
+                  disabled={selectedRowKeys.length === 0}
+                >
+                  Print Selected ({selectedRowKeys.length})
+                </Button>
+                <Button
+                  size="small"
+                  icon={<PrinterOutlined />}
+                  onClick={handlePrintAll}
+                  disabled={units.length === 0}
+                >
+                  Print All ({units.length})
+                </Button>
+                <Button
+                  size="small"
+                  icon={<ReloadOutlined />}
+                  onClick={handleReprintSelected}
+                  disabled={selectedRowKeys.length === 0}
+                >
+                  Reprint Selected
+                </Button>
+              </>
+            )}
           </Space>
 
           <Space>
@@ -831,16 +843,18 @@ export const ProductionUnitsPage: React.FC<ProductionUnitsPageProps> = ({
                         }}
                       />
                     </Tooltip>
-                    <Tooltip title={isVoid ? 'Cannot print void unit' : (record.printCount > 0 ? 'Reprint Label' : 'Print Label')}>
-                      <Button
-                        type="text"
-                        size="small"
-                        icon={<PrinterOutlined />}
-                        disabled={isVoid}
-                        onClick={() => handlePrintSingle(record)}
-                        style={{ color: isVoid ? undefined : (record.printCount > 0 ? '#d97706' : '#16a34a') }}
-                      />
-                    </Tooltip>
+                    {canPrintUnits && (
+                      <Tooltip title={isVoid ? 'Cannot print void unit' : (record.printCount > 0 ? 'Reprint Label' : 'Print Label')}>
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<PrinterOutlined />}
+                          disabled={isVoid}
+                          onClick={() => handlePrintSingle(record)}
+                          style={{ color: isVoid ? undefined : (record.printCount > 0 ? '#d97706' : '#16a34a') }}
+                        />
+                      </Tooltip>
+                    )}
                     <Tooltip title="Print History Audit">
                       <Button
                         type="text"
@@ -852,7 +866,7 @@ export const ProductionUnitsPage: React.FC<ProductionUnitsPageProps> = ({
                         }}
                       />
                     </Tooltip>
-                    {!isVoid && (
+                    {canVoidUnits && !isVoid && (
                       <Tooltip title="Void / Cancel Unit">
                         <Button
                           type="text"

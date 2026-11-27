@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { usePermission } from '../../hooks/usePermission';
 import {
   Button,
   Input,
@@ -216,6 +217,11 @@ interface ChatSession {
 
 const AiAssistantPage: React.FC = () => {
   const navigate = useNavigate();
+  const { can, canAny } = usePermission();
+  const canAiSettings = can('ai.settings.view');
+  const canAiExport = can('ai.assistant.export');
+  const canAiPrint = can('ai.assistant.print');
+  const canAiVoice = canAny('ai.voice', 'ai.query');
   const isDark = useThemeStore((state) => state.draft.mode === 'dark');
   useWhatsAppSettingsVersion();
 
@@ -1905,22 +1911,24 @@ const AiAssistantPage: React.FC = () => {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Button
-            size="small"
-            icon={<ApiOutlined />}
-            onClick={() => navigate('/settings/ai-provider')}
-            style={{
-              background: 'rgba(255, 255, 255, 0.15)',
-              color: '#ffffff',
-              borderColor: 'rgba(255, 255, 255, 0.35)',
-              fontWeight: 600,
-              fontSize: 12,
-              borderRadius: 6,
-              backdropFilter: 'blur(4px)',
-            }}
-          >
-            {!isMobile && 'AI Providers (BYOK)'}
-          </Button>
+          {canAiSettings && (
+            <Button
+              size="small"
+              icon={<ApiOutlined />}
+              onClick={() => navigate('/settings/ai-provider')}
+              style={{
+                background: 'rgba(255, 255, 255, 0.15)',
+                color: '#ffffff',
+                borderColor: 'rgba(255, 255, 255, 0.35)',
+                fontWeight: 600,
+                fontSize: 12,
+                borderRadius: 6,
+                backdropFilter: 'blur(4px)',
+              }}
+            >
+              {!isMobile && 'AI Providers (BYOK)'}
+            </Button>
+          )}
           <Button
             type="primary"
             size="small"
@@ -2408,40 +2416,44 @@ const AiAssistantPage: React.FC = () => {
                                 WhatsApp
                               </Button>
                             </Tooltip>
-                            <Tooltip title="Download PDF Report">
-                              <Button
-                                size="small"
-                                icon={<FilePdfOutlined />}
-                                onClick={() => handleExportPdf(msg)}
-                                style={{
-                                  background: '#dc2626',
-                                  borderColor: '#dc2626',
-                                  color: '#ffffff',
-                                  fontWeight: 700,
-                                  fontSize: 11.5,
-                                  borderRadius: 6,
-                                }}
-                              >
-                                PDF
-                              </Button>
-                            </Tooltip>
-                            <Tooltip title="Download Excel (.xls) Report">
-                              <Button
-                                size="small"
-                                icon={<FileExcelOutlined />}
-                                onClick={() => handleExportExcel(msg)}
-                                style={{
-                                  background: '#059669',
-                                  borderColor: '#059669',
-                                  color: '#ffffff',
-                                  fontWeight: 700,
-                                  fontSize: 11.5,
-                                  borderRadius: 6,
-                                }}
-                              >
-                                Excel
-                              </Button>
-                            </Tooltip>
+                            {(canAiExport || canAiPrint) && (
+                              <Tooltip title="Download PDF Report">
+                                <Button
+                                  size="small"
+                                  icon={<FilePdfOutlined />}
+                                  onClick={() => handleExportPdf(msg)}
+                                  style={{
+                                    background: '#dc2626',
+                                    borderColor: '#dc2626',
+                                    color: '#ffffff',
+                                    fontWeight: 700,
+                                    fontSize: 11.5,
+                                    borderRadius: 6,
+                                  }}
+                                >
+                                  PDF
+                                </Button>
+                              </Tooltip>
+                            )}
+                            {canAiExport && (
+                              <Tooltip title="Download Excel (.xls) Report">
+                                <Button
+                                  size="small"
+                                  icon={<FileExcelOutlined />}
+                                  onClick={() => handleExportExcel(msg)}
+                                  style={{
+                                    background: '#059669',
+                                    borderColor: '#059669',
+                                    color: '#ffffff',
+                                    fontWeight: 700,
+                                    fontSize: 11.5,
+                                    borderRadius: 6,
+                                  }}
+                                >
+                                  Excel
+                                </Button>
+                              </Tooltip>
+                            )}
                           </div>
                         </div>
                       )}
@@ -2739,28 +2751,32 @@ const AiAssistantPage: React.FC = () => {
                             WhatsApp
                           </Button>
                         </Tooltip>
-                        <Tooltip title="Download PDF Report">
-                          <Button
-                            type="text"
-                            size="small"
-                            icon={<FilePdfOutlined style={{ color: '#ef4444' }} />}
-                            onClick={() => handleExportPdf(msg)}
-                            style={{ fontSize: 11.5, padding: '0 6px', height: 'auto', color: '#ef4444', fontWeight: 600 }}
-                          >
-                            PDF
-                          </Button>
-                        </Tooltip>
-                        <Tooltip title="Download Excel (.xls) Report">
-                          <Button
-                            type="text"
-                            size="small"
-                            icon={<FileExcelOutlined style={{ color: '#10b981' }} />}
-                            onClick={() => handleExportExcel(msg)}
-                            style={{ fontSize: 11.5, padding: '0 6px', height: 'auto', color: '#10b981', fontWeight: 600 }}
-                          >
-                            Excel
-                          </Button>
-                        </Tooltip>
+                        {(canAiExport || canAiPrint) && (
+                          <Tooltip title="Download PDF Report">
+                            <Button
+                              type="text"
+                              size="small"
+                              icon={<FilePdfOutlined style={{ color: '#ef4444' }} />}
+                              onClick={() => handleExportPdf(msg)}
+                              style={{ fontSize: 11.5, padding: '0 6px', height: 'auto', color: '#ef4444', fontWeight: 600 }}
+                            >
+                              PDF
+                            </Button>
+                          </Tooltip>
+                        )}
+                        {canAiExport && (
+                          <Tooltip title="Download Excel (.xls) Report">
+                            <Button
+                              type="text"
+                              size="small"
+                              icon={<FileExcelOutlined style={{ color: '#10b981' }} />}
+                              onClick={() => handleExportExcel(msg)}
+                              style={{ fontSize: 11.5, padding: '0 6px', height: 'auto', color: '#10b981', fontWeight: 600 }}
+                            >
+                              Excel
+                            </Button>
+                          </Tooltip>
+                        )}
                         <Tooltip title="Copy Report">
                           <Button
                             type="text"
@@ -3025,48 +3041,52 @@ const AiAssistantPage: React.FC = () => {
             </Popover>
 
             {/* Voice language toggle (browser speech recognition): UR ↔ EN */}
-            <Tooltip title={voiceLang === 'ur-PK' ? 'Voice language: Urdu (click to switch to English)' : 'Voice language: English (click to switch to Urdu)'}>
-              <Button
-                type="text"
-                size="small"
-                onClick={toggleVoiceLang}
-                disabled={loading || isListening}
-                style={{ fontWeight: 700, fontSize: 12, padding: '0 6px', flexShrink: 0 }}
-              >
-                {voiceLang === 'ur-PK' ? 'UR' : 'EN'}
-              </Button>
-            </Tooltip>
+            {canAiVoice && (
+              <>
+                <Tooltip title={voiceLang === 'ur-PK' ? 'Voice language: Urdu (click to switch to English)' : 'Voice language: English (click to switch to Urdu)'}>
+                  <Button
+                    type="text"
+                    size="small"
+                    onClick={toggleVoiceLang}
+                    disabled={loading || isListening}
+                    style={{ fontWeight: 700, fontSize: 12, padding: '0 6px', flexShrink: 0 }}
+                  >
+                    {voiceLang === 'ur-PK' ? 'UR' : 'EN'}
+                  </Button>
+                </Tooltip>
 
-            {/* Voice Input Microphone Button — Supports Urdu & English voice input */}
-            <Tooltip
-              title={
-                isListening
-                  ? `Stop & send (${elapsedSeconds}s)`
-                  : `Record a voice question (${voiceLang === 'ur-PK' ? 'Urdu' : 'English'})`
-              }
-            >
-              <Button
-                type="text"
-                shape="circle"
-                icon={
-                  isListening ? (
-                    <AudioMutedOutlined style={{ color: '#ffffff', fontSize: 16 }} />
-                  ) : (
-                    <AudioOutlined style={{ color: isDark ? '#93c5fd' : '#2563eb', fontSize: 16 }} />
-                  )
-                }
-                onClick={handleMicToggle}
-                disabled={loading}
-                style={{
-                  background: isListening ? '#ef4444' : isDark ? '#334155' : '#e2e8f0',
-                  width: 36,
-                  height: 36,
-                  flexShrink: 0,
-                  transition: 'all 0.2s ease',
-                  cursor: 'pointer',
-                }}
-              />
-            </Tooltip>
+                {/* Voice Input Microphone Button — Supports Urdu & English voice input */}
+                <Tooltip
+                  title={
+                    isListening
+                      ? `Stop & send (${elapsedSeconds}s)`
+                      : `Record a voice question (${voiceLang === 'ur-PK' ? 'Urdu' : 'English'})`
+                  }
+                >
+                  <Button
+                    type="text"
+                    shape="circle"
+                    icon={
+                      isListening ? (
+                        <AudioMutedOutlined style={{ color: '#ffffff', fontSize: 16 }} />
+                      ) : (
+                        <AudioOutlined style={{ color: isDark ? '#93c5fd' : '#2563eb', fontSize: 16 }} />
+                      )
+                    }
+                    onClick={handleMicToggle}
+                    disabled={loading}
+                    style={{
+                      background: isListening ? '#ef4444' : isDark ? '#334155' : '#e2e8f0',
+                      width: 36,
+                      height: 36,
+                      flexShrink: 0,
+                      transition: 'all 0.2s ease',
+                      cursor: 'pointer',
+                    }}
+                  />
+                </Tooltip>
+              </>
+            )}
 
             {/* Send Button — Click to submit typed question OR run report for selected Division/Dept/Date */}
             <Tooltip title="Send query or run report for selected filters">
@@ -3133,18 +3153,22 @@ const AiAssistantPage: React.FC = () => {
       footer={
         <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
           <div style={{ display: 'flex', gap: 8 }}>
-            <Button
-              icon={<FilePdfOutlined />}
-              onClick={() => whatsappModalMsg && handleExportPdf(whatsappModalMsg)}
-            >
-              Download PDF
-            </Button>
-            <Button
-              icon={<FileExcelOutlined />}
-              onClick={() => whatsappModalMsg && handleExportExcel(whatsappModalMsg)}
-            >
-              Download Excel
-            </Button>
+            {(canAiExport || canAiPrint) && (
+              <Button
+                icon={<FilePdfOutlined />}
+                onClick={() => whatsappModalMsg && handleExportPdf(whatsappModalMsg)}
+              >
+                Download PDF
+              </Button>
+            )}
+            {canAiExport && (
+              <Button
+                icon={<FileExcelOutlined />}
+                onClick={() => whatsappModalMsg && handleExportExcel(whatsappModalMsg)}
+              >
+                Download Excel
+              </Button>
+            )}
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <Button

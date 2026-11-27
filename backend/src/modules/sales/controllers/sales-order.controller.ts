@@ -99,7 +99,7 @@ export class SalesOrderController {
   @Get('command-overview')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('sales.orders.view')
+  @RequirePermission('sales.order_command.view', 'sales.orders.view')
   @ApiOperation({ summary: 'Get all-time sales order command & fulfillment overview with Ready Packed aging' })
   async getCommandOverview(
     @Req() req: any,
@@ -205,7 +205,7 @@ export class SalesOrderController {
   @Patch(':id/revert-delivery')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('admin.users.view')
+  @RequirePermission('sales.orders.revert_delivery')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Admin-only: Revert a Delivered or Shipped sales order back to Processing or Confirmed' })
   async revertDelivery(@Req() req: any, @Param('id') id: string) {
@@ -306,7 +306,7 @@ export class SalesOrderController {
   @Delete(':id')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('sales.orders.update')
+  @RequirePermission('sales.orders.delete')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Move a Draft sales order to the Recycle Bin (reversible)' })
   async remove(@Req() req: any, @Param('id') id: string) {

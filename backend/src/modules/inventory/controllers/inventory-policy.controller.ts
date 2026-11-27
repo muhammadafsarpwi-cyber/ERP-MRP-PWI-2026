@@ -139,7 +139,7 @@ export class InventoryPolicyController {
 
   @Delete(':id')
   @UseGuards(PermissionGuard)
-  @RequirePermission('inventory.policy.update')
+  @RequirePermission('inventory.policy.delete')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Delete inventory policy' })
   @ApiParam({ name: 'id' })

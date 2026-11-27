@@ -1157,22 +1157,37 @@ export class StoreService implements OnModuleInit {
     machineId: string,
     itemId: string,
     asOfDate?: string,
+    excludeIssueId?: string,
   ) {
     if (!machineId || !itemId || machineId === 'OTHER_GENERAL') {
       return { hasPreviousIssue: false };
     }
 
-    const [machineRows, itemRows] = await Promise.all([
+    const [machineRows, itemRows, convRows] = await Promise.all([
       this.storeRepo.manager.query(
-        `SELECT id, machine_code, name FROM machines WHERE id = $1 LIMIT 1`,
+        `SELECT id, machine_code, machine_name AS name, machine_number
+         FROM machines
+         WHERE id = $1
+         LIMIT 1`,
         [machineId],
       ),
       this.storeRepo.manager.query(
         `SELECT i.id, i.item_code, i.name, u.code AS uom_code
          FROM items i
          LEFT JOIN uoms u ON u.id = i.base_uom_id
-         WHERE i.id = $1 LIMIT 1`,
+         WHERE i.id = $1
+         LIMIT 1`,
         [itemId],
+      ),
+      this.storeRepo.manager.query(
+        `SELECT uc.conversion_factor::numeric AS factor
+         FROM uom_conversions uc
+         INNER JOIN uoms u1 ON u1.id = uc.from_uom_id
+         INNER JOIN uoms u2 ON u2.id = uc.to_uom_id
+         WHERE UPPER(u1.code) IN ('GRS', 'GROSS')
+           AND UPPER(u2.code) IN ('PCS', 'PC')
+           AND COALESCE(uc.conversion_factor, 0) > 0
+         LIMIT 1`,
       ),
     ]);
 
@@ -1182,13 +1197,31 @@ export class StoreService implements OnModuleInit {
       return { hasPreviousIssue: false };
     }
 
+    const pcsPerGross = Number(convRows?.[0]?.factor || 144) || 144;
     const machineCode = String(machine.machine_code || '').trim();
+    const machineNumber = String(machine.machine_number || '').trim();
+    const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const buildTokenRegex = (code: string) =>
+      code ? `(^|[^A-Za-z0-9])${escapeRegex(code)}([^A-Za-z0-9]|$)` : null;
+    const machineCodeRegex = buildTokenRegex(machineCode);
+    const machineNumberRegex =
+      machineNumber && machineNumber.toUpperCase() !== machineCode.toUpperCase()
+        ? buildTokenRegex(machineNumber)
+        : null;
+
     const issueRows = await this.storeRepo.manager.query(
       `SELECT mi.id,
               mi.issue_number,
               mi.issue_date::date::text AS issue_date,
               mi.status,
+              mi.reference_document,
+              mi.purpose,
+              mi.operator_name,
+              mi.shift_incharge_name,
+              mi.remarks AS issue_remarks,
               mil.quantity,
+              mil.old_item_returned_qty,
+              mil.remarks AS line_remarks,
               COALESCE(u.code, $4, 'PCS') AS uom_code
        FROM material_issue_lines mil
        INNER JOIN material_issues mi ON mi.id = mil.issue_id
@@ -1196,13 +1229,37 @@ export class StoreService implements OnModuleInit {
        WHERE mil.item_id = $1
          AND mi.company_id = $2
          AND mi.deleted_at IS NULL
-         AND COALESCE(UPPER(mi.status), '') <> 'CANCELLED'
+         AND COALESCE(UPPER(mi.status), '') = 'POSTED'
+         AND ($5::uuid IS NULL OR mi.id <> $5::uuid)
+         AND ($6::date IS NULL OR mi.issue_date::date <= $6::date)
          AND (
-           mi.reference_document ILIKE '%' || $3 || '%'
-           OR mi.remarks ILIKE '%' || $3 || '%'
+           ($3::text IS NOT NULL AND (
+             COALESCE(mi.reference_document, '') ~* $3
+             OR COALESCE(mi.remarks, '') ~* $3
+           ))
+           OR ($7::text IS NOT NULL AND (
+             COALESCE(mi.reference_document, '') ~* $7
+             OR COALESCE(mi.remarks, '') ~* $7
+           ))
+           OR EXISTS (
+             SELECT 1
+             FROM component_changes cc
+             WHERE cc.store_issue_id = mi.id
+               AND cc.machine_id = $8
+               AND COALESCE(cc.is_active, true) = true
+           )
          )
        ORDER BY mi.issue_date DESC, mi.created_at DESC`,
-      [itemId, companyId, machineCode, item.uom_code || 'PCS'],
+      [
+        itemId,
+        companyId,
+        machineCodeRegex,
+        item.uom_code || 'PCS',
+        excludeIssueId || null,
+        asOfDate || null,
+        machineNumberRegex,
+        machineId,
+      ],
     );
 
     if (!issueRows.length) {
@@ -1215,6 +1272,8 @@ export class StoreService implements OnModuleInit {
         itemCode: item.item_code,
         itemName: item.name,
         totalIssuesToMachine: 0,
+        pcsPerGross,
+        history: [],
       };
     }
 
@@ -1225,49 +1284,95 @@ export class StoreService implements OnModuleInit {
     const diffMs = Math.max(0, refDate.getTime() - prevDate.getTime());
     const daysSinceLastIssue = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
-    // Sum total Good Production Qty & Weight (Kg) on this machine since lastIssueDate
+    // Sum good production qty, GRS/PCS equivalents, and weight (Kg) once per production entry
     const prodRows = await this.storeRepo.manager.query(
-      `WITH entry_lines AS (
+      `WITH per_entry AS (
          SELECT
            pe.id AS entry_id,
-           pe.running_hours,
-           COALESCE(pei.actual_quantity, pe.actual_quantity, 0)::numeric AS actual_qty,
-           COALESCE(u_line.code, u_hdr.code, 'PCS') AS uom_code,
-           COALESCE(it_line.weight_per_piece, it_hdr.weight_per_piece, 0)::numeric AS w_piece,
-           COALESCE(it_line.weight_per_meter, it_hdr.weight_per_meter, 0)::numeric AS w_meter,
-           COALESCE(it_line.pieces_per_kg, it_hdr.pieces_per_kg, 0)::numeric AS pcs_per_kg
+           COALESCE(pe.running_hours, 0)::numeric AS running_hours,
+           CASE
+             WHEN COALESCE(pe.actual_quantity, 0) > 0 THEN pe.actual_quantity::numeric
+             ELSE COALESCE(pei_fallback.primary_qty, 0)::numeric
+           END AS entry_qty,
+           UPPER(COALESCE(u_hdr.code, pei_fallback.uom_code, 'PCS')) AS uom_code,
+           COALESCE(NULLIF(it_hdr.weight_per_piece, 0), pei_fallback.w_piece, 0)::numeric AS w_piece,
+           COALESCE(NULLIF(it_hdr.weight_per_meter, 0), pei_fallback.w_meter, 0)::numeric AS w_meter,
+           COALESCE(NULLIF(it_hdr.pieces_per_kg, 0), pei_fallback.pcs_per_kg, 0)::numeric AS pcs_per_kg,
+           COALESCE(uc_to_pcs.conversion_factor, 0)::numeric AS factor_to_pcs
          FROM production_entries pe
-         LEFT JOIN production_entry_items pei
-           ON pei.production_entry_id = pe.id AND pei.deleted_at IS NULL AND pei.is_active = true
-         LEFT JOIN items it_line ON it_line.id = pei.item_id
+         LEFT JOIN LATERAL (
+           SELECT
+             COALESCE(pei.actual_quantity, 0)::numeric AS primary_qty,
+             u_line.code AS uom_code,
+             COALESCE(it_line.weight_per_piece, 0)::numeric AS w_piece,
+             COALESCE(it_line.weight_per_meter, 0)::numeric AS w_meter,
+             COALESCE(it_line.pieces_per_kg, 0)::numeric AS pcs_per_kg
+           FROM production_entry_items pei
+           LEFT JOIN items it_line ON it_line.id = pei.item_id
+           LEFT JOIN uoms u_line ON u_line.id = pei.uom_id
+           WHERE pei.production_entry_id = pe.id
+             AND pei.deleted_at IS NULL
+             AND COALESCE(pei.is_active, true) = true
+           ORDER BY pei.created_at ASC
+           LIMIT 1
+         ) pei_fallback ON true
          LEFT JOIN items it_hdr ON it_hdr.id = pe.item_id
-         LEFT JOIN uoms u_line ON u_line.id = pei.uom_id
          LEFT JOIN uoms u_hdr ON u_hdr.id = pe.uom_id
+         LEFT JOIN LATERAL (
+           SELECT id FROM uoms WHERE UPPER(code) = 'PCS' LIMIT 1
+         ) u_pcs ON true
+         LEFT JOIN uom_conversions uc_to_pcs
+           ON uc_to_pcs.from_uom_id = COALESCE(pe.uom_id, it_hdr.base_uom_id)
+          AND uc_to_pcs.to_uom_id = u_pcs.id
          WHERE pe.company_id = $1
            AND pe.deleted_at IS NULL
-           AND pe.is_active = true
+           AND COALESCE(pe.is_active, true) = true
            AND (pe.machine_id = $2 OR UPPER(COALESCE(pe.machine_no, '')) = UPPER($3))
-           AND pe.entry_date >= $4::date
-           AND ($5::date IS NULL OR pe.entry_date <= $5::date)
+           AND pe.entry_date::date >= $4::date
+           AND ($5::date IS NULL OR pe.entry_date::date <= $5::date)
        )
        SELECT
-         COUNT(DISTINCT entry_id)::int AS entry_count,
-         COALESCE(SUM(actual_qty), 0)::numeric AS total_qty,
+         COUNT(*)::int AS entry_count,
+         COALESCE(SUM(running_hours), 0)::numeric AS total_running_hours,
+         COALESCE(SUM(entry_qty), 0)::numeric AS total_qty,
          MAX(uom_code) AS primary_uom,
          COALESCE(SUM(
            CASE
-             WHEN UPPER(uom_code) IN ('KG', 'KGS') THEN actual_qty
-             WHEN w_piece > 0 THEN actual_qty * w_piece
-             WHEN pcs_per_kg > 0 THEN actual_qty / pcs_per_kg
-             WHEN w_meter > 0 THEN actual_qty * w_meter
+             WHEN uom_code IN ('PCS', 'PC', 'NOS', 'UNIT', 'UNITS') THEN entry_qty
+             WHEN uom_code IN ('GRS', 'GROSS') THEN entry_qty * $6::numeric
+             WHEN factor_to_pcs > 0 THEN entry_qty * factor_to_pcs
+             ELSE 0
+           END
+         ), 0)::numeric AS total_pcs_qty,
+         COALESCE(SUM(
+           CASE
+             WHEN uom_code IN ('KG', 'KGS') THEN entry_qty
+             WHEN w_piece > 0 THEN entry_qty * w_piece
+             WHEN pcs_per_kg > 0 THEN entry_qty / pcs_per_kg
+             WHEN w_meter > 0 THEN entry_qty * w_meter
              ELSE 0
            END
          ), 0)::numeric AS total_weight_kg
-       FROM entry_lines`,
-      [companyId, machineId, machineCode, lastIssueDate, asOfDate || null],
+       FROM per_entry`,
+      [companyId, machineId, machineCode, lastIssueDate, asOfDate || null, pcsPerGross],
     );
 
     const prod = prodRows[0] || {};
+    const totalQty = Number(prod.total_qty || 0);
+    const primaryUom = String(prod.primary_uom || 'PCS').toUpperCase();
+    const rawPcsQty = Number(prod.total_pcs_qty || 0);
+    const totalPcsQty =
+      rawPcsQty > 0
+        ? rawPcsQty
+        : ['GRS', 'GROSS'].includes(primaryUom)
+        ? totalQty * pcsPerGross
+        : ['PCS', 'PC', 'NOS', 'UNIT', 'UNITS'].includes(primaryUom)
+        ? totalQty
+        : 0;
+    const totalGrossQty =
+      totalPcsQty > 0 && pcsPerGross > 0
+        ? Number((totalPcsQty / pcsPerGross).toFixed(2))
+        : null;
 
     return {
       hasPreviousIssue: true,
@@ -1282,14 +1387,34 @@ export class StoreService implements OnModuleInit {
       lastIssueDate,
       lastIssueQty: Number(latest.quantity || 0),
       lastIssueUom: latest.uom_code || item.uom_code || 'PCS',
+      lastOperatorName: latest.operator_name || null,
+      lastShiftInchargeName: latest.shift_incharge_name || null,
       daysSinceLastIssue,
       totalIssuesToMachine: issueRows.length,
+      pcsPerGross,
       productionSinceLastIssue: {
         entryCount: Number(prod.entry_count || 0),
-        totalQty: Number(prod.total_qty || 0),
-        uomCode: prod.primary_uom || 'PCS',
+        totalQty,
+        uomCode: primaryUom,
+        totalPcsQty: Math.round(totalPcsQty),
+        totalGrossQty,
         totalWeightKg: Number(Number(prod.total_weight_kg || 0).toFixed(2)),
+        runningHours: Number(Number(prod.total_running_hours || 0).toFixed(2)),
       },
+      history: issueRows.map((row: any) => ({
+        id: row.id,
+        issueNumber: row.issue_number,
+        issueDate: row.issue_date,
+        status: row.status,
+        quantity: Number(row.quantity || 0),
+        uomCode: row.uom_code || item.uom_code || 'PCS',
+        operatorName: row.operator_name || null,
+        shiftInchargeName: row.shift_incharge_name || null,
+        referenceDocument: row.reference_document || null,
+        purpose: row.purpose || null,
+        oldItemReturnedQty: Number(row.old_item_returned_qty || 0),
+        remarks: row.line_remarks || row.issue_remarks || null,
+      })),
     };
   }
 
@@ -1419,30 +1544,33 @@ export class StoreService implements OnModuleInit {
     return issues;
   }
 
+  private extractLineLastIssuedSummary(row: any): string {
+    const rawRemarks = String(row?.remarks || '').trim();
+    const lastIdx = rawRemarks.indexOf('Last Issued:');
+    if (lastIdx >= 0) {
+      return rawRemarks.slice(lastIdx).trim();
+    }
+    if (rawRemarks.includes('First time issuing this part to this machine')) {
+      return 'First time issuing this part to this machine';
+    }
+    if (row?.prev_issue_number && row?.prev_issue_date) {
+      const dt = new Date(row.prev_issue_date);
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const dd = String(dt.getUTCDate()).padStart(2, '0');
+      const dateFmt = Number.isNaN(dt.getTime())
+        ? row.prev_issue_date
+        : `${dd}-${months[dt.getUTCMonth()]}-${dt.getUTCFullYear()}`;
+      return `Last Issued: ${dateFmt} (${row.prev_issue_number} · ${Number(row.prev_qty || 0).toLocaleString()} ${row.prev_uom_code || row.uom_code || 'PCS'})`;
+    }
+    return 'First time issuing this part to this machine';
+  }
+
   private async attachEnrichedIssueLines(issues: MaterialIssue[]): Promise<void> {
     const issueIds = issues.map((i) => i.id).filter(Boolean);
     if (issueIds.length === 0) return;
 
     try {
-      const rows: Array<{
-        id: string;
-        issue_id: string;
-        line_number: number;
-        item_id: string;
-        quantity: string | number;
-        unit_cost: string | number | null;
-        total_cost: string | number | null;
-        uom_id: string;
-        batch_id: string | null;
-        serial_number: string | null;
-        requires_old_item_return: boolean;
-        old_item_returned_qty: string | number;
-        remarks: string | null;
-        item_code: string | null;
-        item_name: string | null;
-        item_type: string | null;
-        uom_code: string | null;
-      }> = await this.storeRepo.manager.query(
+      const rows: Array<any> = await this.storeRepo.manager.query(
         `SELECT mil.id,
                 mil.issue_id,
                 mil.line_number,
@@ -1459,11 +1587,51 @@ export class StoreService implements OnModuleInit {
                 i.item_code,
                 i.name AS item_name,
                 i.item_type,
-                COALESCE(u.code, bu.code) AS uom_code
+                COALESCE(u.code, bu.code) AS uom_code,
+                COALESCE(bal.available_stock, 0)::numeric AS remaining_stock,
+                COALESCE(bal.on_hand_stock, 0)::numeric AS on_hand_stock,
+                prev_iss.prev_issue_number,
+                prev_iss.prev_issue_date,
+                prev_iss.prev_qty,
+                prev_iss.prev_uom_code
            FROM material_issue_lines mil
+           INNER JOIN material_issues mi ON mi.id = mil.issue_id
+           LEFT JOIN stores s ON s.id = mi.store_id
            LEFT JOIN items i ON i.id = mil.item_id
            LEFT JOIN uoms u ON u.id = mil.uom_id
            LEFT JOIN uoms bu ON bu.id = i.base_uom_id
+           LEFT JOIN LATERAL (
+             SELECT COALESCE(SUM(ib.available), 0) AS available_stock,
+                    COALESCE(SUM(ib.on_hand), 0) AS on_hand_stock
+               FROM inventory_balances ib
+              WHERE ib.company_id = mi.company_id
+                AND ib.warehouse_id = s.warehouse_id
+                AND ib.item_id = mil.item_id
+           ) bal ON true
+           LEFT JOIN LATERAL (
+             SELECT mi_prev.issue_number AS prev_issue_number,
+                    mi_prev.issue_date::date::text AS prev_issue_date,
+                    mil_prev.quantity AS prev_qty,
+                    COALESCE(u_prev.code, bu.code, 'PCS') AS prev_uom_code
+               FROM material_issue_lines mil_prev
+               INNER JOIN material_issues mi_prev ON mi_prev.id = mil_prev.issue_id
+               LEFT JOIN uoms u_prev ON u_prev.id = mil_prev.uom_id
+              WHERE mil_prev.item_id = mil.item_id
+                AND mi_prev.company_id = mi.company_id
+                AND mi_prev.deleted_at IS NULL
+                AND COALESCE(UPPER(mi_prev.status), '') = 'POSTED'
+                AND mi_prev.id <> mi.id
+                AND (
+                  mi_prev.issue_date::date < mi.issue_date::date
+                  OR (mi_prev.issue_date::date = mi.issue_date::date AND mi_prev.created_at < mi.created_at)
+                )
+                AND (
+                  COALESCE(mi.reference_document, '') NOT ILIKE 'Machine:%'
+                  OR COALESCE(mi_prev.reference_document, '') = COALESCE(mi.reference_document, '')
+                )
+              ORDER BY mi_prev.issue_date DESC, mi_prev.created_at DESC
+              LIMIT 1
+           ) prev_iss ON true
           WHERE mil.issue_id = ANY($1)
           ORDER BY mil.line_number ASC, mil.created_at ASC`,
         [issueIds],
@@ -1490,6 +1658,9 @@ export class StoreService implements OnModuleInit {
           itemName: r.item_name || '',
           itemType: r.item_type || '',
           uomCode: r.uom_code || '',
+          remainingStock: Number(r.remaining_stock ?? 0),
+          onHandStock: Number(r.on_hand_stock ?? 0),
+          lastIssuedSummary: this.extractLineLastIssuedSummary(r),
         });
         byIssueId.set(r.issue_id, list);
       }
@@ -1512,19 +1683,60 @@ export class StoreService implements OnModuleInit {
     this.assertCompanyOwned(issue, companyId, 'Material issue');
     this.assertDivisionOwned(issue, allowedDivisionIds);
 
-    // Enrich line items with itemCode, itemName, and uomCode for Print/PDF & Edit modals
+    // Enrich line items with itemCode, itemName, uomCode, remainingStock, and lastIssuedSummary for Print/PDF, WhatsApp & Edit modals
     if (issue.lines && issue.lines.length > 0) {
       try {
         const lineDetails = await this.storeRepo.manager.query(
           `SELECT mil.id AS line_id,
+                  mil.remarks,
                   i.item_code,
                   i.name AS item_name,
                   i.item_type,
-                  COALESCE(u.code, bu.code) AS uom_code
+                  COALESCE(u.code, bu.code) AS uom_code,
+                  COALESCE(bal.available_stock, 0)::numeric AS remaining_stock,
+                  COALESCE(bal.on_hand_stock, 0)::numeric AS on_hand_stock,
+                  prev_iss.prev_issue_number,
+                  prev_iss.prev_issue_date,
+                  prev_iss.prev_qty,
+                  prev_iss.prev_uom_code
            FROM material_issue_lines mil
+           INNER JOIN material_issues mi ON mi.id = mil.issue_id
+           LEFT JOIN stores s ON s.id = mi.store_id
            LEFT JOIN items i ON i.id = mil.item_id
            LEFT JOIN uoms u ON u.id = mil.uom_id
            LEFT JOIN uoms bu ON bu.id = i.base_uom_id
+           LEFT JOIN LATERAL (
+             SELECT COALESCE(SUM(ib.available), 0) AS available_stock,
+                    COALESCE(SUM(ib.on_hand), 0) AS on_hand_stock
+               FROM inventory_balances ib
+              WHERE ib.company_id = mi.company_id
+                AND ib.warehouse_id = s.warehouse_id
+                AND ib.item_id = mil.item_id
+           ) bal ON true
+           LEFT JOIN LATERAL (
+             SELECT mi_prev.issue_number AS prev_issue_number,
+                    mi_prev.issue_date::date::text AS prev_issue_date,
+                    mil_prev.quantity AS prev_qty,
+                    COALESCE(u_prev.code, bu.code, 'PCS') AS prev_uom_code
+               FROM material_issue_lines mil_prev
+               INNER JOIN material_issues mi_prev ON mi_prev.id = mil_prev.issue_id
+               LEFT JOIN uoms u_prev ON u_prev.id = mil_prev.uom_id
+              WHERE mil_prev.item_id = mil.item_id
+                AND mi_prev.company_id = mi.company_id
+                AND mi_prev.deleted_at IS NULL
+                AND COALESCE(UPPER(mi_prev.status), '') = 'POSTED'
+                AND mi_prev.id <> mi.id
+                AND (
+                  mi_prev.issue_date::date < mi.issue_date::date
+                  OR (mi_prev.issue_date::date = mi.issue_date::date AND mi_prev.created_at < mi.created_at)
+                )
+                AND (
+                  COALESCE(mi.reference_document, '') NOT ILIKE 'Machine:%'
+                  OR COALESCE(mi_prev.reference_document, '') = COALESCE(mi.reference_document, '')
+                )
+              ORDER BY mi_prev.issue_date DESC, mi_prev.created_at DESC
+              LIMIT 1
+           ) prev_iss ON true
            WHERE mil.issue_id = $1`,
           [issue.id],
         );
@@ -1539,6 +1751,9 @@ export class StoreService implements OnModuleInit {
             itemName: d?.item_name || l.itemName || '',
             itemType: d?.item_type || l.itemType || '',
             uomCode: d?.uom_code || l.uomCode || '',
+            remainingStock: d?.remaining_stock != null ? Number(d.remaining_stock) : 0,
+            onHandStock: d?.on_hand_stock != null ? Number(d.on_hand_stock) : 0,
+            lastIssuedSummary: d ? this.extractLineLastIssuedSummary(d) : l.lastIssuedSummary,
           };
         });
       } catch {
@@ -1591,7 +1806,12 @@ export class StoreService implements OnModuleInit {
     allowedDivisionIds?: DivisionAccess,
   ) {
     const issue = await this.findMaterialIssueById(id, companyId, allowedDivisionIds);
-    if (issue.status !== 'DRAFT') throw new BadRequestException('Only DRAFT issues can be edited');
+    if (issue.status === 'CANCELLED') {
+      throw new BadRequestException('Cancelled Store Issue Notes cannot be edited');
+    }
+    if (!['DRAFT', 'POSTED'].includes(issue.status)) {
+      throw new BadRequestException(`Store Issue Note with status ${issue.status} cannot be edited`);
+    }
 
     const lines = Array.isArray(payload) ? payload : payload.lines;
     const headerUpdates: Partial<MaterialIssue> = { updatedBy: userId };
@@ -1611,29 +1831,294 @@ export class StoreService implements OnModuleInit {
       if (payload.issuedByName !== undefined) headerUpdates.issuedByName = payload.issuedByName || null;
     }
 
-    if (lines && lines.length > 0) {
-      await this.materialIssueLineRepo.delete({ issueId: id });
-      for (let i = 0; i < lines.length; i++) {
-        const line = this.materialIssueLineRepo.create({
-          issueId: id,
-          lineNumber: i + 1,
-          itemId: lines[i].itemId,
-          quantity: lines[i].quantity,
-          uomId: lines[i].uomId,
-          batchId: lines[i].batchId || null,
-          serialNumber: lines[i].serialNumber || null,
-          bin: lines[i].bin || null,
-          rack: lines[i].rack || null,
-          requiresOldItemReturn: Boolean(lines[i].requiresOldItemReturn),
-          oldItemReturnedQty: Number(lines[i].oldItemReturnedQty || 0),
-          remarks: lines[i].remarks || null,
-        });
-        await this.materialIssueLineRepo.save(line);
+    if (issue.status === 'DRAFT') {
+      if (lines && lines.length > 0) {
+        await this.materialIssueLineRepo.delete({ issueId: id });
+        for (let i = 0; i < lines.length; i++) {
+          const line = this.materialIssueLineRepo.create({
+            issueId: id,
+            lineNumber: i + 1,
+            itemId: lines[i].itemId,
+            quantity: lines[i].quantity,
+            uomId: lines[i].uomId,
+            batchId: lines[i].batchId || null,
+            serialNumber: lines[i].serialNumber || null,
+            bin: lines[i].bin || null,
+            rack: lines[i].rack || null,
+            requiresOldItemReturn: Boolean(lines[i].requiresOldItemReturn),
+            oldItemReturnedQty: Number(lines[i].oldItemReturnedQty || 0),
+            remarks: lines[i].remarks || null,
+          });
+          await this.materialIssueLineRepo.save(line);
+        }
       }
+
+      await this.materialIssueRepo.update(id, headerUpdates);
+    } else {
+      // POSTED SIN edit: atomically reverse old stock deductions & re-post updated quantities
+      const oldStoreId = issue.storeId;
+      const targetStoreId = headerUpdates.storeId || oldStoreId;
+      const oldStore = oldStoreId ? await this.storeRepo.findOne({ where: { id: oldStoreId } }) : null;
+      const targetStore = targetStoreId ? await this.storeRepo.findOne({ where: { id: targetStoreId } }) : null;
+      if (!oldStore?.warehouseId || !targetStore?.warehouseId) {
+        throw new BadRequestException('Source store has no linked warehouse; cannot reconcile inventory for posted SIN edit');
+      }
+
+      const needsStockReconciliation = Boolean(
+        (lines && lines.length > 0) || (headerUpdates.storeId && headerUpdates.storeId !== oldStoreId),
+      );
+
+      await this.materialIssueRepo.manager.transaction(async (manager) => {
+        const repo = manager.getRepository(MaterialIssue);
+        const lineRepo = manager.getRepository(MaterialIssueLine);
+        const locked = await repo
+          .createQueryBuilder('mi')
+          .setLock('pessimistic_write')
+          .where('mi.id = :id', { id })
+          .getOne();
+        if (!locked) throw new NotFoundException(`Material issue ${id} not found`);
+        if (locked.status !== 'POSTED') {
+          throw new BadRequestException('Store Issue Note status changed concurrently; please refresh and retry');
+        }
+
+        const oldLines = await lineRepo.find({
+          where: { issueId: locked.id },
+          order: { lineNumber: 'ASC' },
+        });
+
+        if (needsStockReconciliation) {
+          // 1. Reverse previous stock deductions & scrap returns
+          for (const oldLine of oldLines) {
+            const oldQty = Number(oldLine.quantity || 0);
+            if (oldQty > 0) {
+              const { postQty, postUomId } = await this.convertToBaseUom(
+                manager,
+                oldLine.itemId,
+                oldLine.uomId,
+                oldQty,
+              );
+              const revUnitCost = Number(oldLine.unitCost || 0) > 0 ? Number(oldLine.unitCost) : null;
+              await this.stockLedgerService.create(
+                {
+                  companyId: locked.companyId,
+                  transactionType: 'ADJUSTMENT_IN',
+                  transactionDate: new Date(),
+                  itemId: oldLine.itemId,
+                  warehouseId: oldStore.warehouseId!,
+                  batchId: oldLine.batchId || undefined,
+                  quantity: postQty,
+                  unitCost: revUnitCost,
+                  totalCost: revUnitCost ? Number((postQty * revUnitCost).toFixed(4)) : null,
+                  uomId: postUomId,
+                  direction: 'IN',
+                  referenceType: 'MATERIAL_ISSUE',
+                  referenceId: locked.id,
+                  referenceNumber: locked.issueNumber,
+                  notes: `Reversal for edit of Store Issue Note ${locked.issueNumber}`,
+                  createdBy: userId,
+                  divisionId: locked.divisionId,
+                  sectionId: locked.sectionId,
+                  departmentId: locked.departmentId || locked.issuedToDepartmentId,
+                },
+                manager,
+              );
+              await this.inventoryBalanceService.updateBalance(
+                locked.companyId,
+                oldLine.itemId,
+                oldStore.warehouseId!,
+                null,
+                oldLine.batchId,
+                postUomId,
+                postQty,
+                'IN',
+                manager,
+              );
+            }
+
+            const oldScrap = Number(oldLine.oldItemReturnedQty || 0);
+            if (oldScrap > 0) {
+              const oldScrapConv = await this.convertToBaseUom(
+                manager,
+                oldLine.itemId,
+                oldLine.uomId,
+                oldScrap,
+              );
+              const balRepo = manager.getRepository(InventoryBalance);
+              const bal = await balRepo.findOne({
+                where: { companyId: locked.companyId, itemId: oldLine.itemId, warehouseId: oldStore.warehouseId! },
+                lock: { mode: 'pessimistic_write' },
+              });
+              if (bal) {
+                bal.scrapQty = Math.max(0, Number(bal.scrapQty || 0) - oldScrapConv.postQty);
+                await balRepo.save(bal);
+              }
+            }
+          }
+
+          // Reverse linked material request issued quantities if present
+          if (locked.requestId && oldLines.length > 0) {
+            const mrLineRepo = manager.getRepository(MaterialRequestLine);
+            const mrLines = await mrLineRepo.find({ where: { requestId: locked.requestId } });
+            for (const oldLine of oldLines) {
+              const mrLine = mrLines.find((l) => l.itemId === oldLine.itemId);
+              if (mrLine) {
+                await mrLineRepo.update(mrLine.id, {
+                  issuedQuantity: Math.max(0, Number(mrLine.issuedQuantity || 0) - Number(oldLine.quantity || 0)),
+                });
+              }
+            }
+          }
+
+          // 2. Replace line items if provided
+          let activeLines: MaterialIssueLine[] = oldLines;
+          if (lines && lines.length > 0) {
+            await lineRepo.delete({ issueId: locked.id });
+            activeLines = [];
+            for (let i = 0; i < lines.length; i++) {
+              const createdLine = lineRepo.create({
+                issueId: locked.id,
+                lineNumber: i + 1,
+                itemId: lines[i].itemId,
+                quantity: lines[i].quantity,
+                uomId: lines[i].uomId,
+                batchId: lines[i].batchId || null,
+                serialNumber: lines[i].serialNumber || null,
+                bin: lines[i].bin || null,
+                rack: lines[i].rack || null,
+                requiresOldItemReturn: Boolean(lines[i].requiresOldItemReturn),
+                oldItemReturnedQty: Number(lines[i].oldItemReturnedQty || 0),
+                remarks: lines[i].remarks || null,
+              });
+              const savedLine = await lineRepo.save(createdLine);
+              activeLines.push(savedLine);
+            }
+          }
+
+          // 3. Validate stock & re-post updated deductions
+          const policy = await manager.getRepository(InventoryPolicy).findOne({
+            where: { companyId: locked.companyId },
+          });
+          const allowNegative = Boolean(policy?.allowNegativeStock);
+
+          for (const line of activeLines) {
+            const qty = Number(line.quantity || 0);
+            if (qty <= 0) continue;
+
+            const { postQty, postUomId, itemName } = await this.convertToBaseUom(
+              manager,
+              line.itemId,
+              line.uomId,
+              qty,
+            );
+
+            const balRows = await manager
+              .getRepository(InventoryBalance)
+              .createQueryBuilder('ib')
+              .setLock('pessimistic_write')
+              .where('ib.company_id = :companyId AND ib.item_id = :itemId AND ib.warehouse_id = :warehouseId', {
+                companyId: locked.companyId,
+                itemId: line.itemId,
+                warehouseId: targetStore.warehouseId!,
+              })
+              .getMany();
+
+            const availableBaseQty = balRows.reduce((sum, r) => sum + Number(r.available || 0), 0);
+            if (!allowNegative && availableBaseQty < postQty) {
+              throw new BadRequestException(
+                `Insufficient stock for ${itemName}: available ${availableBaseQty}, requested ${postQty}`,
+              );
+            }
+
+            const balCostRow = balRows.find((r) => Number(r.averageCost || r.unitCost || 0) > 0);
+            const baseUnitCost =
+              Number(balCostRow?.averageCost || balCostRow?.unitCost || 0) ||
+              (await this.inventoryBalanceService.getEffectiveUnitCost?.(
+                locked.companyId,
+                line.itemId,
+                targetStore.warehouseId!,
+                manager,
+              )) ||
+              0;
+            const lineUnitCost =
+              baseUnitCost > 0 && qty > 0
+                ? Number(((baseUnitCost * postQty) / qty).toFixed(4))
+                : 0;
+            const lineTotalCost =
+              lineUnitCost > 0 ? Number((qty * lineUnitCost).toFixed(4)) : null;
+
+            if (lineUnitCost > 0) {
+              await lineRepo.update(line.id, {
+                unitCost: lineUnitCost,
+                totalCost: lineTotalCost,
+              });
+            }
+
+            await this.stockLedgerService.create(
+              {
+                companyId: locked.companyId,
+                transactionType: 'MATERIAL_ISSUE',
+                transactionDate: new Date(),
+                itemId: line.itemId,
+                warehouseId: targetStore.warehouseId!,
+                batchId: line.batchId || undefined,
+                quantity: postQty,
+                unitCost: baseUnitCost > 0 ? baseUnitCost : null,
+                totalCost: baseUnitCost > 0 ? Number((postQty * baseUnitCost).toFixed(4)) : null,
+                uomId: postUomId,
+                direction: 'OUT',
+                referenceType: 'MATERIAL_ISSUE',
+                referenceId: locked.id,
+                referenceNumber: locked.issueNumber,
+                notes: `Store Issue Note ${locked.issueNumber} (updated)`,
+                createdBy: userId,
+                divisionId: headerUpdates.divisionId !== undefined ? headerUpdates.divisionId : locked.divisionId,
+                sectionId: headerUpdates.sectionId !== undefined ? headerUpdates.sectionId : locked.sectionId,
+                departmentId:
+                  headerUpdates.departmentId ||
+                  headerUpdates.issuedToDepartmentId ||
+                  locked.departmentId ||
+                  locked.issuedToDepartmentId,
+              },
+              manager,
+            );
+
+            await this.inventoryBalanceService.updateBalance(
+              locked.companyId,
+              line.itemId,
+              targetStore.warehouseId!,
+              null,
+              line.batchId,
+              postUomId,
+              postQty,
+              'OUT',
+              manager,
+            );
+
+            const newScrap = Number(line.oldItemReturnedQty || 0);
+            if (newScrap > 0) {
+              const scrapConv = await this.convertToBaseUom(manager, line.itemId, line.uomId, newScrap);
+              await this.addToScrapOrQuarantinePool(
+                manager,
+                locked.companyId,
+                line.itemId,
+                targetStore.warehouseId!,
+                scrapConv.postUomId,
+                scrapConv.postQty,
+                'scrap',
+              );
+            }
+          }
+
+          if (locked.requestId) {
+            await this.updateRequestIssuedQuantity(locked.requestId, activeLines, manager);
+          }
+        }
+
+        await repo.update(locked.id, headerUpdates);
+      });
     }
 
-    await this.materialIssueRepo.update(id, headerUpdates);
-    if (headerUpdates.issueDate !== undefined && this.toolLifecycleService) {
+    if (this.toolLifecycleService) {
       try {
         await this.toolLifecycleService.recalculateLinkedToolRuns({
           companyId: issue.companyId,

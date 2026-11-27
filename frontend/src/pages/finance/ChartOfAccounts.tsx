@@ -34,6 +34,7 @@ import apiService from '../../services/api';
 import { PageHeader } from '../../components/shared';
 import { formatPkr, downloadCsvFile } from '../../utils/financeHelpers';
 import AccountLedgerModal from './AccountLedgerModal';
+import { usePermission } from '../../hooks/usePermission';
 
 const { Text } = Typography;
 
@@ -69,6 +70,11 @@ const TYPE_COLOR_MAP: Record<string, string> = {
 const ChartOfAccounts: React.FC = () => {
   const { message } = App.useApp();
   const { token } = theme.useToken();
+  const { can } = usePermission();
+  const canCreate = can('finance.account.create');
+  const canUpdate = can('finance.account.update');
+  const canDelete = can('finance.account.delete');
+  const canExport = can('finance.account.export');
   const [data, setData] = useState<Account[]>([]);
   const [loading, setLoading] = useState(false);
   const [seeding, setSeeding] = useState(false);
@@ -355,21 +361,25 @@ const ChartOfAccounts: React.FC = () => {
             title="View Account Ledger"
             onClick={() => setLedgerModalAccount(record)}
           />
-          <Button
-            type="text"
-            size="small"
-            icon={<EditOutlined />}
-            title="Edit Account"
-            onClick={() => openEditModal(record)}
-          />
-          <Popconfirm
-            title="Delete this account?"
-            description="Only accounts with zero journal entries and no sub-accounts can be deleted."
-            onConfirm={() => handleDelete(record.id)}
-            okText="Delete"
-          >
-            <Button type="text" danger size="small" icon={<DeleteOutlined />} title="Delete Account" />
-          </Popconfirm>
+          {canUpdate && (
+            <Button
+              type="text"
+              size="small"
+              icon={<EditOutlined />}
+              title="Edit Account"
+              onClick={() => openEditModal(record)}
+            />
+          )}
+          {canDelete && (
+            <Popconfirm
+              title="Delete this account?"
+              description="Only accounts with zero journal entries and no sub-accounts can be deleted."
+              onConfirm={() => handleDelete(record.id)}
+              okText="Delete"
+            >
+              <Button type="text" danger size="small" icon={<DeleteOutlined />} title="Delete Account" />
+            </Popconfirm>
+          )}
         </Space>
       ),
     },
@@ -385,15 +395,21 @@ const ChartOfAccounts: React.FC = () => {
         icon={<DatabaseOutlined />}
         extra={
           <Space wrap>
-            <Button icon={<SafetyCertificateOutlined />} loading={seeding} onClick={handleSeedStandard}>
-              Verify Corporate COA
-            </Button>
-            <Button icon={<DownloadOutlined />} onClick={handleExportCsv}>
-              Export CSV
-            </Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>
-              Add Ledger / Bank Account
-            </Button>
+            {(canCreate || canUpdate) && (
+              <Button icon={<SafetyCertificateOutlined />} loading={seeding} onClick={handleSeedStandard}>
+                Verify Corporate COA
+              </Button>
+            )}
+            {canExport && (
+              <Button icon={<DownloadOutlined />} onClick={handleExportCsv}>
+                Export CSV
+              </Button>
+            )}
+            {canCreate && (
+              <Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>
+                Add Ledger / Bank Account
+              </Button>
+            )}
           </Space>
         }
       />

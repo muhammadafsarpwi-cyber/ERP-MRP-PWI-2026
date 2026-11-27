@@ -98,9 +98,23 @@ const renderComponent = () =>
 
 describe('PermissionMatrix (2027 Model)', () => {
   beforeEach(() => {
+    localStorage.clear();
+    localStorage.setItem(
+      'erp_user',
+      JSON.stringify({
+        id: 'admin-1',
+        email: 'admin@pwi.com',
+        permissions: ['admin.matrix.view', 'admin.matrix.update', 'admin.matrix.export'],
+      }),
+    );
+    localStorage.setItem('erp_permissions_ts', Date.now().toString());
     apiMock.get.mockReset();
     apiMock.put.mockReset();
     apiMock.get.mockResolvedValue({ data: mockMatrixData } as any);
+  });
+
+  afterEach(() => {
+    localStorage.clear();
   });
 
   it('renders 4 Crystal KPI Cards and 2027 Model badges', async () => {
@@ -195,5 +209,81 @@ describe('PermissionMatrix (2027 Model)', () => {
     await waitFor(() => {
       expect(screen.queryByTestId('matrix-floating-save-dock')).not.toBeInTheDocument();
     });
+  });
+
+  it('renders disambiguated V/A/E/D/P/X/R and un-shadowed DEACTIVATE/MANAGE badges cleanly', async () => {
+    const richMatrix = {
+      roles: [
+        { id: 'role-2', roleCode: 'MGR', name: 'Manager', isSystemRole: false, status: 'ACTIVE' },
+      ],
+      modules: ['finance', 'item'],
+      rows: [
+        {
+          module: 'finance',
+          resource: 'journal',
+          resourceName: 'Vouchers & Journals',
+          permissions: {
+            VIEW: { permissionId: 'f-1', permissionCode: 'finance.journal.view', roleGranted: { 'role-2': true } },
+            CREATE: { permissionId: 'f-2', permissionCode: 'finance.journal.create', roleGranted: { 'role-2': false } },
+            UPDATE: { permissionId: 'f-3', permissionCode: 'finance.journal.update', roleGranted: { 'role-2': false } },
+            DELETE: { permissionId: 'f-4', permissionCode: 'finance.journal.delete', roleGranted: { 'role-2': false } },
+            POST: { permissionId: 'f-5', permissionCode: 'finance.journal.post', roleGranted: { 'role-2': true } },
+            APPROVE: { permissionId: 'f-6', permissionCode: 'finance.journal.approve', roleGranted: { 'role-2': false } },
+            EXPORT: { permissionId: 'f-7', permissionCode: 'finance.journal.export', roleGranted: { 'role-2': true } },
+            PRINT: { permissionId: 'f-8', permissionCode: 'finance.journal.print', roleGranted: { 'role-2': false } },
+            REVERSE: { permissionId: 'f-9', permissionCode: 'finance.journal.reverse', roleGranted: { 'role-2': false } },
+            RESTORE: { permissionId: 'f-10', permissionCode: 'finance.journal.restore', roleGranted: { 'role-2': false } },
+            MANAGE: { permissionId: 'f-11', permissionCode: 'finance.journal.manage', roleGranted: { 'role-2': false } },
+          },
+        },
+        {
+          module: 'item',
+          resource: 'item',
+          resourceName: 'Items Master',
+          permissions: {
+            VIEW: { permissionId: 'i-1', permissionCode: 'item.view', roleGranted: { 'role-2': true } },
+            DELETE: { permissionId: 'i-2', permissionCode: 'item.delete', roleGranted: { 'role-2': false } },
+            DEACTIVATE: { permissionId: 'i-3', permissionCode: 'item.deactivate', roleGranted: { 'role-2': false } },
+          },
+        },
+      ],
+      moduleLabels: { finance: 'Finance', item: 'Item Master' },
+      resourceLabels: {},
+    };
+    apiMock.get.mockResolvedValue({ data: richMatrix } as any);
+    renderComponent();
+
+    expect(await screen.findByText('Vouchers & Journals')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'P' }).length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: 'Ap' })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'X' }).length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: 'Pr' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'R' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Rs' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'M' })).toBeInTheDocument();
+    // DEACTIVATE must not be shadowed when DELETE is also present
+    expect(screen.getByRole('button', { name: 'Dx' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dx' }));
+    expect(await screen.findByTestId('matrix-floating-save-dock')).toBeInTheDocument();
+  });
+
+  it('disables matrix editing controls when user only holds admin.matrix.view', async () => {
+    localStorage.setItem(
+      'erp_user',
+      JSON.stringify({
+        id: 'viewer-1',
+        email: 'viewer@pwi.com',
+        permissions: ['admin.matrix.view'],
+      }),
+    );
+    localStorage.setItem('erp_permissions_ts', Date.now().toString());
+    renderComponent();
+
+    expect(await screen.findByText('Users')).toBeInTheDocument();
+    const vButtons = screen.getAllByRole('button', { name: 'V' });
+    expect(vButtons[0]).toBeDisabled();
+    fireEvent.click(vButtons[0]);
+    expect(screen.queryByTestId('matrix-floating-save-dock')).not.toBeInTheDocument();
   });
 });

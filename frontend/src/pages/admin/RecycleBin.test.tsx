@@ -202,7 +202,7 @@ function mockApi() {
 
 describe('RecycleBin (universal soft-delete dashboard)', () => {
   beforeEach(() => {
-    seedUser(['admin.permissions.view', 'admin.users.view']);
+    seedUser(['admin.recycle_bin.view', 'admin.recycle_bin.restore', 'admin.recycle_bin.purge']);
     mockApi();
   });
 
@@ -230,10 +230,10 @@ describe('RecycleBin (universal soft-delete dashboard)', () => {
     renderComponent();
 
     expect(await screen.findAllByText('Date Deleted')).not.toHaveLength(0);
-    expect(firstText('Source Component/Module')).toBeInTheDocument();
-    expect(firstText('Unique Record Summary (IDs/Codes)')).toBeInTheDocument();
+    expect(firstText('Source Component / Item')).toBeInTheDocument();
+    expect(firstText('Record Summary & Parameters')).toBeInTheDocument();
     expect(firstText('Deleted By')).toBeInTheDocument();
-    expect(firstText('Actions Bar')).toBeInTheDocument();
+    expect(firstText('Actions')).toBeInTheDocument();
   });
 
   it('hydrates the trashed production row with its code, component and deleter', async () => {
@@ -302,8 +302,8 @@ describe('RecycleBin (universal soft-delete dashboard)', () => {
   });
 
   it('hides the permanent-delete tray from a non-admin', async () => {
-    // `beforeEach` seeds an admin; this one deliberately is not.
-    seedUser(['item.view']);
+    // `beforeEach` seeds a purge holder; this one only has view + restore.
+    seedUser(['admin.recycle_bin.view', 'admin.recycle_bin.restore']);
     renderComponent();
     await flush();
     expect(screen.getAllByText('PE-2026-00042').length).toBeGreaterThan(0);
@@ -364,7 +364,7 @@ describe('RecycleBin (universal soft-delete dashboard)', () => {
     fireEvent.click(firstText('Dispatch'));
 
     expect(
-      await screen.findAllByText('No records in the Dispatch Packages recycle bin'),
+      await screen.findAllByText('No deleted records in Dispatch Packages'),
     ).not.toHaveLength(0);
   });
 
@@ -408,7 +408,7 @@ describe('RecycleBin (universal soft-delete dashboard)', () => {
     // count + single-select assertion would be the first thing to notice.
     const pills = screen.getAllByRole('tab');
     expect(pills).toHaveLength(TABS.length);
-    expect(TABS).toHaveLength(17);
+    expect(TABS).toHaveLength(18);
 
     // `getAttribute` returns the STRINGS "true"/"false" — both truthy — so the
     // selection filter must compare against 'true' rather than truth-testing.

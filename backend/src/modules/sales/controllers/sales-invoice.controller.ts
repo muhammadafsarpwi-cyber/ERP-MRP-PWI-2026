@@ -118,7 +118,7 @@ export class SalesInvoiceController {
   @Delete(':id')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('sales.invoices.update')
+  @RequirePermission('sales.invoices.delete')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Move an unpaid invoice to the Recycle Bin (reversible)' })
   async remove(@Req() req: any, @Param('id') id: string) {

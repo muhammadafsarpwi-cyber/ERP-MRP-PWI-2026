@@ -117,7 +117,7 @@ export class QcController {
 
   @Delete('inspections/:id')
   @UseGuards(PermissionGuard)
-  @RequirePermission('qc.inspection.manage')
+  @RequirePermission('qc.inspection.delete')
   @HttpCode(HttpStatus.OK)
   async removeInspection(@Param('id') id: string) {
     const data = await this.qcService.removeInspection(id);

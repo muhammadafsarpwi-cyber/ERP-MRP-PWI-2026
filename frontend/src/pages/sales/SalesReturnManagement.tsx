@@ -18,6 +18,7 @@ import { formatDecimal } from '../../utils/numberFormat';
 import { DraggableResizableModal } from '../../components/shared';
 import { matchesTabRefresh, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import { useHeaderActions } from '../../components/layout/headerActionsStore';
+import { usePermission } from '../../hooks/usePermission';
 import dayjs from 'dayjs';
 import isSameOrBefore from 'dayjs/plugin/isSameOrBefore';
 import isSameOrAfter from 'dayjs/plugin/isSameOrAfter';
@@ -120,6 +121,13 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; 
 
 const SalesReturnManagement: React.FC = () => {
   const { message } = App.useApp();
+  const { can } = usePermission();
+  const canCreate = can('sales.returns.create');
+  const canUpdate = can('sales.returns.update');
+  const canApprove = can('sales.returns.approve');
+  const canDelete = can('sales.returns.delete');
+  const canExport = can('sales.returns.export');
+  const canPrint = can('sales.returns.print');
   const [data, setData] = useState<SalesReturn[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
@@ -414,7 +422,7 @@ const SalesReturnManagement: React.FC = () => {
     setHeaderActions([
       {
         key: 'new-return',
-        node: (
+        node: canCreate ? (
           <Button
             className="btn-new-invoice"
             icon={<PlusOutlined />}
@@ -422,7 +430,7 @@ const SalesReturnManagement: React.FC = () => {
           >
             + New Sales Return
           </Button>
-        ),
+        ) : null,
       },
       {
         key: 'refresh',
@@ -438,7 +446,7 @@ const SalesReturnManagement: React.FC = () => {
       },
       {
         key: 'csv',
-        node: (
+        node: canExport ? (
           <Button
             className="btn-inv-white"
             icon={<FileExcelOutlined />}
@@ -446,11 +454,11 @@ const SalesReturnManagement: React.FC = () => {
           >
             CSV
           </Button>
-        ),
+        ) : null,
       },
       {
         key: 'print',
-        node: (
+        node: canPrint ? (
           <Button
             className="btn-inv-white"
             icon={<PrinterOutlined />}
@@ -458,14 +466,14 @@ const SalesReturnManagement: React.FC = () => {
           >
             Print
           </Button>
-        ),
+        ) : null,
       },
     ]);
 
     return () => {
       clearHeaderActions();
     };
-  }, [page, pageSize, handleCreate, handleExportCsv, handlePrint, fetchData]);
+  }, [page, pageSize, canCreate, canExport, canPrint, handleCreate, handleExportCsv, handlePrint, fetchData]);
 
   // When Customer changes in Form, filter Invoices
   const selectedCustomerId = Form.useWatch('customerId', form);
@@ -906,30 +914,36 @@ const SalesReturnManagement: React.FC = () => {
               </button>
             </Tooltip>
 
-            <Tooltip title="Print Return Voucher">
-              <button className="inv-action-btn inv-btn-print" onClick={() => printSalesReturnDocument(record)}>
-                <PrinterOutlined />
-              </button>
-            </Tooltip>
+            {canPrint && (
+              <Tooltip title="Print Return Voucher">
+                <button className="inv-action-btn inv-btn-print" onClick={() => printSalesReturnDocument(record)}>
+                  <PrinterOutlined />
+                </button>
+              </Tooltip>
+            )}
 
             {s === 'DRAFT' && (
               <>
-                <Tooltip title="Submit for Approval">
-                  <button className="inv-action-btn inv-btn-submit" onClick={() => handleSubmitAction(record.id)}>
-                    <SendOutlined />
-                  </button>
-                </Tooltip>
-                <Tooltip title="Cancel">
-                  <Popconfirm title="Cancel this return?" onConfirm={() => handleCancelAction(record.id)}>
-                    <button className="inv-action-btn inv-btn-cancel">
-                      <StopOutlined />
+                {canUpdate && (
+                  <Tooltip title="Submit for Approval">
+                    <button className="inv-action-btn inv-btn-submit" onClick={() => handleSubmitAction(record.id)}>
+                      <SendOutlined />
                     </button>
-                  </Popconfirm>
-                </Tooltip>
+                  </Tooltip>
+                )}
+                {(canUpdate || canDelete) && (
+                  <Tooltip title="Cancel">
+                    <Popconfirm title="Cancel this return?" onConfirm={() => handleCancelAction(record.id)}>
+                      <button className="inv-action-btn inv-btn-cancel">
+                        <StopOutlined />
+                      </button>
+                    </Popconfirm>
+                  </Tooltip>
+                )}
               </>
             )}
 
-            {s === 'SUBMITTED' && (
+            {s === 'SUBMITTED' && canApprove && (
               <>
                 <Tooltip title="Approve Return">
                   <button className="inv-action-btn inv-btn-approve" onClick={() => handleApproveAction(record.id)}>
@@ -946,14 +960,14 @@ const SalesReturnManagement: React.FC = () => {
 
             {s === 'APPROVED' && (
               <>
-                {!record.stockPosted && (
+                {!record.stockPosted && canUpdate && (
                   <Tooltip title="Receive FG Stock IN">
                     <button className="inv-action-btn inv-btn-receive" onClick={() => openReceiveModal(record)}>
                       <InboxOutlined />
                     </button>
                   </Tooltip>
                 )}
-                {!record.creditPosted && (
+                {!record.creditPosted && canApprove && (
                   <Tooltip title="Generate Credit Note & Post Ledger">
                     <button className="inv-action-btn inv-btn-credit" onClick={() => handleGenerateCreditNoteAction(record.id)}>
                       <DollarOutlined />
@@ -963,7 +977,7 @@ const SalesReturnManagement: React.FC = () => {
               </>
             )}
 
-            {s === 'RECEIVED' && !record.creditPosted && (
+            {s === 'RECEIVED' && !record.creditPosted && canApprove && (
               <Tooltip title="Generate Credit Note & Post Ledger">
                 <button className="inv-action-btn inv-btn-credit" onClick={() => handleGenerateCreditNoteAction(record.id)}>
                   <DollarOutlined />
@@ -971,7 +985,7 @@ const SalesReturnManagement: React.FC = () => {
               </Tooltip>
             )}
 
-            {s === 'CREDITED' && !record.stockPosted && (
+            {s === 'CREDITED' && !record.stockPosted && canUpdate && (
               <Tooltip title="Receive FG Stock IN">
                 <button className="inv-action-btn inv-btn-receive" onClick={() => openReceiveModal(record)}>
                   <InboxOutlined />
@@ -1266,9 +1280,11 @@ const SalesReturnManagement: React.FC = () => {
         open={detailVisible}
         onCancel={() => setDetailVisible(false)}
         footer={[
-          <Button key="print" icon={<PrinterOutlined />} onClick={() => printSalesReturnDocument(detailItem)}>
-            Print Return Voucher
-          </Button>,
+          canPrint && (
+            <Button key="print" icon={<PrinterOutlined />} onClick={() => printSalesReturnDocument(detailItem)}>
+              Print Return Voucher
+            </Button>
+          ),
           <Button key="close" type="primary" onClick={() => setDetailVisible(false)}>
             Close
           </Button>,

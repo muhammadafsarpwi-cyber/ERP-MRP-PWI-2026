@@ -87,7 +87,7 @@ export class SupplierController {
 
   @Delete(':id/items/:itemId')
   @UseGuards(PermissionGuard)
-  @RequirePermission('procurement.supplier_item.update')
+  @RequirePermission('procurement.supplier_item.delete', 'procurement.supplier_item.update')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Remove supplier item' })
   async removeItem(@Param('itemId') itemId: string) {

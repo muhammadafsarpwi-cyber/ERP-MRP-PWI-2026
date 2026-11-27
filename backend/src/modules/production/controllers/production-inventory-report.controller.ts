@@ -31,7 +31,7 @@ export class ProductionInventoryReportController {
   @Get('inventory-report')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('manufacturing.production.entries.report')
+  @RequirePermission('manufacturing.inventory_report.view', 'manufacturing.production.entries.report')
   @ApiOperation({
     summary:
       'Production Inventory Report — real inventory balance + stock ledger aggregates (Opening/IN/OUT/Closing, Produced, Required, Available, Shortage) filtered by Division/Department/Item/ItemType/MovementType/Date',
@@ -61,7 +61,7 @@ export class ProductionInventoryReportController {
   @Get('inventory-report/movement-types')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('manufacturing.production.entries.report')
+  @RequirePermission('manufacturing.inventory_report.view', 'manufacturing.production.entries.report')
   @ApiOperation({ summary: 'Stock ledger movement types available for the report filter (mirrors the DB CHECK constraint)' })
   async movementTypes() {
     return { success: true, data: PRODUCTION_MOVEMENT_TYPES };
@@ -70,7 +70,7 @@ export class ProductionInventoryReportController {
   @Get('inventory-report/bulk-ledger')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('manufacturing.production.entries.report')
+  @RequirePermission('manufacturing.item_wise_ledger.view', 'manufacturing.inventory_report.view', 'manufacturing.production.entries.report')
   @ApiOperation({
     summary: 'Single-query bulk ledger summary (OP/IN/OUT/Closing, produced, period & month scrap, packing split) for Item-Wise Production Ledger',
   })
@@ -93,7 +93,7 @@ export class ProductionInventoryReportController {
   @Get('inventory-report/:itemId/ledger')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('manufacturing.production.entries.report')
+  @RequirePermission('manufacturing.item_wise_ledger.view', 'manufacturing.inventory_report.view', 'manufacturing.production.entries.report')
   @ApiOperation({ summary: 'Item stock-ledger drill-down with running balance for the Production Inventory Report' })
   @ApiParam({ name: 'itemId' })
   @ApiQuery({ name: 'dateFrom', required: false })

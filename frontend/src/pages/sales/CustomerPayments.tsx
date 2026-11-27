@@ -56,6 +56,7 @@ import {
 } from '../../utils/whatsappTemplateRenderer';
 import { matchesTabRefresh, triggerTabRefresh, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import { DraggableResizableModal, PageHeader, TableColumnSelector, useColumnVisibility } from '../../components/shared';
+import { usePermission } from '../../hooks/usePermission';
 import './CustomerPayments.css';
 import {
   buildAllocationsPayload,
@@ -98,6 +99,11 @@ const CustomerPayments: React.FC = () => {
   const { message } = App.useApp();
   const { token } = theme.useToken();
   const navigate = useNavigate();
+  const { can } = usePermission();
+  const canCreateReceipt = can('sales.receipts.create');
+  const canApproveReceipt = can('sales.receipts.approve');
+  const canExportReceipt = can('sales.receipts.export');
+  const canPrintReceipt = can('sales.receipts.print');
   const [searchParams, setSearchParams] = useSearchParams();
 
   const openCustomerLedger = useCallback(
@@ -878,13 +884,15 @@ const CustomerPayments: React.FC = () => {
               }}
             />
           </Tooltip>
-          <Tooltip title="Print Payment Receipt Voucher">
-            <Button
-              size="small"
-              icon={<PrinterOutlined />}
-              onClick={() => printPaymentReceiptVoucher(r)}
-            />
-          </Tooltip>
+          {canPrintReceipt && (
+            <Tooltip title="Print Payment Receipt Voucher">
+              <Button
+                size="small"
+                icon={<PrinterOutlined />}
+                onClick={() => printPaymentReceiptVoucher(r)}
+              />
+            </Tooltip>
+          )}
           <Tooltip title="Share Receipt via WhatsApp">
             <Button
               size="small"
@@ -913,7 +921,7 @@ const CustomerPayments: React.FC = () => {
               }}
             />
           </Tooltip>
-          {Number(r.unallocatedAdvanceAmount) > 0 && r.status === 'POSTED' && r.clearanceStatus !== 'BOUNCED' && (
+          {canCreateReceipt && Number(r.unallocatedAdvanceAmount) > 0 && r.status === 'POSTED' && r.clearanceStatus !== 'BOUNCED' && (
             <Tooltip title="Adjust Advance Against Invoices">
               <Button
                 size="small"
@@ -923,7 +931,7 @@ const CustomerPayments: React.FC = () => {
               />
             </Tooltip>
           )}
-          {r.clearanceStatus === 'PENDING_CLEARANCE' && r.status === 'POSTED' && (
+          {canApproveReceipt && r.clearanceStatus === 'PENDING_CLEARANCE' && r.status === 'POSTED' && (
             <Tooltip title="Mark Cheque Cleared">
               <Button
                 size="small"
@@ -933,7 +941,7 @@ const CustomerPayments: React.FC = () => {
               />
             </Tooltip>
           )}
-          {r.paymentMode === 'CHEQUE' && r.clearanceStatus !== 'BOUNCED' && r.status === 'POSTED' && (
+          {canApproveReceipt && r.paymentMode === 'CHEQUE' && r.clearanceStatus !== 'BOUNCED' && r.status === 'POSTED' && (
             <Tooltip title="Mark Cheque Bounced / Reversal">
               <Button
                 size="small"
@@ -966,43 +974,51 @@ const CustomerPayments: React.FC = () => {
             <Button icon={<ReloadOutlined />} onClick={() => void fetchReceipts(page, pageSize)}>
               Refresh
             </Button>
-            <Button icon={<FileExcelOutlined />} onClick={handleExportCsv}>
-              CSV
-            </Button>
-            <Button
-              icon={<PrinterOutlined />}
-              onClick={() =>
-                printTableList(
-                  'Customer Receipts Register',
-                  ['Voucher #', 'Date', 'Customer', 'Mode', 'Amount (PKR)', 'Advance (PKR)', 'Status'],
-                  receipts.map((r) => [
-                    r.receiptNumber,
-                    r.receiptDate,
-                    r.customerName,
-                    r.paymentMode,
-                    formatDecimal(r.amount),
-                    formatDecimal(r.unallocatedAdvanceAmount),
-                    r.clearanceStatus,
-                  ]),
-                )
-              }
-            >
-              Print Register
-            </Button>
-            <Button
-              icon={<SwapOutlined />}
-              onClick={() => void openAdvanceModal(filterCustomerId)}
-            >
-              Adjust Advance
-            </Button>
-            <Button
-              type="primary"
-              icon={<PlusOutlined />}
-              onClick={() => openRecordDrawer(filterCustomerId)}
-              style={{ fontWeight: 700 }}
-            >
-              + Record Receipt / Advance
-            </Button>
+            {canExportReceipt && (
+              <Button icon={<FileExcelOutlined />} onClick={handleExportCsv}>
+                CSV
+              </Button>
+            )}
+            {canPrintReceipt && (
+              <Button
+                icon={<PrinterOutlined />}
+                onClick={() =>
+                  printTableList(
+                    'Customer Receipts Register',
+                    ['Voucher #', 'Date', 'Customer', 'Mode', 'Amount (PKR)', 'Advance (PKR)', 'Status'],
+                    receipts.map((r) => [
+                      r.receiptNumber,
+                      r.receiptDate,
+                      r.customerName,
+                      r.paymentMode,
+                      formatDecimal(r.amount),
+                      formatDecimal(r.unallocatedAdvanceAmount),
+                      r.clearanceStatus,
+                    ]),
+                  )
+                }
+              >
+                Print Register
+              </Button>
+            )}
+            {canCreateReceipt && (
+              <>
+                <Button
+                  icon={<SwapOutlined />}
+                  onClick={() => void openAdvanceModal(filterCustomerId)}
+                >
+                  Adjust Advance
+                </Button>
+                <Button
+                  type="primary"
+                  icon={<PlusOutlined />}
+                  onClick={() => openRecordDrawer(filterCustomerId)}
+                  style={{ fontWeight: 700 }}
+                >
+                  + Record Receipt / Advance
+                </Button>
+              </>
+            )}
           </Space>
         }
       />
@@ -2263,14 +2279,16 @@ const CustomerPayments: React.FC = () => {
               Open Customer Ledger
             </Button>
           ) : null,
-          <Button
-            key="print"
-            type="primary"
-            icon={<PrinterOutlined />}
-            onClick={() => detailReceipt && printPaymentReceiptVoucher(detailReceipt)}
-          >
-            Print Official Receipt Voucher
-          </Button>,
+          canPrintReceipt ? (
+            <Button
+              key="print"
+              type="primary"
+              icon={<PrinterOutlined />}
+              onClick={() => detailReceipt && printPaymentReceiptVoucher(detailReceipt)}
+            >
+              Print Official Receipt Voucher
+            </Button>
+          ) : null,
         ].filter(Boolean)}
       >
         {detailReceipt && (

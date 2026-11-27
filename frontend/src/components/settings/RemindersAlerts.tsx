@@ -37,7 +37,7 @@ const STORAGE_KEY = 'erp_reminders_alerts_v1';
 
 export const RemindersAlerts: React.FC = () => {
   const { can } = usePermission();
-  const canEdit = can(SETTINGS_PERMISSIONS.edit);
+  const canEdit = can('settings.reminders_alerts.update');
 
   const [data, setData] = useState<RemindersAlertsData>(DEFAULT_REMINDERS_DATA);
   const [initialData, setInitialData] = useState<RemindersAlertsData>(DEFAULT_REMINDERS_DATA);
@@ -93,19 +93,19 @@ export const RemindersAlerts: React.FC = () => {
     <div
       className="reminders-alerts-container"
       data-testid="reminders-alerts"
-      data-edit-permission={SETTINGS_PERMISSIONS.edit}
+      data-edit-permission="settings.reminders_alerts.update"
       id="reminders-alerts-section"
     >
       {/* Hidden test identifier for backwards-compatibility with test suites */}
       <span
         data-testid="settings-placeholder-reminders-alerts"
         style={{ display: 'none' }}
-        data-edit-permission={SETTINGS_PERMISSIONS.edit}
+        data-edit-permission="settings.reminders_alerts.update"
       >
         <span data-testid="settings-placeholder-permission">
           {canEdit
-            ? `Your role includes “${SETTINGS_PERMISSIONS.edit}”.`
-            : `Read-only for your role: requires “${SETTINGS_PERMISSIONS.edit}”.`}
+            ? 'Your role includes “settings.reminders_alerts.update”.'
+            : 'Read-only for your role: requires “settings.reminders_alerts.update”.'}
         </span>
       </span>
 

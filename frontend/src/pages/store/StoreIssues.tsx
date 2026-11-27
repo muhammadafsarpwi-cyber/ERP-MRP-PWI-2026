@@ -20,6 +20,8 @@ import {
   Alert,
   Tooltip,
   AutoComplete,
+  Dropdown,
+  Descriptions,
   theme,
 } from 'antd';
 import {
@@ -39,9 +41,14 @@ import {
   FullscreenOutlined,
   FullscreenExitOutlined,
   PrinterOutlined,
+  FilePdfOutlined,
+  EyeOutlined,
   EditOutlined,
   UserOutlined,
   CloseOutlined,
+  FileExcelOutlined,
+  DownloadOutlined,
+  WhatsAppOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -51,9 +58,24 @@ import { usePermission } from '../../hooks/usePermission';
 import { useUserStore } from '../../store/userStore';
 import PageHeader from '../../components/shared/PageHeader';
 import { ConfirmAndSuccessModal, type ConfirmAndSuccessPhase } from '../../components/shared';
+import TableColumnSelector, { useColumnVisibility } from '../../components/shared/TableColumnSelector';
 import StoreLineItemsEditor, { StoreLineItem } from './components/StoreLineItemsEditor';
-import StoreVoucherPrintModal, { StoreVoucherData } from './components/StoreVoucherPrintModal';
+import StoreVoucherPrintModal, {
+  StoreVoucherData,
+  printStoreVoucherHtml,
+  downloadStoreVoucherPdf,
+} from './components/StoreVoucherPrintModal';
 import StoreMaterialLifecycleModal from './components/lifecycle/StoreMaterialLifecycleModal';
+import { storeIssuesCache } from './storeIssuesCache';
+import { getLogoUrl, printHtmlContent } from '../../utils/printTemplates';
+import { shareStoreIssueOnWhatsApp } from '../../utils/storeIssueWhatsApp';
+import {
+  buildStoreIssuesXlsxBlob,
+  buildStoreIssuesCsv,
+  triggerDownloadBlob,
+  type StoreIssueExportRow,
+} from '../../utils/storeIssueExport';
+import './storeResponsive.css';
 
 interface MaterialIssue {
   id: string;
@@ -135,6 +157,7 @@ const StoreIssues: React.FC = () => {
     return full || (currentUser as any).displayName || currentUser.username || currentUser.email || 'Store Keeper';
   }, [currentUser]);
   const canCreate = can('store.issue.create');
+  const canUpdate = can('store.issue.update');
   const canPost = can('store.issue.post');
 
   // Main data states
@@ -146,6 +169,10 @@ const StoreIssues: React.FC = () => {
   // Dialog & Form states
   const [modalOpen, setModalOpen] = useState(false);
   const [editingIssueId, setEditingIssueId] = useState<string | null>(null);
+  const [editingIssueStatus, setEditingIssueStatus] = useState<string | null>(null);
+  const [editingOriginalLineQtyMap, setEditingOriginalLineQtyMap] = useState<Record<string, number>>({});
+  const [viewRecord, setViewRecord] = useState<MaterialIssue | null>(null);
+  const [loadingView, setLoadingView] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm();
   const watchedMachineSelection = Form.useWatch('machineSelection', form);
@@ -165,6 +192,7 @@ const StoreIssues: React.FC = () => {
   const [divisions, setDivisions] = useState<DivisionOption[]>([]);
   const [divisionMap, setDivisionMap] = useState<Record<string, string>>({});
   const [sections, setSections] = useState<SectionOption[]>([]);
+  const [sectionMap, setSectionMap] = useState<Record<string, string>>({});
   const [departments, setDepartments] = useState<DepartmentOption[]>([]);
   const [deptMap, setDeptMap] = useState<Record<string, string>>({});
 
@@ -187,62 +215,113 @@ const StoreIssues: React.FC = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // 1. Initial Load of Master Data & Stores
+  // 1. Initial Load of Master Data & Stores (with sticky cache)
   useEffect(() => {
+    let active = true;
     (async () => {
       try {
-        const s = await apiService.get<any>('/store/stores', { status: 'ACTIVE' });
-        const arr: StoreOption[] = Array.isArray(s) ? s : s?.data || [];
-        setStores(arr);
-        setStoreMap(Object.fromEntries(arr.map((st) => [st.id, `${st.storeCode} — ${st.storeName}`])));
-      } catch {
-        /* ignore */
-      }
+        const lookups = await storeIssuesCache.getOrFetch(
+          storeIssuesCache.keys.lookups(),
+          async () => {
+            const [sRes, divRes, secRes, deptRes] = await Promise.allSettled([
+              apiService.get<any>('/store/stores', { status: 'ACTIVE' }, { useEtag: true }),
+              apiService.get<any>('/divisions', { limit: 100, status: 'ACTIVE' }, { useEtag: true }),
+              apiService.get<any>('/sections', { limit: 200, status: 'ACTIVE' }, { useEtag: true }),
+              apiService.get<any>('/departments', { limit: 500, status: 'ACTIVE' }, { useEtag: true }),
+            ]);
+            const storesList: StoreOption[] =
+              sRes.status === 'fulfilled'
+                ? Array.isArray(sRes.value)
+                  ? sRes.value
+                  : sRes.value?.data || []
+                : [];
+            const divList: DivisionOption[] =
+              divRes.status === 'fulfilled'
+                ? Array.isArray(divRes.value)
+                  ? divRes.value
+                  : divRes.value?.data || []
+                : [];
+            const secList: SectionOption[] =
+              secRes.status === 'fulfilled'
+                ? Array.isArray(secRes.value)
+                  ? secRes.value
+                  : secRes.value?.data || []
+                : [];
+            const deptList: DepartmentOption[] =
+              deptRes.status === 'fulfilled'
+                ? Array.isArray(deptRes.value)
+                  ? deptRes.value
+                  : deptRes.value?.data || []
+                : [];
+            return { storesList, divList, secList, deptList };
+          },
+          storeIssuesCache.ttls.lookup,
+        );
 
-      try {
-        const [divRes, secRes, deptRes] = await Promise.allSettled([
-          apiService.get<any>('/divisions', { limit: 100, status: 'ACTIVE' }),
-          apiService.get<any>('/sections', { limit: 200, status: 'ACTIVE' }),
-          apiService.get<any>('/departments', { limit: 500, status: 'ACTIVE' }),
-        ]);
+        if (!active) return;
 
-        if (divRes.status === 'fulfilled') {
-          const raw = divRes.value;
-          const dList: DivisionOption[] = Array.isArray(raw) ? raw : raw?.data || [];
-          setDivisions(dList);
-          const dMap: Record<string, string> = {};
-          dList.forEach((d) => {
-            dMap[d.id] = d.name || d.divisionName || d.code || d.divisionCode || 'Division';
-          });
-          setDivisionMap(dMap);
-        }
-        if (secRes.status === 'fulfilled') {
-          const raw = secRes.value;
-          setSections(Array.isArray(raw) ? raw : raw?.data || []);
-        }
-        if (deptRes.status === 'fulfilled') {
-          const raw = deptRes.value;
-          const dList = Array.isArray(raw) ? raw : raw?.data || [];
-          setDepartments(dList);
-          const map: Record<string, string> = {};
-          dList.forEach((d: DepartmentOption) => {
-            const name = d.name || d.departmentName || d.code || d.departmentCode || 'Dept';
-            map[d.id] = name;
-          });
-          setDeptMap(map);
-        }
+        setStores(lookups.storesList);
+        setStoreMap(
+          Object.fromEntries(lookups.storesList.map((st) => [st.id, `${st.storeCode} — ${st.storeName}`])),
+        );
+
+        setDivisions(lookups.divList);
+        const dMap: Record<string, string> = {};
+        lookups.divList.forEach((d) => {
+          dMap[d.id] = d.name || d.divisionName || d.code || d.divisionCode || 'Division';
+        });
+        setDivisionMap(dMap);
+
+        setSections(lookups.secList);
+        const secMap: Record<string, string> = {};
+        lookups.secList.forEach((s) => {
+          secMap[s.id] = s.name || s.sectionName || s.code || s.sectionCode || 'Section';
+        });
+        setSectionMap(secMap);
+
+        setDepartments(lookups.deptList);
+        const dpMap: Record<string, string> = {};
+        lookups.deptList.forEach((d) => {
+          dpMap[d.id] = d.name || d.departmentName || d.code || d.departmentCode || 'Dept';
+        });
+        setDeptMap(dpMap);
       } catch {
         console.warn('[StoreIssues] Failed to load organizational master data');
       }
     })();
+    return () => {
+      active = false;
+    };
   }, []);
 
-  // 2. Fetch issues list
-  const fetchData = useCallback(async () => {
+  // 2. Fetch issues list (sticky client cache until mutation or explicit Refresh)
+  const fetchData = useCallback(async (forceRefresh = false) => {
+    const cacheKey = storeIssuesCache.keys.issuesList('default');
+    if (forceRefresh) {
+      storeIssuesCache.invalidateIssues();
+    } else {
+      const cached = storeIssuesCache.getCached<MaterialIssue[]>(cacheKey);
+      if (cached) {
+        setData(cached);
+        return;
+      }
+    }
+
     setLoading(true);
     try {
-      const response = await apiService.get<MaterialIssue[]>('/store/material-issues');
-      setData(Array.isArray(response) ? response : []);
+      const list = await storeIssuesCache.getOrFetch(
+        cacheKey,
+        async () => {
+          const response = await apiService.get<MaterialIssue[]>(
+            '/store/material-issues',
+            forceRefresh ? { nocache: '1' } : undefined,
+            { useEtag: !forceRefresh },
+          );
+          return Array.isArray(response) ? response : [];
+        },
+        storeIssuesCache.ttls.issues,
+      );
+      setData(list);
     } catch {
       message.error('Failed to load store issue notes');
     } finally {
@@ -251,10 +330,10 @@ const StoreIssues: React.FC = () => {
   }, [message]);
 
   useEffect(() => {
-    fetchData();
+    fetchData(false);
   }, [fetchData]);
 
-  // 3. Dynamic machine loader when Destination Department changes
+  // 3. Dynamic machine loader when Destination Department changes (cached)
   const loadMachinesForDepartment = useCallback(async (deptId?: string) => {
     if (!deptId || !isValidUUID(deptId)) {
       setMachines([]);
@@ -262,12 +341,22 @@ const StoreIssues: React.FC = () => {
     }
     setLoadingMachines(true);
     try {
-      const res = await apiService.get<any>('/machines', {
-        departmentId: deptId,
-        limit: 100,
-        status: 'ACTIVE',
-      });
-      const list = Array.isArray(res) ? res : res?.data || [];
+      const list = await storeIssuesCache.getOrFetch(
+        storeIssuesCache.keys.machines(deptId),
+        async () => {
+          const res = await apiService.get<any>(
+            '/machines',
+            {
+              departmentId: deptId,
+              limit: 100,
+              status: 'ACTIVE',
+            },
+            { useEtag: true },
+          );
+          return Array.isArray(res) ? res : res?.data || [];
+        },
+        storeIssuesCache.ttls.lookup,
+      );
       setMachines(list);
     } catch {
       setMachines([]);
@@ -311,19 +400,28 @@ const StoreIssues: React.FC = () => {
     return stores.filter((s) => !s.divisionId || s.divisionId === activeDivisionId);
   }, [stores, activeDivisionId]);
 
-  // Load operator & shift incharge suggestions for the selected department / machine
+  // Load operator & shift incharge suggestions for the selected department / machine (cached)
   useEffect(() => {
     if (!modalOpen) return;
     let cancelled = false;
+    const machineKey = watchedMachineSelection && watchedMachineSelection !== 'OTHER_GENERAL' ? watchedMachineSelection : undefined;
     (async () => {
       try {
-        const res = await apiService.get<any>('/store/issues/personnel-suggestions', {
-          ...(destDepartmentId ? { departmentId: destDepartmentId } : {}),
-          ...(watchedMachineSelection && watchedMachineSelection !== 'OTHER_GENERAL'
-            ? { machineId: watchedMachineSelection }
-            : {}),
-        });
-        const d = res?.data || res || {};
+        const d = await storeIssuesCache.getOrFetch(
+          storeIssuesCache.keys.personnel(destDepartmentId, machineKey),
+          async () => {
+            const res = await apiService.get<any>(
+              '/store/issues/personnel-suggestions',
+              {
+                ...(destDepartmentId ? { departmentId: destDepartmentId } : {}),
+                ...(machineKey ? { machineId: machineKey } : {}),
+              },
+              { useEtag: true },
+            );
+            return res?.data || res || {};
+          },
+          storeIssuesCache.ttls.lookup,
+        );
         if (!cancelled) {
           setOperatorSuggestions(Array.isArray(d.operators) ? d.operators : []);
           setShiftInchargeSuggestions(Array.isArray(d.shiftIncharges) ? d.shiftIncharges : []);
@@ -340,6 +438,8 @@ const StoreIssues: React.FC = () => {
   // Open Create Dialog
   const handleCreate = () => {
     setEditingIssueId(null);
+    setEditingIssueStatus(null);
+    setEditingOriginalLineQtyMap({});
     form.resetFields();
     const autoIssueNum = `SIN-${dayjs().format('YYYYMMDD')}-${Math.floor(1000 + Math.random() * 9000)}`;
     form.setFieldsValue({
@@ -358,12 +458,14 @@ const StoreIssues: React.FC = () => {
     setModalOpen(true);
   };
 
-  // Open Edit Dialog for DRAFT issue
+  // Open Edit Dialog for DRAFT or POSTED issue
   const handleEditDraft = async (record: MaterialIssue) => {
     try {
       const detail = await apiService.get<any>(`/store/material-issues/${record.id}`);
       const d: MaterialIssue = detail?.data || detail || record;
       setEditingIssueId(record.id);
+      const st = d.status || record.status || 'DRAFT';
+      setEditingIssueStatus(st);
       const deptId = d.issuedToDepartmentId || d.departmentId || undefined;
       setActiveDivisionId(d.divisionId || undefined);
       setDestDivisionId(d.divisionId || undefined);
@@ -374,12 +476,22 @@ const StoreIssues: React.FC = () => {
       let loadedMachines: MachineOption[] = [];
       if (deptId && isValidUUID(deptId)) {
         try {
-          const mRes = await apiService.get<any>('/machines', {
-            departmentId: deptId,
-            limit: 100,
-            status: 'ACTIVE',
-          });
-          loadedMachines = Array.isArray(mRes) ? mRes : mRes?.data || [];
+          loadedMachines = await storeIssuesCache.getOrFetch(
+            storeIssuesCache.keys.machines(deptId),
+            async () => {
+              const mRes = await apiService.get<any>(
+                '/machines',
+                {
+                  departmentId: deptId,
+                  limit: 100,
+                  status: 'ACTIVE',
+                },
+                { useEtag: true },
+              );
+              return Array.isArray(mRes) ? mRes : mRes?.data || [];
+            },
+            storeIssuesCache.ttls.lookup,
+          );
           setMachines(loadedMachines);
         } catch {
           setMachines([]);
@@ -416,6 +528,16 @@ const StoreIssues: React.FC = () => {
       });
 
       const rawLines = Array.isArray(d.lines) ? d.lines : [];
+      const origQtyMap: Record<string, number> = {};
+      if (st === 'POSTED') {
+        rawLines.forEach((l: any) => {
+          if (l.itemId) {
+            origQtyMap[l.itemId] = (origQtyMap[l.itemId] || 0) + Number(l.quantity || 0);
+          }
+        });
+      }
+      setEditingOriginalLineQtyMap(origQtyMap);
+
       setLineItems(
         rawLines.map((l: any, idx: number) => ({
           key: l.id || `edit-${idx}-${Date.now()}`,
@@ -426,13 +548,14 @@ const StoreIssues: React.FC = () => {
           uomId: l.uomId,
           uomCode: l.uomCode || '',
           quantity: Number(l.quantity || 1),
+          availableStock: l.remainingStock != null ? Number(l.remainingStock) : undefined,
           oldItemReturnedQty: Number(l.oldItemReturnedQty || 0),
           remarks: l.remarks || undefined,
         })),
       );
       setModalOpen(true);
     } catch {
-      message.error('Failed to load draft store issue note for editing');
+      message.error('Failed to load store issue note for editing');
     }
   };
 
@@ -507,6 +630,7 @@ const StoreIssues: React.FC = () => {
     lineCount: number;
     storeName: string;
     errorMessage?: string;
+    savedRecord?: MaterialIssue;
   }>({ refNum: '', lineCount: 0, storeName: '' });
 
   // Submit / Validate Material Issue -> Open Step 1 Confirmation
@@ -533,16 +657,18 @@ const StoreIssues: React.FC = () => {
         }
         const qty = Number(line.quantity || 0);
         const avail = Number(line.availableStock ?? 0);
+        const priorPostedQty = editingIssueStatus === 'POSTED' && line.itemId ? Number(editingOriginalLineQtyMap[line.itemId] || 0) : 0;
+        const effectiveAvail = avail + priorPostedQty;
         if (qty <= 0) {
           message.error(`Quantity must be greater than zero for line "${line.itemCode || 'item'}"`);
           return;
         }
-        if (avail <= 0) {
+        if (effectiveAvail <= 0) {
           message.error(`Cannot issue item "${line.itemCode}": This item is currently Out of Stock (0 available in store).`);
           return;
         }
-        if (qty > avail) {
-          message.error(`Cannot issue item "${line.itemCode}": Requested quantity (${qty}) exceeds available stock (${avail}) in store.`);
+        if (qty > effectiveAvail) {
+          message.error(`Cannot issue item "${line.itemCode}": Requested quantity (${qty}) exceeds available stock (${effectiveAvail}) in store.`);
           return;
         }
       }
@@ -589,6 +715,7 @@ const StoreIssues: React.FC = () => {
         refNum: String(values.issueNumber || ''),
         lineCount: lineItems.length,
         storeName: storeObj?.storeName || 'Selected Store',
+        savedRecord: undefined,
       });
       setIssueConfirmPhase('confirm');
     } catch {
@@ -604,13 +731,19 @@ const StoreIssues: React.FC = () => {
       const res = editingIssueId
         ? await apiService.put<any>(`/store/material-issues/${editingIssueId}`, pendingIssuePayload)
         : await apiService.post<any>('/store/material-issues', pendingIssuePayload);
-      const savedRef = res?.issueNumber || res?.data?.issueNumber || issueFeedbackMeta.refNum;
-      setIssueFeedbackMeta((prev) => ({ ...prev, refNum: savedRef }));
+      const savedObj: MaterialIssue | undefined = res?.data || res;
+      const savedRef = savedObj?.issueNumber || issueFeedbackMeta.refNum;
+      storeIssuesCache.invalidateIssues();
+      setIssueFeedbackMeta((prev) => ({
+        ...prev,
+        refNum: savedRef,
+        savedRecord: savedObj?.id ? savedObj : undefined,
+      }));
       setIssueConfirmPhase('success');
       setModalOpen(false);
       setEditingIssueId(null);
       setPendingIssuePayload(null);
-      fetchData();
+      fetchData(true);
     } catch (err: any) {
       const msg: any =
         err?.response?.data?.message ||
@@ -649,8 +782,9 @@ const StoreIssues: React.FC = () => {
       } else if (action === 'delete') {
         await apiService.delete(`/store/material-issues/${record.id}`);
       }
+      storeIssuesCache.invalidateIssues();
       setRowActionState((prev) => ({ ...prev, phase: 'success' }));
-      fetchData();
+      fetchData(true);
     } catch (err: any) {
       const msg: any = err?.response?.data?.message || err?.message || `Failed to ${action} Store Issue Note`;
       setRowActionState((prev) => ({
@@ -663,53 +797,192 @@ const StoreIssues: React.FC = () => {
 
   const [printVoucher, setPrintVoucher] = useState<StoreVoucherData | null>(null);
 
+  const buildVoucherDataFromIssue = async (record: MaterialIssue): Promise<StoreVoucherData> => {
+    const detail = await apiService.get<any>(`/store/material-issues/${record.id}`);
+    const d = detail?.data || detail || record;
+    const lines = Array.isArray(d.lines) ? d.lines : [];
+    const refDoc = d.referenceDocument || record.referenceDocument || '';
+    const machineName = refDoc.replace(/^Machine:\s*/i, '') || 'General / Plant Allocation';
+    return {
+      type: 'MIV',
+      documentNumber: d.issueNumber || record.issueNumber,
+      date: (d.issueDate || record.issueDate) ? String(d.issueDate || record.issueDate).slice(0, 10) : undefined,
+      status: d.status || record.status,
+      divisionName: (d.divisionId || record.divisionId) ? divisionMap[d.divisionId || record.divisionId!] : undefined,
+      storeName: record.storeName || ((d.storeId || record.storeId) ? storeMap[d.storeId || record.storeId] : undefined),
+      sectionName: (d.sectionId || record.sectionId) ? sectionMap[d.sectionId || record.sectionId!] : undefined,
+      departmentName: (d.issuedToDepartmentId || record.issuedToDepartmentId)
+        ? deptMap[d.issuedToDepartmentId || record.issuedToDepartmentId!]
+        : (d.departmentId || record.departmentId)
+          ? deptMap[d.departmentId || record.departmentId!]
+          : undefined,
+      machineName,
+      operatorName: d.operatorName || record.operatorName || undefined,
+      shiftInchargeName: d.shiftInchargeName || record.shiftInchargeName || undefined,
+      issuedByName: d.issuedByName || record.issuedByName || currentUserDisplayName,
+      purpose: d.purpose || record.purpose || undefined,
+      remarks: d.remarks || record.remarks || undefined,
+      lines: lines.map((l: any, idx: number) => ({
+        key: l.id || idx,
+        lineNumber: idx + 1,
+        itemCode: l.itemCode,
+        itemName: l.itemName || l.itemId,
+        uomCode: l.uomCode,
+        quantity: Number(l.quantity || 0),
+        returnedQty: Number(l.oldItemReturnedQty || 0),
+        lastIssuedInfo: l.lastIssuedSummary || undefined,
+        remainingStock: l.remainingStock != null ? Number(l.remainingStock) : undefined,
+        remainingStockUom: l.uomCode || undefined,
+        remarks: l.remarks || undefined,
+      })),
+    };
+  };
+
   const openPrintModal = async (record: MaterialIssue) => {
     try {
-      const detail = await apiService.get<any>(`/store/material-issues/${record.id}`);
-      const d = detail?.data || detail || record;
-      const lines = Array.isArray(d.lines) ? d.lines : [];
-      const refDoc = d.referenceDocument || record.referenceDocument || '';
-      const machineName = refDoc.replace(/^Machine:\s*/i, '') || 'General / Plant Allocation';
-      setPrintVoucher({
-        type: 'MIV',
-        documentNumber: d.issueNumber || record.issueNumber,
-        date: (d.issueDate || record.issueDate) ? String(d.issueDate || record.issueDate).slice(0, 10) : undefined,
-        status: d.status || record.status,
-        divisionName: (d.divisionId || record.divisionId) ? divisionMap[d.divisionId || record.divisionId!] : undefined,
-        storeName: record.storeName || ((d.storeId || record.storeId) ? storeMap[d.storeId || record.storeId] : undefined),
-        departmentName: (d.issuedToDepartmentId || record.issuedToDepartmentId)
-          ? deptMap[d.issuedToDepartmentId || record.issuedToDepartmentId!]
-          : (d.departmentId || record.departmentId)
-            ? deptMap[d.departmentId || record.departmentId!]
-            : undefined,
-        machineName,
-        operatorName: d.operatorName || record.operatorName || undefined,
-        shiftInchargeName: d.shiftInchargeName || record.shiftInchargeName || undefined,
-        issuedByName: d.issuedByName || record.issuedByName || currentUserDisplayName,
-        purpose: d.purpose || record.purpose || undefined,
-        remarks: d.remarks || record.remarks || undefined,
-        lines: lines.map((l: any, idx: number) => ({
-          key: l.id || idx,
-          lineNumber: idx + 1,
-          itemCode: l.itemCode,
-          itemName: l.itemName || l.itemId,
-          uomCode: l.uomCode,
-          quantity: Number(l.quantity || 0),
-          returnedQty: Number(l.oldItemReturnedQty || 0),
-          remarks: l.remarks || undefined,
-        })),
-      });
+      const voucherData = await buildVoucherDataFromIssue(record);
+      setPrintVoucher(voucherData);
     } catch {
       message.error('Failed to load issue details for printing');
     }
+  };
+
+  const handleDirectPrint = async (record: MaterialIssue) => {
+    try {
+      const voucherData = await buildVoucherDataFromIssue(record);
+      printStoreVoucherHtml(voucherData);
+    } catch {
+      message.error('Failed to load issue details for printing');
+    }
+  };
+
+  const handleDirectDownloadPdf = async (record: MaterialIssue) => {
+    try {
+      const voucherData = await buildVoucherDataFromIssue(record);
+      downloadStoreVoucherPdf(voucherData);
+      message.success(`Downloaded PDF for ${voucherData.documentNumber}`);
+    } catch {
+      message.error('Failed to generate PDF for this Store Issue Note');
+    }
+  };
+
+  const handleViewDetails = async (record: MaterialIssue) => {
+    setViewRecord(record);
+    setLoadingView(true);
+    try {
+      const detail = await apiService.get<any>(`/store/material-issues/${record.id}`);
+      const d = detail?.data || detail || record;
+      setViewRecord(d);
+    } catch {
+      // Keep summary record in modal if detail fetch fails
+    } finally {
+      setLoadingView(false);
+    }
+  };
+
+  const handleShareRowWhatsApp = async (record: MaterialIssue) => {
+    try {
+      const existingLines = Array.isArray(record.lines) ? record.lines : [];
+      const needsFetch =
+        existingLines.length === 0 ||
+        existingLines.some((l: any) => l.remainingStock === undefined || l.lastIssuedSummary === undefined);
+
+      let source: any = record;
+      if (needsFetch) {
+        const detail = await apiService.get<any>(`/store/material-issues/${record.id}`);
+        source = detail?.data || detail || record;
+      }
+
+      const lines = Array.isArray(source.lines) ? source.lines : [];
+      const deptId = source.issuedToDepartmentId || source.departmentId || record.issuedToDepartmentId || record.departmentId;
+      const divId = source.divisionId || record.divisionId;
+      const secId = source.sectionId || record.sectionId;
+      const refDoc = source.referenceDocument || record.referenceDocument || '';
+      const machineLabel = refDoc.replace(/^Machine:\s*/i, '') || 'General / Plant Allocation';
+
+      shareStoreIssueOnWhatsApp({
+        sinNumber: source.issueNumber || record.issueNumber,
+        date: source.issueDate || record.issueDate,
+        divisionName: divId ? divisionMap[divId] : undefined,
+        sectionName: secId ? sectionMap[secId] : deptId ? deptMap[deptId] : undefined,
+        machineName: machineLabel,
+        operatorName: source.operatorName || record.operatorName,
+        shiftInchargeName: source.shiftInchargeName || record.shiftInchargeName,
+        issuedByName: source.issuedByName || record.issuedByName || currentUserDisplayName,
+        purpose: source.purpose || record.purpose,
+        remarks: source.remarks || record.remarks,
+        lines: lines.map((l: any) => ({
+          itemCode: l.itemCode,
+          itemName: l.itemName || l.itemId,
+          quantity: Number(l.quantity || 0),
+          uomCode: l.uomCode,
+          oldItemReturnedQty: Number(l.oldItemReturnedQty || 0),
+          lastIssuedSummary: l.lastIssuedSummary,
+          remainingStock: l.remainingStock != null ? Number(l.remainingStock) : undefined,
+          remainingStockUom: l.uomCode,
+          remarks: l.remarks,
+        })),
+      });
+      message.success('WhatsApp Store Issue message opened and copied to clipboard');
+    } catch {
+      message.error('Failed to prepare WhatsApp message for this Store Issue Note');
+    }
+  };
+
+  const handleShareFormWhatsApp = () => {
+    const values = form.getFieldsValue();
+    if (lineItems.length === 0) {
+      message.warning('Please add at least one line item before sharing via WhatsApp');
+      return;
+    }
+    let machineLabel = 'General / Plant Allocation';
+    if (values.machineSelection && values.machineSelection !== 'OTHER_GENERAL') {
+      const found = machines.find((m) => m.id === values.machineSelection);
+      if (found) {
+        const mName = (found as any).machineName || (found as any).name || '';
+        machineLabel = mName ? `${found.machineCode} — ${mName}` : found.machineCode;
+      }
+    }
+    const divId = values.divisionId || activeDivisionId;
+    const secId = values.sectionId || destSectionId;
+    const deptId = values.departmentId || destDepartmentId;
+
+    shareStoreIssueOnWhatsApp({
+      sinNumber: values.issueNumber || 'DRAFT',
+      date: values.issueDate ? values.issueDate.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'),
+      divisionName: divId ? divisionMap[divId] : undefined,
+      sectionName: secId ? sectionMap[secId] : deptId ? deptMap[deptId] : undefined,
+      machineName: machineLabel,
+      operatorName: values.operatorName ? String(values.operatorName).trim() : undefined,
+      shiftInchargeName: values.shiftInchargeName ? String(values.shiftInchargeName).trim() : undefined,
+      issuedByName: values.issuedByName ? String(values.issuedByName).trim() : currentUserDisplayName,
+      purpose: values.purpose,
+      remarks: values.remarks,
+      lines: lineItems.map((l) => ({
+        itemCode: l.itemCode,
+        itemName: l.itemName,
+        quantity: Number(l.quantity || 0),
+        uomCode: l.uomCode,
+        oldItemReturnedQty: Number(l.oldItemReturnedQty || 0),
+        lastIssuedSummary: l.partUsageSnapshot || 'First time issuing this part to this machine',
+        remainingStock:
+          l.availableStock !== undefined
+            ? Math.max(0, Number(l.availableStock || 0) - Number(l.quantity || 0))
+            : undefined,
+        remainingStockUom: l.uomCode,
+        remarks: l.remarks,
+      })),
+    });
+    message.success('WhatsApp Store Issue message opened and copied to clipboard');
   };
 
   // Delete Issue
   const handleDelete = async (id: string) => {
     try {
       await apiService.delete(`/store/material-issues/${id}`);
+      storeIssuesCache.invalidateIssues();
       message.success('Store Issue Note deleted successfully');
-      fetchData();
+      fetchData(true);
     } catch (err: any) {
       const msg: any = err?.response?.data?.message;
       message.error(Array.isArray(msg) ? msg[0] : 'Failed to delete Store Issue Note');
@@ -844,18 +1117,143 @@ const StoreIssues: React.FC = () => {
     );
   };
 
+  const buildExportRows = useCallback((): StoreIssueExportRow[] => {
+    return filteredData.map((r) => {
+      const deptId = r.issuedToDepartmentId || r.departmentId;
+      const lines = Array.isArray(r.lines) ? r.lines : [];
+      const itemSummary = lines
+        .map((ln: any) => `${ln.itemCode || ''} ${ln.itemName || ''} (${Number(ln.quantity || 0)} ${ln.uomCode || ''})`.trim())
+        .filter(Boolean)
+        .join(' | ');
+      return {
+        issueNumber: r.issueNumber,
+        issueDate: r.issueDate ? dayjs(r.issueDate).format('YYYY-MM-DD') : '',
+        status: r.status,
+        divisionName: r.divisionId ? divisionMap[r.divisionId] || '' : '',
+        storeName: r.storeName || (r.storeId ? storeMap[r.storeId] || '' : ''),
+        sectionName: r.sectionId ? sectionMap[r.sectionId] || '' : '',
+        departmentName: deptId ? deptMap[deptId] || '' : '',
+        machineAllocation: (r.referenceDocument || 'General Allocation').replace(/^Machine:\s*/i, ''),
+        operatorName: r.operatorName || '',
+        shiftInchargeName: r.shiftInchargeName || '',
+        storeInchargeName: r.issuedByName || currentUserDisplayName,
+        totalOldReturnedQty: lines.reduce((acc: number, ln: any) => acc + Number(ln.oldItemReturnedQty || 0), 0),
+        purpose: r.purpose || '',
+        remarks: r.remarks || '',
+        lineCount: lines.length,
+        itemSummary,
+        lines: lines.map((ln: any, idx: number) => ({
+          lineNumber: ln.lineNumber ?? idx + 1,
+          itemCode: ln.itemCode,
+          itemName: ln.itemName,
+          quantity: Number(ln.quantity || 0),
+          uomCode: ln.uomCode,
+          oldItemReturnedQty: Number(ln.oldItemReturnedQty || 0),
+          unitCost: ln.unitCost != null ? Number(ln.unitCost) : null,
+          totalCost: ln.totalCost != null ? Number(ln.totalCost) : null,
+          remarks: ln.remarks,
+        })),
+      };
+    });
+  }, [filteredData, divisionMap, storeMap, sectionMap, deptMap, currentUserDisplayName]);
+
+  const handleExportExcel = (format: 'xlsx' | 'csv') => {
+    const rows = buildExportRows();
+    if (rows.length === 0) {
+      message.warning('No Store Issue Notes match the current filter to export');
+      return;
+    }
+    const stamp = dayjs().format('YYYYMMDD_HHmm');
+    if (format === 'csv') {
+      const csv = buildStoreIssuesCsv(rows);
+      triggerDownloadBlob(
+        new Blob([csv], { type: 'text/csv;charset=utf-8;' }),
+        `Store_Issue_Notes_${stamp}.csv`,
+      );
+      message.success(`Exported ${rows.length} Store Issue Notes to CSV`);
+      return;
+    }
+    const blob = buildStoreIssuesXlsxBlob(rows);
+    triggerDownloadBlob(blob, `Store_Issue_Notes_${stamp}.xlsx`);
+    message.success(`Exported ${rows.length} Store Issue Notes to Excel (.xlsx)`);
+  };
+
+  const handlePrintDirectory = () => {
+    const rows = buildExportRows();
+    const esc = (v?: string | number | null) =>
+      String(v ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+    const rowsHtml = rows
+      .map(
+        (r, i) => `
+      <tr>
+        <td style="text-align:center;">${i + 1}</td>
+        <td style="font-family:monospace;font-weight:700;white-space:nowrap;">${esc(r.issueNumber)}<div style="font-size:10px;color:#475569;">${esc(r.issueDate)}</div></td>
+        <td>${esc(r.status)}</td>
+        <td>${esc(r.storeName)}</td>
+        <td>${esc([r.sectionName, r.departmentName].filter(Boolean).join(' / ') || '—')}<div style="font-size:10px;color:#1d4ed8;">${esc(r.machineAllocation)}</div></td>
+        <td>${esc(r.itemSummary || '—')}</td>
+        <td style="white-space:nowrap;">Op: ${esc(r.operatorName || '—')}<br/>SI: ${esc(r.shiftInchargeName || '—')}<br/>SK: ${esc(r.storeInchargeName || '—')}</td>
+        <td style="text-align:right;">${Number(r.totalOldReturnedQty || 0).toLocaleString()}</td>
+        <td>${esc(r.purpose || r.remarks || '—')}</td>
+      </tr>`,
+      )
+      .join('');
+
+    const html = `
+      <div class="company-header">
+        <div class="company-logo-info">
+          <img class="company-logo" src="${getLogoUrl()}" alt="PWI Logo" onerror="this.style.display='none'" />
+          <div>
+            <div class="company-name">Pakistan Wire Industries (Pvt.) LTD</div>
+            <div class="company-sub">Plot 179, Block E, SITE Superhighway, Karachi, Pakistan</div>
+            <div class="company-tax">Store Department · Status Filter: ${esc(activeTab)}${searchQuery ? ` · Search: "${esc(searchQuery)}"` : ''} · Records: ${rows.length}</div>
+          </div>
+        </div>
+        <div class="doc-badge-box">
+          <div class="doc-badge">STORE ISSUE NOTES REGISTER</div>
+          <div class="doc-badge-sub">Printed ${dayjs().format('DD-MMM-YYYY HH:mm')}</div>
+        </div>
+      </div>
+      <table class="print-table">
+        <thead>
+          <tr>
+            <th style="width:28px;text-align:center;">#</th>
+            <th>SIN # / Date</th>
+            <th>Status</th>
+            <th>Source Store</th>
+            <th>Section / Dept / Machine</th>
+            <th>Issued Item(s)</th>
+            <th>Personnel</th>
+            <th style="text-align:right;">Scrap Ret.</th>
+            <th>Purpose</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rowsHtml || '<tr><td colspan="9" style="text-align:center;padding:14px;">No Store Issue Notes found</td></tr>'}
+        </tbody>
+      </table>
+    `;
+    printHtmlContent('Store Issue Notes Register', html);
+  };
+
   const columns: ColumnsType<MaterialIssue> = [
     {
       title: 'SIN #',
       dataIndex: 'issueNumber',
       key: 'issueNumber',
-      width: 170,
+      width: 165,
+      fixed: 'left',
+      className: 'pwi-sin-nowrap-cell pwi-sin-tabular',
+      onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }),
       render: (v: string, r) => (
         <div>
-          <Typography.Text strong style={{ color: token.colorPrimary, display: 'block' }}>
+          <Typography.Text strong style={{ color: token.colorPrimary, display: 'block', whiteSpace: 'nowrap' }}>
             {v}
           </Typography.Text>
-          <Typography.Text type="secondary" style={{ fontSize: '11px' }}>
+          <Typography.Text type="secondary" style={{ fontSize: '11px', whiteSpace: 'nowrap' }}>
             {r.issueDate ? dayjs(r.issueDate).format('YYYY-MM-DD') : '—'}
           </Typography.Text>
         </div>
@@ -865,7 +1263,9 @@ const StoreIssues: React.FC = () => {
       title: 'Source Store',
       dataIndex: 'storeId',
       key: 'storeId',
-      width: 185,
+      width: 180,
+      className: 'pwi-sin-nowrap-cell',
+      onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }),
       render: (id: string, r) => {
         const st = storeObjMap[id];
         const fallbackLabel = storeMap[id] || r.storeName || id || '—';
@@ -904,6 +1304,7 @@ const StoreIssues: React.FC = () => {
       title: 'Issued Item(s)',
       key: 'issuedItems',
       width: 280,
+      onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }),
       render: (_: any, r: MaterialIssue) => {
         const lines = Array.isArray(r.lines) ? r.lines : [];
         if (lines.length === 0) {
@@ -930,27 +1331,30 @@ const StoreIssues: React.FC = () => {
     {
       title: 'Destination Dept & Machine',
       key: 'destination',
-      width: 250,
+      width: 245,
+      className: 'pwi-sin-nowrap-cell',
+      onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }),
       render: (_: any, r: MaterialIssue) => {
         const deptId = r.issuedToDepartmentId || r.departmentId;
         const deptName = deptId ? deptMap[deptId] || 'Department' : 'Factory Dept';
+        const secName = r.sectionId ? sectionMap[r.sectionId] : undefined;
         const machineRef = r.referenceDocument || 'General Allocation';
         const isSpecificMachine = machineRef.toLowerCase().includes('machine:');
 
         return (
-          <Space direction="vertical" size={4}>
+          <Space direction="vertical" size={3}>
             <Space size={4}>
               <ApartmentOutlined style={{ color: token.colorPrimary }} />
-              <Typography.Text strong style={{ fontSize: '13px' }}>
-                {deptName}
+              <Typography.Text strong style={{ fontSize: '12.5px', whiteSpace: 'nowrap' }}>
+                {secName ? `${secName} · ${deptName}` : deptName}
               </Typography.Text>
             </Space>
             {isSpecificMachine ? (
-              <Tag color="geekblue" icon={<SettingOutlined />} style={{ fontSize: '11px', margin: 0 }}>
+              <Tag color="geekblue" icon={<SettingOutlined />} style={{ fontSize: '11px', margin: 0, whiteSpace: 'nowrap' }}>
                 {machineRef.replace(/^Machine:\s*/i, '')}
               </Tag>
             ) : (
-              <Tag style={{ fontSize: '11px', margin: 0 }}>
+              <Tag style={{ fontSize: '11px', margin: 0, whiteSpace: 'nowrap' }}>
                 {machineRef}
               </Tag>
             )}
@@ -959,25 +1363,27 @@ const StoreIssues: React.FC = () => {
       },
     },
     {
-      title: 'Personnel (Operator / Shift Incharge)',
+      title: 'Personnel (Operator / Incharge)',
       key: 'personnel',
-      width: 230,
+      width: 225,
+      className: 'pwi-sin-nowrap-cell',
+      onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }),
       render: (_: any, r: MaterialIssue) => (
         <Space direction="vertical" size={2}>
-          <div style={{ fontSize: '12px' }}>
+          <div style={{ fontSize: '12px', whiteSpace: 'nowrap' }}>
             <Typography.Text type="secondary" style={{ fontSize: '11px' }}>Operator: </Typography.Text>
             <Typography.Text strong style={{ fontSize: '12px' }}>
               {r.operatorName || '—'}
             </Typography.Text>
           </div>
-          <div style={{ fontSize: '12px' }}>
+          <div style={{ fontSize: '12px', whiteSpace: 'nowrap' }}>
             <Typography.Text type="secondary" style={{ fontSize: '11px' }}>Shift Incharge: </Typography.Text>
             <Typography.Text style={{ fontSize: '12px' }}>
               {r.shiftInchargeName || '—'}
             </Typography.Text>
           </div>
-          <div style={{ fontSize: '11px' }}>
-            <Typography.Text type="secondary" style={{ fontSize: '11px' }}>Issued By: </Typography.Text>
+          <div style={{ fontSize: '11px', whiteSpace: 'nowrap' }}>
+            <Typography.Text type="secondary" style={{ fontSize: '11px' }}>Store Incharge: </Typography.Text>
             <Tag color="orange" style={{ fontSize: '10px', margin: 0, lineHeight: '16px', padding: '0 6px' }}>
               {r.issuedByName || currentUserDisplayName}
             </Tag>
@@ -991,6 +1397,7 @@ const StoreIssues: React.FC = () => {
       key: 'purpose',
       width: 190,
       ellipsis: true,
+      onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }),
       render: (v: string, r) => (
         <Tooltip title={r.remarks ? `${v || 'No purpose'} | Remarks: ${r.remarks}` : v}>
           <span>{v || r.remarks || '—'}</span>
@@ -1001,7 +1408,9 @@ const StoreIssues: React.FC = () => {
       title: 'Status',
       dataIndex: 'status',
       key: 'status',
-      width: 110,
+      width: 105,
+      className: 'pwi-sin-nowrap-cell',
+      onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }),
       render: (v: string) => {
         const colors: Record<string, string> = { DRAFT: 'blue', POSTED: 'success', CANCELLED: 'volcano' };
         return <Tag color={colors[v] || 'default'}>{v}</Tag>;
@@ -1010,41 +1419,98 @@ const StoreIssues: React.FC = () => {
     {
       title: 'Actions',
       key: 'actions',
-      width: 300,
+      width: 245,
+      fixed: 'right',
+      className: 'pwi-sin-nowrap-cell',
+      onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }),
       render: (_: any, record: MaterialIssue) => (
-        <Space size="small" wrap>
-          <Button size="small" icon={<PrinterOutlined />} onClick={() => openPrintModal(record)}>
-            Print / PDF
-          </Button>
-          {record.status === 'DRAFT' && (
+        <Space size={4} wrap={false}>
+          <Tooltip title="View Details">
             <Button
               size="small"
-              icon={<EditOutlined />}
-              onClick={() => handleEditDraft(record)}
-              style={{ borderColor: '#f97316', color: '#ea580c', fontWeight: 600 }}
-            >
-              Edit
-            </Button>
+              icon={<EyeOutlined />}
+              aria-label="View Details"
+              onClick={() => handleViewDetails(record)}
+            />
+          </Tooltip>
+          {canUpdate && record.status !== 'CANCELLED' && (
+            <Tooltip title="Edit SIN">
+              <Button
+                size="small"
+                icon={<EditOutlined />}
+                aria-label="Edit SIN"
+                onClick={() => handleEditDraft(record)}
+                style={{ borderColor: '#f97316', color: '#ea580c' }}
+              />
+            </Tooltip>
           )}
+          <Tooltip title="Print SIN Slip">
+            <Button
+              size="small"
+              icon={<PrinterOutlined />}
+              aria-label="Print SIN Slip"
+              onClick={() => handleDirectPrint(record)}
+            />
+          </Tooltip>
+          <Tooltip title="Download PDF">
+            <Button
+              size="small"
+              icon={<FilePdfOutlined />}
+              aria-label="Download PDF"
+              onClick={() => handleDirectDownloadPdf(record)}
+            />
+          </Tooltip>
+          <Tooltip title="Share via WhatsApp">
+            <Button
+              size="small"
+              icon={<WhatsAppOutlined />}
+              aria-label="Share via WhatsApp"
+              onClick={() => handleShareRowWhatsApp(record)}
+              style={{ color: '#16a34a', borderColor: '#86efac' }}
+            />
+          </Tooltip>
           {record.status === 'DRAFT' && canPost && (
-            <Button type="primary" size="small" icon={<CheckOutlined />} onClick={() => openRowActionConfirm('post', record)}>
-              Post
-            </Button>
+            <Tooltip title="Post to Stock">
+              <Button
+                type="primary"
+                size="small"
+                icon={<CheckOutlined />}
+                aria-label="Post to Stock"
+                onClick={() => openRowActionConfirm('post', record)}
+              />
+            </Tooltip>
           )}
           {record.status === 'DRAFT' && (
-            <Button size="small" icon={<RollbackOutlined />} onClick={() => openRowActionConfirm('cancel', record)}>
-              Cancel
-            </Button>
+            <Tooltip title="Cancel Draft">
+              <Button
+                size="small"
+                icon={<RollbackOutlined />}
+                aria-label="Cancel Draft"
+                onClick={() => openRowActionConfirm('cancel', record)}
+              />
+            </Tooltip>
           )}
           {(record.status === 'DRAFT' || record.status === 'CANCELLED') && (
-            <Button danger size="small" icon={<DeleteOutlined />} onClick={() => openRowActionConfirm('delete', record)}>
-              Delete
-            </Button>
+            <Tooltip title="Delete SIN">
+              <Button
+                danger
+                size="small"
+                icon={<DeleteOutlined />}
+                aria-label="Delete SIN"
+                onClick={() => openRowActionConfirm('delete', record)}
+              />
+            </Tooltip>
           )}
         </Space>
       ),
     },
   ];
+
+  const { visibleColumns, selectorProps } = useColumnVisibility(
+    'pwi_cols_store_issues',
+    columns,
+    { lockedKeys: ['issueNumber', 'actions'] },
+  );
 
   const tabItems = [
     { key: 'ALL', label: `All Issues (${data.length})` },
@@ -1062,11 +1528,41 @@ const StoreIssues: React.FC = () => {
         title="Store Issue Notes (SIN)"
         subtitle="Issue spare parts, tools, and consumables to factory departments and machines"
         extra={
-          canCreate ? (
-            <Button type="primary" size="middle" icon={<PlusOutlined />} onClick={handleCreate}>
-              Create Store Issue Note
+          <Space wrap size={8}>
+            <Button icon={<PrinterOutlined />} onClick={handlePrintDirectory}>
+              Print View
             </Button>
-          ) : undefined
+            <Dropdown
+              menu={{
+                items: [
+                  {
+                    key: 'xlsx',
+                    label: 'Export Excel (.xlsx)',
+                    icon: <FileExcelOutlined />,
+                    onClick: () => handleExportExcel('xlsx'),
+                  },
+                  {
+                    key: 'csv',
+                    label: 'Export CSV (.csv)',
+                    icon: <FileTextOutlined />,
+                    onClick: () => handleExportExcel('csv'),
+                  },
+                ],
+              }}
+            >
+              <Button icon={<DownloadOutlined />}>
+                Export Excel
+              </Button>
+            </Dropdown>
+            <Button icon={<ReloadOutlined />} onClick={() => fetchData(true)} loading={loading}>
+              Refresh
+            </Button>
+            {canCreate && (
+              <Button type="primary" size="middle" icon={<PlusOutlined />} onClick={handleCreate}>
+                Create Store Issue Note
+              </Button>
+            )}
+          </Space>
         }
       />
 
@@ -1111,26 +1607,19 @@ const StoreIssues: React.FC = () => {
                 onChange={(e) => setSearchQuery(e.target.value)}
                 style={{ width: 300 }}
               />
-              <Button icon={<ReloadOutlined />} onClick={fetchData} loading={loading}>
-                Refresh
-              </Button>
-              {canCreate && (
-                <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
-                  Create Store Issue Note
-                </Button>
-              )}
+              <TableColumnSelector {...selectorProps} />
             </Space>
-      
-    </div>
+          </div>
 
           <Table
-            columns={columns}
+            className="pwi-sin-compact-table"
+            columns={visibleColumns}
             dataSource={filteredData}
             rowKey="id"
             loading={loading}
             pagination={{ pageSize: 12, showTotal: (t) => `Total ${t} issues` }}
             scroll={{ x: 'max-content' }}
-            size="middle"
+            size="small"
           />
         </Card>
   
@@ -1227,15 +1716,19 @@ const StoreIssues: React.FC = () => {
                     STORE DEPARTMENT · STORE ISSUE NOTE (SIN)
                   </div>
                   <div style={{ fontSize: 18, fontWeight: 800, color: token.colorText }}>
-                    {editingIssueId ? 'Edit Draft Store Issue Note' : 'Create Store Issue Note'}
+                    {editingIssueId
+                      ? editingIssueStatus === 'POSTED'
+                        ? 'Edit Posted Store Issue Note'
+                        : 'Edit Draft Store Issue Note'
+                      : 'Create Store Issue Note'}
                   </div>
                 </div>
               </div>
 
               <Space size={8}>
                 {editingIssueId && (
-                  <Tag color="orange" style={{ fontWeight: 700, margin: 0 }}>
-                    EDITING DRAFT
+                  <Tag color={editingIssueStatus === 'POSTED' ? 'volcano' : 'orange'} style={{ fontWeight: 700, margin: 0 }}>
+                    {editingIssueStatus === 'POSTED' ? 'EDITING POSTED SIN' : 'EDITING DRAFT'}
                   </Tag>
                 )}
                 <Tooltip title={isMaximized ? 'Restore Default Size' : 'Maximize / Fullscreen'}>
@@ -1555,6 +2048,7 @@ const StoreIssues: React.FC = () => {
                   label="Issued Store Items"
                   machineId={watchedMachineSelection}
                   issueDate={watchedIssueDate ? watchedIssueDate.format('YYYY-MM-DD') : undefined}
+                  excludeIssueId={editingIssueId || undefined}
                   onInspectLifecycle={setLifecycleModalItem}
                 />
               </Form>
@@ -1579,6 +2073,14 @@ const StoreIssues: React.FC = () => {
               </Typography.Text>
               <Space size={10}>
                 <Button
+                  icon={<WhatsAppOutlined />}
+                  onClick={handleShareFormWhatsApp}
+                  disabled={lineItems.length === 0}
+                  style={{ color: '#16a34a', borderColor: '#86efac', fontWeight: 600 }}
+                >
+                  WhatsApp
+                </Button>
+                <Button
                   onClick={() => {
                     setModalOpen(false);
                     setEditingIssueId(null);
@@ -1598,7 +2100,11 @@ const StoreIssues: React.FC = () => {
                     paddingInline: 20,
                   }}
                 >
-                  {editingIssueId ? 'Save Draft Changes' : 'Create Store Issue Note'}
+                  {editingIssueId
+                    ? editingIssueStatus === 'POSTED'
+                      ? 'Save & Reconcile Stock'
+                      : 'Save Draft Changes'
+                    : 'Create Store Issue Note'}
                 </Button>
               </Space>
             </div>
@@ -1612,6 +2118,7 @@ const StoreIssues: React.FC = () => {
         initialItemCode={lifecycleModalItem?.itemCode}
         initialItemName={lifecycleModalItem?.itemName}
         initialStoreId={selectedSourceStoreId}
+        initialTab="Issues"
         onClose={() => setLifecycleModalItem(null)}
       />
 
@@ -1621,16 +2128,238 @@ const StoreIssues: React.FC = () => {
         voucher={printVoucher}
       />
 
+      {/* VIEW STORE ISSUE NOTE DETAILS MODAL */}
+      <Modal
+        open={!!viewRecord}
+        onCancel={() => setViewRecord(null)}
+        footer={null}
+        centered
+        width={960}
+        closable={false}
+        styles={{
+          content: {
+            padding: 7,
+            borderRadius: 20,
+            background: token.colorFillSecondary,
+            border: `1px solid ${token.colorBorder}`,
+            boxShadow: '0 24px 64px rgba(0, 0, 0, 0.28)',
+          },
+          body: { padding: 0 },
+        }}
+      >
+        {viewRecord && (
+          <div
+            style={{
+              borderRadius: 14,
+              background: token.colorBgContainer,
+              border: `1px solid ${token.colorBorderSecondary}`,
+              overflow: 'hidden',
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '14px 20px',
+                background: token.colorFillAlter,
+                borderBottom: `1px solid ${token.colorBorderSecondary}`,
+                gap: 12,
+                flexWrap: 'wrap',
+              }}
+            >
+              <Space size={10}>
+                <Typography.Text strong style={{ fontSize: 16 }}>
+                  Store Issue Note — {viewRecord.issueNumber}
+                </Typography.Text>
+                <Tag
+                  color={
+                    viewRecord.status === 'POSTED'
+                      ? 'success'
+                      : viewRecord.status === 'CANCELLED'
+                        ? 'volcano'
+                        : 'blue'
+                  }
+                >
+                  {viewRecord.status}
+                </Tag>
+              </Space>
+              <Space size={8}>
+                <Button
+                  size="small"
+                  icon={<WhatsAppOutlined />}
+                  onClick={() => handleShareRowWhatsApp(viewRecord)}
+                  style={{ color: '#16a34a', borderColor: '#86efac', fontWeight: 600 }}
+                >
+                  WhatsApp
+                </Button>
+                <Button
+                  size="small"
+                  icon={<FilePdfOutlined />}
+                  onClick={() => handleDirectDownloadPdf(viewRecord)}
+                >
+                  PDF
+                </Button>
+                <Button
+                  size="small"
+                  type="primary"
+                  icon={<PrinterOutlined />}
+                  onClick={() => handleDirectPrint(viewRecord)}
+                >
+                  Print
+                </Button>
+                {canUpdate && viewRecord.status !== 'CANCELLED' && (
+                  <Button
+                    size="small"
+                    icon={<EditOutlined />}
+                    onClick={() => {
+                      const rec = viewRecord;
+                      setViewRecord(null);
+                      handleEditDraft(rec);
+                    }}
+                    style={{ borderColor: '#f97316', color: '#ea580c', fontWeight: 600 }}
+                  >
+                    Edit
+                  </Button>
+                )}
+                <Button type="text" size="small" icon={<CloseOutlined />} onClick={() => setViewRecord(null)} />
+              </Space>
+            </div>
+
+            <div style={{ padding: 20, maxHeight: '76vh', overflowY: 'auto' }}>
+              <Descriptions
+                bordered
+                size="small"
+                column={{ xs: 1, sm: 2, md: 3 }}
+                style={{ marginBottom: 16 }}
+              >
+                <Descriptions.Item label="SIN #">
+                  <Typography.Text strong style={{ fontFamily: 'monospace' }}>
+                    {viewRecord.issueNumber}
+                  </Typography.Text>
+                </Descriptions.Item>
+                <Descriptions.Item label="Issue Date">
+                  {viewRecord.issueDate ? dayjs(viewRecord.issueDate).format('DD-MMM-YYYY') : '—'}
+                </Descriptions.Item>
+                <Descriptions.Item label="Division">
+                  {viewRecord.divisionId ? divisionMap[viewRecord.divisionId] || '—' : '—'}
+                </Descriptions.Item>
+                <Descriptions.Item label="Source Store">
+                  {viewRecord.storeName || (viewRecord.storeId ? storeMap[viewRecord.storeId] || '—' : '—')}
+                </Descriptions.Item>
+                <Descriptions.Item label="Destination Section">
+                  {viewRecord.sectionId ? sectionMap[viewRecord.sectionId] || '—' : '—'}
+                </Descriptions.Item>
+                <Descriptions.Item label="Department">
+                  {(viewRecord.issuedToDepartmentId || viewRecord.departmentId)
+                    ? deptMap[viewRecord.issuedToDepartmentId || viewRecord.departmentId!] || '—'
+                    : '—'}
+                </Descriptions.Item>
+                <Descriptions.Item label="Machine / Allocation" span={2}>
+                  {(viewRecord.referenceDocument || 'General / Plant Allocation').replace(/^Machine:\s*/i, '')}
+                </Descriptions.Item>
+                <Descriptions.Item label="Store Incharge">
+                  {viewRecord.issuedByName || currentUserDisplayName}
+                </Descriptions.Item>
+                <Descriptions.Item label="Operator">
+                  {viewRecord.operatorName || '—'}
+                </Descriptions.Item>
+                <Descriptions.Item label="Shift Incharge">
+                  {viewRecord.shiftInchargeName || '—'}
+                </Descriptions.Item>
+                <Descriptions.Item label="Purpose">
+                  {viewRecord.purpose || '—'}
+                </Descriptions.Item>
+                {viewRecord.remarks && (
+                  <Descriptions.Item label="Remarks" span={3}>
+                    {viewRecord.remarks}
+                  </Descriptions.Item>
+                )}
+              </Descriptions>
+
+              <Table
+                size="small"
+                bordered
+                loading={loadingView}
+                pagination={false}
+                rowKey={(r: any, idx?: number) => String(r.id || idx)}
+                dataSource={Array.isArray(viewRecord.lines) ? viewRecord.lines : []}
+                scroll={{ x: 'max-content' }}
+                columns={[
+                  { title: '#', key: 'ln', width: 42, align: 'center', render: (_: any, r: any, i: number) => r.lineNumber ?? i + 1 },
+                  {
+                    title: 'Item Code',
+                    dataIndex: 'itemCode',
+                    key: 'itemCode',
+                    width: 120,
+                    render: (v: string) => <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{v || '—'}</span>,
+                  },
+                  { title: 'Item Description', dataIndex: 'itemName', key: 'itemName', width: 220 },
+                  { title: 'UOM', dataIndex: 'uomCode', key: 'uomCode', width: 65, align: 'center' },
+                  {
+                    title: 'Issued Qty',
+                    dataIndex: 'quantity',
+                    key: 'quantity',
+                    width: 90,
+                    align: 'right' as const,
+                    render: (v: number) => <strong>{Number(v || 0).toLocaleString()}</strong>,
+                  },
+                  {
+                    title: 'Old Scrap Ret.',
+                    dataIndex: 'oldItemReturnedQty',
+                    key: 'oldItemReturnedQty',
+                    width: 105,
+                    align: 'right' as const,
+                    render: (v: number) => Number(v || 0).toLocaleString(),
+                  },
+                  {
+                    title: 'Remaining Store Stock',
+                    key: 'remainingStock',
+                    width: 140,
+                    align: 'right' as const,
+                    render: (_: any, r: any) =>
+                      r.remainingStock !== undefined && r.remainingStock !== null
+                        ? `${Number(r.remainingStock).toLocaleString()} ${r.uomCode || ''}`.trim()
+                        : '—',
+                  },
+                  {
+                    title: 'Last Issued Info',
+                    dataIndex: 'lastIssuedSummary',
+                    key: 'lastIssuedSummary',
+                    width: 240,
+                    render: (v?: string) => <span style={{ fontSize: 11.5 }}>{v || '—'}</span>,
+                  },
+                ]}
+              />
+            </div>
+          </div>
+        )}
+      </Modal>
+
       <ConfirmAndSuccessModal
         open={issueConfirmPhase !== 'idle'}
         phase={issueConfirmPhase}
-        confirmTitle={editingIssueId ? 'Confirm Draft Update' : 'Confirm Store Issue Note (SIN)'}
+        confirmTitle={
+          editingIssueId
+            ? editingIssueStatus === 'POSTED'
+              ? 'Confirm Posted SIN Update'
+              : 'Confirm Draft Update'
+            : 'Confirm Store Issue Note (SIN)'
+        }
         confirmDescription={
           editingIssueId
-            ? 'Please verify the updated header details and line items before saving draft changes.'
+            ? editingIssueStatus === 'POSTED'
+              ? 'Saving changes to a Posted Store Issue Note will atomically reverse previous stock deductions and re-post the updated quantities.'
+              : 'Please verify the updated header details and line items before saving draft changes.'
             : 'Please verify the store, personnel, and line items before creating this Store Issue Note.'
         }
-        confirmText={editingIssueId ? 'Confirm & Update Draft' : 'Confirm & Create SIN'}
+        confirmText={
+          editingIssueId
+            ? editingIssueStatus === 'POSTED'
+              ? 'Confirm & Reconcile SIN'
+              : 'Confirm & Update Draft'
+            : 'Confirm & Create SIN'
+        }
         savingText="Saving..."
         savingSubtext={editingIssueId ? 'Updating draft Store Issue Note' : 'Creating Store Issue Note (SIN)'}
         referenceNumber={issueFeedbackMeta.refNum}
@@ -1641,6 +2370,18 @@ const StoreIssues: React.FC = () => {
           { label: 'Source Store', value: issueFeedbackMeta.storeName },
           { label: 'Line Items', value: issueFeedbackMeta.lineCount, highlight: true },
         ]}
+        extraSuccessAction={
+          issueFeedbackMeta.savedRecord
+            ? {
+                label: 'Print / View SIN',
+                onClick: () => {
+                  const rec = issueFeedbackMeta.savedRecord!;
+                  setIssueConfirmPhase('idle');
+                  openPrintModal(rec);
+                },
+              }
+            : undefined
+        }
         onConfirm={executeIssueSave}
         onCancel={() => setIssueConfirmPhase('idle')}
         onOk={() => setIssueConfirmPhase('idle')}

@@ -15,6 +15,7 @@ import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { SupabaseJwtGuard } from '../../auth/guards/supabase-jwt.guard';
 import { OrgScopeGuard } from '../../auth/guards/org-scope.guard';
 import { DivisionScopeGuard } from '../../auth/guards/division-scope.guard';
+import { PermissionGuard, RequirePermission } from '../../auth/guards/permission.guard';
 import {
   ProductionReworkReturnService,
   CreateReworkReturnDto,
@@ -39,6 +40,8 @@ export class ProductionReworkReturnController {
   }
 
   @Post()
+  @UseGuards(PermissionGuard)
+  @RequirePermission('manufacturing.rework_return.create')
   @ApiOperation({ summary: 'Create an inter-department production rework return' })
   async create(@Body() dto: CreateReworkReturnDto, @Req() req: any) {
     const companyId = this.getCompanyId(req);
@@ -52,6 +55,8 @@ export class ProductionReworkReturnController {
   }
 
   @Get()
+  @UseGuards(PermissionGuard)
+  @RequirePermission('manufacturing.rework_return.view')
   @ApiOperation({ summary: 'List production rework returns with filters' })
   async findAll(@Query() query: ReworkReturnFilterQuery, @Req() req: any) {
     const companyId = this.getCompanyId(req);
@@ -59,6 +64,8 @@ export class ProductionReworkReturnController {
   }
 
   @Get('summary')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('manufacturing.rework_return.view')
   @ApiOperation({ summary: 'Get KPI statistics and defect breakdown for rework returns' })
   async getSummary(@Query('divisionId') divisionId: string, @Req() req: any) {
     const companyId = this.getCompanyId(req);
@@ -66,6 +73,8 @@ export class ProductionReworkReturnController {
   }
 
   @Get('stage-items')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('manufacturing.rework_return.view')
   @ApiOperation({ summary: 'Get stage components and WIP items for returns routing' })
   async getStageItems(
     @Query('divisionId') divisionId?: string,
@@ -77,6 +86,8 @@ export class ProductionReworkReturnController {
   }
 
   @Get('lookup-options')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('manufacturing.rework_return.view')
   @ApiOperation({ summary: 'Get dynamic defect reasons and corrective actions' })
   async getLookupOptions(@Req() req: any) {
     const companyId = this.getCompanyId(req);
@@ -84,6 +95,8 @@ export class ProductionReworkReturnController {
   }
 
   @Post('lookup-options')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('manufacturing.rework_return.create', 'manufacturing.rework_return.update')
   @ApiOperation({ summary: 'Add a custom defect reason or corrective action' })
   async addLookupOption(@Body() dto: { category: string; label: string; value?: string }, @Req() req: any) {
     const companyId = this.getCompanyId(req);
@@ -91,6 +104,8 @@ export class ProductionReworkReturnController {
   }
 
   @Get(':id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('manufacturing.rework_return.view')
   @ApiOperation({ summary: 'Get rework return detail by ID' })
   async findOne(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
     const companyId = this.getCompanyId(req);
@@ -99,6 +114,8 @@ export class ProductionReworkReturnController {
   }
 
   @Patch(':id/status')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('manufacturing.rework_return.approve', 'manufacturing.rework_return.update')
   @ApiOperation({ summary: 'Update rework return status (e.g. Acknowledge, In Rework, Rectified, Closed)' })
   async updateStatus(
     @Param('id', ParseUUIDPipe) id: string,
@@ -116,6 +133,8 @@ export class ProductionReworkReturnController {
   }
 
   @Patch(':id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('manufacturing.rework_return.update')
   @ApiOperation({ summary: 'Update an inter-department production rework return record' })
   async update(
     @Param('id', ParseUUIDPipe) id: string,
@@ -133,6 +152,8 @@ export class ProductionReworkReturnController {
   }
 
   @Delete(':id')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('manufacturing.rework_return.delete')
   @ApiOperation({ summary: 'Delete a production rework return record' })
   async delete(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
     const companyId = this.getCompanyId(req);

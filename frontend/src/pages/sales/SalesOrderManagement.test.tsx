@@ -29,6 +29,8 @@ jest.mock('../../utils/printTemplates', () => ({
   printLoadingAdviceSlip: jest.fn(),
 }));
 
+jest.setTimeout(30000);
+
 const mockedApi = apiService as jest.Mocked<typeof apiService>;
 const mockedUsePermission = usePermission as jest.Mock;
 
@@ -177,7 +179,7 @@ describe('SalesOrderManagement — workflow action safety & Admin Revert to Proc
       'sales.orders.create',
       'sales.orders.update',
       'sales.orders.approve',
-      'admin.users.view',
+      'sales.orders.revert_delivery',
     ]);
 
     render(

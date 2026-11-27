@@ -57,7 +57,7 @@ export class RfqController {
 
   @Patch(':id/cancel')
   @UseGuards(PermissionGuard)
-  @RequirePermission('procurement.rfq.create')
+  @RequirePermission('procurement.rfq.update', 'procurement.rfq.delete')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Cancel RFQ' })
   async cancel(@Param('id') id: string) {
@@ -67,7 +67,7 @@ export class RfqController {
 
   @Post(':id/suppliers')
   @UseGuards(PermissionGuard)
-  @RequirePermission('procurement.rfq.create')
+  @RequirePermission('procurement.rfq.create', 'procurement.rfq.update')
   @ApiOperation({ summary: 'Add suppliers to an RFQ' })
   async addSuppliers(@Param('id') id: string, @Body('supplierIds') supplierIds: string[]) {
     const rfq = await this.service.addSuppliers(id, supplierIds || []);
@@ -76,7 +76,7 @@ export class RfqController {
 
   @Post(':id/lines')
   @UseGuards(PermissionGuard)
-  @RequirePermission('procurement.rfq.create')
+  @RequirePermission('procurement.rfq.create', 'procurement.rfq.update')
   @ApiOperation({ summary: 'Add line to RFQ' })
   async addLine(@Param('id') id: string, @Body() dto: any) {
     const line = await this.service.addLine(id, dto);
@@ -85,7 +85,7 @@ export class RfqController {
 
   @Delete(':id/lines/:lineId')
   @UseGuards(PermissionGuard)
-  @RequirePermission('procurement.rfq.create')
+  @RequirePermission('procurement.rfq.update', 'procurement.rfq.delete')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Remove line from RFQ' })
   async removeLine(@Param('id') id: string, @Param('lineId') lineId: string) {

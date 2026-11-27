@@ -33,6 +33,7 @@ import apiService from '../../services/api';
 import { PageHeader } from '../../components/shared';
 import { formatPkr, downloadCsvFile, FISCAL_PRESETS, resolveFiscalPresetRange, FiscalPresetKey } from '../../utils/financeHelpers';
 import { printFinancialStatementHtml } from '../../utils/printTemplates';
+import { usePermission } from '../../hooks/usePermission';
 
 const { Text } = Typography;
 const { RangePicker } = DatePicker;
@@ -41,6 +42,11 @@ const CashBankBook: React.FC = () => {
   const { message } = App.useApp();
   const { token } = theme.useToken();
   const navigate = useNavigate();
+  const { can } = usePermission();
+  const canManageAccounts = can('finance.account.view');
+  const canCreateContra = can('finance.journal.create');
+  const canExport = can('finance.report.cash_bank_book.export');
+  const canPrint = can('finance.report.cash_bank_book.print');
 
   const [companyId, setCompanyId] = useState('');
   const [loading, setLoading] = useState(false);
@@ -186,19 +192,23 @@ const CashBankBook: React.FC = () => {
         icon={<BankOutlined />}
         extra={
           <Space wrap>
-            <Button icon={<BankOutlined />} onClick={() => navigate('/finance/accounts')}>
-              Manage Bank Accounts
-            </Button>
-            <Button
-              type="primary"
-              icon={<SwapOutlined />}
-              onClick={() => {
-                contraForm.setFieldsValue({ entryDate: dayjs(), paymentMode: 'BANK_TRANSFER' });
-                setContraOpen(true);
-              }}
-            >
-              Contra Transfer (CV)
-            </Button>
+            {canManageAccounts && (
+              <Button icon={<BankOutlined />} onClick={() => navigate('/finance/accounts')}>
+                Manage Bank Accounts
+              </Button>
+            )}
+            {canCreateContra && (
+              <Button
+                type="primary"
+                icon={<SwapOutlined />}
+                onClick={() => {
+                  contraForm.setFieldsValue({ entryDate: dayjs(), paymentMode: 'BANK_TRANSFER' });
+                  setContraOpen(true);
+                }}
+              >
+                Contra Transfer (CV)
+              </Button>
+            )}
           </Space>
         }
       />
@@ -334,8 +344,8 @@ const CashBankBook: React.FC = () => {
           <Col xs={24} lg={4} style={{ textAlign: 'right' }}>
             <Space>
               <Button icon={<ReloadOutlined />} onClick={fetchBook} loading={loading} />
-              <Button icon={<DownloadOutlined />} onClick={handleExportCsv} />
-              <Button icon={<PrinterOutlined />} onClick={handlePrint} />
+              {canExport && <Button icon={<DownloadOutlined />} onClick={handleExportCsv} />}
+              {canPrint && <Button icon={<PrinterOutlined />} onClick={handlePrint} />}
             </Space>
           </Col>
         </Row>

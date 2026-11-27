@@ -30,6 +30,8 @@ export class OpeningStockController {
   }
 
   @Get('history')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('inventory.opening_stock.view')
   @ApiOperation({ summary: 'List opening stock batches (posted & reversed) and their line items' })
   async getHistory(
     @Req() req: any,
@@ -77,7 +79,7 @@ export class OpeningStockController {
 
   @Post('batches/:referenceNumber/reverse')
   @UseGuards(PermissionGuard)
-  @RequirePermission('inventory.opening_stock.delete')
+  @RequirePermission('inventory.opening_stock.reverse')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Undo / reverse an opening stock batch safely (prevents negative stock)' })
   async reverseBatch(
@@ -98,7 +100,7 @@ export class OpeningStockController {
 
   @Post('batches/:referenceNumber/restore')
   @UseGuards(PermissionGuard)
-  @RequirePermission('inventory.opening_stock.delete')
+  @RequirePermission('inventory.opening_stock.reverse')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Restore / re-post a previously reversed opening stock batch' })
   async restoreBatch(
@@ -119,7 +121,7 @@ export class OpeningStockController {
 
   @Put('lines/:ledgerId')
   @UseGuards(PermissionGuard)
-  @RequirePermission('inventory.opening_stock.create')
+  @RequirePermission('inventory.opening_stock.update')
   @ApiOperation({ summary: 'Update a posted opening stock line quantity/notes and sync inventory balance' })
   async updateLine(
     @Req() req: any,

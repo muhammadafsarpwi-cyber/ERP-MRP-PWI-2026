@@ -45,7 +45,7 @@ export class ItemSpecificationController {
 
   @Patch('specifications/:id/deactivate')
   @UseGuards(PermissionGuard)
-  @RequirePermission('item_specification.deactivate')
+  @RequirePermission('item_specification.update')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Deactivate specification' })
   @ApiParam({ name: 'id' })

@@ -53,7 +53,7 @@ export class ProductionOpenStockController {
   @Get('items')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('manufacturing.production.entries.view')
+  @RequirePermission('manufacturing.open_stock.view')
   @ApiOperation({ summary: 'Get production items for open stock with real-time balance annotations' })
   @ApiQuery({ name: 'divisionId', required: false })
   @ApiQuery({ name: 'departmentId', required: false })
@@ -83,7 +83,7 @@ export class ProductionOpenStockController {
   @Get('warehouses')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('manufacturing.production.entries.view')
+  @RequirePermission('manufacturing.open_stock.view')
   @ApiOperation({ summary: 'Get production-relevant warehouses (shop floor & raw material/WIP)' })
   @ApiQuery({ name: 'divisionId', required: false })
   async getWarehouses(@Req() req: any, @Query('divisionId') divisionId?: string) {
@@ -98,7 +98,7 @@ export class ProductionOpenStockController {
   @Post()
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('manufacturing.production.entries.create')
+  @RequirePermission('manufacturing.open_stock.create')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Post Production Item Open Stock lines and update inventory balances' })
   async postOpeningStock(@Req() req: any, @Body() dto: PostProductionOpenStockDto) {
@@ -120,7 +120,7 @@ export class ProductionOpenStockController {
   @Post('adjust')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('manufacturing.production.entries.create')
+  @RequirePermission('manufacturing.open_stock.create')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Post Production Stock Adjustment (Surplus & Shortage)' })
   async postAdjustment(@Req() req: any, @Body() dto: PostProductionStockAdjustmentDto) {
@@ -142,7 +142,7 @@ export class ProductionOpenStockController {
   @Get('stats')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('manufacturing.production.entries.view')
+  @RequirePermission('manufacturing.open_stock.view')
   @ApiOperation({ summary: 'Analytics for Production Open Stock and Stock Adjustments (for charts)' })
   @ApiQuery({ name: 'divisionId', required: false })
   @ApiQuery({ name: 'warehouseId', required: false })
@@ -163,7 +163,7 @@ export class ProductionOpenStockController {
   @Get('matrix')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('manufacturing.production.entries.view')
+  @RequirePermission('manufacturing.open_stock.view')
   @ApiOperation({ summary: 'Department Stock Breakdown & Hierarchy Matrix (Tab 5)' })
   @ApiQuery({ name: 'divisionId', required: false })
   @ApiQuery({ name: 'search', required: false })
@@ -184,7 +184,7 @@ export class ProductionOpenStockController {
   @Get('reconcile')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('manufacturing.production.entries.view')
+  @RequirePermission('manufacturing.open_stock.view')
   @ApiOperation({
     summary:
       'Compare SYSTEM BOOK STOCK (inventory_balances) against the stock_ledger it is supposed to summarise',
@@ -228,7 +228,7 @@ export class ProductionOpenStockController {
   @Get('history')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('manufacturing.production.entries.view')
+  @RequirePermission('manufacturing.open_stock.view')
   @ApiOperation({ summary: 'History of Production Open Stock and Stock Adjustment transactions' })
   @ApiQuery({ name: 'divisionId', required: false })
   @ApiQuery({ name: 'departmentId', required: false })
@@ -264,7 +264,7 @@ export class ProductionOpenStockController {
   @Post('history/:id/reverse')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('manufacturing.production.entries.create')
+  @RequirePermission('manufacturing.open_stock.delete', 'manufacturing.open_stock.update')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Reverse/cancel a posted production opening stock or adjustment' })
   async reverseTransaction(@Req() req: any, @Param('id') id: string) {
@@ -276,7 +276,7 @@ export class ProductionOpenStockController {
   @Delete('history/:id')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('manufacturing.production.entries.create')
+  @RequirePermission('manufacturing.open_stock.delete')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Permanently delete a posted production opening stock or adjustment and revert stock balance' })
   async deleteTransaction(@Req() req: any, @Param('id') id: string) {
@@ -288,7 +288,7 @@ export class ProductionOpenStockController {
   @Patch('history/:id')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('manufacturing.production.entries.create')
+  @RequirePermission('manufacturing.open_stock.update')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Update customer/SOC allocation notes on an opening stock or adjustment ledger entry' })
   async patchHistoryNotes(
@@ -303,7 +303,7 @@ export class ProductionOpenStockController {
   @Put('history/:id')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('manufacturing.production.entries.create')
+  @RequirePermission('manufacturing.open_stock.update')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Update customer/SOC allocation notes on an opening stock or adjustment ledger entry' })
   async putHistoryNotes(
@@ -318,7 +318,7 @@ export class ProductionOpenStockController {
   @Post('allocate-safety-stock')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('manufacturing.production.entries.create')
+  @RequirePermission('manufacturing.open_stock.create', 'manufacturing.open_stock.update')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Allocate/Shift stock from Safety Stock to Customer Order with clean partial split support' })
   async allocateSafetyStock(

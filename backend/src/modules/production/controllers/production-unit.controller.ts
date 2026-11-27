@@ -63,6 +63,8 @@ export class ProductionUnitController {
   // ─── Label templates ─────────────────────────────────────────────────────────
 
   @Get('templates')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('manufacturing.units.view', 'manufacturing.production.entries.view')
   @ApiOperation({ summary: 'List available label templates' })
   async getTemplates() {
     return { success: true, data: this.unitService.getAvailableTemplates() };
@@ -72,7 +74,7 @@ export class ProductionUnitController {
 
   @Get('stats')
   @UseGuards(PermissionGuard)
-  @RequirePermission('manufacturing.production.entries.view')
+  @RequirePermission('manufacturing.units.view', 'manufacturing.production.entries.view', 'sales.dispatch_packages.view')
   @ApiOperation({ summary: 'Production unit status statistics' })
   async getStats(@Req() req: any) {
     const companyId = await this.getCompanyId(req);
@@ -84,7 +86,7 @@ export class ProductionUnitController {
 
   @Get('scan/:payload')
   @UseGuards(PermissionGuard)
-  @RequirePermission('manufacturing.production.entries.view')
+  @RequirePermission('manufacturing.units.view', 'manufacturing.production.entries.view', 'sales.dispatch_packages.view')
   @ApiOperation({ summary: 'Resolve QR / barcode payload to production unit' })
   async scanLookup(@Param('payload') payload: string, @Req() req: any) {
     const companyId = await this.getCompanyId(req);
@@ -96,7 +98,7 @@ export class ProductionUnitController {
 
   @Get('serial/:serialNo')
   @UseGuards(PermissionGuard)
-  @RequirePermission('manufacturing.production.entries.view')
+  @RequirePermission('manufacturing.units.view', 'manufacturing.production.entries.view', 'sales.dispatch_packages.view')
   @ApiOperation({ summary: 'Find production unit by serial number' })
   async findBySerial(@Param('serialNo') serialNo: string, @Req() req: any) {
     const companyId = await this.getCompanyId(req);
@@ -108,7 +110,7 @@ export class ProductionUnitController {
 
   @Get()
   @UseGuards(PermissionGuard)
-  @RequirePermission('manufacturing.production.entries.view')
+  @RequirePermission('manufacturing.units.view', 'manufacturing.production.entries.view', 'sales.dispatch_packages.view')
   @ApiOperation({ summary: 'List production units (filterable)' })
   @ApiQuery({ name: 'productionEntryId', required: false })
   @ApiQuery({ name: 'itemId', required: false })
@@ -126,7 +128,7 @@ export class ProductionUnitController {
 
   @Get(':id')
   @UseGuards(PermissionGuard)
-  @RequirePermission('manufacturing.production.entries.view')
+  @RequirePermission('manufacturing.units.view', 'manufacturing.production.entries.view', 'sales.dispatch_packages.view')
   @ApiOperation({ summary: 'Get a single production unit' })
   async findOne(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
     const companyId = await this.getCompanyId(req);
@@ -138,7 +140,7 @@ export class ProductionUnitController {
 
   @Post('generate')
   @UseGuards(PermissionGuard)
-  @RequirePermission('manufacturing.production.entries.create')
+  @RequirePermission('manufacturing.units.create', 'manufacturing.production.entries.create')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Bulk-generate production unit records with unique serials/QR/barcode' })
   async generate(@Body() dto: GenerateProductionUnitsDto, @Req() req: any) {
@@ -152,7 +154,7 @@ export class ProductionUnitController {
 
   @Patch('bulk-update')
   @UseGuards(PermissionGuard)
-  @RequirePermission('manufacturing.production.entries.create')
+  @RequirePermission('manufacturing.units.update', 'manufacturing.production.entries.update')
   @ApiOperation({ summary: 'Bulk update individual unit weights / attributes' })
   async bulkUpdate(@Body() dto: BulkUpdateUnitsDto, @Req() req: any) {
     const companyId = await this.getCompanyId(req);
@@ -164,7 +166,7 @@ export class ProductionUnitController {
 
   @Patch(':id')
   @UseGuards(PermissionGuard)
-  @RequirePermission('manufacturing.production.entries.create')
+  @RequirePermission('manufacturing.units.update', 'manufacturing.production.entries.update')
   @ApiOperation({ summary: 'Update a single production unit attributes' })
   async updateOne(
     @Param('id', ParseUUIDPipe) id: string,
@@ -180,7 +182,7 @@ export class ProductionUnitController {
 
   @Post('print')
   @UseGuards(PermissionGuard)
-  @RequirePermission('manufacturing.production.entries.create')
+  @RequirePermission('manufacturing.units.print', 'manufacturing.units.create', 'manufacturing.production.entries.print')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Record a print / reprint action for selected units' })
   async print(@Body() dto: PrintProductionUnitsDto, @Req() req: any) {
@@ -198,7 +200,7 @@ export class ProductionUnitController {
 
   @Patch(':id/void')
   @UseGuards(PermissionGuard)
-  @RequirePermission('manufacturing.production.entries.create')
+  @RequirePermission('manufacturing.units.delete', 'manufacturing.units.update')
   @ApiOperation({ summary: 'Void or cancel a production unit (audit-safe, no delete)' })
   async voidUnit(
     @Param('id', ParseUUIDPipe) id: string,
@@ -214,7 +216,7 @@ export class ProductionUnitController {
 
   @Get(':id/print-logs')
   @UseGuards(PermissionGuard)
-  @RequirePermission('manufacturing.production.entries.view')
+  @RequirePermission('manufacturing.units.view', 'manufacturing.production.entries.view')
   @ApiOperation({ summary: 'Get print history for a production unit' })
   async getPrintLogs(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
     const companyId = await this.getCompanyId(req);

@@ -5,6 +5,7 @@ import dayjs from 'dayjs';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { formatDecimal } from '../../../utils/numberFormat';
+import { getLogoUrl } from '../../../utils/printTemplates';
 import '../storeResponsive.css';
 
 const { Text } = Typography;
@@ -19,6 +20,9 @@ export interface StoreVoucherLine {
   uomCode?: string;
   quantity: number;
   returnedQty?: number;
+  lastIssuedInfo?: string;
+  remainingStock?: number;
+  remainingStockUom?: string;
   purpose?: string;
   remarks?: string;
 }
@@ -31,6 +35,7 @@ export interface StoreVoucherData {
   divisionName?: string;
   storeName?: string;
   destinationStoreName?: string;
+  sectionName?: string;
   departmentName?: string;
   machineName?: string;
   operatorName?: string;
@@ -66,56 +71,62 @@ const escapeHtml = (str?: string | number | null) =>
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 
-export const StoreVoucherPrintModal: React.FC<StoreVoucherPrintModalProps> = ({
-  open,
-  onClose,
-  voucher,
-}) => {
-  const { token } = theme.useToken();
-
-  if (!voucher) return null;
-
+export function printStoreVoucherHtml(voucher: StoreVoucherData): void {
   const isIssueVoucher = voucher.type === 'MIR' || voucher.type === 'MIV';
   const titleText = VOUCHER_TITLES[voucher.type] || 'STORE ISSUE NOTE (SIN)';
   const formattedDate = voucher.date ? dayjs(voucher.date).format('DD-MMM-YYYY') : '—';
 
-  const handlePrint = () => {
-    const printWin = window.open('', '_blank', 'width=960,height=760');
-    if (!printWin) {
-      window.print();
-      return;
-    }
+  const printWin = window.open('', '_blank', 'width=960,height=760');
+  if (!printWin) {
+    window.print();
+    return;
+  }
 
-    const rowsHtml = voucher.lines
-      .map(
-        (l, idx) => `
-        <tr>
-          <td style="text-align:center;">${l.lineNumber ?? idx + 1}</td>
-          <td style="font-family:monospace;font-weight:700;">${escapeHtml(l.itemCode || '—')}</td>
-          <td>${escapeHtml(l.itemName || '—')}</td>
-          <td style="text-align:center;">${escapeHtml(l.uomCode || '—')}</td>
-          <td style="text-align:right;font-weight:700;">${formatDecimal(l.quantity || 0)}</td>
-          ${
-            isIssueVoucher || voucher.type === 'RGP'
-              ? `<td style="text-align:right;">${formatDecimal(l.returnedQty || 0)}</td>`
-              : ''
-          }
-          <td>${escapeHtml(l.remarks || voucher.purpose || '—')}</td>
-        </tr>`,
-      )
-      .join('');
+  const rowsHtml = voucher.lines
+    .map(
+      (l, idx) => `
+      <tr>
+        <td style="text-align:center;">${l.lineNumber ?? idx + 1}</td>
+        <td style="font-family:monospace;font-weight:700;">${escapeHtml(l.itemCode || '—')}</td>
+        <td>${escapeHtml(l.itemName || '—')}</td>
+        <td style="text-align:center;">${escapeHtml(l.uomCode || '—')}</td>
+        <td style="text-align:right;font-weight:700;">${formatDecimal(l.quantity || 0)}</td>
+        ${
+          isIssueVoucher || voucher.type === 'RGP'
+            ? `<td style="text-align:right;">${formatDecimal(l.returnedQty || 0)}</td>`
+            : ''
+        }
+        ${
+          isIssueVoucher
+            ? `<td style="text-align:right;white-space:nowrap;">${
+                l.remainingStock !== undefined && l.remainingStock !== null
+                  ? `${formatDecimal(l.remainingStock)} ${escapeHtml(l.remainingStockUom || l.uomCode || '')}`
+                  : '—'
+              }</td>
+               <td style="font-size:10.5px;">${escapeHtml(l.lastIssuedInfo || '—')}</td>`
+            : ''
+        }
+        <td>${escapeHtml(l.remarks || voucher.purpose || '—')}</td>
+      </tr>`,
+    )
+    .join('');
 
-    const html = `<!DOCTYPE html>
+  const html = `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8" />
   <title>${escapeHtml(titleText)} - ${escapeHtml(voucher.documentNumber)}</title>
   <style>
-    @page { size: A4; margin: 14mm; }
-    body { font-family: 'Segoe UI', Arial, sans-serif; color: #0f172a; margin: 0; padding: 16px; font-size: 12px; }
-    .hdr { text-align: center; border-bottom: 2px solid #0f172a; padding-bottom: 10px; margin-bottom: 14px; }
-    .co { font-size: 20px; font-weight: 800; letter-spacing: 0.6px; }
-    .sub { font-size: 13px; font-weight: 700; margin-top: 4px; color: #334155; }
+    @page { size: A4; margin: 12mm; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; color: #0f172a; margin: 0; padding: 14px; font-size: 12px; }
+    .hdr { display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #0f172a; padding-bottom: 10px; margin-bottom: 14px; gap: 12px; }
+    .hdr-left { display: flex; align-items: center; gap: 12px; }
+    .hdr-logo { height: 48px; width: auto; object-fit: contain; }
+    .co { font-size: 18px; font-weight: 800; letter-spacing: 0.4px; }
+    .addr { font-size: 11px; color: #475569; margin-top: 2px; }
+    .badge-box { text-align: right; }
+    .sub { font-size: 13px; font-weight: 800; color: #0f172a; border: 1.5px solid #0f172a; padding: 4px 10px; border-radius: 4px; display: inline-block; }
+    .sin-no { font-family: monospace; font-size: 13px; font-weight: 800; margin-top: 4px; color: #c2410c; }
     .meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 14px; border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px 14px; margin-bottom: 14px; background: #f8fafc; }
     .meta div { line-height: 1.4; }
     .lbl { font-weight: 700; color: #475569; }
@@ -131,8 +142,17 @@ export const StoreVoucherPrintModal: React.FC<StoreVoucherPrintModalProps> = ({
 </head>
 <body>
   <div class="hdr">
-    <div class="co">PAKISTAN WIRE INDUSTRIES (PVT.) LTD.</div>
-    <div class="sub">${escapeHtml(titleText)}</div>
+    <div class="hdr-left">
+      <img class="hdr-logo" src="${getLogoUrl()}" alt="PWI Logo" onerror="this.style.display='none'" />
+      <div>
+        <div class="co">PAKISTAN WIRE INDUSTRIES (PVT.) LTD.</div>
+        <div class="addr">Plot 179, Block E, SITE Superhighway, Karachi, Pakistan</div>
+      </div>
+    </div>
+    <div class="badge-box">
+      <div class="sub">${escapeHtml(titleText)}</div>
+      <div class="sin-no">${escapeHtml(voucher.documentNumber)}</div>
+    </div>
   </div>
   <div class="meta">
     <div><span class="lbl">Voucher #:</span> <strong>${escapeHtml(voucher.documentNumber)}</strong></div>
@@ -140,23 +160,25 @@ export const StoreVoucherPrintModal: React.FC<StoreVoucherPrintModalProps> = ({
     <div><span class="lbl">Status:</span> ${escapeHtml(voucher.status || 'DRAFT')}</div>
     <div><span class="lbl">Division:</span> ${escapeHtml(voucher.divisionName || '—')}</div>
     <div><span class="lbl">Source Store:</span> ${escapeHtml(voucher.storeName || '—')}</div>
+    <div><span class="lbl">Destination Section:</span> ${escapeHtml(voucher.sectionName || '—')}</div>
     <div><span class="lbl">Department:</span> ${escapeHtml(voucher.departmentName || '—')}</div>
     <div><span class="lbl">Machine:</span> ${escapeHtml(voucher.machineName || 'General Allocation')}</div>
     <div><span class="lbl">Operator Name:</span> ${escapeHtml(voucher.operatorName || '—')}</div>
     <div><span class="lbl">Shift Incharge:</span> ${escapeHtml(voucher.shiftInchargeName || '—')}</div>
-    <div><span class="lbl">Issued By:</span> ${escapeHtml(voucher.issuedByName || '—')}</div>
-    <div><span class="lbl">Purpose:</span> ${escapeHtml(voucher.purpose || '—')}</div>
+    <div><span class="lbl">Store Incharge:</span> ${escapeHtml(voucher.issuedByName || '—')}</div>
+    <div><span class="lbl">Part Use / Purpose:</span> ${escapeHtml(voucher.purpose || '—')}</div>
   </div>
   <table>
     <thead>
       <tr>
-        <th style="width:36px;">#</th>
-        <th style="width:110px;">Item Code</th>
+        <th style="width:32px;">#</th>
+        <th style="width:95px;">Item Code</th>
         <th>Item Description</th>
-        <th style="width:55px;">UOM</th>
-        <th style="width:75px;">Issued Qty</th>
-        ${isIssueVoucher || voucher.type === 'RGP' ? '<th style="width:85px;">Old Returned</th>' : ''}
-        <th>Purpose / Service Life Note</th>
+        <th style="width:50px;">UOM</th>
+        <th style="width:68px;">Issued Qty</th>
+        ${isIssueVoucher || voucher.type === 'RGP' ? '<th style="width:80px;">Old Returned Scrap</th>' : ''}
+        ${isIssueVoucher ? '<th style="width:85px;">Remaining Store Stock</th><th>Last Issued Info</th>' : ''}
+        <th>Part Use / Purpose</th>
       </tr>
     </thead>
     <tbody>
@@ -166,7 +188,7 @@ export const StoreVoucherPrintModal: React.FC<StoreVoucherPrintModalProps> = ({
   ${voucher.remarks ? `<div class="notes"><strong>Remarks:</strong> ${escapeHtml(voucher.remarks)}</div>` : ''}
   <div class="sigs">
     <div class="sig-box">
-      <div class="sig-title">Issued By (Store Keeper)</div>
+      <div class="sig-title">Issued By (Store Incharge)</div>
       <div class="sig-name">${escapeHtml(voucher.issuedByName || '________________')}</div>
     </div>
     <div class="sig-box">
@@ -186,113 +208,178 @@ export const StoreVoucherPrintModal: React.FC<StoreVoucherPrintModalProps> = ({
 </body>
 </html>`;
 
-    printWin.document.open();
-    printWin.document.write(html);
-    printWin.document.close();
-  };
+  printWin.document.open();
+  printWin.document.write(html);
+  printWin.document.close();
+}
 
-  const handleDownloadPdf = () => {
-    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-    const pageWidth = doc.internal.pageSize.getWidth();
+export function downloadStoreVoucherPdf(voucher: StoreVoucherData): void {
+  const isIssueVoucher = voucher.type === 'MIR' || voucher.type === 'MIV';
+  const titleText = VOUCHER_TITLES[voucher.type] || 'STORE ISSUE NOTE (SIN)';
+  const formattedDate = voucher.date ? dayjs(voucher.date).format('DD-MMM-YYYY') : '—';
+
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(15.5);
+  doc.text('PAKISTAN WIRE INDUSTRIES (PVT.) LTD.', pageWidth / 2, 14, { align: 'center' });
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.8);
+  doc.text('Plot 179, Block E, SITE Superhighway, Karachi, Pakistan', pageWidth / 2, 19, { align: 'center' });
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  doc.text(titleText, pageWidth / 2, 24.5, { align: 'center' });
+
+  doc.setLineWidth(0.4);
+  doc.line(14, 27, pageWidth - 14, 27);
+
+  doc.setFontSize(9.5);
+  const metaRows: Array<[string, string, string, string]> = [
+    ['Voucher #:', voucher.documentNumber || '—', 'Issue Date:', formattedDate],
+    ['Division:', voucher.divisionName || '—', 'Source Store:', voucher.storeName || '—'],
+    ['Section:', voucher.sectionName || '—', 'Department:', voucher.departmentName || '—'],
+    ['Machine:', voucher.machineName || 'General Allocation', 'Status:', voucher.status || 'DRAFT'],
+    ['Operator:', voucher.operatorName || '—', 'Shift Incharge:', voucher.shiftInchargeName || '—'],
+    ['Store Incharge:', voucher.issuedByName || '—', 'Part Use:', voucher.purpose || '—'],
+  ];
+
+  let y = 32.5;
+  metaRows.forEach(([k1, v1, k2, v2]) => {
+    doc.setFont('helvetica', 'bold');
+    doc.text(k1, 14, y);
+    doc.setFont('helvetica', 'normal');
+    doc.text(String(v1).slice(0, 38), 42, y);
 
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(16);
-    doc.text('PAKISTAN WIRE INDUSTRIES (PVT.) LTD.', pageWidth / 2, 16, { align: 'center' });
+    doc.text(k2, 112, y);
+    doc.setFont('helvetica', 'normal');
+    doc.text(String(v2).slice(0, 38), 142, y);
+    y += 5.5;
+  });
 
-    doc.setFontSize(11.5);
-    doc.text(titleText, pageWidth / 2, 22.5, { align: 'center' });
+  if (voucher.remarks) {
+    doc.setFont('helvetica', 'bold');
+    doc.text('Remarks:', 14, y);
+    doc.setFont('helvetica', 'normal');
+    doc.text(String(voucher.remarks).slice(0, 95), 42, y);
+    y += 5.5;
+  }
 
-    doc.setLineWidth(0.4);
-    doc.line(14, 25.5, pageWidth - 14, 25.5);
+  autoTable(doc, {
+    startY: y + 2,
+    head: [
+      isIssueVoucher
+        ? [
+            '#',
+            'Item Code',
+            'Item Description',
+            'UOM',
+            'Issued Qty',
+            'Old Returned Scrap',
+            'Remaining Stock',
+            'Last Issued Info',
+            'Part Use / Purpose',
+          ]
+        : [
+            '#',
+            'Item Code',
+            'Item Description',
+            'UOM',
+            'Issued Qty',
+            'Old Returned Scrap',
+            'Part Use / Service Life Note',
+          ],
+    ],
+    body: voucher.lines.map((l, idx) =>
+      isIssueVoucher
+        ? [
+            String(l.lineNumber ?? idx + 1),
+            l.itemCode || '—',
+            l.itemName || '—',
+            l.uomCode || '—',
+            formatDecimal(l.quantity || 0),
+            formatDecimal(l.returnedQty || 0),
+            l.remainingStock !== undefined && l.remainingStock !== null
+              ? `${formatDecimal(l.remainingStock)} ${l.remainingStockUom || l.uomCode || ''}`.trim()
+              : '—',
+            l.lastIssuedInfo || '—',
+            l.remarks || voucher.purpose || '—',
+          ]
+        : [
+            String(l.lineNumber ?? idx + 1),
+            l.itemCode || '—',
+            l.itemName || '—',
+            l.uomCode || '—',
+            formatDecimal(l.quantity || 0),
+            formatDecimal(l.returnedQty || 0),
+            l.remarks || voucher.purpose || '—',
+          ],
+    ),
+    styles: { fontSize: isIssueVoucher ? 7.8 : 8.5, cellPadding: 2 },
+    headStyles: { fillColor: [30, 41, 59], textColor: 255, fontStyle: 'bold' },
+    columnStyles: isIssueVoucher
+      ? {
+          0: { cellWidth: 8, halign: 'center' },
+          1: { cellWidth: 20, fontStyle: 'bold' },
+          2: { cellWidth: 34 },
+          3: { cellWidth: 11, halign: 'center' },
+          4: { cellWidth: 14, halign: 'right', fontStyle: 'bold' },
+          5: { cellWidth: 15, halign: 'right' },
+          6: { cellWidth: 17, halign: 'right' },
+          7: { cellWidth: 35 },
+        }
+      : {
+          0: { cellWidth: 9, halign: 'center' },
+          1: { cellWidth: 26, fontStyle: 'bold' },
+          2: { cellWidth: 50 },
+          3: { cellWidth: 14, halign: 'center' },
+          4: { cellWidth: 18, halign: 'right', fontStyle: 'bold' },
+          5: { cellWidth: 22, halign: 'right' },
+        },
+  });
 
-    doc.setFontSize(9.5);
-    const metaRows: Array<[string, string, string, string]> = [
-      ['Voucher #:', voucher.documentNumber || '—', 'Issue Date:', formattedDate],
-      ['Division:', voucher.divisionName || '—', 'Source Store:', voucher.storeName || '—'],
-      ['Department:', voucher.departmentName || '—', 'Machine:', voucher.machineName || 'General Allocation'],
-      ['Operator Name:', voucher.operatorName || '—', 'Shift Incharge:', voucher.shiftInchargeName || '—'],
-      ['Issued By:', voucher.issuedByName || '—', 'Status:', voucher.status || 'DRAFT'],
-    ];
+  const finalY = Math.min((doc as any).lastAutoTable?.finalY || y + 40, 245);
+  const sigY = finalY + 26;
 
-    let y = 31;
-    metaRows.forEach(([k1, v1, k2, v2]) => {
-      doc.setFont('helvetica', 'bold');
-      doc.text(k1, 14, y);
+  const sigCols = [
+    { x: 14, w: 52, title: 'Issued By (Store Incharge)', sub: voucher.issuedByName || '' },
+    { x: 79, w: 52, title: 'Received By (Operator)', sub: voucher.operatorName || '' },
+    { x: 144, w: 52, title: 'Verified By (Shift Incharge)', sub: voucher.shiftInchargeName || '' },
+  ];
+
+  sigCols.forEach((s) => {
+    doc.line(s.x, sigY, s.x + s.w, sigY);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.text(s.title, s.x + s.w / 2, sigY + 5, { align: 'center' });
+    if (s.sub) {
       doc.setFont('helvetica', 'normal');
-      doc.text(String(v1).slice(0, 38), 42, y);
-
-      doc.setFont('helvetica', 'bold');
-      doc.text(k2, 112, y);
-      doc.setFont('helvetica', 'normal');
-      doc.text(String(v2).slice(0, 38), 140, y);
-      y += 5.5;
-    });
-
-    if (voucher.purpose) {
-      doc.setFont('helvetica', 'bold');
-      doc.text('Purpose:', 14, y);
-      doc.setFont('helvetica', 'normal');
-      doc.text(String(voucher.purpose).slice(0, 95), 42, y);
-      y += 5.5;
+      doc.setFontSize(8.5);
+      doc.text(s.sub, s.x + s.w / 2, sigY + 9.5, { align: 'center' });
     }
+  });
 
-    autoTable(doc, {
-      startY: y + 2,
-      head: [
-        [
-          '#',
-          'Item Code',
-          'Item Description',
-          'UOM',
-          'Issued Qty',
-          'Old Returned',
-          'Purpose / Service Life Note',
-        ],
-      ],
-      body: voucher.lines.map((l, idx) => [
-        String(l.lineNumber ?? idx + 1),
-        l.itemCode || '—',
-        l.itemName || '—',
-        l.uomCode || '—',
-        formatDecimal(l.quantity || 0),
-        formatDecimal(l.returnedQty || 0),
-        l.remarks || voucher.purpose || '—',
-      ]),
-      styles: { fontSize: 8.5, cellPadding: 2.2 },
-      headStyles: { fillColor: [30, 41, 59], textColor: 255, fontStyle: 'bold' },
-      columnStyles: {
-        0: { cellWidth: 9, halign: 'center' },
-        1: { cellWidth: 26, fontStyle: 'bold' },
-        2: { cellWidth: 52 },
-        3: { cellWidth: 14, halign: 'center' },
-        4: { cellWidth: 18, halign: 'right', fontStyle: 'bold' },
-        5: { cellWidth: 20, halign: 'right' },
-      },
-    });
+  doc.save(`${isIssueVoucher ? 'SIN' : voucher.type}_${voucher.documentNumber || 'Voucher'}.pdf`);
+}
 
-    const finalY = Math.min((doc as any).lastAutoTable?.finalY || y + 40, 245);
-    const sigY = finalY + 26;
+export const StoreVoucherPrintModal: React.FC<StoreVoucherPrintModalProps> = ({
+  open,
+  onClose,
+  voucher,
+}) => {
+  const { token } = theme.useToken();
 
-    const sigCols = [
-      { x: 14, w: 52, title: 'Issued By (Store Keeper)', sub: voucher.issuedByName || '' },
-      { x: 79, w: 52, title: 'Received By (Operator)', sub: voucher.operatorName || '' },
-      { x: 144, w: 52, title: 'Verified By (Shift Incharge)', sub: voucher.shiftInchargeName || '' },
-    ];
+  if (!voucher) return null;
 
-    sigCols.forEach((s) => {
-      doc.line(s.x, sigY, s.x + s.w, sigY);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9);
-      doc.text(s.title, s.x + s.w / 2, sigY + 5, { align: 'center' });
-      if (s.sub) {
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(8.5);
-        doc.text(s.sub, s.x + s.w / 2, sigY + 9.5, { align: 'center' });
-      }
-    });
+  const isIssueVoucher = voucher.type === 'MIR' || voucher.type === 'MIV';
+  const titleText = VOUCHER_TITLES[voucher.type] || 'STORE ISSUE NOTE (SIN)';
+  const formattedDate = voucher.date ? dayjs(voucher.date).format('DD-MMM-YYYY') : '—';
 
-    doc.save(`${isIssueVoucher ? 'SIN' : voucher.type}_${voucher.documentNumber || 'Voucher'}.pdf`);
-  };
+  const handlePrint = () => printStoreVoucherHtml(voucher);
+  const handleDownloadPdf = () => downloadStoreVoucherPdf(voucher);
 
   return (
     <Modal
@@ -361,17 +448,38 @@ export const StoreVoucherPrintModal: React.FC<StoreVoucherPrintModalProps> = ({
             {/* Company Header */}
             <div
               style={{
-                textAlign: 'center',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
                 borderBottom: `2px solid ${token.colorBorder}`,
                 paddingBottom: 12,
                 marginBottom: 16,
+                gap: 12,
+                flexWrap: 'wrap',
               }}
             >
-              <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: 0.6 }}>
-                PAKISTAN WIRE INDUSTRIES (PVT.) LTD.
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <img
+                  src={getLogoUrl()}
+                  alt="PWI Logo"
+                  style={{ height: 44, width: 'auto', objectFit: 'contain' }}
+                  onError={(e) => {
+                    (e.currentTarget as HTMLImageElement).style.display = 'none';
+                  }}
+                />
+                <div>
+                  <div style={{ fontSize: 18, fontWeight: 800, letterSpacing: 0.4 }}>
+                    PAKISTAN WIRE INDUSTRIES (PVT.) LTD.
+                  </div>
+                  <div style={{ fontSize: 12, color: token.colorTextSecondary }}>
+                    Plot 179, Block E, SITE Superhighway, Karachi, Pakistan
+                  </div>
+                </div>
               </div>
-              <div style={{ fontSize: 13.5, fontWeight: 700, marginTop: 4, color: token.colorTextSecondary }}>
-                {titleText}
+              <div style={{ textAlign: 'right' }}>
+                <Tag color="orange" style={{ margin: 0, fontWeight: 700, fontSize: 12.5, padding: '2px 10px' }}>
+                  {titleText}
+                </Tag>
               </div>
             </div>
 
@@ -394,12 +502,13 @@ export const StoreVoucherPrintModal: React.FC<StoreVoucherPrintModalProps> = ({
               <div><strong>Status:</strong> <Tag color={voucher.status === 'POSTED' ? 'success' : 'processing'}>{voucher.status || 'DRAFT'}</Tag></div>
               <div><strong>Division:</strong> {voucher.divisionName || '—'}</div>
               <div><strong>Source Store:</strong> {voucher.storeName || '—'}</div>
+              <div><strong>Destination Section:</strong> {voucher.sectionName || '—'}</div>
               <div><strong>Department:</strong> {voucher.departmentName || '—'}</div>
               <div><strong>Machine:</strong> {voucher.machineName || 'General Allocation'}</div>
               <div><strong>Operator Name:</strong> {voucher.operatorName || '—'}</div>
               <div><strong>Shift Incharge:</strong> {voucher.shiftInchargeName || '—'}</div>
-              <div><strong>Issued By:</strong> {voucher.issuedByName || '—'}</div>
-              {voucher.purpose && <div style={{ gridColumn: '1 / -1' }}><strong>Purpose / Reason:</strong> {voucher.purpose}</div>}
+              <div><strong>Store Incharge:</strong> {voucher.issuedByName || '—'}</div>
+              {voucher.purpose && <div style={{ gridColumn: '1 / -1' }}><strong>Part Use / Purpose:</strong> {voucher.purpose}</div>}
             </div>
 
             {/* Line Items Table */}
@@ -424,14 +533,37 @@ export const StoreVoucherPrintModal: React.FC<StoreVoucherPrintModalProps> = ({
                   render: (v) => <strong>{formatDecimal(v || 0)}</strong>,
                 },
                 {
-                  title: 'Old Returned',
+                  title: 'Old Returned Scrap',
                   dataIndex: 'returnedQty',
                   key: 'returnedQty',
-                  width: 105,
+                  width: 120,
                   align: 'right' as const,
                   render: (v: number) => formatDecimal(v || 0),
                 },
-                { title: 'Purpose / Service Life Note', dataIndex: 'remarks', key: 'remarks', render: (v) => v || voucher.purpose || '—' },
+                ...(isIssueVoucher
+                  ? [
+                      {
+                        title: 'Remaining Store Stock',
+                        key: 'remainingStock',
+                        width: 135,
+                        align: 'right' as const,
+                        render: (_: unknown, r: StoreVoucherLine) =>
+                          r.remainingStock !== undefined && r.remainingStock !== null
+                            ? `${formatDecimal(r.remainingStock)} ${r.remainingStockUom || r.uomCode || ''}`.trim()
+                            : '—',
+                      },
+                      {
+                        title: 'Last Issued Info',
+                        dataIndex: 'lastIssuedInfo',
+                        key: 'lastIssuedInfo',
+                        width: 220,
+                        render: (v?: string) => (
+                          <span style={{ fontSize: 11.5 }}>{v || '—'}</span>
+                        ),
+                      },
+                    ]
+                  : []),
+                { title: 'Part Use / Purpose', dataIndex: 'remarks', key: 'remarks', render: (v) => v || voucher.purpose || '—' },
               ]}
             />
 
@@ -454,7 +586,7 @@ export const StoreVoucherPrintModal: React.FC<StoreVoucherPrintModalProps> = ({
               }}
             >
               {[
-                { label: 'Issued By (Store Keeper)', name: voucher.issuedByName },
+                { label: 'Issued By (Store Incharge)', name: voucher.issuedByName },
                 { label: 'Received By (Operator)', name: voucher.operatorName },
                 { label: 'Verified By (Shift Incharge)', name: voucher.shiftInchargeName },
               ].map((sig) => (

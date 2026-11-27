@@ -13,8 +13,27 @@ import DocumentOptionsSettings from './DocumentOptionsSettings';
 import DocumentNumberingSettings from './DocumentNumberingSettings';
 import AppearanceSettings from './AppearanceSettings';
 import AiProviderSettingsPage from '../../pages/ai-assistant/AiProviderSettingsPage';
-import { SETTINGS_NAV_ITEMS, settingsRelativePath } from './settingsNavigationConfig';
+import {
+  SETTINGS_NAV_ITEMS,
+  SETTINGS_OVERVIEW,
+  canAccessSettingsItem,
+  settingsRelativePath,
+  visibleSettingsNavItems,
+} from './settingsNavigationConfig';
+import { usePermission } from '../../hooks/usePermission';
 import './settings.css';
+
+const SettingsIndexElement: React.FC = () => {
+  const { can } = usePermission();
+  if (canAccessSettingsItem(can, SETTINGS_OVERVIEW)) {
+    return <Settings />;
+  }
+  const firstPermitted = visibleSettingsNavItems(can)[0];
+  if (firstPermitted && !firstPermitted.overview) {
+    return <Navigate to={firstPermitted.path} replace />;
+  }
+  return <Settings />;
+};
 
 /**
  * The `/settings/*` route hierarchy.
@@ -26,8 +45,8 @@ import './settings.css';
 const SettingsRoutes: React.FC = () => (
   <SettingsShell>
     <Routes>
-      {/* `/settings` — overview keeps the pre-existing Theme Studio + Audio page. */}
-      <Route index element={<Settings />} />
+      {/* `/settings` — overview keeps the pre-existing Theme Studio + Audio page, or opens the user's first permitted category. */}
+      <Route index element={<SettingsIndexElement />} />
 
       {/* `/settings/company` — Company Settings (Business identity, currency, logo) */}
       <Route path="company" element={<CompanySettings />} />

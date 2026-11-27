@@ -78,7 +78,7 @@ export class PurchaseOrderController {
 
   @Patch(':id')
   @UseGuards(PermissionGuard)
-  @RequirePermission('procurement.order.create')
+  @RequirePermission('procurement.order.update')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Update purchase order' })
   async update(@Param('id') id: string, @Body() dto: UpdatePurchaseOrderDto) {
@@ -137,7 +137,7 @@ export class PurchaseOrderController {
 
   @Delete(':id/lines/:lineId')
   @UseGuards(PermissionGuard)
-  @RequirePermission('procurement.order.create')
+  @RequirePermission('procurement.order.update', 'procurement.order.delete')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Remove line from purchase order' })
   async removeLine(@Param('id') id: string, @Param('lineId') lineId: string) {
@@ -147,7 +147,7 @@ export class PurchaseOrderController {
 
   @Delete(':id')
   @UseGuards(PermissionGuard)
-  @RequirePermission('procurement.order.cancel')
+  @RequirePermission('procurement.order.delete', 'procurement.order.cancel')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Delete purchase order' })
   async remove(@Param('id') id: string) {

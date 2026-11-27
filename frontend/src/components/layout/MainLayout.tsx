@@ -38,6 +38,7 @@ import {
   navPathForKey,
 } from './navigationConfig';
 import type { NavColorToken } from './navigationConfig';
+import { SETTINGS_VIEW_PERMISSIONS } from '../settings/settingsNavigationConfig';
 
 import { prefetchAllLookups } from '../../services/lookupsCache';
 
@@ -161,19 +162,23 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   const navBadges = useNavBadgeStore((s) => s.badges);
 
   // Hydrate the Maintenance & Inventory sidebar count badges from real APIs so
-  // they are visible on EVERY page.
+  // they are visible on EVERY page — gated by permissions to avoid 403 polling.
   React.useEffect(() => {
     const cid = user?.defaultCompanyId;
-    if (!cid) return;
-    void syncMaintenanceQueueBadges(String(cid));
-    apiService.get<{ data: { pendingApproval: number } }>('/inventory/adjustments/counts', { companyId: cid }, { silent: true })
-      .then((res) => {
-        if (res?.data?.pendingApproval !== undefined) {
-          useNavBadgeStore.getState().setNavBadge('/inventory/adjustments/pending-approval', res.data.pendingApproval);
-        }
-      })
-      .catch(() => {});
-  }, [user?.defaultCompanyId]);
+    if (!cid || !isLoaded) return;
+    if (can('maintenance.job_card.view')) {
+      void syncMaintenanceQueueBadges(String(cid));
+    }
+    if (can('inventory.adjustment.view')) {
+      apiService.get<{ data: { pendingApproval: number } }>('/inventory/adjustments/counts', { companyId: cid }, { silent: true })
+        .then((res) => {
+          if (res?.data?.pendingApproval !== undefined) {
+            useNavBadgeStore.getState().setNavBadge('/inventory/adjustments/pending-approval', res.data.pendingApproval);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [user?.defaultCompanyId, isLoaded, can]);
 
   // Global top loading bar — brief pulse on every route change (real API
   // traffic is tracked automatically by the ApiService request/response
@@ -658,6 +663,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
             }}
           >
             {/* Settings */}
+            {SETTINGS_VIEW_PERMISSIONS.some((code) => effectiveCan(code)) && (
             <div
               onClick={() => handleMenuClick({ key: '/settings' })}
               title="Settings"
@@ -693,6 +699,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
               <SettingOutlined style={{ fontSize: 16 }} />
               {!effectivelyCollapsed && <span>Settings</span>}
             </div>
+            )}
 
             {/* User */}
             <div
@@ -801,6 +808,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
               marginTop: 'auto',
             }}
           >
+            {SETTINGS_VIEW_PERMISSIONS.some((code) => effectiveCan(code)) && (
             <div
               onClick={() => {
                 setMobileOpen(false);
@@ -826,6 +834,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
               <SettingOutlined style={{ fontSize: 16 }} />
               <span>Settings</span>
             </div>
+            )}
           </div>
         </Drawer>
       )}
@@ -925,10 +934,10 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
               }}
             >
               <HeaderSearch />
-              <TeamChatHeaderIcon />
+              {(!isLoaded || can('workspace.team_chat.view')) && <TeamChatHeaderIcon />}
               <NotificationBell />
-              <EmailCommunicationIcon />
-              <WhatsAppCommunicationIcon />
+              {(!isLoaded || can('email.settings.manage') || can('email.log.view') || can('notifications.view')) && <EmailCommunicationIcon />}
+              {(!isLoaded || can('whatsapp.settings.manage') || can('whatsapp.log.view') || can('notifications.view')) && <WhatsAppCommunicationIcon />}
               <ThemeSettingsButton />
               <ProfileMenu />
             </div>

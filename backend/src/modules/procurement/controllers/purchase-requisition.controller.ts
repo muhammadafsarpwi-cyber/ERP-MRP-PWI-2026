@@ -47,7 +47,7 @@ export class PurchaseRequisitionController {
 
   @Patch(':id')
   @UseGuards(PermissionGuard)
-  @RequirePermission('procurement.requisition.create')
+  @RequirePermission('procurement.requisition.update')
   @ApiOperation({ summary: 'Update purchase requisition' })
   async update(@Param('id') id: string, @Body() dto: CreatePurchaseRequisitionDto) {
     const requisition = await this.service.update(id, dto);
@@ -56,7 +56,7 @@ export class PurchaseRequisitionController {
 
   @Put(':id')
   @UseGuards(PermissionGuard)
-  @RequirePermission('procurement.requisition.create')
+  @RequirePermission('procurement.requisition.update')
   @ApiOperation({ summary: 'Update purchase requisition (PUT)' })
   async updatePut(@Param('id') id: string, @Body() dto: CreatePurchaseRequisitionDto) {
     const requisition = await this.service.update(id, dto);
@@ -85,7 +85,7 @@ export class PurchaseRequisitionController {
 
   @Patch(':id/cancel')
   @UseGuards(PermissionGuard)
-  @RequirePermission('procurement.requisition.create')
+  @RequirePermission('procurement.requisition.update', 'procurement.requisition.delete')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Cancel purchase requisition' })
   async cancel(@Param('id') id: string) {
@@ -95,7 +95,7 @@ export class PurchaseRequisitionController {
 
   @Post(':id/lines')
   @UseGuards(PermissionGuard)
-  @RequirePermission('procurement.requisition.create')
+  @RequirePermission('procurement.requisition.create', 'procurement.requisition.update')
   @ApiOperation({ summary: 'Add line to purchase requisition' })
   async addLine(@Param('id') id: string, @Body() dto: any) {
     const line = await this.service.addLine(id, dto);
@@ -104,7 +104,7 @@ export class PurchaseRequisitionController {
 
   @Delete(':id/lines/:lineId')
   @UseGuards(PermissionGuard)
-  @RequirePermission('procurement.requisition.create')
+  @RequirePermission('procurement.requisition.update', 'procurement.requisition.delete')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Remove line from purchase requisition' })
   async removeLine(@Param('id') id: string, @Param('lineId') lineId: string) {
@@ -114,7 +114,7 @@ export class PurchaseRequisitionController {
 
   @Delete(':id')
   @UseGuards(PermissionGuard)
-  @RequirePermission('procurement.requisition.create')
+  @RequirePermission('procurement.requisition.delete')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Delete purchase requisition' })
   async remove(@Param('id') id: string) {

@@ -116,6 +116,23 @@ export class HrController {
 
   // ---- Employees ----
   @Get('employees/lookup')
+  @UseGuards(PermissionGuard)
+  @RequirePermission(
+    'hr.employee.view',
+    'hr.attendance.view',
+    'hr.shift_roster.view',
+    'hr.leave.view',
+    'hr.overtime.view',
+    'hr.regularization.view',
+    'hr.advance.view',
+    'hr.payroll.view',
+    'hr.final_settlement.view',
+    'manufacturing.production.entries.view',
+    'manufacturing.packing.view',
+    'manufacturing.rework_return.view',
+    'maintenance.job_card.create',
+    'store.issue.create',
+  )
   async employeeLookup(@Request() req: any, @Query('departmentId') departmentId?: string) {
     try {
       const data = await this.hrService.getEmployeeLookup(req.user?.id, departmentId);

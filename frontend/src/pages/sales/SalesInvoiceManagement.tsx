@@ -31,6 +31,7 @@ import type { SaveResultData, SaveResultPhase } from '../../components/shared/Sa
 import GlobalLoading from '../../components/shared/GlobalLoading';
 import { matchesTabRefresh, TAB_REFRESH_EVENT, triggerTabRefresh } from '../../services/tabSessionCache';
 import { useHeaderActions } from '../../components/layout/headerActionsStore';
+import { usePermission } from '../../hooks/usePermission';
 import dayjs from 'dayjs';
 import isSameOrBefore from 'dayjs/plugin/isSameOrBefore';
 import isSameOrAfter from 'dayjs/plugin/isSameOrAfter';
@@ -137,6 +138,14 @@ const SalesInvoiceManagement: React.FC = () => {
   const { message } = App.useApp();
   const { token } = theme.useToken();
   const navigate = useNavigate();
+  const { can, canAny } = usePermission();
+  const canCreate = can('sales.invoices.create');
+  const canUpdate = can('sales.invoices.update');
+  const canPost = can('sales.invoices.post');
+  const canDelete = can('sales.invoices.delete');
+  const canExport = can('sales.invoices.export');
+  const canPrint = can('sales.invoices.print');
+  const canRecordPayment = canAny('sales.receipts.create', 'sales.invoices.post', 'sales.invoices.update');
   const [data, setData] = useState<SalesInvoice[]>([]);
   const [customers, setCustomers] = useState<CustomerOption[]>([]);
   const [loading, setLoading] = useState(false);
@@ -563,7 +572,7 @@ const SalesInvoiceManagement: React.FC = () => {
     setHeaderActions([
       {
         key: 'new-invoice',
-        node: (
+        node: canCreate ? (
           <Button
             className="btn-new-invoice"
             icon={<PlusOutlined />}
@@ -571,7 +580,7 @@ const SalesInvoiceManagement: React.FC = () => {
           >
             + New Invoice
           </Button>
-        ),
+        ) : null,
       },
       {
         key: 'refresh',
@@ -587,7 +596,7 @@ const SalesInvoiceManagement: React.FC = () => {
       },
       {
         key: 'csv',
-        node: (
+        node: canExport ? (
           <Button
             className="btn-inv-white"
             icon={<FileExcelOutlined />}
@@ -595,11 +604,11 @@ const SalesInvoiceManagement: React.FC = () => {
           >
             CSV
           </Button>
-        ),
+        ) : null,
       },
       {
         key: 'print',
-        node: (
+        node: canPrint ? (
           <Button
             className="btn-inv-white"
             icon={<PrinterOutlined />}
@@ -607,14 +616,14 @@ const SalesInvoiceManagement: React.FC = () => {
           >
             Print
           </Button>
-        ),
+        ) : null,
       },
     ]);
 
     return () => {
       clearHeaderActions();
     };
-  }, [page, pageSize, handleCreate, handleExportCsv, handlePrint, fetchData]);
+  }, [page, pageSize, canCreate, canExport, canPrint, handleCreate, handleExportCsv, handlePrint, fetchData]);
 
   const handleEdit = (record: SalesInvoice) => {
     setEditingItem(record);
@@ -1328,16 +1337,18 @@ const SalesInvoiceManagement: React.FC = () => {
                 <EyeOutlined />
               </button>
             </Tooltip>
-            <Tooltip title="Print Tax Invoice">
-              <button
-                type="button"
-                className="inv-action-btn inv-btn-print"
-                onClick={() => requestActionConfirmation(record, 'print')}
-              >
-                <PrinterOutlined />
-              </button>
-            </Tooltip>
-            {canApprovePost && (
+            {canPrint && (
+              <Tooltip title="Print Tax Invoice">
+                <button
+                  type="button"
+                  className="inv-action-btn inv-btn-print"
+                  onClick={() => requestActionConfirmation(record, 'print')}
+                >
+                  <PrinterOutlined />
+                </button>
+              </Tooltip>
+            )}
+            {canApprovePost && canPost && (
               <Tooltip title="Approve / Post to Customer Ledger">
                 <button
                   type="button"
@@ -1349,16 +1360,18 @@ const SalesInvoiceManagement: React.FC = () => {
                 </button>
               </Tooltip>
             )}
-            <Tooltip title="Record Payment">
-              <button
-                type="button"
-                className="inv-action-btn inv-btn-pay"
-                onClick={() => requestActionConfirmation(record, 'payment')}
-                disabled={lowerStatus === 'paid' || lowerStatus === 'cancelled'}
-              >
-                <DollarOutlined />
-              </button>
-            </Tooltip>
+            {canRecordPayment && (
+              <Tooltip title="Record Payment">
+                <button
+                  type="button"
+                  className="inv-action-btn inv-btn-pay"
+                  onClick={() => requestActionConfirmation(record, 'payment')}
+                  disabled={lowerStatus === 'paid' || lowerStatus === 'cancelled'}
+                >
+                  <DollarOutlined />
+                </button>
+              </Tooltip>
+            )}
             <Tooltip title="Email Invoice">
               <button
                 type="button"
@@ -1389,36 +1402,42 @@ const SalesInvoiceManagement: React.FC = () => {
                 </button>
               </Tooltip>
             )}
-            <Tooltip title="Edit Invoice">
-              <button
-                type="button"
-                className="inv-action-btn inv-btn-edit"
-                onClick={() => requestActionConfirmation(record, 'edit')}
-                disabled={!canApprovePost}
-              >
-                <EditOutlined />
-              </button>
-            </Tooltip>
-            <Tooltip title="Cancel Invoice">
-              <button
-                type="button"
-                className="inv-action-btn inv-btn-cancel"
-                onClick={() => requestActionConfirmation(record, 'cancel')}
-                disabled={lowerStatus === 'cancelled' || lowerStatus === 'paid'}
-              >
-                <StopOutlined />
-              </button>
-            </Tooltip>
-            <Tooltip title="Delete Invoice">
-              <button
-                type="button"
-                className="inv-action-btn inv-btn-delete"
-                onClick={() => requestActionConfirmation(record, 'delete')}
-                disabled={lowerStatus === 'posted' || lowerStatus === 'paid'}
-              >
-                <DeleteOutlined />
-              </button>
-            </Tooltip>
+            {canUpdate && (
+              <Tooltip title="Edit Invoice">
+                <button
+                  type="button"
+                  className="inv-action-btn inv-btn-edit"
+                  onClick={() => requestActionConfirmation(record, 'edit')}
+                  disabled={!canApprovePost}
+                >
+                  <EditOutlined />
+                </button>
+              </Tooltip>
+            )}
+            {canUpdate && (
+              <Tooltip title="Cancel Invoice">
+                <button
+                  type="button"
+                  className="inv-action-btn inv-btn-cancel"
+                  onClick={() => requestActionConfirmation(record, 'cancel')}
+                  disabled={lowerStatus === 'cancelled' || lowerStatus === 'paid'}
+                >
+                  <StopOutlined />
+                </button>
+              </Tooltip>
+            )}
+            {canDelete && (
+              <Tooltip title="Delete Invoice">
+                <button
+                  type="button"
+                  className="inv-action-btn inv-btn-delete"
+                  onClick={() => requestActionConfirmation(record, 'delete')}
+                  disabled={lowerStatus === 'posted' || lowerStatus === 'paid'}
+                >
+                  <DeleteOutlined />
+                </button>
+              </Tooltip>
+            )}
           </div>
         );
       },
@@ -2190,13 +2209,15 @@ const SalesInvoiceManagement: React.FC = () => {
 
                 {/* Slate Action Buttons (Matching Image 3) */}
                 <div className="inv-sidebar-actions">
-                  <button type="button" className="inv-sidebar-btn" onClick={() => requestActionConfirmation(detailItem, 'print')}>
-                    <PrinterOutlined /> Print Tax Invoice
-                  </button>
+                  {canPrint && (
+                    <button type="button" className="inv-sidebar-btn" onClick={() => requestActionConfirmation(detailItem, 'print')}>
+                      <PrinterOutlined /> Print Tax Invoice
+                    </button>
+                  )}
                   <button type="button" className="inv-sidebar-btn" onClick={() => requestActionConfirmation(detailItem, 'whatsapp')}>
                     <WhatsAppOutlined /> Share on WhatsApp
                   </button>
-                  {['pending', 'draft'].includes(String(detailItem.status || '').toLowerCase()) && (
+                  {canPost && ['pending', 'draft'].includes(String(detailItem.status || '').toLowerCase()) && (
                     <button
                       type="button"
                       className="inv-sidebar-btn"
@@ -2206,7 +2227,7 @@ const SalesInvoiceManagement: React.FC = () => {
                       <CheckCircleOutlined /> Approve &amp; Post to Ledger
                     </button>
                   )}
-                  {Number(detailItem.outstandingAmount ?? detailItem.balance) > 0 && String(detailItem.status || '').toLowerCase() !== 'cancelled' && (
+                  {canRecordPayment && Number(detailItem.outstandingAmount ?? detailItem.balance) > 0 && String(detailItem.status || '').toLowerCase() !== 'cancelled' && (
                     <button
                       type="button"
                       className="inv-sidebar-btn"

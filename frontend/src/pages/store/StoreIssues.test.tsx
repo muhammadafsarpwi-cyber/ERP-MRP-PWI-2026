@@ -3,10 +3,26 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { MemoryRouter } from 'react-router-dom';
 import StoreIssues from './StoreIssues';
+import { formatPartHistorySummary } from './components/StoreLineItemsEditor';
+import { storeIssuesCache } from './storeIssuesCache';
+import { buildStoreIssuesCsv, buildStoreIssuesXlsxBlob } from '../../utils/storeIssueExport';
+import { useHeaderActions } from '../../components/layout/headerActionsStore';
 import apiService from '../../services/api';
 
+const HeaderExtraHost: React.FC = () => {
+  const extra = useHeaderActions(
+    (s) => s.tabMetaMap['/store/material-issues']?.extra ?? s.extra,
+  );
+  return <div data-testid="main-header-extra">{extra}</div>;
+};
+
 const renderWithRouter = (ui: React.ReactElement) => {
-  return render(<MemoryRouter initialEntries={['/store/material-issues']}>{ui}</MemoryRouter>);
+  return render(
+    <MemoryRouter initialEntries={['/store/material-issues']}>
+      <HeaderExtraHost />
+      {ui}
+    </MemoryRouter>,
+  );
 };
 
 jest.mock('../../services/api');
@@ -97,6 +113,7 @@ describe('StoreIssues Component', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    storeIssuesCache.invalidateAll();
 
     mockedApi.get.mockImplementation((url: string, params?: any) => {
       if (url.includes('/store/stores')) {
@@ -156,7 +173,7 @@ describe('StoreIssues Component', () => {
 
     await waitFor(() => {
       expect(screen.getByText('1. Division & Source Store Header')).toBeInTheDocument();
-      expect(screen.getByText('2. Destination Department & Machine Allocation')).toBeInTheDocument();
+      expect(screen.getByText('2. Destination Department, Machine & Receiving Personnel')).toBeInTheDocument();
       expect(screen.getByText(/Machine \/ Equipment Selection/i)).toBeInTheDocument();
     });
   });
@@ -170,5 +187,110 @@ describe('StoreIssues Component', () => {
 
     const deleteButtons = screen.getAllByRole('button', { name: /delete/i });
     expect(deleteButtons.length).toBeGreaterThan(0);
+  });
+
+  it('renders Print View, Export Excel, Refresh, Columns, and compact row icon actions', async () => {
+    renderWithRouter(<StoreIssues />);
+
+    await waitFor(() => {
+      expect(screen.getByText('MI-2026-0001')).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole('button', { name: /Print View/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Export Excel/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Refresh/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Columns/i })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /Create Store Issue Note/i })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: /View Details/i }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('button', { name: /Edit SIN/i }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('button', { name: /Print SIN Slip/i }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('button', { name: /Download PDF/i }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('button', { name: /Share via WhatsApp/i }).length).toBeGreaterThan(0);
+  });
+
+  it('includes WhatsApp sharing button inside Create Store Issue Note modal', async () => {
+    renderWithRouter(<StoreIssues />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Create Store Issue Note')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText('Create Store Issue Note').closest('button')!);
+
+    await waitFor(() => {
+      expect(screen.getByText('1. Division & Source Store Header')).toBeInTheDocument();
+    });
+
+    const waButtons = screen.getAllByRole('button', { name: /WhatsApp/i });
+    expect(waButtons.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('formats part-machine lifecycle history summary cleanly with GRS & PCS equivalents', () => {
+    expect(
+      formatPartHistorySummary({ hasPreviousIssue: false }),
+    ).toBe('First time issuing this part to this machine');
+
+    expect(
+      formatPartHistorySummary({ hasPreviousIssue: false, lookupError: true }),
+    ).toBe('Unable to verify previous issue history for this machine');
+
+    expect(
+      formatPartHistorySummary({
+        hasPreviousIssue: true,
+        lastIssueVoucherNo: 'SIN-2026-00412',
+        lastIssueDate: '2026-11-18',
+        lastIssueQty: 1,
+        lastIssueUom: 'SET',
+        totalIssuesToMachine: 3,
+        pcsPerGross: 144,
+        productionSinceLastIssue: {
+          entryCount: 12,
+          totalQty: 208800,
+          uomCode: 'PCS',
+          totalPcsQty: 208800,
+          totalGrossQty: 1450,
+          totalWeightKg: 1044,
+        },
+      }),
+    ).toBe(
+      'Last Issued: 18-Nov-2026 (SIN-2026-00412 · 1 SET) · Production Since Last Issue: 1,450 GRS (208,800 PCS) · Total Issues: 3',
+    );
+  });
+
+  it('builds valid Excel (.xlsx) and CSV export files for filtered SIN records', () => {
+    const sampleRows = [
+      {
+        issueNumber: 'SIN-20261016-65057',
+        issueDate: '2026-10-16',
+        status: 'POSTED',
+        divisionName: 'Spoke Division',
+        storeName: 'SPI General Store',
+        sectionName: 'Spoke Production Section',
+        departmentName: 'Heading & Threading',
+        machineAllocation: 'SPK-01 — Spoke Machine SPK-01',
+        operatorName: 'H.M.Sajeel',
+        shiftInchargeName: 'Muhammad Junaid',
+        storeInchargeName: 'Store Keeper',
+        totalOldReturnedQty: 1,
+        purpose: 'Die Replacement',
+        lines: [
+          {
+            lineNumber: 1,
+            itemCode: 'SP-216021',
+            itemName: 'SPOKE THREADING ROLLING DIE (10G 3.2) 40G',
+            quantity: 1,
+            uomCode: 'SET',
+            oldItemReturnedQty: 1,
+          },
+        ],
+      },
+    ];
+    const xlsxBlob = buildStoreIssuesXlsxBlob(sampleRows);
+    expect(xlsxBlob.size).toBeGreaterThan(200);
+    expect(xlsxBlob.type).toContain('spreadsheetml.sheet');
+
+    const csv = buildStoreIssuesCsv(sampleRows);
+    expect(csv).toContain('SIN-20261016-65057');
+    expect(csv).toContain('H.M.Sajeel');
   });
 });

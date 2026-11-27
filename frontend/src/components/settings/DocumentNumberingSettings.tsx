@@ -36,7 +36,7 @@ const STORAGE_KEY = 'erp_document_numbering_v1';
 
 export const DocumentNumberingSettings: React.FC = () => {
   const { can } = usePermission();
-  const canEdit = can(SETTINGS_PERMISSIONS.edit);
+  const canEdit = can('settings.document_numbering.update');
 
   const [series, setSeries] = useState<DocumentSeriesConfig[]>(DEFAULT_SERIES);
   const [initialSeries, setInitialSeries] = useState<DocumentSeriesConfig[]>(DEFAULT_SERIES);
@@ -105,19 +105,19 @@ export const DocumentNumberingSettings: React.FC = () => {
     <div
       className="document-numbering-container"
       data-testid="document-numbering"
-      data-edit-permission={SETTINGS_PERMISSIONS.edit}
+      data-edit-permission="settings.document_numbering.update"
       id="document-numbering-section"
     >
       {/* Hidden test identifier for test backwards-compatibility */}
       <span
         data-testid="settings-placeholder-document-numbering"
         style={{ display: 'none' }}
-        data-edit-permission={SETTINGS_PERMISSIONS.edit}
+        data-edit-permission="settings.document_numbering.update"
       >
         <span data-testid="settings-placeholder-permission">
           {canEdit
-            ? `Your role includes “${SETTINGS_PERMISSIONS.edit}”.`
-            : `Read-only for your role: requires “${SETTINGS_PERMISSIONS.edit}”.`}
+            ? 'Your role includes “settings.document_numbering.update”.'
+            : 'Read-only for your role: requires “settings.document_numbering.update”.'}
         </span>
       </span>
 

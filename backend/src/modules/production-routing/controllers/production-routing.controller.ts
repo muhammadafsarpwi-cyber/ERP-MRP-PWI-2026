@@ -275,7 +275,7 @@ export class ProductionRoutingController {
   @Post(':id/connections')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('manufacturing.routing.edit')
+  @RequirePermission('manufacturing.routing.update')
   @ApiOperation({ summary: 'Create an explicit operation-to-operation connection (branch, merge, sequential)' })
   @HttpCode(HttpStatus.CREATED)
   async createConnection(
@@ -291,7 +291,7 @@ export class ProductionRoutingController {
   @Delete(':id/connections/:connectionId')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('manufacturing.routing.edit')
+  @RequirePermission('manufacturing.routing.update')
   @ApiOperation({ summary: 'Delete an explicit routing connection' })
   @HttpCode(HttpStatus.OK)
   async deleteConnection(

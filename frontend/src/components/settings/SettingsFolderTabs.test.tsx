@@ -3,8 +3,24 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { MemoryRouter } from 'react-router-dom';
 import SettingsFolderTabs from './SettingsFolderTabs';
+import { SETTINGS_PERMISSIONS } from './settingsNavigationConfig';
 
 describe('SettingsFolderTabs', () => {
+  beforeEach(() => {
+    localStorage.setItem(
+      'erp_user',
+      JSON.stringify({
+        id: 'u-1',
+        email: 'admin@pwi.com',
+        permissions: Object.values(SETTINGS_PERMISSIONS),
+      }),
+    );
+    localStorage.setItem('erp_permissions_ts', Date.now().toString());
+  });
+
+  afterEach(() => {
+    localStorage.clear();
+  });
   it('renders all visible folder tabs with active selection', () => {
     render(
       <MemoryRouter initialEntries={['/settings/profile-branding']}>

@@ -92,7 +92,8 @@ export const OpeningStockHistoryModal: React.FC<OpeningStockHistoryModalProps> =
   const { token } = theme.useToken();
   const { message } = App.useApp();
   const { can } = usePermission();
-  const canReverseRestore = can('inventory.opening_stock.delete');
+  const canReverseRestore = can('inventory.opening_stock.reverse');
+  const canUpdateLine = can('inventory.opening_stock.update');
 
   const [batches, setBatches] = useState<OpeningStockHistoryBatch[]>([]);
   const [loading, setLoading] = useState(false);
@@ -363,6 +364,9 @@ export const OpeningStockHistoryModal: React.FC<OpeningStockHistoryModalProps> =
                 <Text type="secondary" style={{ fontSize: 11 }}>Locked</Text>
               </Tooltip>
             );
+          }
+          if (!canUpdateLine) {
+            return <Text type="secondary" style={{ fontSize: 11 }}>Read-only</Text>;
           }
           if (editingLedgerId === r.ledgerId) {
             return (

@@ -1,24 +1,51 @@
 import React, { useState, useEffect } from 'react';
-import { Table, Button, Select, InputNumber, Space, Typography, Tooltip, Tag, Alert, Card, Row, Col, theme } from 'antd';
+import { Table, Button, Select, InputNumber, Space, Typography, Tooltip, Popover, Tag, Alert, Card, Row, Col, theme } from 'antd';
 import { PlusOutlined, DeleteOutlined, InfoCircleOutlined, AppstoreOutlined, WarningOutlined, CheckCircleOutlined, HistoryOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import apiService from '../../../services/api';
+import { storeIssuesCache } from '../storeIssuesCache';
+
+export interface PartMachineHistoryRun {
+  id: string;
+  issueNumber: string;
+  issueDate: string;
+  status?: string;
+  quantity: number;
+  uomCode?: string;
+  operatorName?: string | null;
+  shiftInchargeName?: string | null;
+  referenceDocument?: string | null;
+  purpose?: string | null;
+  oldItemReturnedQty?: number;
+  remarks?: string | null;
+}
 
 export interface PartMachineHistoryInfo {
   hasPreviousIssue: boolean;
+  lookupError?: boolean;
+  machineCode?: string;
+  machineName?: string;
+  lastIssueId?: string;
   lastIssueVoucherNo?: string;
   lastIssueDate?: string;
   lastIssueQty?: number;
   lastIssueUom?: string;
+  lastOperatorName?: string | null;
+  lastShiftInchargeName?: string | null;
   daysSinceLastIssue?: number;
   totalIssuesToMachine?: number;
+  pcsPerGross?: number;
   productionSinceLastIssue?: {
     entryCount: number;
     totalQty: number;
     uomCode: string;
+    totalPcsQty?: number;
+    totalGrossQty?: number | null;
     totalWeightKg: number;
+    runningHours?: number;
   };
+  history?: PartMachineHistoryRun[];
 }
 
 export interface StoreLineItem {
@@ -80,28 +107,49 @@ export interface StoreLineItemsEditorProps {
   excludeFinishedGoods?: boolean;
   machineId?: string;
   issueDate?: string;
+  excludeIssueId?: string;
   onInspectLifecycle?: (item: { itemId: string; itemCode?: string; itemName?: string }) => void;
 }
 
 export const formatPartHistorySummary = (h?: PartMachineHistoryInfo): string => {
   if (!h) return '';
+  if (h.lookupError) {
+    return 'Unable to verify previous issue history for this machine';
+  }
   if (!h.hasPreviousIssue) {
     return 'First time issuing this part to this machine';
   }
-  const formattedDate = h.lastIssueDate ? dayjs(h.lastIssueDate).format('DD MMM YYYY') : '—';
-  const daysLabel =
-    h.daysSinceLastIssue === 0
-      ? 'today'
-      : h.daysSinceLastIssue === 1
-      ? '1 day ago'
-      : `${h.daysSinceLastIssue ?? 0} days ago`;
+  const formattedDate = h.lastIssueDate ? dayjs(h.lastIssueDate).format('DD-MMM-YYYY') : '—';
   const qtyLabel = `${Number(h.lastIssueQty || 0).toLocaleString()} ${h.lastIssueUom || 'PCS'}`;
+  const issueMeta = h.lastIssueVoucherNo ? `${h.lastIssueVoucherNo} · ${qtyLabel}` : qtyLabel;
   const prod = h.productionSinceLastIssue;
-  const prodQty = Number(prod?.totalQty || 0).toLocaleString();
-  const prodUom = prod?.uomCode || 'PCS';
-  const prodKg = Number(prod?.totalWeightKg || 0);
-  const kgPart = prodKg > 0 ? ` (${prodKg.toLocaleString()} KG)` : '';
-  return `Last Issued: ${formattedDate} (${daysLabel} · Qty: ${qtyLabel}) | Machine Production Since Then: ${prodQty} ${prodUom}${kgPart}`;
+  const pcsPerGross = Number(h.pcsPerGross || 144) || 144;
+  const uomUpper = String(prod?.uomCode || 'PCS').toUpperCase();
+  const rawPcsQty = Number(
+    prod?.totalPcsQty ??
+      (['GRS', 'GROSS'].includes(uomUpper)
+        ? Number(prod?.totalQty || 0) * pcsPerGross
+        : ['PCS', 'PC', 'NOS', 'UNIT', 'UNITS'].includes(uomUpper)
+          ? Number(prod?.totalQty || 0)
+          : 0),
+  );
+  const rawGrossQty =
+    prod?.totalGrossQty != null
+      ? Number(prod.totalGrossQty)
+      : rawPcsQty > 0
+        ? Number((rawPcsQty / pcsPerGross).toFixed(2))
+        : null;
+
+  let prodStr = `${Number(prod?.totalQty || 0).toLocaleString()} ${prod?.uomCode || 'PCS'}`;
+  if (rawGrossQty !== null && rawPcsQty > 0) {
+    const grossLabel = Number.isInteger(rawGrossQty)
+      ? rawGrossQty.toLocaleString()
+      : rawGrossQty.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    prodStr = `${grossLabel} GRS (${Math.round(rawPcsQty).toLocaleString()} PCS)`;
+  }
+
+  const totalIssues = Number(h.totalIssuesToMachine || 1);
+  return `Last Issued: ${formattedDate} (${issueMeta}) · Production Since Last Issue: ${prodStr} · Total Issues: ${totalIssues}`;
 };
 
 let lineIdCounter = 0;
@@ -145,6 +193,7 @@ const StoreLineItemsEditor: React.FC<StoreLineItemsEditorProps> = ({
   excludeFinishedGoods = true,
   machineId,
   issueDate,
+  excludeIssueId,
   onInspectLifecycle,
 }) => {
   const { token } = theme.useToken();
@@ -167,15 +216,31 @@ const StoreLineItemsEditor: React.FC<StoreLineItemsEditorProps> = ({
       const entries = await Promise.all(
         uniqueItemIds.map(async (itemId) => {
           try {
-            const res = await apiService.get<any>('/store/issues/part-machine-history', {
+            const cacheKey = storeIssuesCache.keys.partHistory(
               machineId,
               itemId,
-              ...(issueDate ? { asOfDate: issueDate } : {}),
-            });
-            const data: PartMachineHistoryInfo = res?.data || res;
+              issueDate,
+              excludeIssueId,
+            );
+            const data = await storeIssuesCache.getOrFetch(
+              cacheKey,
+              async () => {
+                const res = await apiService.get<any>('/store/issues/part-machine-history', {
+                  machineId,
+                  itemId,
+                  ...(issueDate ? { asOfDate: issueDate } : {}),
+                  ...(excludeIssueId ? { excludeIssueId } : {}),
+                });
+                return (res?.data || res) as PartMachineHistoryInfo;
+              },
+              storeIssuesCache.ttls.history,
+            );
             return [itemId, data] as const;
           } catch {
-            return [itemId, { hasPreviousIssue: false } as PartMachineHistoryInfo] as const;
+            return [
+              itemId,
+              { hasPreviousIssue: false, lookupError: true } as PartMachineHistoryInfo,
+            ] as const;
           }
         }),
       );
@@ -187,15 +252,16 @@ const StoreLineItemsEditor: React.FC<StoreLineItemsEditorProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [mode, machineId, issueDate, selectedItemIdsKey]);
+  }, [mode, machineId, issueDate, excludeIssueId, selectedItemIdsKey]);
 
   useEffect(() => {
     if (mode !== 'issue') return;
     let changed = false;
     const nextLines = value.map((l) => {
+      const info = l.itemId ? partHistoryMap[l.itemId] : undefined;
       const snap =
-        l.itemId && machineId && machineId !== 'OTHER_GENERAL' && partHistoryMap[l.itemId]
-          ? formatPartHistorySummary(partHistoryMap[l.itemId])
+        l.itemId && machineId && machineId !== 'OTHER_GENERAL' && info && !info.lookupError
+          ? formatPartHistorySummary(info)
           : undefined;
       if (l.partUsageSnapshot !== snap) {
         changed = true;
@@ -215,15 +281,21 @@ const StoreLineItemsEditor: React.FC<StoreLineItemsEditorProps> = ({
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Fetch Items & UOMs scoped strictly to Division & Store
+  // Fetch Items & UOMs scoped strictly to Division & Store (with sticky cache)
   useEffect(() => {
     let active = true;
     (async () => {
-      // 1. Load UOMs
+      // 1. Load UOMs (cached)
       try {
-        const uomRes = await apiService.get<any>('/master-data/uom', { limit: 200 });
+        const uData = await storeIssuesCache.getOrFetch(
+          storeIssuesCache.keys.uoms(),
+          async () => {
+            const uomRes = await apiService.get<any>('/master-data/uom', { limit: 200 }, { useEtag: true });
+            return Array.isArray(uomRes) ? uomRes : uomRes?.data || [];
+          },
+          storeIssuesCache.ttls.lookup,
+        );
         if (active) {
-          const uData = Array.isArray(uomRes) ? uomRes : uomRes?.data || [];
           setUomOptions(uData);
         }
       } catch {
@@ -244,37 +316,48 @@ const StoreLineItemsEditor: React.FC<StoreLineItemsEditorProps> = ({
       try {
         let storeItemsList: ItemOption[] = [];
 
-        // If a specific store is provided, load its items and stock
+        // If a specific store is provided, load its items and stock (cached)
         if (storeId) {
           try {
-            const storeRes = await apiService.get<any>(`/store/stores/${storeId}/items`, { limit: 1000 });
-            const sData = Array.isArray(storeRes) ? storeRes : storeRes?.data || [];
-            storeItemsList = sData.map((si: any) => ({
-              id: si.itemId || si.item?.id,
-              itemCode: si.item?.itemCode || si.itemCode || '—',
-              name: si.item?.name || si.itemName || '—',
-              itemType: si.item?.itemType || si.itemType,
-              divisionId: si.item?.divisionId || si.divisionId,
-              baseUomId: si.item?.baseUomId || si.item?.uomId,
-              uomCode: si.item?.baseUom?.code || si.item?.uomCode,
-              availableStock: Number(si.availableStock !== undefined ? si.availableStock : 0),
-              minimumStock: si.minimumStock !== null && si.minimumStock !== undefined ? Number(si.minimumStock) : undefined,
-              maximumStock: si.maximumStock !== null && si.maximumStock !== undefined ? Number(si.maximumStock) : undefined,
-              reorderLevel: si.reorderLevel !== null && si.reorderLevel !== undefined ? Number(si.reorderLevel) : undefined,
-            })).filter((x: ItemOption) => Boolean(x.id));
+            storeItemsList = await storeIssuesCache.getOrFetch(
+              storeIssuesCache.keys.storeItems(storeId),
+              async () => {
+                const storeRes = await apiService.get<any>(`/store/stores/${storeId}/items`, { limit: 1000 }, { useEtag: true });
+                const sData = Array.isArray(storeRes) ? storeRes : storeRes?.data || [];
+                return sData.map((si: any) => ({
+                  id: si.itemId || si.item?.id,
+                  itemCode: si.item?.itemCode || si.itemCode || '—',
+                  name: si.item?.name || si.itemName || '—',
+                  itemType: si.item?.itemType || si.itemType,
+                  divisionId: si.item?.divisionId || si.divisionId,
+                  baseUomId: si.item?.baseUomId || si.item?.uomId,
+                  uomCode: si.item?.baseUom?.code || si.item?.uomCode,
+                  availableStock: Number(si.availableStock !== undefined ? si.availableStock : 0),
+                  minimumStock: si.minimumStock !== null && si.minimumStock !== undefined ? Number(si.minimumStock) : undefined,
+                  maximumStock: si.maximumStock !== null && si.maximumStock !== undefined ? Number(si.maximumStock) : undefined,
+                  reorderLevel: si.reorderLevel !== null && si.reorderLevel !== undefined ? Number(si.reorderLevel) : undefined,
+                })).filter((x: ItemOption) => Boolean(x.id));
+              },
+              storeIssuesCache.ttls.issues,
+            );
           } catch {
             // fallback
           }
         }
 
-        // Fetch master items strictly filtered by divisionId
-        const queryParams: any = { limit: 1000 };
-        if (divisionId) {
-          queryParams.divisionId = divisionId;
-        }
-
-        const res = await apiService.get<any>('/master-data/items', queryParams);
-        const list: any[] = Array.isArray(res) ? res : res?.data || [];
+        // Fetch master items strictly filtered by divisionId (cached in client & ETag server cache)
+        const list = await storeIssuesCache.getOrFetch(
+          storeIssuesCache.keys.masterItems(divisionId),
+          async () => {
+            const queryParams: any = { limit: 1000, view: 'directory', active: 'true' };
+            if (divisionId) {
+              queryParams.divisionId = divisionId;
+            }
+            const res = await apiService.get<any>('/master-data/items', queryParams, { useEtag: true });
+            return Array.isArray(res) ? res : res?.data || [];
+          },
+          storeIssuesCache.ttls.lookup,
+        );
 
         const mergedMap = new Map<string, ItemOption>();
 
@@ -368,6 +451,89 @@ const StoreLineItemsEditor: React.FC<StoreLineItemsEditorProps> = ({
     const qty = mode === 'request' ? Number(l.requestedQuantity || 0) : Number(l.quantity || 0);
     return acc + qty;
   }, 0);
+
+  const renderPartHistoryBadge = (itemId: string) => {
+    const info = partHistoryMap[itemId];
+    if (!info) return null;
+    const isErr = Boolean(info.lookupError);
+    const hasPrev = Boolean(info.hasPreviousIssue);
+    const historyRuns = info.history || [];
+
+    const popoverContent = historyRuns.length > 0 ? (
+      <div style={{ maxWidth: 460 }}>
+        <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 6, color: token.colorText }}>
+          Previous Issues to {info.machineCode || 'Machine'} ({historyRuns.length})
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 220, overflowY: 'auto' }}>
+          {historyRuns.map((run) => (
+            <div
+              key={run.id}
+              style={{
+                padding: '6px 8px',
+                borderRadius: 6,
+                background: token.colorFillAlter,
+                border: `1px solid ${token.colorBorderSecondary}`,
+                fontSize: 11.5,
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontWeight: 700 }}>
+                <span style={{ color: token.colorPrimary }}>{run.issueNumber}</span>
+                <span>{dayjs(run.issueDate).format('DD-MMM-YYYY')}</span>
+              </div>
+              <div style={{ color: token.colorTextSecondary, marginTop: 2 }}>
+                Qty: <strong>{Number(run.quantity || 0).toLocaleString()} {run.uomCode || 'PCS'}</strong>
+                {run.oldItemReturnedQty ? ` · Old Scrap: ${Number(run.oldItemReturnedQty).toLocaleString()}` : ''}
+                {run.operatorName ? ` · Operator: ${run.operatorName}` : ''}
+                {run.shiftInchargeName ? ` · Incharge: ${run.shiftInchargeName}` : ''}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    ) : null;
+
+    return (
+      <div
+        style={{
+          marginTop: 6,
+          padding: '5px 8px',
+          borderRadius: 6,
+          fontSize: 11.5,
+          lineHeight: 1.4,
+          background: isErr
+            ? token.colorWarningBg
+            : hasPrev
+              ? token.colorInfoBg
+              : token.colorFillAlter,
+          border: `1px solid ${
+            isErr
+              ? token.colorWarningBorder
+              : hasPrev
+                ? token.colorInfoBorder
+                : token.colorBorderSecondary
+          }`,
+          color: token.colorText,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 8,
+          flexWrap: 'wrap',
+        }}
+      >
+        <span>
+          <HistoryOutlined style={{ marginRight: 6, color: isErr ? token.colorWarning : token.colorPrimary }} />
+          <span style={{ fontWeight: 600 }}>{formatPartHistorySummary(info)}</span>
+        </span>
+        {popoverContent && (
+          <Popover content={popoverContent} trigger="click" placement="bottomLeft">
+            <Button type="link" size="small" style={{ padding: 0, height: 'auto', fontSize: 11, fontWeight: 600 }}>
+              Runs ({historyRuns.length})
+            </Button>
+          </Popover>
+        )}
+      </div>
+    );
+  };
 
   // Check if any line has an stock deficit
   const hasStockDeficit = value.some((l) => {
@@ -483,31 +649,7 @@ const StoreLineItemsEditor: React.FC<StoreLineItemsEditorProps> = ({
             )}
           </div>
         )}
-        {mode === 'issue' && record.itemId && machineId && machineId !== 'OTHER_GENERAL' && partHistoryMap[record.itemId] && (
-          <div
-            style={{
-              marginTop: 6,
-              padding: '5px 8px',
-              borderRadius: 6,
-              fontSize: 11.5,
-              lineHeight: 1.35,
-              background: partHistoryMap[record.itemId].hasPreviousIssue
-                ? token.colorInfoBg
-                : token.colorFillAlter,
-              border: `1px solid ${
-                partHistoryMap[record.itemId].hasPreviousIssue
-                  ? token.colorInfoBorder
-                  : token.colorBorderSecondary
-              }`,
-              color: token.colorText,
-            }}
-          >
-            <HistoryOutlined style={{ marginRight: 6, color: token.colorPrimary }} />
-            <span style={{ fontWeight: 600 }}>
-              {formatPartHistorySummary(partHistoryMap[record.itemId])}
-            </span>
-          </div>
-        )}
+        {mode === 'issue' && record.itemId && machineId && machineId !== 'OTHER_GENERAL' && partHistoryMap[record.itemId] && renderPartHistoryBadge(record.itemId)}
       </div>
     ),
   };
@@ -898,6 +1040,7 @@ const StoreLineItemsEditor: React.FC<StoreLineItemsEditorProps> = ({
                           Thresholds: Min {record.minimumStock ?? '—'} | Max {record.maximumStock ?? '—'}
                         </div>
                       )}
+                      {mode === 'issue' && record.itemId && machineId && machineId !== 'OTHER_GENERAL' && partHistoryMap[record.itemId] && renderPartHistoryBadge(record.itemId)}
                     </div>
                   )}
 

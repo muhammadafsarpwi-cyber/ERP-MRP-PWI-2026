@@ -39,14 +39,37 @@ import {
 } from '../../utils/financeHelpers';
 import { printFinancialStatementHtml } from '../../utils/printTemplates';
 import AccountLedgerModal from './AccountLedgerModal';
+import { usePermission } from '../../hooks/usePermission';
 
 const { Text } = Typography;
 const { RangePicker } = DatePicker;
 
+const REPORT_PERM_BY_TAB: Record<string, string> = {
+  tb: 'finance.report.trial_balance',
+  gl: 'finance.report.general_ledger',
+  cb: 'finance.report.cash_bank_book',
+  pl: 'finance.report.pl',
+  bs: 'finance.report.balance_sheet',
+  ar: 'finance.report.ar',
+  ap: 'finance.report.ap',
+};
+
 const FinanceReports: React.FC = () => {
   const { token } = theme.useToken();
+  const { can } = usePermission();
   const [searchParams, setSearchParams] = useSearchParams();
-  const activeTab = searchParams.get('tab') || 'tb';
+  const requestedTab = searchParams.get('tab') || 'tb';
+  const permittedTabKeys = useMemo(
+    () => Object.keys(REPORT_PERM_BY_TAB).filter((k) => can(REPORT_PERM_BY_TAB[k])),
+    [can],
+  );
+  const activeTab = permittedTabKeys.includes(requestedTab)
+    ? requestedTab
+    : (permittedTabKeys[0] || requestedTab);
+  const activePermPrefix = REPORT_PERM_BY_TAB[activeTab] || 'finance.report.trial_balance';
+  const canViewActiveTab = can(activePermPrefix);
+  const canExportActiveTab = can(`${activePermPrefix}.export`);
+  const canPrintActiveTab = can(`${activePermPrefix}.print`);
 
   const [companyId] = useState<string>(() => {
     try {
@@ -122,6 +145,7 @@ const FinanceReports: React.FC = () => {
     activeTab === 'bs' || activeTab === 'ar' || activeTab === 'ap' ? asOfStr : undefined;
 
   const loadActiveReport = useCallback(async (forceRefresh = false) => {
+    if (!canViewActiveTab) return;
     const seq = ++requestSeqRef.current;
     setLoading(true);
     setReportError(null);
@@ -180,7 +204,7 @@ const FinanceReports: React.FC = () => {
         setLoading(false);
       }
     }
-  }, [activeTab, companyId, divisionId, activeFromParam, activeToParam, activeAsOfParam, activeAccountParam]);
+  }, [activeTab, canViewActiveTab, companyId, divisionId, activeFromParam, activeToParam, activeAsOfParam, activeAccountParam]);
 
   useEffect(() => {
     void loadActiveReport(false);
@@ -1045,12 +1069,16 @@ const FinanceReports: React.FC = () => {
             >
               Refresh
             </Button>
+            {canExportActiveTab && (
             <Button icon={<DownloadOutlined />} onClick={handleExportCsv}>
               Export CSV
             </Button>
+            )}
+            {canPrintActiveTab && (
             <Button icon={<PrinterOutlined />} type="primary" onClick={handlePrintActive}>
               Print Statement
             </Button>
+            )}
           </Space>
         }
       />
@@ -1124,7 +1152,7 @@ const FinanceReports: React.FC = () => {
         <Tabs
           activeKey={activeTab}
           onChange={(k) => setSearchParams({ tab: k })}
-          items={tabs}
+          items={tabs.filter((t) => can(REPORT_PERM_BY_TAB[t.key]))}
         />
       </Card>
 

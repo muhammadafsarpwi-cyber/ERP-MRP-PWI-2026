@@ -260,7 +260,7 @@ const denseTableComponents = {
 
 const RecycleBinPage: React.FC = () => {
   const { message } = App.useApp();
-  const { canAny } = usePermission();
+  const { can } = usePermission();
 
   const [activeTab, setActiveTab] = useState<RecycleBinType>('production-entries');
   const [rows, setRows] = useState<Partial<Record<RecycleBinType, RecycleBinRow[]>>>({});
@@ -274,27 +274,9 @@ const RecycleBinPage: React.FC = () => {
     messageRef.current = message;
   }, [message]);
 
-  const canRestore = useMemo(
-    () =>
-      canAny(
-        'admin.recycle_bin.restore',
-        'admin.users.view',
-        'admin.roles.view',
-        'admin.permissions.view',
-      ),
-    [canAny],
-  );
+  const canRestore = useMemo(() => can('admin.recycle_bin.restore'), [can]);
 
-  const canPurge = useMemo(
-    () =>
-      canAny(
-        'admin.recycle_bin.purge',
-        'admin.users.view',
-        'admin.roles.view',
-        'admin.permissions.view',
-      ),
-    [canAny],
-  );
+  const canPurge = useMemo(() => can('admin.recycle_bin.purge'), [can]);
 
   const loadTab = useCallback(async (type: RecycleBinType) => {
     setLoadingKey(type);
@@ -628,7 +610,8 @@ const RecycleBinPage: React.FC = () => {
                   size="small"
                   danger
                   className="rb-purge-btn"
-                  title="Permanent purge"
+                  title="Permanently delete"
+                  aria-label="Permanently delete"
                   icon={<DeleteOutlined />}
                   loading={busyId === row.id}
                 />

@@ -107,6 +107,7 @@ describe('StoreService (material request SoD approval workflow)', () => {
     mrRepo = makeRepoOverrides();
     mrLineRepo = makeRepoOverrides();
     storeRepo = makeRepoOverrides();
+    (storeRepo.manager as any).query = jest.fn().mockResolvedValue([]);
     prService = {
       create: jest.fn().mockResolvedValue({
         id: 'pr-1',
@@ -121,7 +122,7 @@ describe('StoreService (material request SoD approval workflow)', () => {
     const moduleRef = await Test.createTestingModule({
       providers: [
         StoreService,
-        { provide: getRepositoryToken(Store), useValue: makeRepoOverrides() },
+        { provide: getRepositoryToken(Store), useValue: storeRepo },
         { provide: getRepositoryToken(StoreItem), useValue: makeRepoOverrides() },
         { provide: getRepositoryToken(MaterialRequest), useValue: mrRepo },
         { provide: getRepositoryToken(MaterialRequestLine), useValue: mrLineRepo },
@@ -241,5 +242,101 @@ describe('StoreService (material request SoD approval workflow)', () => {
     expect(saved.status).toBe('CANCELLED');
     expect(saved.cancelledBy).toBe(MANAGER);
     expect(saved.cancelledAt).toBeInstanceOf(Date);
+  });
+
+  describe('getPartMachineHistory', () => {
+    it('PMH-1 -- queries machines.machine_name (not name) and returns previous issue + single-entry GRS/PCS production output', async () => {
+      const qMock = storeRepo.manager.query as jest.Mock;
+      qMock
+        .mockResolvedValueOnce([{ id: 'mach-spk01', machine_code: 'SPK-01', name: 'Spoke Machine SPK-01', machine_number: 'SPK # 01' }])
+        .mockResolvedValueOnce([{ id: 'item-die', item_code: 'SP-216021', name: 'SPOKE THREADING ROLLING DIE', uom_code: 'SET' }])
+        .mockResolvedValueOnce([{ factor: '144.00000000' }])
+        .mockResolvedValueOnce([
+          {
+            id: 'sin-1',
+            issue_number: 'SIN-20261016-65057',
+            issue_date: '2026-10-16',
+            status: 'POSTED',
+            reference_document: 'Machine: SPK-01 — Spoke Machine SPK-01',
+            purpose: 'Threading die replacement',
+            operator_name: 'H.M.Sajeel',
+            shift_incharge_name: 'Muhammad Junaid',
+            issue_remarks: null,
+            quantity: '1.0000',
+            old_item_returned_qty: '1',
+            line_remarks: null,
+            uom_code: 'SET',
+          },
+        ])
+        .mockResolvedValueOnce([
+          {
+            entry_count: 35,
+            total_running_hours: '210.5',
+            total_qty: '905317',
+            primary_uom: 'PCS',
+            total_pcs_qty: '905317',
+            total_weight_kg: '4526.59',
+          },
+        ]);
+
+      const res = await service.getPartMachineHistory(COMPANY, 'mach-spk01', 'item-die', '2026-11-27');
+
+      const machineSql = String(qMock.mock.calls[0][0]);
+      expect(machineSql).toContain('machine_name AS name');
+      expect(machineSql).not.toMatch(/\bSELECT\s+id,\s*machine_code,\s*name\b/i);
+
+      expect(res.hasPreviousIssue).toBe(true);
+      expect(res.lastIssueVoucherNo).toBe('SIN-20261016-65057');
+      expect(res.lastIssueDate).toBe('2026-10-16');
+      expect(res.lastIssueQty).toBe(1);
+      expect(res.lastIssueUom).toBe('SET');
+      expect(res.totalIssuesToMachine).toBe(1);
+      expect(res.pcsPerGross).toBe(144);
+      expect(res.productionSinceLastIssue).toEqual({
+        entryCount: 35,
+        totalQty: 905317,
+        uomCode: 'PCS',
+        totalPcsQty: 905317,
+        totalGrossQty: 6286.92,
+        totalWeightKg: 4526.59,
+        runningHours: 210.5,
+      });
+      expect(res.history).toHaveLength(1);
+    });
+
+    it('PMH-2 -- returns hasPreviousIssue false when no posted SIN exists for the part-machine pair', async () => {
+      const qMock = storeRepo.manager.query as jest.Mock;
+      qMock
+        .mockResolvedValueOnce([{ id: 'mach-spk01', machine_code: 'SPK-01', name: 'Spoke Machine SPK-01', machine_number: 'SPK # 01' }])
+        .mockResolvedValueOnce([{ id: 'item-new', item_code: 'SP-NEW', name: 'New Bolt', uom_code: 'PCS' }])
+        .mockResolvedValueOnce([{ factor: '144' }])
+        .mockResolvedValueOnce([]);
+
+      const res = await service.getPartMachineHistory(COMPANY, 'mach-spk01', 'item-new');
+      expect(res.hasPreviousIssue).toBe(false);
+      expect(res.totalIssuesToMachine).toBe(0);
+      expect(res.history).toEqual([]);
+    });
+
+    it('PMH-3 -- returns hasPreviousIssue false for OTHER_GENERAL allocation', async () => {
+      const res = await service.getPartMachineHistory(COMPANY, 'OTHER_GENERAL', 'item-die');
+      expect(res).toEqual({ hasPreviousIssue: false });
+      expect(storeRepo.manager.query).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('updateMaterialIssue (DRAFT & POSTED editing)', () => {
+    it('UPD-1 -- rejects editing a CANCELLED Store Issue Note', async () => {
+      jest.spyOn(service, 'findMaterialIssueById').mockResolvedValueOnce({
+        id: 'sin-cancelled',
+        companyId: COMPANY,
+        status: 'CANCELLED',
+        lines: [],
+      } as any);
+
+      await expect(
+        service.updateMaterialIssue('sin-cancelled', { remarks: 'test' }, MANAGER, COMPANY),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
   });
 });

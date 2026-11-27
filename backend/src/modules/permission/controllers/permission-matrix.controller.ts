@@ -20,7 +20,7 @@ export class PermissionMatrixController {
 
   @Get()
   @UseGuards(PermissionGuard)
-  @RequirePermission('admin.roles.view')
+  @RequirePermission('admin.matrix.view')
   @ApiOperation({ summary: 'Get complete permission matrix for all roles' })
   @ApiResponse({ status: 200, description: 'Permission matrix returned' })
   async getMatrix() {
@@ -30,7 +30,7 @@ export class PermissionMatrixController {
 
   @Put()
   @UseGuards(PermissionGuard)
-  @RequirePermission('admin.roles.assign_permissions')
+  @RequirePermission('admin.matrix.update')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Update permission matrix (batch role-permission assignments)' })
   @ApiResponse({ status: 200, description: 'Permission matrix updated' })

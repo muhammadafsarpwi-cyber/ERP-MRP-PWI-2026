@@ -4210,6 +4210,13 @@ addToDept(org, {
       if (!effectiveWh) {
         effectiveWh = sourceStoreId ?? undefined;
       }
+      effectiveWh =
+        (await this.enforceSpiralCoreSourceWarehouse(
+          companyId,
+          product?.itemCode,
+          component?.itemCode,
+          effectiveWh ?? null,
+        )) ?? undefined;
       if (!effectiveWh) {
         throw new BadRequestException(
           `Raw Material Source Warehouse could not be determined for component '${component?.itemCode ?? line.itemId}'. Assign an ACTIVE RAW MATERIAL warehouse or select a source store for this component.`,
@@ -4269,7 +4276,12 @@ addToDept(org, {
           : await this.convertProductQtyToComponentUom(product, component, units);
         const uomId = explicitIn?.uomId ?? component?.baseUomId ?? output.uomId;
         const uomCode = component?.baseUom?.code ?? '';
-        const effectiveInWh = explicitIn?.warehouseId || compWarehouseMap.get(inItemId) || sourceStoreId;
+        const effectiveInWh = await this.enforceSpiralCoreSourceWarehouse(
+          companyId,
+          product?.itemCode,
+          component?.itemCode,
+          explicitIn?.warehouseId || compWarehouseMap.get(inItemId) || sourceStoreId || null,
+        );
         if (!effectiveInWh) {
           throw new BadRequestException(
             `Raw Material Source Warehouse could not be determined for authoritative IN item '${component?.itemCode ?? inItemId}'.`,
@@ -4410,25 +4422,23 @@ addToDept(org, {
       : rawOutputQty;
     const prodWpm = Number(product?.weightPerMeter || 0);
 
-    let cachedFtWhId: string | null | undefined;
     for (const inp of routingInputs) {
       const component = await this.itemRepo.findOne({ where: { id: inp.itemId }, relations: ['baseUom'] });
       const compCodeUpper = (component?.itemCode || '').toUpperCase();
       const explicitCons = explicitConsumptionMap.get(inp.itemId);
-      // Priority: explicit consumption store -> explicit component warehouse -> routing input store -> entry Raw Material store -> FT store fallback
+      // Priority: explicit consumption store -> explicit component warehouse -> routing input store -> entry Raw Material store -> FT WIP store fallback
       let warehouseId =
         explicitCons?.warehouseId ??
         compWarehouseMap.get(inp.itemId) ??
         inp.sourceWarehouseId ??
         sourceStoreId ??
         null;
-      if (!warehouseId && compCodeUpper.startsWith('FLAT-STRIP')) {
-        if (cachedFtWhId === undefined) {
-          const ftWh = await this.warehouseRepo.findOne({ where: { warehouseCode: 'CCD-FT-001', companyId } });
-          cachedFtWhId = ftWh?.id ?? null;
-        }
-        warehouseId = cachedFtWhId || null;
-      }
+      warehouseId = await this.enforceSpiralCoreSourceWarehouse(
+        companyId,
+        product?.itemCode,
+        component?.itemCode,
+        warehouseId,
+      );
       if (!warehouseId) {
         throw new BadRequestException(
           `Raw Material Source Warehouse could not be determined for routing input '${component?.itemCode ?? inp.itemId}'. Assign an ACTIVE RAW MATERIAL warehouse, pass rawMaterialWarehouseId, or set a source warehouse on the routing input.`,
@@ -4774,6 +4784,55 @@ addToDept(org, {
     const wh = await this.warehouseRepo.findOne({ where: { id: warehouseId, companyId } });
     if (!wh) throw new BadRequestException('Raw Material Source Warehouse not found for this company.');
     if (wh.status !== 'ACTIVE') throw new BadRequestException('Raw Material Source Warehouse is not ACTIVE.');
+  }
+
+  private async resolveFlatteningWipWarehouse(companyId: string): Promise<Warehouse | null> {
+    const byCode = await this.warehouseRepo.findOne({
+      where: [
+        { warehouseCode: 'CCD-FT-022', companyId },
+        { warehouseCode: 'CCD-FT-001', companyId },
+      ],
+    });
+    if (byCode) return byCode;
+    return this.warehouseRepo.findOne({
+      where: {
+        companyId,
+        warehouseType: WarehouseType.WORK_IN_PROGRESS,
+        name: ILike('%Flatten%'),
+      } as any,
+    });
+  }
+
+  private async enforceSpiralCoreSourceWarehouse(
+    companyId: string,
+    productCode: string | undefined,
+    componentCode: string | undefined,
+    warehouseId: string | null | undefined,
+  ): Promise<string | null> {
+    const isSpiralOrStrip =
+      String(productCode || '').toUpperCase().startsWith('WIP-CS') ||
+      String(componentCode || '').toUpperCase().startsWith('FLAT-STRIP');
+    if (!isSpiralOrStrip) {
+      return warehouseId ?? null;
+    }
+
+    if (!warehouseId) {
+      const ftWh = await this.resolveFlatteningWipWarehouse(companyId);
+      return ftWh?.id ?? null;
+    }
+
+    const wh = await this.warehouseRepo.findOne({ where: { id: warehouseId, companyId } });
+    if (
+      wh &&
+      (wh.warehouseType === WarehouseType.RAW_MATERIAL ||
+        String(wh.warehouseCode || '').toUpperCase() === 'CCD-RM-011')
+    ) {
+      throw new BadRequestException(
+        `Spiral Core (WIP-CS-*) and Flattened Strip (FLAT-STRIP-*) consumption must use the Flattening WIP Warehouse (CCD-FT-022), not ${wh.name} (${wh.warehouseCode}).`,
+      );
+    }
+
+    return warehouseId;
   }
 
   /**

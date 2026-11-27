@@ -17,6 +17,7 @@ import AuthShell from '../../components/auth/AuthShell';
 import PasswordField from '../../components/auth/PasswordField';
 import { useCompanyWelcomeConfig } from '../../store/companyWelcomeStore';
 import { useUserStore } from '../../store/userStore';
+import { getFirstPermittedRoute } from '../../components/layout/navigationConfig';
 import './auth.css';
 import './antigravityLogin.css';
 
@@ -25,65 +26,6 @@ interface LoginFormValues {
   password: string;
   remember?: boolean;
 }
-
-export const buildMasterAdminProfile = (emailInput?: string) => {
-  const rawEmail = (emailInput || '').trim();
-  const isOwner = rawEmail.toLowerCase() === 'muhammadafsarpwi@gmail.com' || !rawEmail;
-  const email = isOwner ? 'muhammadafsarpwi@gmail.com' : rawEmail;
-
-  return {
-    id: isOwner ? 'usr-owner-muhammadafsarpwi' : 'usr-admin-master',
-    email,
-    displayName: isOwner
-      ? 'Muhammad Afsar (Executive Owner & System Administrator)'
-      : 'System Administrator (Executive Owner)',
-    firstName: isOwner ? 'Muhammad' : 'System',
-    lastName: isOwner ? 'Afsar' : 'Administrator',
-    username: isOwner ? 'muhammadafsarpwi' : 'sysadmin',
-    role: 'SYSTEM_ADMIN',
-    roles: ['SYSTEM_ADMIN', 'ADMIN', 'EXECUTIVE_OWNER'],
-    userRoles: [
-      {
-        id: 'role-system-admin',
-        roleId: 'role-system-admin',
-        role: {
-          id: 'role-system-admin',
-          roleCode: 'SYSTEM_ADMIN',
-          name: 'Executive Owner & System Administrator',
-        },
-      },
-      {
-        id: 'role-executive-owner',
-        roleId: 'role-executive-owner',
-        role: {
-          id: 'role-executive-owner',
-          roleCode: 'EXECUTIVE_OWNER',
-          name: 'Executive Owner',
-        },
-      },
-    ],
-    permissions: [
-      '*',
-      'ALL_ACCESS_GRANTED',
-      'manufacturing.production.entries.report',
-      'manufacturing.production.entries.view',
-      'manufacturing.production.entries.create',
-      'manufacturing.production.entries.edit',
-      'manufacturing.production.entries.delete',
-      'manufacturing.production.entries.post',
-      'manufacturing.production.entries.cancel',
-      'manufacturing.production.entries.super_override',
-    ],
-    divisions: {
-      unrestricted: true,
-      items: [
-        { id: 'div-spd', divisionCode: 'SPD', name: 'Spoke Division (SPD)' },
-        { id: 'div-ccd', divisionCode: 'CCD', name: 'Control Cable Division (CCD)' },
-      ],
-      permissionScopes: {},
-    },
-  };
-};
 
 const REMEMBERED_EMAIL_KEY = 'pwi_remembered_email';
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -185,9 +127,6 @@ const Login: React.FC = () => {
     setError(null);
 
     const emailInput = (values.email || '').trim();
-    const isOwnerEmail =
-      emailInput.toLowerCase() === 'muhammadafsarpwi@gmail.com' ||
-      emailInput.toLowerCase() === 'muhammadafsarpwi';
 
     try {
       const response = await apiService.post<{
@@ -215,24 +154,22 @@ const Login: React.FC = () => {
       }
       apiService.markSessionActive();
 
-      let activeUser = response.user;
-      if (isOwnerEmail || activeUser?.email?.toLowerCase() === 'muhammadafsarpwi@gmail.com') {
-        const masterProfile = buildMasterAdminProfile(emailInput);
-        activeUser = { ...activeUser, ...masterProfile };
-      }
-
+      const activeUser = response.user;
       if (activeUser) {
         localStorage.setItem('erp_user', JSON.stringify(activeUser));
+        localStorage.setItem('erp_permissions_ts', Date.now().toString());
         useUserStore.getState().setUser(activeUser);
       }
 
       void prefetchAllLookups(true);
 
+      const userPerms: string[] = Array.isArray(activeUser?.permissions) ? activeUser.permissions : [];
+      const fallbackRoute = getFirstPermittedRoute((code) => userPerms.includes(code));
       const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname;
       const destination =
         from && from.startsWith('/') && from !== '/login' && !from.startsWith('/forgot')
           ? from
-          : '/dashboard';
+          : fallbackRoute;
       navigate(destination, { replace: true });
     } catch (err: any) {
       const status = err.response?.status;

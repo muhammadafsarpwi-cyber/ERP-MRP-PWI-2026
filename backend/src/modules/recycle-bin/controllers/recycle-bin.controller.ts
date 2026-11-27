@@ -21,11 +21,9 @@ import { RecycleBinService, RecycleBinType } from '../services/recycle-bin.servi
 /**
  * The single API surface of the universal Recycle Bin.
  *
- * Viewing the trash is an organisation-scoped read available to any
- * authenticated operator — hiding a deleted record from the people who might
- * need to recover it defeats the purpose. RESTORING is a permission-gated
- * write, and PERMANENT DELETION is admin-only via the role bypass built into
- * `PermissionGuard`, so a stray non-admin session can never reach a hard delete.
+ * Viewing the trash, recovering records, and permanently purging records are
+ * strictly permission-gated (`admin.recycle_bin.view`, `admin.recycle_bin.restore`,
+ * `admin.recycle_bin.purge`) and organisation-scoped.
  */
 @ApiTags('admin/recycle-bin')
 @Controller('admin/recycle-bin')
@@ -51,6 +49,8 @@ export class RecycleBinController {
 
   @Get()
   @RequireOrgScope()
+  @UseGuards(PermissionGuard)
+  @RequirePermission('admin.recycle_bin.view')
   @ApiOperation({ summary: 'Trash count per module, for the Recycle Bin tab badges' })
   async counts(@Req() req: any) {
     const data = await this.service.counts(this.companyId(req));
@@ -59,6 +59,8 @@ export class RecycleBinController {
 
   @Get(':type')
   @RequireOrgScope()
+  @UseGuards(PermissionGuard)
+  @RequirePermission('admin.recycle_bin.view')
   @ApiParam({ name: 'type', enum: RecycleBinType })
   @ApiQuery({ name: 'limit', required: false, description: 'Rows to return (1-500, default 200)' })
   @ApiOperation({ summary: 'List soft-deleted records for one module' })

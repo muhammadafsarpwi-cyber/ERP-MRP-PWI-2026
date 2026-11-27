@@ -4,7 +4,11 @@ import { PermissionService } from '../../permission/services/permission.service'
 import { ErpUserService } from '../../user/services/erp-user.service';
 
 export const REQUIRE_PERMISSION_KEY = 'require_permission';
-export const RequirePermission = (permissionCode: string) => SetMetadata(REQUIRE_PERMISSION_KEY, permissionCode);
+export const RequirePermission = (...permissionCodes: string[]) =>
+  SetMetadata(
+    REQUIRE_PERMISSION_KEY,
+    permissionCodes.length <= 1 ? permissionCodes[0] : permissionCodes,
+  );
 
 @Injectable()
 export class PermissionGuard implements CanActivate {
@@ -15,11 +19,11 @@ export class PermissionGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const permissionCode = this.reflector.getAllAndOverride<string>(REQUIRE_PERMISSION_KEY, [
-      context.getHandler(),
-      context.getClass(),
-    ]);
-    if (!permissionCode) {
+    const permissionMeta = this.reflector.getAllAndOverride<string | string[]>(
+      REQUIRE_PERMISSION_KEY,
+      [context.getHandler(), context.getClass()],
+    );
+    if (!permissionMeta || (Array.isArray(permissionMeta) && permissionMeta.length === 0)) {
       return true;
     }
 
@@ -40,11 +44,13 @@ export class PermissionGuard implements CanActivate {
       throw new ForbiddenException('User account is inactive');
     }
 
-    const hasPermission = await this.permissionService.checkUserPermission(user.id, permissionCode);
-    if (!hasPermission) {
-      throw new ForbiddenException(`Missing required permission: ${permissionCode}`);
+    const requiredCodes = Array.isArray(permissionMeta) ? permissionMeta : [permissionMeta];
+    for (const code of requiredCodes) {
+      if (await this.permissionService.checkUserPermission(user.id, code)) {
+        return true;
+      }
     }
 
-    return true;
+    throw new ForbiddenException(`Missing required permission: ${requiredCodes.join(' or ')}`);
   }
 }

@@ -61,7 +61,7 @@ export class ItemAttributeController {
 
   @Delete('attributes/values/:id')
   @UseGuards(PermissionGuard)
-  @RequirePermission('item_attribute.delete')
+  @RequirePermission('item.item_attribute.delete')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Remove attribute value' })
   @ApiParam({ name: 'id' })

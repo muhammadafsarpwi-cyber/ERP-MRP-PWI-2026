@@ -36,7 +36,7 @@ export class AiProviderConfigController {
 
   @Get()
   @UseGuards(PermissionGuard)
-  @RequirePermission('ai.settings')
+  @RequirePermission('ai.settings.view')
   @ApiOperation({
     summary: 'List saved AI providers with masked API keys and active engine status',
   })
@@ -48,7 +48,7 @@ export class AiProviderConfigController {
 
   @Post()
   @UseGuards(PermissionGuard)
-  @RequirePermission('ai.settings')
+  @RequirePermission('ai.settings.create')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create and encrypt a new AI provider configuration' })
   async create(@Body() dto: CreateAiProviderConfigDto, @Req() req: any) {
@@ -59,7 +59,7 @@ export class AiProviderConfigController {
 
   @Patch(':id')
   @UseGuards(PermissionGuard)
-  @RequirePermission('ai.settings')
+  @RequirePermission('ai.settings.update')
   @ApiOperation({ summary: 'Update an existing AI provider profile' })
   async update(
     @Param('id') id: string,
@@ -73,7 +73,7 @@ export class AiProviderConfigController {
 
   @Patch(':id/set-primary')
   @UseGuards(PermissionGuard)
-  @RequirePermission('ai.settings')
+  @RequirePermission('ai.settings.update')
   @ApiOperation({ summary: 'Set provider as the active primary default engine' })
   async setPrimary(@Param('id') id: string, @Req() req: any) {
     const orgId = this.extractOrgId(req);
@@ -83,7 +83,7 @@ export class AiProviderConfigController {
 
   @Delete(':id')
   @UseGuards(PermissionGuard)
-  @RequirePermission('ai.settings')
+  @RequirePermission('ai.settings.delete')
   @ApiOperation({ summary: 'Delete an AI provider configuration profile' })
   async remove(@Param('id') id: string) {
     const res = await this.service.delete(id);
@@ -92,7 +92,7 @@ export class AiProviderConfigController {
 
   @Post('test-connection')
   @UseGuards(PermissionGuard)
-  @RequirePermission('ai.settings')
+  @RequirePermission('ai.settings.create', 'ai.settings.update')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Test live connectivity to an AI provider without saving' })
   async testConnection(@Body() dto: TestAiProviderConnectionDto) {
@@ -102,7 +102,7 @@ export class AiProviderConfigController {
 
   @Post('list-models')
   @UseGuards(PermissionGuard)
-  @RequirePermission('ai.settings')
+  @RequirePermission('ai.settings.view', 'ai.settings.create', 'ai.settings.update')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Fetch live model IDs and quota information available for a provider API key' })
   async listModels(@Body() dto: ListAiProviderModelsDto) {

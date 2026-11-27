@@ -65,7 +65,7 @@ export class FinishedGoodsInventoryController {
   @Put(':itemId/packing-hold')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('sales.orders.edit')
+  @RequirePermission('sales.finished_goods.update')
   @ApiOperation({ summary: 'Update packing stage hold status (e.g. polybag hold)' })
   async updatePackingHold(
     @Req() req: any,

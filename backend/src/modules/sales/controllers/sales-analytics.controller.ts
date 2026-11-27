@@ -61,7 +61,7 @@ export class SalesAnalyticsController {
   @Get('dashboard')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('sales.orders.view')
+  @RequirePermission('sales.analytics.view')
   @ApiOperation({ summary: 'Get Sales Dashboard KPIs, pipeline, and executive summaries' })
   async getDashboard(@Query() filter: SalesAnalyticsFilterDto, @Request() req: any) {
     const data = await this.analyticsService.getSalesDashboard(
@@ -73,7 +73,9 @@ export class SalesAnalyticsController {
   }
 
   @Get('nipple-shipment-plan')
+  @UseGuards(PermissionGuard)
   @RequireOrgScope()
+  @RequirePermission('inventory.nipple_demand.view', 'sales.analytics.view')
   @ApiOperation({ summary: 'Get Time-Phased Nipple Import Shipment Projection & Auto-Reorder Matrix' })
   async getNippleShipmentPlan(
     @Query('safetyMonths') safetyMonths?: string,
@@ -98,7 +100,9 @@ export class SalesAnalyticsController {
   }
 
   @Get('nipple-import-alerts')
+  @UseGuards(PermissionGuard)
   @RequireOrgScope()
+  @RequirePermission('inventory.nipple_demand.view', 'sales.analytics.view')
   @ApiOperation({ summary: 'Get proactive Nipple Import Reorder Alerts (4-month advance lead-time coverage)' })
   async getNippleImportAlerts(@Request() req: any) {
     const data = await this.analyticsService.getNippleImportAlerts(
@@ -109,7 +113,9 @@ export class SalesAnalyticsController {
   }
 
   @Patch('nipple-planning-config/:itemId')
+  @UseGuards(PermissionGuard)
   @RequireOrgScope()
+  @RequirePermission('inventory.nipple_demand.update', 'sales.analytics.update')
   @ApiOperation({ summary: 'Update manual monthly usage override, import lead time, and safety buffer for a Nipple item' })
   async updateNipplePlanningConfig(
     @Param('itemId') itemId: string,
@@ -132,7 +138,7 @@ export class SalesAnalyticsController {
   @Get('customer-analytics')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('sales.orders.view')
+  @RequirePermission('customer.analytics.view', 'sales.analytics.view')
   @ApiOperation({ summary: 'Get Customer-wise sales analytics' })
   async getCustomerAnalytics(@Query() filter: SalesAnalyticsFilterDto, @Request() req: any) {
     const data = await this.analyticsService.getCustomerSalesAnalytics(
@@ -144,7 +150,7 @@ export class SalesAnalyticsController {
   @Get('item-analytics')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('sales.orders.view')
+  @RequirePermission('sales.analytics.view', 'sales.orders.view')
   @ApiOperation({ summary: 'Get Finished Goods / Item-wise sales analysis' })
   async getItemAnalytics(@Query() filter: SalesAnalyticsFilterDto, @Request() req: any) {
     const data = await this.analyticsService.getItemSalesAnalysis(
@@ -156,7 +162,7 @@ export class SalesAnalyticsController {
   @Get('customer-item-matrix')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('sales.orders.view')
+  @RequirePermission('customer.analytics.view', 'sales.analytics.view')
   @ApiOperation({ summary: 'Get Customer × Item sales matrix' })
   async getCustomerItemMatrix(@Query() filter: SalesAnalyticsFilterDto, @Request() req: any) {
     const data = await this.analyticsService.getCustomerItemMatrix(
@@ -168,7 +174,7 @@ export class SalesAnalyticsController {
   @Get('customer-rankings')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('sales.orders.view')
+  @RequirePermission('customer.analytics.view', 'sales.analytics.view')
   @ApiOperation({ summary: 'Get Customer Rankings dynamically based on selected metric' })
   async getCustomerRankings(
     @Query('metric') metric: CustomerRankingMetric = CustomerRankingMetric.SALES_AMOUNT,
@@ -184,7 +190,7 @@ export class SalesAnalyticsController {
   @Get('order-fulfillment')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('sales.orders.view')
+  @RequirePermission('sales.analytics.view', 'sales.order_command.view', 'sales.orders.view')
   @ApiOperation({ summary: 'Get Sales Order Fulfillment and Finished Goods availability breakdown' })
   async getOrderFulfillment(@Query() filter: SalesAnalyticsFilterDto, @Request() req: any) {
     const data = await this.analyticsService.getOrderFulfillmentAnalysis(
@@ -196,7 +202,7 @@ export class SalesAnalyticsController {
   @Get('finished-goods-availability')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('sales.orders.view')
+  @RequirePermission('sales.finished_goods.view', 'sales.analytics.view', 'sales.orders.view')
   @ApiOperation({ summary: 'Get Finished Goods availability, open orders, and safety stock planning' })
   async getFinishedGoodsAvailability(@Query() filter: SalesAnalyticsFilterDto, @Request() req: any) {
     const data = await this.analyticsService.getFinishedGoodsAvailability(
@@ -208,7 +214,7 @@ export class SalesAnalyticsController {
   @Get('customer-outstanding')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('sales.orders.view')
+  @RequirePermission('customer.analytics.view', 'sales.analytics.view', 'sales.customers_ledger.view')
   @ApiOperation({ summary: 'Get Customer Outstanding report' })
   async getCustomerOutstanding(
     @Query('outstandingOnly') outstandingOnly?: string,
@@ -226,7 +232,7 @@ export class SalesAnalyticsController {
   @Get('customer-statement/:customerId')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('sales.orders.view')
+  @RequirePermission('customer.analytics.view', 'sales.analytics.view', 'sales.customers_ledger.view')
   @ApiOperation({ summary: 'Get official Customer Statement with period opening balance' })
   async getCustomerStatement(
     @Param('customerId') customerId: string,

@@ -51,6 +51,16 @@ export class CommunicationSettingController {
    */
   @Get('summary')
   @UseGuards(PermissionGuard)
+  @RequirePermission(
+    'notifications.view',
+    'communication.email_settings.view',
+    'email.settings.manage',
+    'communication.whatsapp_settings.view',
+    'whatsapp.settings.manage',
+    'settings.notifications.view',
+    'settings.email.view',
+    'settings.whatsapp.view',
+  )
   @ApiOperation({ summary: 'Communication status summary (unread + delivery counts)' })
   async summary(@Query('companyId') companyId?: string, @Req() req?: any) {
     // Resolve the user's company server-side (authoritative, RLS-safe)

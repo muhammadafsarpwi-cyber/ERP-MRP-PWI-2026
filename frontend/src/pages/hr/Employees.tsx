@@ -21,6 +21,7 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import apiService from '../../services/api';
 import { PageHeader, DraggableResizableModal } from '../../components/shared';
+import { usePermission } from '../../hooks/usePermission';
 import '../../styles/erp-table.css';
 import '../master-data/itemManagement.css';
 
@@ -280,6 +281,12 @@ function formatEstimatedTime(secs: number): string {
 
 const EmployeesPage: React.FC = () => {
   const { message } = App.useApp();
+  const { can, canAny } = usePermission();
+  const canCreate = can('hr.employee.create');
+  const canUpdate = can('hr.employee.update');
+  const canDelete = can('hr.employee.delete');
+  const canExport = can('hr.employee.export');
+  const canPrint = can('hr.employee.print');
   const [data, setData] = useState<Employee[]>([]);
   const [allEmployees, setAllEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(false);
@@ -1426,29 +1433,33 @@ const EmployeesPage: React.FC = () => {
               onClick={() => handleViewEmployee(record)}
             />
           </Tooltip>
-          <Tooltip title="Edit Employee">
-            <Button
-              type="text"
-              size="small"
-              icon={<EditOutlined style={{ color: '#f59e0b' }} />}
-              onClick={() => handleOpenEdit(record)}
-            />
-          </Tooltip>
-          <Tooltip title={record.status === 'ACTIVE' ? 'Deactivate Employee' : 'Activate Employee'}>
-            <Popconfirm
-              title={record.status === 'ACTIVE' ? 'Deactivate this employee?' : 'Activate this employee?'}
-              description={`Are you sure you want to change ${record.firstName}'s status?`}
-              onConfirm={() => handleToggleStatus(record)}
-              okText="Yes"
-              cancelText="No"
-            >
+          {canUpdate && (
+            <Tooltip title="Edit Employee">
               <Button
                 type="text"
                 size="small"
-                icon={<PoweroffOutlined style={{ color: record.status === 'ACTIVE' ? '#dc2626' : '#16a34a' }} />}
+                icon={<EditOutlined style={{ color: '#f59e0b' }} />}
+                onClick={() => handleOpenEdit(record)}
               />
-            </Popconfirm>
-          </Tooltip>
+            </Tooltip>
+          )}
+          {(canUpdate || canDelete) && (
+            <Tooltip title={record.status === 'ACTIVE' ? 'Deactivate Employee' : 'Activate Employee'}>
+              <Popconfirm
+                title={record.status === 'ACTIVE' ? 'Deactivate this employee?' : 'Activate this employee?'}
+                description={`Are you sure you want to change ${record.firstName}'s status?`}
+                onConfirm={() => handleToggleStatus(record)}
+                okText="Yes"
+                cancelText="No"
+              >
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<PoweroffOutlined style={{ color: record.status === 'ACTIVE' ? '#dc2626' : '#16a34a' }} />}
+                />
+              </Popconfirm>
+            </Tooltip>
+          )}
         </Space>
       ),
     },
@@ -1482,19 +1493,21 @@ const EmployeesPage: React.FC = () => {
         showBreadcrumbs
         extra={
           <Space size={8} wrap>
-            <Button
-              type="primary"
-              icon={<PlusOutlined />}
-              onClick={handleOpenCreate}
-              style={{
-                background: '#ea580c',
-                borderColor: '#ea580c',
-                fontWeight: 600,
-                boxShadow: '0 2px 6px rgba(234, 88, 12, 0.25)',
-              }}
-            >
-              New Employee
-            </Button>
+            {canCreate && (
+              <Button
+                type="primary"
+                icon={<PlusOutlined />}
+                onClick={handleOpenCreate}
+                style={{
+                  background: '#ea580c',
+                  borderColor: '#ea580c',
+                  fontWeight: 600,
+                  boxShadow: '0 2px 6px rgba(234, 88, 12, 0.25)',
+                }}
+              >
+                New Employee
+              </Button>
+            )}
             <Button
               icon={<ReloadOutlined />}
               onClick={() => {
@@ -1503,31 +1516,39 @@ const EmployeesPage: React.FC = () => {
               }}
               title="Refresh"
             />
-            <Dropdown menu={{ items: exportMenuItems }} placement="bottomRight">
-              <Button icon={<DownloadOutlined />} loading={exporting}>
-                Export <DownOutlined style={{ fontSize: 10 }} />
+            {canExport && (
+              <Dropdown menu={{ items: exportMenuItems }} placement="bottomRight">
+                <Button icon={<DownloadOutlined />} loading={exporting}>
+                  Export <DownOutlined style={{ fontSize: 10 }} />
+                </Button>
+              </Dropdown>
+            )}
+            {canExport && (
+              <Button
+                icon={<FilePdfOutlined />}
+                onClick={handleExportPdf}
+                loading={pdfLoading}
+              >
+                PDF
               </Button>
-            </Dropdown>
-            <Button
-              icon={<FilePdfOutlined />}
-              onClick={handleExportPdf}
-              loading={pdfLoading}
-            >
-              PDF
-            </Button>
-            <Button
-              icon={<PrinterOutlined />}
-              onClick={handlePrint}
-              loading={printing}
-            >
-              Print
-            </Button>
-            <Button
-              icon={<ImportOutlined />}
-              onClick={() => { setImportRows([]); setImportFileName(''); setImportModalVisible(true); }}
-            >
-              Import
-            </Button>
+            )}
+            {canPrint && (
+              <Button
+                icon={<PrinterOutlined />}
+                onClick={handlePrint}
+                loading={printing}
+              >
+                Print
+              </Button>
+            )}
+            {canAny('hr.employee.create', 'hr.employee.update') && (
+              <Button
+                icon={<ImportOutlined />}
+                onClick={() => { setImportRows([]); setImportFileName(''); setImportModalVisible(true); }}
+              >
+                Import
+              </Button>
+            )}
           </Space>
         }
       />
@@ -1925,7 +1946,7 @@ const EmployeesPage: React.FC = () => {
         open={detailVisible}
         onClose={() => setDetailVisible(false)}
         extra={
-          selectedEmployee && (
+          selectedEmployee && canUpdate && (
             <Space>
               <Button
                 type="primary"

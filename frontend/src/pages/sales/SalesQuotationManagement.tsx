@@ -18,6 +18,7 @@ import { ERPLineItems, ERPLine, DraggableResizableModal, SaveResultDialog } from
 import type { SaveResultData, SaveResultPhase } from '../../components/shared/SaveResultDialog';
 import { matchesTabRefresh, TAB_REFRESH_EVENT } from '../../services/tabSessionCache';
 import { useHeaderActions } from '../../components/layout/headerActionsStore';
+import { usePermission } from '../../hooks/usePermission';
 import dayjs from 'dayjs';
 import isSameOrBefore from 'dayjs/plugin/isSameOrBefore';
 import isSameOrAfter from 'dayjs/plugin/isSameOrAfter';
@@ -120,6 +121,13 @@ export function buildSalesQuotationPayload(values: any, lineItems: ERPLine[]): a
 
 const SalesQuotationManagement: React.FC = () => {
   const { message, modal } = App.useApp();
+  const { can } = usePermission();
+  const canCreate = can('sales.quotations.create');
+  const canUpdate = can('sales.quotations.update');
+  const canDelete = can('sales.quotations.delete');
+  const canExport = can('sales.quotations.export');
+  const canPrint = can('sales.quotations.print');
+  const canCreateOrder = can('sales.orders.create');
   const [data, setData] = useState<SalesQuotation[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
@@ -480,11 +488,11 @@ const SalesQuotationManagement: React.FC = () => {
     setHeaderActions([
       {
         key: 'new-quotation',
-        node: (
+        node: canCreate ? (
           <Button className="btn-new-invoice" icon={<PlusOutlined />} onClick={handleCreate}>
             + New Quotation
           </Button>
-        ),
+        ) : null,
       },
       {
         key: 'refresh',
@@ -496,15 +504,15 @@ const SalesQuotationManagement: React.FC = () => {
       },
       {
         key: 'csv',
-        node: (
+        node: canExport ? (
           <Button className="btn-inv-white" icon={<FileExcelOutlined />} onClick={handleExportCsv}>
             CSV
           </Button>
-        ),
+        ) : null,
       },
       {
         key: 'print',
-        node: (
+        node: canPrint ? (
           <Button
             className="btn-inv-white"
             icon={<PrinterOutlined />}
@@ -512,14 +520,14 @@ const SalesQuotationManagement: React.FC = () => {
           >
             Print
           </Button>
-        ),
+        ) : null,
       },
     ]);
 
     return () => {
       clearHeaderActions();
     };
-  }, [page, pageSize, handleCreate, handleExportCsv, handleOpenPrintPreview, detailItem, fetchData]);
+  }, [page, pageSize, canCreate, canExport, canPrint, handleCreate, handleExportCsv, handleOpenPrintPreview, detailItem, fetchData]);
 
   const handleCustomerChange = (custId: string) => {
     const cust = customers.find((c) => c.id === custId);
@@ -869,11 +877,13 @@ const SalesQuotationManagement: React.FC = () => {
               </button>
             </Tooltip>
 
-            <Tooltip title="Print Commercial Quotation">
-              <button className="inv-action-btn inv-btn-print" onClick={() => printQuotationDocument(record)}>
-                <PrinterOutlined />
-              </button>
-            </Tooltip>
+            {canPrint && (
+              <Tooltip title="Print Commercial Quotation">
+                <button className="inv-action-btn inv-btn-print" onClick={() => printQuotationDocument(record)}>
+                  <PrinterOutlined />
+                </button>
+              </Tooltip>
+            )}
 
             <Tooltip title="Share Quotation via WhatsApp">
               <button
@@ -917,7 +927,7 @@ const SalesQuotationManagement: React.FC = () => {
             </Tooltip>
 
             {/* Convert to Sales Order for Accepted Quotations */}
-            {s === 'accepted' && (
+            {s === 'accepted' && canCreateOrder && (
               <Tooltip title="Convert to Sales Order">
                 <button
                   className="inv-action-btn inv-btn-convert"
@@ -928,17 +938,19 @@ const SalesQuotationManagement: React.FC = () => {
               </Tooltip>
             )}
 
-            <Tooltip title="Edit Quotation">
-              <button
-                className="inv-action-btn inv-btn-edit"
-                onClick={() => handleEdit(record)}
-                disabled={s !== 'draft'}
-              >
-                <EditOutlined />
-              </button>
-            </Tooltip>
+            {canUpdate && (
+              <Tooltip title="Edit Quotation">
+                <button
+                  className="inv-action-btn inv-btn-edit"
+                  onClick={() => handleEdit(record)}
+                  disabled={s !== 'draft'}
+                >
+                  <EditOutlined />
+                </button>
+              </Tooltip>
+            )}
 
-            {s === 'draft' && (
+            {s === 'draft' && canUpdate && (
               <Tooltip title="Send to Customer">
                 <button
                   className="inv-action-btn inv-btn-pay"
@@ -950,7 +962,7 @@ const SalesQuotationManagement: React.FC = () => {
               </Tooltip>
             )}
 
-            {s === 'sent' && (
+            {s === 'sent' && canUpdate && (
               <Tooltip title="Accept Quotation">
                 <button
                   className="inv-action-btn inv-btn-pay"
@@ -962,7 +974,7 @@ const SalesQuotationManagement: React.FC = () => {
               </Tooltip>
             )}
 
-            {s === 'sent' && (
+            {s === 'sent' && canUpdate && (
               <Tooltip title="Reject Quotation">
                 <button className="inv-action-btn inv-btn-cancel" onClick={() => handleAction(record.id, 'reject')}>
                   <StopOutlined />
@@ -970,7 +982,7 @@ const SalesQuotationManagement: React.FC = () => {
               </Tooltip>
             )}
 
-            {s !== 'cancelled' && s !== 'accepted' && s !== 'converted' && s !== 'rejected' && (
+            {(canUpdate || canDelete) && s !== 'cancelled' && s !== 'accepted' && s !== 'converted' && s !== 'rejected' && (
               <Tooltip title="Cancel Quotation">
                 <button className="inv-action-btn inv-btn-delete" onClick={() => handleAction(record.id, 'cancel')}>
                   <CloseOutlined />
@@ -1500,17 +1512,19 @@ const SalesQuotationManagement: React.FC = () => {
           <Button key="close" onClick={() => setDetailVisible(false)}>
             Close
           </Button>,
-          <Button
-            key="print"
-            icon={<PrinterOutlined />}
-            onClick={() => {
-              setDetailVisible(false);
-              handleOpenPrintPreview(detailItem || undefined);
-            }}
-          >
-            Print Quotation
-          </Button>,
-          detailItem?.status?.toLowerCase() === 'accepted' && (
+          canPrint && (
+            <Button
+              key="print"
+              icon={<PrinterOutlined />}
+              onClick={() => {
+                setDetailVisible(false);
+                handleOpenPrintPreview(detailItem || undefined);
+              }}
+            >
+              Print Quotation
+            </Button>
+          ),
+          detailItem?.status?.toLowerCase() === 'accepted' && canCreateOrder && (
             <Button
               key="convert"
               type="primary"

@@ -3,6 +3,7 @@ import path from 'path';
 import React from 'react';
 import { cleanup, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
+import { App as AntdApp } from 'antd';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import ProtectedRoute from '../auth/ProtectedRoute';
 import { findNavEntry } from '../layout/navigationConfig';
@@ -16,12 +17,25 @@ import {
   SETTINGS_ROUTE_PATHS,
   SETTINGS_OVERVIEW,
   SEEDED_SETTINGS_PERMISSIONS,
+  SETTINGS_VIEW_PERMISSIONS,
   findSettingsNavItem,
   requiredSettingsPermissions,
   settingsRelativePath,
 } from './settingsNavigationConfig';
 
 jest.mock('../../services/api');
+jest.mock('../../services/aiProviderConfigService', () => ({
+  __esModule: true,
+  default: {
+    getConfigs: () => Promise.resolve({ configs: [], activeEngine: null }),
+    listModels: () =>
+      Promise.resolve({
+        models: [],
+        details: [],
+        summary: { totalModels: 0, freeModelsCount: 0, providerPlatform: 'google_gemini' },
+      }),
+  },
+}));
 
 beforeAll(() => {
   window.matchMedia = (query: string) =>
@@ -54,7 +68,8 @@ function seedPermissions(permissions: string[]) {
  * PROMPT #01-FIX suite is that Settings stays reachable for a user who holds
  * none of them, because they are not present in the backend catalog yet.
  */
-const REAL_USER_PERMISSIONS = ['company.view', 'inventory.view', 'sales.orders.view'];
+const NO_SETTINGS_USER_PERMISSIONS = ['company.view', 'inventory.view', 'sales.orders.view'];
+const REAL_USER_PERMISSIONS = [...NO_SETTINGS_USER_PERMISSIONS, ...SETTINGS_VIEW_PERMISSIONS];
 
 /**
  * Mirrors the real mounting in `App.tsx`:
@@ -71,22 +86,24 @@ const renderSettingsAt = (
   if (options.session === false) localStorage.clear();
   else seedPermissions(permissions);
   return render(
-    <MemoryRouter initialEntries={[pathName]}>
-      <Routes>
-        <Route path="/login" element={<div data-testid="login-redirect" />} />
-        <Route
-          path="/*"
-          element={
-            <ProtectedRoute>
-              <Routes>
-                <Route path="/settings/*" element={<SettingsRoutes />} />
-                <Route path="*" element={<div data-testid="route-unmatched" />} />
-              </Routes>
-            </ProtectedRoute>
-          }
-        />
-      </Routes>
-    </MemoryRouter>,
+    <AntdApp>
+      <MemoryRouter initialEntries={[pathName]}>
+        <Routes>
+          <Route path="/login" element={<div data-testid="login-redirect" />} />
+          <Route
+            path="/*"
+            element={
+              <ProtectedRoute>
+                <Routes>
+                  <Route path="/settings/*" element={<SettingsRoutes />} />
+                  <Route path="*" element={<div data-testid="route-unmatched" />} />
+                </Routes>
+              </ProtectedRoute>
+            }
+          />
+        </Routes>
+      </MemoryRouter>
+    </AntdApp>,
   );
 };
 
@@ -134,6 +151,8 @@ describe('Settings route architecture (/settings/*)', () => {
         expect(screen.getByTestId('invoice-settings')).toBeInTheDocument();
       } else if (slug === 'appearance') {
         expect(screen.getByTestId('appearance-settings')).toBeInTheDocument();
+      } else if (slug === 'ai-provider') {
+        expect(screen.getByText(/Multi-Provider AI/i)).toBeInTheDocument();
       } else {
         expect(screen.getByTestId(`settings-placeholder-${slug}`)).toBeInTheDocument();
       }
@@ -150,14 +169,11 @@ describe('Settings route architecture (/settings/*)', () => {
     expect(screen.getByTestId('settings-nav-tax')).not.toHaveAttribute('aria-current');
   });
 
-  it('7a. keeps /settings accessible with NO settings.* code (pre-PROMPT #01 model)', () => {
-    renderSettingsAt('/settings');
+  it('7a. denies /settings when user lacks any settings.* view permission', () => {
+    renderSettingsAt('/settings', NO_SETTINGS_USER_PERMISSIONS);
 
-    expect(screen.queryByText('Access Denied')).not.toBeInTheDocument();
-    expect(screen.getByTestId('settings-shell')).toBeInTheDocument();
-    expect(screen.getByTestId('settings-navigation')).toBeInTheDocument();
-    // The pre-existing Settings page still loads inside the new shell.
-    expect(screen.getByText('Theme Studio & Appearance')).toBeInTheDocument();
+    expect(screen.getByText('Access Denied')).toBeInTheDocument();
+    expect(screen.queryByTestId('settings-shell')).not.toBeInTheDocument();
   });
 
   it('7b. still enforces AUTHENTICATION — without a token the settings never open', () => {
@@ -168,39 +184,39 @@ describe('Settings route architecture (/settings/*)', () => {
     expect(screen.queryByTestId('settings-navigation')).not.toBeInTheDocument();
   });
 
-  it('7c. applies the same fallback to every nested settings category', () => {
-    renderSettingsAt('/settings/payment-details');
+  it('7c. redirects /settings/payment-details back or denies without settings.payment_details.view, and allows with grant', () => {
+    renderSettingsAt('/settings/payment-details', NO_SETTINGS_USER_PERMISSIONS);
+    expect(screen.getByText('Access Denied')).toBeInTheDocument();
 
+    cleanup();
+    renderSettingsAt('/settings/payment-details', REAL_USER_PERMISSIONS);
     expect(screen.queryByText('Access Denied')).not.toBeInTheDocument();
     expect(screen.getByTestId('settings-placeholder-payment-details')).toBeInTheDocument();
-    // Sensitive, organization and audit categories behave identically.
-    renderSettingsAt('/settings/organization');
+
+    cleanup();
+    renderSettingsAt('/settings/organization', REAL_USER_PERMISSIONS);
     expect(screen.getByTestId('settings-placeholder-organization')).toBeInTheDocument();
   });
 
-  it('9. requires no unseeded settings.* code anywhere in the settings route tree', () => {
-    // The top-level entry declares no permission at all — exactly as it did
-    // before PROMPT #01, when it was never permission-gated.
-    expect(findNavEntry('/settings')?.permissions ?? []).toHaveLength(0);
+  it('9. enforces granular settings.* codes across every registered settings route', () => {
+    expect(findNavEntry('/settings')?.permissions).toEqual(SETTINGS_VIEW_PERMISSIONS);
 
-    // Every category resolves through the canonical registry but enforces only
-    // codes the backend can actually grant — none yet, so `[]` = authentication
-    // only, which is the application's existing fallback convention.
     for (const item of SETTINGS_NAV_ITEMS) {
       const route = item.overview ? '/settings' : item.path;
       const entry = findNavEntry(route);
       expect(entry?.key).toBe(route);
-      expect(entry?.permissions ?? []).toEqual([]);
-      expect(requiredSettingsPermissions(item)).toEqual([]);
+      expect(entry?.permissions).toEqual(
+        item.overview ? SETTINGS_VIEW_PERMISSIONS : item.viewPermissions,
+      );
+      expect(requiredSettingsPermissions(item)).toEqual(item.viewPermissions);
     }
 
-    // The FUTURE contract is fully preserved in the registry, untouched.
-    expect(SEEDED_SETTINGS_PERMISSIONS.size).toBe(0);
+    expect(SEEDED_SETTINGS_PERMISSIONS.size).toBe(SETTINGS_NAV_ITEMS.length);
     expect(findSettingsNavItem('/settings/invoice')?.viewPermissions).toEqual([
-      SETTINGS_PERMISSIONS.view,
+      SETTINGS_PERMISSIONS.invoice,
     ]);
     expect(findSettingsNavItem('/settings/payment-details')?.viewPermissions).toEqual([
-      SETTINGS_PERMISSIONS.sensitive,
+      SETTINGS_PERMISSIONS.paymentDetails,
     ]);
     expect(findSettingsNavItem('/settings/organization')?.viewPermissions).toEqual([
       SETTINGS_PERMISSIONS.organization,
@@ -218,6 +234,7 @@ describe('Settings route architecture (/settings/*)', () => {
       'appearance',
       'company',
       'profile-branding',
+      'ai-provider',
       'invoice',
       'payment-details',
       'reminders-alerts',
@@ -288,10 +305,10 @@ describe('Settings route architecture (/settings/*)', () => {
 });
 
 describe('settingsNavigationConfig — canonical registry (Phase 5 / Phase 9)', () => {
-  it('11. remains the single registry: 1 overview + 23 categories, unique ids and paths', () => {
+  it('11. remains the single registry: 1 overview + 24 categories, unique ids and paths', () => {
     expect(SETTINGS_NAV_ITEMS[0]).toBe(SETTINGS_OVERVIEW);
-    expect(SETTINGS_CATEGORIES).toHaveLength(23);
-    expect(SETTINGS_NAV_ITEMS).toHaveLength(24);
+    expect(SETTINGS_CATEGORIES).toHaveLength(24);
+    expect(SETTINGS_NAV_ITEMS).toHaveLength(25);
 
     const ids = SETTINGS_NAV_ITEMS.map((item) => item.id);
     const paths = SETTINGS_NAV_ITEMS.map((item) => item.path);

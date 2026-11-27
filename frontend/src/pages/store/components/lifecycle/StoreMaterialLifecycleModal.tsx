@@ -12,6 +12,7 @@ export interface StoreMaterialLifecycleModalProps {
   initialItemCode?: string;
   initialItemName?: string;
   initialStoreId?: string;
+  initialTab?: string;
   onClose: () => void;
 }
 
@@ -21,6 +22,7 @@ export const StoreMaterialLifecycleModal: React.FC<StoreMaterialLifecycleModalPr
   initialItemCode,
   initialItemName,
   initialStoreId,
+  initialTab,
   onClose,
 }) => {
   const { token } = theme.useToken();
@@ -157,6 +159,7 @@ export const StoreMaterialLifecycleModal: React.FC<StoreMaterialLifecycleModalPr
               storeId={storeId}
               onStoreChange={setStoreId}
               isModal
+              initialTab={initialTab}
               onItemLoaded={setLoadedItem}
             />
           )}

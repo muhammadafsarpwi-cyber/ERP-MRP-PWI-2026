@@ -58,7 +58,11 @@ TagsOutlined,
   FieldTimeOutlined,
   HistoryOutlined,
 } from '@ant-design/icons';
-import { SETTINGS_NAV_ENTRIES, SETTINGS_NAV_KEYS } from '../settings/settingsNavigationConfig';
+import {
+  SETTINGS_NAV_ENTRIES,
+  SETTINGS_NAV_KEYS,
+  SETTINGS_VIEW_PERMISSIONS,
+} from '../settings/settingsNavigationConfig';
 
 /**
  * Centralized navigation metadata — the single source of truth for every
@@ -153,14 +157,13 @@ export const MAINTENANCE_QUEUE_NAV_KEYS = {
 export type MaintenanceQueueNavKey = (typeof MAINTENANCE_QUEUE_NAV_KEYS)[keyof typeof MAINTENANCE_QUEUE_NAV_KEYS];
 
 export const NAV_ENTRIES: NavEntry[] = [
-  
-  { key: '/dashboard', label: 'Dashboard', icon: DashboardOutlined, color: 'primary' },
+  { key: '/dashboard', label: 'Dashboard', icon: DashboardOutlined, color: 'primary', permissions: ['workspace.dashboard.view'] },
 
-  { key: '/team-chat', label: 'Team Chat', icon: MessageOutlined, color: 'indigo' },
+  { key: '/team-chat', label: 'Team Chat', icon: MessageOutlined, color: 'indigo', permissions: ['workspace.team_chat.view'] },
 
-  { key: '/reports', label: 'Reports', icon: BarChartOutlined, color: 'success' },
+  { key: '/reports', label: 'Reports', icon: BarChartOutlined, color: 'success', permissions: ['workspace.reports.view'] },
 
-  { key: '/ai-assistant', label: 'AI Assistant', icon: RobotOutlined, color: 'cyan' },
+  { key: '/ai-assistant', label: 'AI Assistant', icon: RobotOutlined, color: 'cyan', permissions: ['ai.assistant.view', 'ai.query'] },
 
   {
     key: 'organization',
@@ -174,7 +177,7 @@ export const NAV_ENTRIES: NavEntry[] = [
       { key: '/organization/sections', label: 'Sections', icon: LayoutOutlined, color: 'indigo', permissions: ['section.view'] },
       { key: '/organization/departments', label: 'Departments', icon: TeamOutlined, color: 'indigo', permissions: ['department.view'] },
       { key: '/organization/warehouses', label: 'Warehouses', icon: HomeOutlined, color: 'indigo', permissions: ['warehouse.view'] },
-      { key: '/organization/locations', label: 'Warehouse Locations', icon: EnvironmentOutlined, color: 'indigo', permissions: ['warehouse.view'] },
+      { key: '/organization/locations', label: 'Warehouse Locations', icon: EnvironmentOutlined, color: 'indigo', permissions: ['organization.warehouse_location.view'] },
     ],
   },
 
@@ -210,8 +213,8 @@ export const NAV_ENTRIES: NavEntry[] = [
       { key: '/admin/users', label: 'Users', icon: TeamOutlined, color: 'warning', permissions: ['admin.users.view'] },
       { key: '/admin/roles', label: 'Roles', icon: SafetyCertificateOutlined, color: 'warning', permissions: ['admin.roles.view'] },
       { key: '/admin/permissions', label: 'Permissions', icon: KeyOutlined, color: 'warning', permissions: ['admin.permissions.view'] },
-      { key: '/admin/permissions-matrix', label: 'Roles & Permissions', icon: SafetyCertificateOutlined, color: 'indigo', permissions: ['admin.roles.view'] },
-      { key: '/admin/recycle-bin', label: 'Recycle Bin', icon: DeleteOutlined, color: 'warning', permissions: ['admin.permissions.view'] },
+      { key: '/admin/permissions-matrix', label: 'Roles & Permissions', icon: SafetyCertificateOutlined, color: 'indigo', permissions: ['admin.matrix.view'] },
+      { key: '/admin/recycle-bin', label: 'Recycle Bin', icon: DeleteOutlined, color: 'warning', permissions: ['admin.recycle_bin.view'] },
     ],
   },
 
@@ -229,7 +232,7 @@ export const NAV_ENTRIES: NavEntry[] = [
       { key: '/master-data/uom-conversions', label: 'UOM Conversions', icon: SwapOutlined, color: 'info', permissions: ['uom_conversion.view'] },
       { key: '/master-data/machines', label: 'Machine Master', icon: ToolOutlined, color: 'info', permissions: ['manufacturing.machine.view'] },
       { key: '/master-data/operations', label: 'Operations', icon: SettingOutlined, color: 'info', permissions: ['manufacturing.operation.view'] },
-      { key: '/master-data/machine-tools', label: 'Machine Tools & Components', icon: ToolOutlined, color: 'info', permissions: ['manufacturing.tool_component.view'] },
+      { key: '/master-data/machine-tools', label: 'Machine Tools & Components', icon: ToolOutlined, color: 'info', permissions: ['manufacturing.tool_component.view', 'manufacturing.component_change.view'] },
       { key: '/production/targets', label: 'Machine Targets', icon: AimOutlined, color: 'info', permissions: ['manufacturing.machine_target.view'] },
     ],
   },
@@ -240,22 +243,22 @@ export const NAV_ENTRIES: NavEntry[] = [
     icon: BuildOutlined,
     color: 'cyan',
     children: [
-      { key: '/production/dashboard', label: 'Production Dashboard', icon: DashboardOutlined, color: 'cyan', permissions: ['manufacturing.production.orders.view'] },
-      { key: '/production/open-stock', label: 'Production Item Open Stock', icon: DatabaseOutlined, color: 'cyan', permissions: ['manufacturing.production.entries.view'] },
+      { key: '/production/dashboard', label: 'Production Dashboard', icon: DashboardOutlined, color: 'cyan', permissions: ['manufacturing.dashboard.view'] },
+      { key: '/production/open-stock', label: 'Production Item Open Stock', icon: DatabaseOutlined, color: 'cyan', permissions: ['manufacturing.open_stock.view'] },
       { key: '/production/receiving', label: 'Daily Raw Material Receiving', icon: InboxOutlined, color: 'success', permissions: ['manufacturing.material_receiving.view'] },
       { key: '/production/entries', label: 'Daily Production Entry', icon: EditOutlined, color: 'cyan', permissions: ['manufacturing.production.entries.view'] },
-      { key: '/production/packing', label: 'Daily Packing Entry', icon: InboxOutlined, color: 'success', permissions: ['manufacturing.production.entries.view'] },
-      { key: '/production/rework-returns', label: 'Production Rework & Return', icon: RollbackOutlined, color: 'warning', permissions: ['manufacturing.production.entries.view'] },
+      { key: '/production/packing', label: 'Daily Packing Entry', icon: InboxOutlined, color: 'success', permissions: ['manufacturing.packing.view'] },
+      { key: '/production/rework-returns', label: 'Production Rework & Return', icon: RollbackOutlined, color: 'warning', permissions: ['manufacturing.rework_return.view'] },
       { key: '/production/returns', label: 'Raw Material Return', icon: RollbackOutlined, color: 'warning', permissions: ['manufacturing.material_return.view'] },
       { key: '/production/receiving-report', label: 'Receiving & Return Report', icon: BarChartOutlined, color: 'violet', permissions: ['manufacturing.material_receiving.report'] },
-      { key: '/production/units', label: 'Unit Serialization & Labels', icon: BarcodeOutlined, color: 'cyan', permissions: ['manufacturing.production.entries.view'] },
-      { key: 'production:dispatch:packages', path: '/dispatch/packages', label: 'Dispatch Packages & QR Scan', icon: QrcodeOutlined, color: 'cyan', permissions: ['manufacturing.production.entries.view'] },
+      { key: '/production/units', label: 'Unit Serialization & Labels', icon: BarcodeOutlined, color: 'cyan', permissions: ['manufacturing.units.view'] },
+      { key: 'production:dispatch:packages', path: '/dispatch/packages', label: 'Dispatch Packages & QR Scan', icon: QrcodeOutlined, color: 'cyan', permissions: ['sales.dispatch_packages.view'] },
       { key: '/production/bom', label: 'Bill of Materials', icon: ClusterOutlined, color: 'cyan', permissions: ['manufacturing.bom.view'] },
       { key: '/production/routings', label: 'Routing', icon: ApartmentOutlined, color: 'cyan', permissions: ['manufacturing.routing.view'] },
-      { key: '/production/traceability', label: 'Traceability', icon: BranchesOutlined, color: 'cyan', permissions: ['manufacturing.production.entries.report'] },
-      { key: '/production/reports', label: 'Production Reports', icon: BarChartOutlined, color: 'cyan', permissions: ['manufacturing.production.entries.report'] },
-      { key: '/production/inventory-report', label: 'Inventory Report', icon: PieChartOutlined, color: 'violet', permissions: ['manufacturing.production.entries.report'] },
-      { key: '/production/item-wise-ledger', label: 'Item-Wise Production Ledger', icon: HistoryOutlined, color: 'cyan', permissions: ['manufacturing.production.entries.report'] },
+      { key: '/production/traceability', label: 'Traceability', icon: BranchesOutlined, color: 'cyan', permissions: ['manufacturing.traceability.view'] },
+      { key: '/production/reports', label: 'Production Reports', icon: BarChartOutlined, color: 'cyan', permissions: ['manufacturing.production.entries.report', 'manufacturing.production_reports.view'] },
+      { key: '/production/inventory-report', label: 'Inventory Report', icon: PieChartOutlined, color: 'violet', permissions: ['manufacturing.inventory_report.view'] },
+      { key: '/production/item-wise-ledger', label: 'Item-Wise Production Ledger', icon: HistoryOutlined, color: 'cyan', permissions: ['manufacturing.item_wise_ledger.view'] },
     ],
   },
 
@@ -265,17 +268,17 @@ export const NAV_ENTRIES: NavEntry[] = [
     icon: ShoppingCartOutlined,
     color: 'purple',
     children: [
-      { key: '/sales/analytics', label: 'Sales Intelligence', icon: DashboardOutlined, color: 'purple', permissions: ['sales.orders.view'] },
-      { key: '/sales/finished-goods', label: 'Finished Goods Inventory', icon: DatabaseOutlined, color: 'purple', permissions: ['sales.orders.view'] },
+      { key: '/sales/analytics', label: 'Sales Intelligence', icon: DashboardOutlined, color: 'purple', permissions: ['sales.analytics.view'] },
+      { key: '/sales/finished-goods', label: 'Finished Goods Inventory', icon: DatabaseOutlined, color: 'purple', permissions: ['sales.finished_goods.view'] },
       { key: '/sales/quotations', label: 'Quotations', icon: AppstoreOutlined, color: 'purple', permissions: ['sales.quotations.view'] },
       { key: '/sales/orders', label: 'Sales Orders', icon: ShoppingCartOutlined, color: 'purple', permissions: ['sales.orders.view'] },
-      { key: '/sales/order-command', label: 'Order Command & Fulfillment', icon: BranchesOutlined, color: 'purple', permissions: ['sales.orders.view'] },
-      { key: '/sales/orders-division-review', label: 'Order Division Review', icon: ApartmentOutlined, color: 'purple', permissions: ['sales.orders.view'] },
+      { key: '/sales/order-command', label: 'Order Command & Fulfillment', icon: BranchesOutlined, color: 'purple', permissions: ['sales.order_command.view'] },
+      { key: '/sales/orders-division-review', label: 'Order Division Review', icon: ApartmentOutlined, color: 'purple', permissions: ['sales.division_review.view'] },
       { key: '/sales/deliveries', label: 'Deliveries', icon: InboxOutlined, color: 'purple', permissions: ['sales.deliveries.view'] },
-      { key: '/dispatch/packages', label: 'Dispatch Packages', icon: QrcodeOutlined, color: 'purple', permissions: ['sales.deliveries.view'] },
+      { key: '/dispatch/packages', label: 'Dispatch Packages', icon: QrcodeOutlined, color: 'purple', permissions: ['sales.dispatch_packages.view'] },
       { key: '/sales/invoices', label: 'Invoices', icon: CalculatorOutlined, color: 'purple', permissions: ['sales.invoices.view'] },
-      { key: '/sales/receipts', label: 'Customer Payments', icon: WalletOutlined, color: 'purple', permissions: ['sales.invoices.view'] },
-      { key: '/sales/customers-ledger', label: 'Customers & Ledger', icon: TeamOutlined, color: 'purple', permissions: ['sales.invoices.view'] },
+      { key: '/sales/receipts', label: 'Customer Payments', icon: WalletOutlined, color: 'purple', permissions: ['sales.receipts.view'] },
+      { key: '/sales/customers-ledger', label: 'Customers & Ledger', icon: TeamOutlined, color: 'purple', permissions: ['sales.customers_ledger.view'] },
       { key: '/sales/returns', label: 'Sales Returns', icon: SwapOutlined, color: 'purple', permissions: ['sales.returns.view'] },
     ],
   },
@@ -325,7 +328,7 @@ export const NAV_ENTRIES: NavEntry[] = [
     color: 'success',
     children: [
       { key: '/customers', label: 'Customer List', icon: TeamOutlined, color: 'success', permissions: ['customer.customer.view'] },
-      { key: '/customers/analytics', label: 'Customer Analytics', icon: BarChartOutlined, color: 'success', permissions: ['customer.customer.view'] },
+      { key: '/customers/analytics', label: 'Customer Analytics', icon: BarChartOutlined, color: 'success', permissions: ['customer.analytics.view'] },
     ],
   },
 
@@ -337,12 +340,12 @@ export const NAV_ENTRIES: NavEntry[] = [
     children: [
       { key: '/barcode-management', label: 'Barcode Dashboard', icon: DashboardOutlined, color: 'success', permissions: ['item.view'] },
       { key: '/barcode-management/scan', label: 'Scan Barcode', icon: ScanOutlined, color: 'success', permissions: ['item.view'] },
-      { key: '/barcode-management/items', label: 'Item Barcodes', icon: DatabaseOutlined, color: 'success', permissions: ['item.view'] },
+      { key: '/barcode-management/items', label: 'Item Barcodes', icon: DatabaseOutlined, color: 'success', permissions: ['item.view', 'item_barcode.view'] },
       { key: '/barcode-management/customers', label: 'Customer Barcodes', icon: TeamOutlined, color: 'success', permissions: ['customer.customer.view'] },
       { key: '/barcode-management/machines', label: 'Machine Barcodes', icon: ToolOutlined, color: 'success', permissions: ['manufacturing.machine.view'] },
       { key: '/barcode-management/warehouses', label: 'Warehouse Barcodes', icon: HomeOutlined, color: 'success', permissions: ['warehouse.view'] },
       { key: '/barcode-management/employees', label: 'Employee Barcodes', icon: TeamOutlined, color: 'success', permissions: ['hr.employee.view'] },
-      { key: '/barcode-management/production', label: 'Production Barcodes', icon: BuildOutlined, color: 'success', permissions: ['manufacturing.production.entries.view'] },
+      { key: '/barcode-management/production', label: 'Production Barcodes', icon: BuildOutlined, color: 'success', permissions: ['manufacturing.production.entries.view', 'manufacturing.units.view'] },
       { key: '/barcode-management/job-cards', label: 'Job Card Barcodes', icon: ToolOutlined, color: 'success', permissions: ['maintenance.job_card.view'] },
       { key: '/barcode-management/gate-passes', label: 'Gate Pass Barcodes', icon: CarOutlined, color: 'success', permissions: ['sales.deliveries.view', 'item.view'] },
     ],
@@ -356,9 +359,9 @@ export const NAV_ENTRIES: NavEntry[] = [
     children: [
       { key: '/inventory', label: 'Overview', icon: InboxOutlined, color: 'indigo', permissions: ['inventory.view'] },
       { key: '/inventory/policies', label: 'Inventory Policies', icon: SafetyOutlined, color: 'indigo', permissions: ['inventory.policy.view'] },
-      { key: '/inventory/ledger', label: 'Stock Ledger', icon: DatabaseOutlined, color: 'indigo', permissions: ['inventory.view'] },
+      { key: '/inventory/ledger', label: 'Stock Ledger', icon: DatabaseOutlined, color: 'indigo', permissions: ['inventory.ledger.view'] },
       { key: '/inventory/reports', label: 'Reports', icon: BarChartOutlined, color: 'violet', permissions: ['inventory.reports.view'] },
-      { key: '/inventory/nipple-demand', label: 'Nipple Demand & Balance', icon: BuildOutlined, color: 'cyan', permissions: ['inventory.view'] },
+      { key: '/inventory/nipple-demand', label: 'Nipple Demand & Balance', icon: BuildOutlined, color: 'cyan', permissions: ['inventory.nipple_demand.view'] },
     ],
   },
 
@@ -371,13 +374,13 @@ export const NAV_ENTRIES: NavEntry[] = [
     children: [
       { key: '/store/dashboard', label: 'Store Dashboard', icon: DashboardOutlined, color: 'info', permissions: ['store.view'] },
       { key: '/store/items', label: 'Store Items', icon: AppstoreOutlined, color: 'info', permissions: ['store.item.view'] },
-      { key: '/store/stock-balance', label: 'Store Stock Balance', icon: DatabaseOutlined, color: 'info', permissions: ['store.item.view'] },
-      { key: '/store/opening-stock', label: 'Opening Stock', icon: PlusOutlined, color: 'success', permissions: ['store.view'] },
+      { key: '/store/stock-balance', label: 'Store Stock Balance', icon: DatabaseOutlined, color: 'info', permissions: ['store.stock_balance.view'] },
+      { key: '/store/opening-stock', label: 'Opening Stock', icon: PlusOutlined, color: 'success', permissions: ['inventory.opening_stock.view'] },
       { key: '/store/material-receipts', label: 'Material Receipts', icon: ArrowDownOutlined, color: 'success', permissions: ['store.receive.view'] },
       { key: '/store/material-issues', label: 'Store Issue Notes (SIN)', icon: ArrowUpOutlined, color: 'warning', permissions: ['store.issue.view'] },
       { key: '/store/material-returns', label: 'Material Returns', icon: RollbackOutlined, color: 'info', permissions: ['store.return.view'] },
-      { key: '/store/ledger', label: 'Store Item Ledger', icon: DatabaseOutlined, color: 'cyan', permissions: ['store.view'] },
-      { key: '/store/low-stock', label: 'Low Stock / Reorder', icon: WarningOutlined, color: 'orange', permissions: ['store.view'] },
+      { key: '/store/ledger', label: 'Store Item Ledger', icon: DatabaseOutlined, color: 'cyan', permissions: ['store.ledger.view'] },
+      { key: '/store/low-stock', label: 'Low Stock / Reorder', icon: WarningOutlined, color: 'orange', permissions: ['store.replenishment.view'] },
       { key: '/store/reports', label: 'Store Reports', icon: BarChartOutlined, color: 'violet', permissions: ['store.reports.view'] },
     ],
   },
@@ -388,7 +391,7 @@ export const NAV_ENTRIES: NavEntry[] = [
     icon: BugOutlined,
     color: 'neutral',
     children: [
-      { key: '/development/status', label: 'Development Status', icon: BugOutlined, color: 'neutral' },
+      { key: '/development/status', label: 'Development Status', icon: BugOutlined, color: 'neutral', permissions: ['workspace.development.view'] },
     ],
   },
 
@@ -411,12 +414,12 @@ export const NAV_ENTRIES: NavEntry[] = [
     color: 'cyan',
     permissions: ['email.settings.manage'],
     children: [
-      { key: '/communication', label: 'Communication Center', icon: MailOutlined, color: 'cyan', permissions: ['email.settings.manage'] },
-      { key: '/communication/email-settings', label: 'Email Settings', icon: MailOutlined, color: 'cyan', permissions: ['email.settings.manage'] },
-      { key: '/communication/email-templates', label: 'Email Templates', icon: EditOutlined, color: 'cyan', permissions: ['email.template.manage'] },
+      { key: '/communication', label: 'Communication Center', icon: MailOutlined, color: 'cyan', permissions: ['email.settings.manage', 'whatsapp.settings.manage', 'email.log.view', 'whatsapp.log.view'] },
+      { key: '/communication/email-settings', label: 'Email Settings', icon: MailOutlined, color: 'cyan', permissions: ['email.settings.manage', 'communication.email_settings.view'] },
+      { key: '/communication/email-templates', label: 'Email Templates', icon: EditOutlined, color: 'cyan', permissions: ['email.template.manage', 'communication.email_templates.view'] },
       { key: '/communication/email-logs', label: 'Email Logs', icon: UnorderedListOutlined, color: 'cyan', permissions: ['email.log.view'] },
-      { key: '/communication/whatsapp-settings', label: 'WhatsApp Settings', icon: MessageOutlined, color: 'success', permissions: ['whatsapp.settings.manage'] },
-      { key: '/communication/whatsapp-templates', label: 'WhatsApp Templates', icon: EditOutlined, color: 'success', permissions: ['whatsapp.template.manage'] },
+      { key: '/communication/whatsapp-settings', label: 'WhatsApp Settings', icon: MessageOutlined, color: 'success', permissions: ['whatsapp.settings.manage', 'communication.whatsapp_settings.view'] },
+      { key: '/communication/whatsapp-templates', label: 'WhatsApp Templates', icon: EditOutlined, color: 'success', permissions: ['whatsapp.template.manage', 'communication.whatsapp_templates.view'] },
       { key: '/communication/whatsapp-logs', label: 'WhatsApp Logs', icon: UnorderedListOutlined, color: 'success', permissions: ['whatsapp.log.view'] },
       { key: '/communication/rules', label: 'Notification Rules', icon: BellOutlined, color: 'cyan', permissions: ['notifications.rules.view'] },
     ],
@@ -431,8 +434,22 @@ export const NAV_ENTRIES: NavEntry[] = [
     children: [
       { key: '/finance/accounts', label: 'Chart of Accounts', icon: DatabaseOutlined, color: 'success', permissions: ['finance.account.view'] },
       { key: '/finance/journals', label: 'Vouchers & Journals', icon: EditOutlined, color: 'success', permissions: ['finance.journal.view'] },
-      { key: '/finance/cash-bank', label: 'Cash & Bank Book', icon: WalletOutlined, color: 'success', permissions: ['finance.journal.view'] },
-      { key: '/finance/reports', label: 'Financial Reports', icon: BarChartOutlined, color: 'success', permissions: ['finance.report.trial_balance'] },
+      { key: '/finance/cash-bank', label: 'Cash & Bank Book', icon: WalletOutlined, color: 'success', permissions: ['finance.report.cash_bank_book'] },
+      {
+        key: '/finance/reports',
+        label: 'Financial Reports',
+        icon: BarChartOutlined,
+        color: 'success',
+        permissions: [
+          'finance.report.trial_balance',
+          'finance.report.general_ledger',
+          'finance.report.cash_bank_book',
+          'finance.report.pl',
+          'finance.report.balance_sheet',
+          'finance.report.ar',
+          'finance.report.ap',
+        ],
+      },
     ],
   },
 
@@ -451,11 +468,11 @@ export const NAV_ENTRIES: NavEntry[] = [
       { key: '/hr/leaves', label: 'Leaves', icon: CalendarOutlined, color: 'purple', permissions: ['hr.leave.view'] },
       { key: '/hr/regularizations', label: 'Regularizations', icon: EditOutlined, color: 'purple', permissions: ['hr.regularization.view'] },
       { key: '/hr/overtime-approval', label: 'Overtime Approval', icon: FieldTimeOutlined, color: 'purple', permissions: ['hr.overtime.view'] },
-      { key: '/hr/advances', label: 'Advances', icon: WalletOutlined, color: 'purple', permissions: ['hr.employee.view'] },
-      { key: '/hr/employee-documents', label: 'Employee Documents', icon: FileTextOutlined, color: 'purple', permissions: ['hr.employee.view'] },
+      { key: '/hr/advances', label: 'Employee Advances', icon: WalletOutlined, color: 'purple', permissions: ['hr.advance.view'] },
+      { key: '/hr/employee-documents', label: 'Employee Documents', icon: FileTextOutlined, color: 'purple', permissions: ['hr.employee_documents.view'] },
       { key: '/hr/attendance-exceptions', label: 'Attendance Exceptions', icon: WarningOutlined, color: 'purple', permissions: ['hr.attendance.view'] },
-      { key: '/hr/payroll', label: 'Payroll', icon: CalculatorOutlined, color: 'purple', permissions: ['hr.employee.view'] },
-      { key: '/hr/final-settlement', label: 'Final Settlement', icon: CheckCircleOutlined, color: 'purple', permissions: ['hr.employee.view'] },
+      { key: '/hr/payroll', label: 'HR Payroll', icon: CalculatorOutlined, color: 'purple', permissions: ['hr.payroll.view'] },
+      { key: '/hr/final-settlement', label: 'Final Settlement', icon: CheckCircleOutlined, color: 'purple', permissions: ['hr.final_settlement.view'] },
       { key: '/hr/employees', label: 'Employees', icon: TeamOutlined, color: 'purple', permissions: ['hr.employee.view'] },
     ],
   },
@@ -530,10 +547,46 @@ export interface ResolvedNavMeta {
   colorVar: string;
 }
 
+/**
+ * Explicit permission-gated route entries for secondary/hidden routes that are
+ * not directly in the main sidebar (or redirect/nested aliases) so `ProtectedRoute`
+ * enforces each module's true RBAC permission without relying on a coarse parent.
+ */
+const SECONDARY_ROUTE_ENTRIES: NavItem[] = [
+  { key: '/settings', label: 'Settings', icon: SettingOutlined, color: 'neutral', permissions: SETTINGS_VIEW_PERMISSIONS },
+  { key: '/ai-assistant/settings', label: 'AI Configuration (BYOK)', icon: RobotOutlined, color: 'cyan', permissions: ['ai.settings.view'] },
+  { key: '/products', label: 'Products & Items', icon: DatabaseOutlined, color: 'info', permissions: ['item.view'] },
+  { key: '/sales/packages', label: 'Dispatch Packages', icon: QrcodeOutlined, color: 'purple', permissions: ['sales.dispatch_packages.view'] },
+  { key: '/invoices', label: 'Invoices', icon: CalculatorOutlined, color: 'purple', permissions: ['sales.invoices.view'] },
+  { key: '/inventory/batches', label: 'Batch Tracking', icon: DatabaseOutlined, color: 'indigo', permissions: ['inventory.batch.view'] },
+  { key: '/inventory/serial-numbers', label: 'Serial Numbers', icon: BarcodeOutlined, color: 'indigo', permissions: ['inventory.serial.view'] },
+  { key: '/inventory/adjustments', label: 'Stock Adjustments', icon: EditOutlined, color: 'indigo', permissions: ['inventory.adjustment.view'] },
+  { key: '/inventory/adjustments/pending-approval', label: 'Stock Adjustments', icon: EditOutlined, color: 'indigo', permissions: ['inventory.adjustment.approve', 'inventory.adjustment.view'] },
+  { key: '/inventory/stock-adjustments/pending-approval', label: 'Stock Adjustments', icon: EditOutlined, color: 'indigo', permissions: ['inventory.adjustment.approve', 'inventory.adjustment.view'] },
+  { key: '/inventory/transfers', label: 'Stock Transfers', icon: SwapOutlined, color: 'indigo', permissions: ['inventory.transfer.view'] },
+  { key: '/inventory/transfers/pending-approval', label: 'Stock Transfers', icon: SwapOutlined, color: 'indigo', permissions: ['inventory.transfer.approve', 'inventory.transfer.view'] },
+  { key: '/inventory/stock-transfers/pending-approval', label: 'Stock Transfers', icon: SwapOutlined, color: 'indigo', permissions: ['inventory.transfer.approve', 'inventory.transfer.view'] },
+  { key: '/inventory/reservations', label: 'Reservations', icon: SafetyOutlined, color: 'indigo', permissions: ['inventory.reservation.view'] },
+  { key: '/store/master', label: 'Store Master', icon: InboxOutlined, color: 'info', permissions: ['store.master.view'] },
+  { key: '/store/settings', label: 'Store Settings', icon: SettingOutlined, color: 'info', permissions: ['store.settings.view'] },
+  { key: '/store/transfers', label: 'Store Transfers', icon: SwapOutlined, color: 'info', permissions: ['store.transfer.view'] },
+  { key: '/store/adjustments', label: 'Store Adjustments', icon: EditOutlined, color: 'info', permissions: ['store.adjustment.view'] },
+  { key: '/store/my-requests', label: 'Material Requests', icon: EditOutlined, color: 'info', permissions: ['store.request.view'] },
+  { key: '/store/material-requests', label: 'Material Requests', icon: EditOutlined, color: 'info', permissions: ['store.request.view'] },
+  { key: '/store/pending-approvals', label: 'Material Requests', icon: CheckCircleOutlined, color: 'info', permissions: ['store.request.approve', 'store.request.gm_approve', 'store.request.view'] },
+  { key: '/store/gate-passes', label: 'Store Issues', icon: CarOutlined, color: 'info', permissions: ['store.issue.view'] },
+  { key: '/store/scrap-disposals', label: 'Material Returns', icon: DeleteOutlined, color: 'info', permissions: ['store.return.view'] },
+  { key: '/store/material-trace', label: 'Store Item Ledger', icon: HistoryOutlined, color: 'info', permissions: ['store.ledger.view', 'store.item.view'] },
+  { key: '/notifications/preferences', label: 'Notification Settings', icon: SettingOutlined, color: 'warning', permissions: ['notifications.view'] },
+  { key: '/finance', label: 'Finance', icon: CalculatorOutlined, color: 'success', permissions: ['finance.account.view', 'finance.journal.view', 'finance.report.trial_balance'] },
+  { key: '/finance/reports', label: 'Financial Reports', icon: BarChartOutlined, color: 'success', permissions: ['finance.report.trial_balance', 'finance.report.general_ledger', 'finance.report.cash_bank_book', 'finance.report.pl', 'finance.report.balance_sheet', 'finance.report.ar', 'finance.report.ap'] },
+  { key: '/qc', label: 'Inspections', icon: CheckCircleOutlined, color: 'cyan', permissions: ['qc.inspection.view', 'qc.ncr.view', 'qc.capa.view'] },
+];
+
 /** Looks up a leaf nav item by its exact route key. */
 function getNavItemByKey(key: string): NavItem | null {
-  if (key === '/settings') {
-    return { key: '/settings', label: 'Settings', icon: SettingOutlined, color: 'neutral' };
+  for (const secondary of SECONDARY_ROUTE_ENTRIES) {
+    if (secondary.key === key) return secondary;
   }
   for (const entry of NAV_ENTRIES) {
     if (isNavGroup(entry)) {
@@ -552,6 +605,28 @@ function getNavItemByKey(key: string): NavItem | null {
     if (settingsEntry.key === key) return settingsEntry;
   }
   return null;
+}
+
+/**
+ * Returns the first permitted route for a signed-in user (prioritizing Dashboard,
+ * then sidebar leaves in visual order, falling back to `/profile`).
+ */
+export function getFirstPermittedRoute(hasPermission: (code: string) => boolean): string {
+  const canVisit = (perms?: string[]) => !perms || perms.length === 0 || perms.some((c) => hasPermission(c));
+  for (const entry of NAV_ENTRIES) {
+    if (entry.key === 'development') continue;
+    if (isNavGroup(entry)) {
+      for (const child of entry.children) {
+        if (canVisit(child.permissions)) return child.path || child.key;
+      }
+    } else if (canVisit(entry.permissions)) {
+      return entry.path || entry.key;
+    }
+  }
+  if (SETTINGS_VIEW_PERMISSIONS.some((code) => hasPermission(code))) {
+    return '/settings';
+  }
+  return '/profile';
 }
 
 /** Every leaf route key, longest first, used for prefix fallback matching. */
@@ -609,14 +684,14 @@ export function findNavEntry(path: string): NavItem | null {
 
   const key = canonicalQueueKey(path);
 
-  const exact = getNavItemByKey(key);
-  if (exact) return exact;
-
   const aliased = NAV_DETAIL_ALIASES[key];
   if (aliased) {
     const target = getNavItemByKey(aliased);
     if (target) return target;
   }
+
+  const exact = getNavItemByKey(key);
+  if (exact) return exact;
 
   for (const rule of NAV_DETAIL_PATTERNS) {
     if (rule.pattern.test(key)) {
@@ -633,6 +708,20 @@ export function findNavEntry(path: string): NavItem | null {
   }
 
   return null;
+}
+
+/**
+ * Resolves the required permission codes for route-level access control.
+ * Secondary/sub-routes (such as `/store/transfers`) keep their sidebar highlight
+ * mapped to a canonical parent via `findNavEntry`, while enforcing their own
+ * module permission via direct entry lookup first.
+ */
+export function resolveRoutePermissions(path: string): string[] {
+  if (!path) return [];
+  const key = canonicalQueueKey(path);
+  const direct = getNavItemByKey(key);
+  if (direct) return direct.permissions ?? [];
+  return findNavEntry(path)?.permissions ?? [];
 }
 
 export interface ResolvedNavKeys {

@@ -35,6 +35,7 @@ import {
   kgFixed,
   machineScrapRollup,
 } from '../production/entries/analyticsModel';
+import { usePermission } from '../../hooks/usePermission';
 import './GeneralReports.css';
 
 // ==========================================
@@ -856,6 +857,9 @@ const SEEDED_SALES_INVOICES: RealSalesInvoice[] = [
 // ==========================================
 
 export const GeneralReports: React.FC = () => {
+  const { can } = usePermission();
+  const canExportReports = can('workspace.reports.export');
+  const canPrintReports = can('workspace.reports.print');
   // Navigation & Category State
   const [selectedCategory, setSelectedCategory] = useState<ReportCategoryKey>('production');
   const [selectedReport, setSelectedReport] = useState<ReportId>('prod_daily');
@@ -3288,32 +3292,38 @@ export const GeneralReports: React.FC = () => {
             </Button>
           )}
 
-          <Tooltip title="Print A4 Report">
-            <Button
-              icon={<PrinterOutlined />}
-              onClick={() => window.print()}
-              className="reports-icon-btn"
-            >
-              Print
-            </Button>
-          </Tooltip>
+          {canPrintReports && (
+            <Tooltip title="Print A4 Report">
+              <Button
+                icon={<PrinterOutlined />}
+                onClick={() => window.print()}
+                className="reports-icon-btn"
+              >
+                Print
+              </Button>
+            </Tooltip>
+          )}
 
-          <Tooltip title="Export PDF Report">
-            <Button
-              icon={<FilePdfOutlined style={{ color: '#ef4444' }} />}
-              onClick={handleExportPdf}
-              loading={pdfLoading}
-              className="reports-icon-btn"
-            />
-          </Tooltip>
+          {canExportReports && (
+            <Tooltip title="Export PDF Report">
+              <Button
+                icon={<FilePdfOutlined style={{ color: '#ef4444' }} />}
+                onClick={handleExportPdf}
+                loading={pdfLoading}
+                className="reports-icon-btn"
+              />
+            </Tooltip>
+          )}
 
-          <Tooltip title="Export CSV Spreadsheet">
-            <Button
-              icon={<FileExcelOutlined style={{ color: '#16a34a' }} />}
-              onClick={handleExportCsv}
-              className="reports-icon-btn"
-            />
-          </Tooltip>
+          {canExportReports && (
+            <Tooltip title="Export CSV Spreadsheet">
+              <Button
+                icon={<FileExcelOutlined style={{ color: '#16a34a' }} />}
+                onClick={handleExportCsv}
+                className="reports-icon-btn"
+              />
+            </Tooltip>
+          )}
 
           <Tooltip title="Refresh live data">
             <Button
@@ -4838,28 +4848,34 @@ export const GeneralReports: React.FC = () => {
                 styles={{ body: { padding: '16px 20px' } }}
                 extra={
                   <div style={{ display: 'flex', gap: 8 }}>
-                    <Button
-                      size="small"
-                      icon={<FilePdfOutlined style={{ color: '#ef4444' }} />}
-                      onClick={handleExportPdf}
-                      loading={pdfLoading}
-                    >
-                      Export PDF
-                    </Button>
-                    <Button
-                      size="small"
-                      icon={<FileExcelOutlined style={{ color: '#16a34a' }} />}
-                      onClick={handleExportCsv}
-                    >
-                      Export CSV
-                    </Button>
-                    <Button
-                      size="small"
-                      icon={<PrinterOutlined style={{ color: 'var(--theme-accent, #10b981)' }} />}
-                      onClick={handlePrintCurrentTable}
-                    >
-                      Print
-                    </Button>
+                    {canExportReports && (
+                      <Button
+                        size="small"
+                        icon={<FilePdfOutlined style={{ color: '#ef4444' }} />}
+                        onClick={handleExportPdf}
+                        loading={pdfLoading}
+                      >
+                        Export PDF
+                      </Button>
+                    )}
+                    {canExportReports && (
+                      <Button
+                        size="small"
+                        icon={<FileExcelOutlined style={{ color: '#16a34a' }} />}
+                        onClick={handleExportCsv}
+                      >
+                        Export CSV
+                      </Button>
+                    )}
+                    {canPrintReports && (
+                      <Button
+                        size="small"
+                        icon={<PrinterOutlined style={{ color: 'var(--theme-accent, #10b981)' }} />}
+                        onClick={handlePrintCurrentTable}
+                      >
+                        Print
+                      </Button>
+                    )}
                   </div>
                 }
               >
@@ -5509,28 +5525,34 @@ export const GeneralReports: React.FC = () => {
                         </button>
                       </div>
                     )}
-                    <Button
-                      size="small"
-                      icon={<FilePdfOutlined style={{ color: '#ef4444' }} />}
-                      onClick={handleExportPdf}
-                      loading={pdfLoading}
-                    >
-                      Export PDF
-                    </Button>
-                    <Button
-                      size="small"
-                      icon={<PrinterOutlined style={{ color: 'var(--theme-accent, #10b981)' }} />}
-                      onClick={handlePrintCurrentTable}
-                    >
-                      Print
-                    </Button>
-                    <Button
-                      size="small"
-                      icon={<FileExcelOutlined style={{ color: '#16a34a' }} />}
-                      onClick={handleExportCsv}
-                    >
-                      Export CSV
-                    </Button>
+                    {canExportReports && (
+                      <Button
+                        size="small"
+                        icon={<FilePdfOutlined style={{ color: '#ef4444' }} />}
+                        onClick={handleExportPdf}
+                        loading={pdfLoading}
+                      >
+                        Export PDF
+                      </Button>
+                    )}
+                    {canPrintReports && (
+                      <Button
+                        size="small"
+                        icon={<PrinterOutlined style={{ color: 'var(--theme-accent, #10b981)' }} />}
+                        onClick={handlePrintCurrentTable}
+                      >
+                        Print
+                      </Button>
+                    )}
+                    {canExportReports && (
+                      <Button
+                        size="small"
+                        icon={<FileExcelOutlined style={{ color: '#16a34a' }} />}
+                        onClick={handleExportCsv}
+                      >
+                        Export CSV
+                      </Button>
+                    )}
                   </div>
                 </div>
 

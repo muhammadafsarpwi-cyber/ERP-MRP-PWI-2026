@@ -146,7 +146,7 @@ export class StockTransferController {
 
   @Patch(':id')
   @UseGuards(PermissionGuard)
-  @RequirePermission('inventory.transfer.create')
+  @RequirePermission('inventory.transfer.update')
   @ApiOperation({ summary: 'Update stock transfer' })
   @ApiParam({ name: 'id' })
   async update(@Param('id') id: string, @Body() dto: UpdateStockTransferDto, @Req() req: any) {
@@ -158,7 +158,7 @@ export class StockTransferController {
 
   @Post(':id/lines')
   @UseGuards(PermissionGuard)
-  @RequirePermission('inventory.transfer.create')
+  @RequirePermission('inventory.transfer.create', 'inventory.transfer.update')
   @ApiOperation({ summary: 'Add line to stock transfer' })
   @ApiParam({ name: 'id' })
   async addLine(@Param('id') id: string, @Body() dto: CreateStockTransferLineDto) {
@@ -168,7 +168,7 @@ export class StockTransferController {
 
   @Delete(':id/lines/:lineId')
   @UseGuards(PermissionGuard)
-  @RequirePermission('inventory.transfer.create')
+  @RequirePermission('inventory.transfer.update', 'inventory.transfer.delete')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Remove line from stock transfer' })
   @ApiParam({ name: 'id' })
@@ -180,7 +180,7 @@ export class StockTransferController {
 
   @Patch(':id/submit')
   @UseGuards(PermissionGuard)
-  @RequirePermission('inventory.transfer.create')
+  @RequirePermission('inventory.transfer.submit')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Submit stock transfer for review and approval' })
   @ApiParam({ name: 'id' })
@@ -245,7 +245,7 @@ export class StockTransferController {
 
   @Delete(':id')
   @UseGuards(PermissionGuard)
-  @RequirePermission('inventory.transfer.create')
+  @RequirePermission('inventory.transfer.delete')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Delete a draft or returned stock transfer' })
   @ApiParam({ name: 'id' })
@@ -257,7 +257,7 @@ export class StockTransferController {
 
   @Patch(':id/cancel')
   @UseGuards(PermissionGuard)
-  @RequirePermission('inventory.transfer.create')
+  @RequirePermission('inventory.transfer.update', 'inventory.transfer.delete')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Cancel stock transfer' })
   @ApiParam({ name: 'id' })

@@ -12,6 +12,8 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { useUserStore } from '../../store/userStore';
 import { usePwaInstall } from '../../context/PwaInstallContext';
+import { usePermission } from '../../hooks/usePermission';
+import { SETTINGS_VIEW_PERMISSIONS } from '../settings/settingsNavigationConfig';
 import UserAvatar from './UserAvatar';
 
 const ProfileMenu: React.FC = () => {
@@ -20,6 +22,8 @@ const ProfileMenu: React.FC = () => {
   const user = useUserStore((s) => s.user);
   const clearUser = useUserStore((s) => s.clearUser);
   const { isInstalled, promptInstall } = usePwaInstall();
+  const { canAny } = usePermission();
+  const canOpenSettings = canAny(...SETTINGS_VIEW_PERMISSIONS);
   const screens = Grid.useBreakpoint();
   const isMobile = !screens.md;
 
@@ -60,7 +64,7 @@ const ProfileMenu: React.FC = () => {
   const userMenuItems: MenuProps['items'] = [
     { key: 'profile', icon: <IdcardOutlined />, label: 'My Profile' },
     { key: 'change-password', icon: <LockOutlined />, label: 'Change Password' },
-    { key: 'theme', icon: <SettingOutlined />, label: 'Theme Settings' },
+    ...(canOpenSettings ? [{ key: 'theme', icon: <SettingOutlined />, label: 'Theme Settings' }] : []),
     ...(!isInstalled
       ? [
           {

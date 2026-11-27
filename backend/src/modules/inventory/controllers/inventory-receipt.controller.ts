@@ -370,7 +370,7 @@ export class InventoryReceiptController {
   @Get('gate-pass/form-data')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('manufacturing.material_receiving.create')
+  @RequirePermission('manufacturing.material_receiving.view', 'manufacturing.material_receiving.create', 'manufacturing.material_return.create')
   @ApiOperation({ summary: 'Form reference data for the multi-item receiving/return form' })
   async getGatePassFormData(@Req() req: any) {
     const companyId = this.getCompanyId(req);
@@ -819,7 +819,7 @@ export class InventoryReceiptController {
   @Get()
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('inventory.opening_stock.create')
+  @RequirePermission('inventory.opening_stock.view', 'inventory.opening_stock.create', 'manufacturing.material_receiving.view', 'manufacturing.material_return.view')
   @ApiOperation({ summary: 'List raw material receiving / return history (real ledger entries)' })
   @ApiQuery({ name: 'page', required: false })
   @ApiQuery({ name: 'limit', required: false })
@@ -855,7 +855,7 @@ export class InventoryReceiptController {
   @Patch(':id')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('inventory.adjustment.create')
+  @RequirePermission('inventory.adjustment.update', 'manufacturing.material_receiving.update')
   @ApiOperation({ summary: 'Edit a receiving/return transaction — reverses original balance, applies new values (atomic)' })
   async update(@Param('id') id: string, @Body() dto: UpdateInventoryReceiptDto, @Req() req: any) {
     const companyId = this.getCompanyId(req);
@@ -914,7 +914,7 @@ export class InventoryReceiptController {
   @HttpCode(HttpStatus.OK)
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('inventory.adjustment.create')
+  @RequirePermission('inventory.adjustment.delete', 'manufacturing.material_receiving.delete')
   @ApiOperation({ summary: 'Delete a receiving/return transaction — reverses the original balance effect atomically' })
   async remove(@Param('id') id: string, @Req() req: any) {
     const companyId = this.getCompanyId(req);
@@ -938,7 +938,7 @@ export class InventoryReceiptController {
   @Get('organization/divisions')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('inventory.opening_stock.create')
+  @RequirePermission('inventory.opening_stock.view', 'inventory.opening_stock.create', 'manufacturing.material_receiving.view', 'manufacturing.material_return.view')
   @ApiOperation({ summary: 'Divisions for the user company scope, narrowed to the caller effective division access' })
   async getDivisions(@Req() req: any) {
     const companyId = this.getCompanyId(req);
@@ -952,7 +952,7 @@ export class InventoryReceiptController {
   @Get('organization/sections')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('inventory.opening_stock.create')
+  @RequirePermission('inventory.opening_stock.view', 'inventory.opening_stock.create', 'manufacturing.material_receiving.view', 'manufacturing.material_return.view')
   @ApiOperation({ summary: 'Sections for a division, narrowed to the caller effective division access' })
   @ApiQuery({ name: 'divisionId', required: false })
   async getSections(@Query('divisionId') divisionId: string | undefined, @Req() req: any) {
@@ -968,7 +968,7 @@ export class InventoryReceiptController {
   @Get('organization/departments')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('inventory.opening_stock.create')
+  @RequirePermission('inventory.opening_stock.view', 'inventory.opening_stock.create', 'manufacturing.material_receiving.view', 'manufacturing.material_return.view')
   @ApiOperation({ summary: 'Departments for a division and section, narrowed to the caller effective division access' })
   @ApiQuery({ name: 'divisionId', required: false })
   @ApiQuery({ name: 'sectionId', required: false })
@@ -990,7 +990,7 @@ export class InventoryReceiptController {
   @Get('reference-data')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('inventory.opening_stock.create')
+  @RequirePermission('inventory.opening_stock.view', 'inventory.opening_stock.create', 'manufacturing.material_receiving.view', 'manufacturing.material_return.view')
   @ApiOperation({ summary: 'Warehouses, items, and UOMs for the receiving form' })
   async getReferenceData(@Req() req: any) {
     const companyId = this.getCompanyId(req);
@@ -1022,7 +1022,7 @@ export class InventoryReceiptController {
   @Get('raw-materials')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('inventory.opening_stock.create')
+  @RequirePermission('inventory.opening_stock.view', 'inventory.opening_stock.create', 'manufacturing.material_receiving.view', 'manufacturing.material_return.view')
   @ApiOperation({ summary: 'RAW MATERIAL items for the receiving/return item selectors (org + type filtered)' })
   @ApiQuery({ name: 'divisionId', required: false })
   @ApiQuery({ name: 'sectionId', required: false })

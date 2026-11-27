@@ -177,6 +177,7 @@ export interface StoreMaterialLifecycleViewProps {
   storeId?: string;
   onStoreChange?: (value?: string) => void;
   isModal?: boolean;
+  initialTab?: string;
   onItemLoaded?: (item: MaterialLifecycle['item']) => void;
 }
 
@@ -185,6 +186,7 @@ export const StoreMaterialLifecycleView: React.FC<StoreMaterialLifecycleViewProp
   storeId,
   onStoreChange,
   isModal = false,
+  initialTab,
   onItemLoaded,
 }) => {
   const navigate = useNavigate();
@@ -194,8 +196,14 @@ export const StoreMaterialLifecycleView: React.FC<StoreMaterialLifecycleViewProp
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [stores, setStores] = useState<StoreOption[]>([]);
-  const [activeTab, setActiveTab] = useState('Item Information');
+  const [activeTab, setActiveTab] = useState(initialTab || 'Item Information');
   const [doc, setDoc] = useState<DocRef | null>(null);
+
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab, itemId]);
 
   const applied = useMemo<MaterialLifecycleFilters>(() => ({ storeId }), [storeId]);
 

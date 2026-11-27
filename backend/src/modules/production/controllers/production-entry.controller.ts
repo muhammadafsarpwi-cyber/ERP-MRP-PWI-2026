@@ -294,7 +294,7 @@ export class ProductionEntryController {
   @Post('downtime-reasons')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('manufacturing.production.entries.view')
+  @RequirePermission('manufacturing.production.entries.create', 'manufacturing.production.entries.update')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create a dynamic custom downtime reason' })
   async createDowntimeReason(@Body() dto: CreateDowntimeReasonDto, @Req() req: any) {
@@ -307,7 +307,7 @@ export class ProductionEntryController {
   @Get('entries/packing')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('manufacturing.production.entries.view')
+  @RequirePermission('manufacturing.packing.view', 'manufacturing.production.entries.view')
   @ApiOperation({ summary: 'Ultra-fast hand packing entries for Packing Department Hub' })
   async packingEntries(@Req() req: any, @Query('limit') limit?: number, @Query('search') search?: string) {
     const companyId = this.getCompanyId(req);
@@ -318,7 +318,7 @@ export class ProductionEntryController {
   @Get('entries/packing-activity-ledger')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('manufacturing.production.entries.view')
+  @RequirePermission('manufacturing.packing.view', 'manufacturing.production.entries.view')
   @ApiOperation({ summary: 'Transaction-dated packing movement events (Nipple Completions & Safety Stock Shifts)' })
   async packingActivityLedger(@Req() req: any, @Query('limit') limit?: number) {
     const companyId = this.getCompanyId(req);
@@ -331,7 +331,7 @@ export class ProductionEntryController {
   @Get('entries/:id')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('manufacturing.production.entries.view')
+  @RequirePermission('manufacturing.production.entries.view', 'manufacturing.packing.view')
   @ApiOperation({ summary: 'Get a daily production entry by ID' })
   async findOne(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
     const companyId = this.getCompanyId(req);
@@ -342,7 +342,7 @@ export class ProductionEntryController {
   @Post('entries')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('manufacturing.production.entries.create')
+  @RequirePermission('manufacturing.production.entries.create', 'manufacturing.packing.create')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create a daily production entry' })
   async create(@Body() dto: CreateProductionEntryDto, @Req() req: any) {
@@ -354,7 +354,7 @@ export class ProductionEntryController {
   @Put('entries/:id')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('manufacturing.production.entries.update')
+  @RequirePermission('manufacturing.production.entries.update', 'manufacturing.packing.update')
   @ApiOperation({ summary: 'Update a daily production entry' })
   async update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateProductionEntryDto, @Req() req: any) {
     const companyId = this.getCompanyId(req);
@@ -365,7 +365,7 @@ export class ProductionEntryController {
   @Post('entries/:id/complete-nipple')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('manufacturing.production.entries.update')
+  @RequirePermission('manufacturing.production.entries.update', 'manufacturing.packing.update')
   @ApiOperation({ summary: 'Deduct pending nipple stock from warehouse (WH-002) and complete batch' })
   async completeNipple(
     @Param('id', ParseUUIDPipe) id: string,
@@ -379,7 +379,7 @@ export class ProductionEntryController {
   @Delete('entries/:id')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('manufacturing.production.entries.delete')
+  @RequirePermission('manufacturing.production.entries.delete', 'manufacturing.packing.delete')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Soft-delete a daily production entry' })
   async remove(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {

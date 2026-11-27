@@ -14,6 +14,7 @@ import {
 import type { Request, Response } from 'express';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { SupabaseJwtGuard } from '../auth/guards/supabase-jwt.guard';
+import { PermissionGuard, RequirePermission } from '../auth/guards/permission.guard';
 import {
   TeamChatService,
   SendChatMessageDto,
@@ -28,6 +29,8 @@ export class TeamChatController {
   constructor(private readonly teamChatService: TeamChatService) {}
 
   @Get('users')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('workspace.team_chat.view')
   @ApiOperation({ summary: 'List all active ERP users with online status and unread direct-message counts' })
   async getUsers(@Req() req: any) {
     const data = await this.teamChatService.getUsers(req.user);
@@ -35,6 +38,8 @@ export class TeamChatController {
   }
 
   @Get('conversations')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('workspace.team_chat.view')
   @ApiOperation({ summary: 'List user direct and group conversations sorted by latest activity' })
   async getConversations(@Req() req: any) {
     const data = await this.teamChatService.getConversations(req.user);
@@ -43,6 +48,8 @@ export class TeamChatController {
 
   @Post('conversations/direct/:targetUserId')
   @HttpCode(HttpStatus.OK)
+  @UseGuards(PermissionGuard)
+  @RequirePermission('workspace.team_chat.create')
   @ApiOperation({ summary: 'Open or create a 1-on-1 direct conversation with targetUserId' })
   async openDirect(@Req() req: any, @Param('targetUserId') targetUserId: string) {
     const data = await this.teamChatService.openOrCreateDirectConversation(req.user, targetUserId);
@@ -50,6 +57,8 @@ export class TeamChatController {
   }
 
   @Post('conversations/group')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('workspace.team_chat.create')
   @ApiOperation({ summary: 'Create a new factory group channel and enroll selected team members' })
   async createGroup(@Req() req: any, @Body() body: CreateGroupConversationDto) {
     const data = await this.teamChatService.createGroupConversation(req.user, body);
@@ -57,6 +66,8 @@ export class TeamChatController {
   }
 
   @Get('conversations/:id/messages')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('workspace.team_chat.view')
   @ApiOperation({ summary: 'Fetch paginated conversation messages without base64 blobs and mark conversation as read' })
   async getMessages(
     @Req() req: Request & { user?: any },
@@ -78,6 +89,8 @@ export class TeamChatController {
   }
 
   @Get('messages/:messageId/attachment')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('workspace.team_chat.view')
   @ApiOperation({ summary: 'Lazy-load full attachment or voice audio payload for a specific message' })
   async getMessageAttachment(@Req() req: any, @Param('messageId') messageId: string) {
     const data = await this.teamChatService.getMessageAttachment(req.user, messageId);
@@ -85,6 +98,8 @@ export class TeamChatController {
   }
 
   @Post('conversations/:id/messages')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('workspace.team_chat.create')
   @ApiOperation({ summary: 'Send a new text, attachment, or voice message in a conversation' })
   async sendMessage(
     @Req() req: any,
@@ -96,6 +111,8 @@ export class TeamChatController {
   }
 
   @Get('unread-summary')
+  @UseGuards(PermissionGuard)
+  @RequirePermission('workspace.team_chat.view')
   @ApiOperation({ summary: 'Lightweight unread message count summary for sidebar and top header badges' })
   async getUnreadSummary(
     @Req() req: Request & { user?: any },

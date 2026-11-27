@@ -74,9 +74,23 @@ const renderComponent = () =>
 
 describe('PermissionMatrix — Division Access panel (Prompt #16 §24)', () => {
   beforeEach(() => {
+    localStorage.clear();
+    localStorage.setItem(
+      'erp_user',
+      JSON.stringify({
+        id: 'admin-1',
+        email: 'admin@pwi.com',
+        permissions: ['admin.matrix.view', 'admin.matrix.update', 'admin.matrix.export'],
+      }),
+    );
+    localStorage.setItem('erp_permissions_ts', Date.now().toString());
     apiMock.get.mockReset();
     apiMock.put.mockReset();
     apiMock.get.mockResolvedValue({ data: mockMatrix } as any);
+  });
+
+  afterEach(() => {
+    localStorage.clear();
   });
 
   it('offers a Division Access toggle on every resource row', async () => {

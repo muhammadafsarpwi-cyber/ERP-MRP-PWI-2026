@@ -20,6 +20,7 @@ export type WhatsAppTemplateKey =
   | 'rmBalanceOnly'
   | 'rmReturn'
   | 'itemStockLedger'
+  | 'storeIssueNote'
   | 'quotation'
   | 'salesOrder'
   | 'salesDelivery'
@@ -187,6 +188,29 @@ export const DEFAULT_ITEM_LEDGER_WHATSAPP_TEMPLATE = `*{company}*
 *RECENT MOVEMENTS:*
 {recent_movements}
 ────────────────────────────
+_Generated via PWI ERP System_`;
+
+export const DEFAULT_STORE_ISSUE_NOTE_TEMPLATE = `*{company}*
+*STORE ISSUE NOTE (SIN)*
+━━━━━━━━━━━━━━━━━━━━━━━━━
+*SIN Number:* {sin_number}
+*Issue Date:* {date}
+*Division:* {division}
+*Section:* {section}
+*Machine / Allocation:* {machine}
+*Receiver:* {receiver}
+*Issued By:* {issued_by}
+━━━━━━━━━━━━━━━━━━━━━━━━━
+*ISSUED PARTS & QUANTITIES:*
+{items}
+━━━━━━━━━━━━━━━━━━━━━━━━━
+*LAST ISSUED & PRODUCTION OUTPUT:*
+{last_issued_summary}
+━━━━━━━━━━━━━━━━━━━━━━━━━
+*REMAINING STORE STOCK:*
+{remaining_stock}
+━━━━━━━━━━━━━━━━━━━━━━━━━
+*Remarks:* {remarks}
 _Generated via PWI ERP System_`;
 
 export const DEFAULT_QUOTATION_WHATSAPP_TEMPLATE = `*{company}*
@@ -726,6 +750,29 @@ export const WHATSAPP_TEMPLATE_REGISTRY: readonly WhatsAppTemplateDefinition[] =
       '{current_balance}',
       '{movements_count}',
       '{recent_movements}',
+    ],
+  },
+  {
+    key: 'storeIssueNote',
+    code: '[SIN-ISSUE]',
+    title: 'Store Issue Note (SIN)',
+    category: 'Raw Material & Inventory',
+    description: 'Used when sharing a Store Issue Note (SIN) via WhatsApp from the Store Issue form or directory table.',
+    rows: 10,
+    defaultTemplate: DEFAULT_STORE_ISSUE_NOTE_TEMPLATE,
+    placeholders: [
+      '{company}',
+      '{sin_number}',
+      '{date}',
+      '{division}',
+      '{section}',
+      '{machine}',
+      '{receiver}',
+      '{issued_by}',
+      '{items}',
+      '{last_issued_summary}',
+      '{remaining_stock}',
+      '{remarks}',
     ],
   },
 

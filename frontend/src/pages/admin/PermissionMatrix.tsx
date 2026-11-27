@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { memo, useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Card, Tag, Button, Space, Input, Select, App as AntApp, Spin,
   Tooltip, Popconfirm, Row, Col, Typography, Badge, Dropdown, Empty,
-  message as staticMessage,
+  message as staticMessage, theme,
 } from 'antd';
 import type { MenuProps } from 'antd';
 import {
@@ -11,9 +11,10 @@ import {
   SafetyCertificateOutlined, ApartmentOutlined, EditOutlined,
   CheckCircleOutlined, CloseCircleOutlined, DownloadOutlined,
   FilePdfOutlined, FileExcelOutlined, UndoOutlined, CheckOutlined,
-  CloseOutlined, CrownOutlined, LockOutlined, InfoCircleOutlined,
+  CrownOutlined, LockOutlined, InfoCircleOutlined,
 } from '@ant-design/icons';
 import apiService from '../../services/api';
+import { usePermission } from '../../hooks/usePermission';
 import { PageHeader, SaveResultDialog } from '../../components/shared';
 import { DivisionSelect } from '../../components/shared';
 import type { SaveResultData, SaveResultPhase } from '../../components/shared/SaveResultDialog';
@@ -68,6 +69,7 @@ interface PermissionMatrixData {
 }
 
 const MODULE_COLORS: Record<string, string> = {
+  workspace: '#0ea5e9',
   organization: '#818cf8',
   admin: '#f43f5e',
   item: '#0ea5e9',
@@ -80,26 +82,543 @@ const MODULE_COLORS: Record<string, string> = {
   finance: '#ec4899',
   hr: '#8b5cf6',
   qc: '#6366f1',
+  visitor: '#14b8a6',
   notifications: '#a855f7',
   communication: '#d946ef',
   store: '#10b981',
+  ai: '#8b5cf6',
+  settings: '#6366f1',
 };
 
-const ACTION_CONFIG: Record<string, { label: string; full: string; color: string; classPrefix: string }> = {
+interface ActionBadgeConfig {
+  label: string;
+  full: string;
+  color: string;
+  classPrefix: string;
+}
+
+const ACTION_CONFIG: Record<string, ActionBadgeConfig> = {
   VIEW: { label: 'V', full: 'View / Access', color: '#2563eb', classPrefix: 'granted-view' },
   CREATE: { label: 'A', full: 'Add / Create', color: '#16a34a', classPrefix: 'granted-create' },
   UPDATE: { label: 'E', full: 'Edit / Update', color: '#d97706', classPrefix: 'granted-update' },
-  DELETE: { label: 'D', full: 'Delete / Deactivate', color: '#e11d48', classPrefix: 'granted-delete' },
-  APPROVE: { label: 'X', full: 'Approve / Verify', color: '#7c3aed', classPrefix: 'granted-special' },
-  POST: { label: 'P', full: 'Post to Ledger', color: '#0d9488', classPrefix: 'granted-special' },
+  DELETE: { label: 'D', full: 'Delete / Remove', color: '#e11d48', classPrefix: 'granted-delete' },
+  POST: { label: 'P', full: 'Post to Ledger', color: '#0d9488', classPrefix: 'granted-post' },
+  APPROVE: { label: 'P', full: 'Approve / Post', color: '#7c3aed', classPrefix: 'granted-special' },
+  EXPORT: { label: 'X', full: 'Export (CSV/Excel/PDF)', color: '#0284c7', classPrefix: 'granted-export' },
+  PRINT: { label: 'X', full: 'Print / Export', color: '#0369a1', classPrefix: 'granted-print' },
+  REVERSE: { label: 'R', full: 'Reverse Entry', color: '#9333ea', classPrefix: 'granted-reverse' },
+  RESTORE: { label: 'R', full: 'Restore Entry', color: '#9333ea', classPrefix: 'granted-reverse' },
   SUBMIT: { label: 'S', full: 'Submit for Review', color: '#6366f1', classPrefix: 'granted-special' },
+  EDIT: { label: 'E', full: 'Edit Configuration', color: '#d97706', classPrefix: 'granted-update' },
+  MANAGE: { label: 'M', full: 'Manage / Configure', color: '#6366f1', classPrefix: 'granted-special' },
+  ACTIVATE: { label: 'Ac', full: 'Activate Record', color: '#16a34a', classPrefix: 'granted-create' },
+  DEACTIVATE: { label: 'Dx', full: 'Deactivate Record', color: '#dc2626', classPrefix: 'granted-delete' },
+  DISCONTINUE: { label: 'Dc', full: 'Discontinue Item', color: '#be123c', classPrefix: 'granted-delete' },
+  CANCEL: { label: 'C', full: 'Cancel Document', color: '#e11d48', classPrefix: 'granted-delete' },
+  REJECT: { label: 'Rj', full: 'Reject Request', color: '#dc2626', classPrefix: 'granted-delete' },
+  VERIFY: { label: 'Vf', full: 'Verify Completion', color: '#7c3aed', classPrefix: 'granted-special' },
+  RELEASE: { label: 'Rl', full: 'Release / Issue', color: '#0d9488', classPrefix: 'granted-post' },
+  COMPLETE: { label: 'Cp', full: 'Complete Task', color: '#059669', classPrefix: 'granted-create' },
+  CLOSE: { label: 'Cl', full: 'Close Record', color: '#475569', classPrefix: 'granted-special' },
+  ASSIGN: { label: 'As', full: 'Assign Task', color: '#6366f1', classPrefix: 'granted-special' },
+  START: { label: 'St', full: 'Start Execution', color: '#16a34a', classPrefix: 'granted-create' },
+  HOLD: { label: 'Hd', full: 'Place on Hold', color: '#d97706', classPrefix: 'granted-update' },
+  PURGE: { label: 'Pg', full: 'Permanently Purge', color: '#991b1b', classPrefix: 'granted-delete' },
+  REVERT_DELIVERY: { label: 'Rv', full: 'Revert Delivery Status', color: '#d97706', classPrefix: 'granted-update' },
+  CHANGE_STATUS: { label: 'Cs', full: 'Change Status', color: '#d97706', classPrefix: 'granted-update' },
+  ESTIMATE_COST: { label: 'Ec', full: 'Estimate Cost', color: '#0284c7', classPrefix: 'granted-export' },
+  EXECUTE: { label: 'Ex', full: 'Execute Operation', color: '#0d9488', classPrefix: 'granted-post' },
+  ISSUE: { label: 'Is', full: 'Issue Materials', color: '#d97706', classPrefix: 'granted-update' },
+  RECEIPT: { label: 'Rc', full: 'Receive Production', color: '#16a34a', classPrefix: 'granted-create' },
+  DUPLICATE: { label: 'Dp', full: 'Duplicate Line', color: '#6366f1', classPrefix: 'granted-special' },
+  REORDER: { label: 'Ro', full: 'Reorder Sequence', color: '#6366f1', classPrefix: 'granted-special' },
+  PLANNING: { label: 'Pl', full: 'Production Planning', color: '#2563eb', classPrefix: 'granted-view' },
+  QUERY: { label: 'V', full: 'Run AI Query', color: '#2563eb', classPrefix: 'granted-view' },
+  VOICE: { label: 'Vc', full: 'Voice Input', color: '#7c3aed', classPrefix: 'granted-special' },
+  REPORT: { label: 'V', full: 'View Report', color: '#2563eb', classPrefix: 'granted-view' },
+  VIEW_REPORTS: { label: 'V', full: 'View Reports', color: '#2563eb', classPrefix: 'granted-view' },
+  INSPECT: { label: 'In', full: 'Inspect / QC', color: '#7c3aed', classPrefix: 'granted-special' },
+  RECORD: { label: 'Rd', full: 'Record Measurement', color: '#0284c7', classPrefix: 'granted-export' },
+  EVALUATE: { label: 'Ev', full: 'Evaluate Quote', color: '#6366f1', classPrefix: 'granted-special' },
+  SELECT: { label: 'Sl', full: 'Select Winner', color: '#16a34a', classPrefix: 'granted-create' },
+  SEND: { label: 'Sn', full: 'Send Request', color: '#0284c7', classPrefix: 'granted-export' },
+  CONFIRM: { label: 'Cf', full: 'Confirm / Post Stock', color: '#0d9488', classPrefix: 'granted-post' },
+  ACKNOWLEDGE: { label: 'Ak', full: 'Acknowledge Request', color: '#0284c7', classPrefix: 'granted-export' },
+  CONVERT: { label: 'Cv', full: 'Convert Request', color: '#7c3aed', classPrefix: 'granted-special' },
+  GM_APPROVE: { label: 'Gm', full: 'GM Final Approval', color: '#7c3aed', classPrefix: 'granted-special' },
+  RUN: { label: 'Rn', full: 'Run Calculation', color: '#0d9488', classPrefix: 'granted-post' },
+  OVERRIDE: { label: 'Ov', full: 'Override Limit', color: '#d97706', classPrefix: 'granted-update' },
+  DISBURSE: { label: 'Db', full: 'Disburse Advance', color: '#0d9488', classPrefix: 'granted-post' },
+  RECOVER: { label: 'Rv', full: 'Recover Advance', color: '#6366f1', classPrefix: 'granted-special' },
+  ASSIGN_ROLES: { label: 'Ar', full: 'Assign Roles', color: '#6366f1', classPrefix: 'granted-special' },
+  REMOVE_ROLES: { label: 'Rr', full: 'Remove Roles', color: '#e11d48', classPrefix: 'granted-delete' },
+  ASSIGN_PERMISSIONS: { label: 'Ap', full: 'Assign Permissions', color: '#6366f1', classPrefix: 'granted-special' },
+  REMOVE_PERMISSIONS: { label: 'Rp', full: 'Remove Permissions', color: '#e11d48', classPrefix: 'granted-delete' },
+  MANAGE_SCOPE: { label: 'Sc', full: 'Manage Org Scope', color: '#7c3aed', classPrefix: 'granted-special' },
+  SET_DEFAULT_CONTEXT: { label: 'Cx', full: 'Set Default Context', color: '#0284c7', classPrefix: 'granted-export' },
 };
 
+const LEGEND_ACTIONS: Array<{ key: string; label: string; full: string; color: string }> = [
+  { key: 'VIEW', label: 'V', full: 'View / Access', color: '#2563eb' },
+  { key: 'CREATE', label: 'A', full: 'Add / Create', color: '#16a34a' },
+  { key: 'UPDATE', label: 'E', full: 'Edit / Update', color: '#d97706' },
+  { key: 'DELETE', label: 'D', full: 'Delete / Deactivate', color: '#e11d48' },
+  { key: 'POST', label: 'P', full: 'Post / Approve (Ap if both)', color: '#0d9488' },
+  { key: 'EXPORT', label: 'X', full: 'Export / Print (Pr if both)', color: '#0284c7' },
+  { key: 'REVERSE', label: 'R', full: 'Reverse / Restore (Rs if both)', color: '#9333ea' },
+  { key: 'SUBMIT', label: 'S', full: 'Submit / Manage (M)', color: '#6366f1' },
+];
+
+const STANDARD_ACTIONS = ['VIEW', 'CREATE', 'UPDATE', 'DELETE'] as const;
+const STANDARD_ACTION_SET = new Set<string>(STANDARD_ACTIONS);
+const STANDARD_ALIASES: Record<string, readonly string[]> = {
+  VIEW: ['REPORT', 'VIEW_REPORTS'],
+  CREATE: ['SUBMIT'],
+  UPDATE: ['EDIT', 'MANAGE'],
+  DELETE: ['DEACTIVATE', 'DISCONTINUE'],
+};
+
+function resolveCellPermission(row: PermissionRow, action: string): PermissionCell | undefined {
+  if (row.permissions[action]) return row.permissions[action];
+  const aliases = STANDARD_ALIASES[action];
+  if (!aliases) return undefined;
+  for (const alias of aliases) {
+    if (row.permissions[alias]) return row.permissions[alias];
+  }
+  return undefined;
+}
+
+function splitRowPermissions(row: PermissionRow): {
+  standardCells: Array<{ action: string; perm: PermissionCell | undefined }>;
+  extraEntries: Array<[string, PermissionCell]>;
+} {
+  const consumedAliases = new Set<string>();
+  const standardCells = STANDARD_ACTIONS.map(action => {
+    const direct = row.permissions[action];
+    if (direct) return { action, perm: direct };
+    const aliases = STANDARD_ALIASES[action] || [];
+    for (const alias of aliases) {
+      if (row.permissions[alias]) {
+        consumedAliases.add(alias);
+        return { action, perm: row.permissions[alias] };
+      }
+    }
+    return { action, perm: undefined };
+  });
+
+  const extraEntries = Object.entries(row.permissions).filter(
+    ([act]) => !STANDARD_ACTION_SET.has(act) && !consumedAliases.has(act),
+  );
+
+  return { standardCells, extraEntries };
+}
+
+function resolveActionBadge(actionKey: string, rowPermissions: Record<string, PermissionCell>): ActionBadgeConfig {
+  if (actionKey === 'APPROVE' && rowPermissions['POST']) {
+    return { label: 'Ap', full: 'Approve / Verify', color: '#7c3aed', classPrefix: 'granted-special' };
+  }
+  if (actionKey === 'PRINT' && rowPermissions['EXPORT']) {
+    return { label: 'Pr', full: 'Print Document', color: '#0369a1', classPrefix: 'granted-print' };
+  }
+  if (actionKey === 'RESTORE' && rowPermissions['REVERSE']) {
+    return { label: 'Rs', full: 'Restore Entry', color: '#9333ea', classPrefix: 'granted-reverse' };
+  }
+  return ACTION_CONFIG[actionKey] || {
+    label: actionKey.slice(0, 2),
+    full: actionKey,
+    color: '#7c3aed',
+    classPrefix: 'granted-special',
+  };
+}
+
 type ChangeMap = Map<string, boolean>;
+
+interface MatrixResourceRowProps {
+  row: PermissionRow;
+  roles: RoleInfo[];
+  divisions?: DivisionInfo[];
+  showModuleHeader: boolean;
+  isCollapsed: boolean;
+  isExpandedDivision: boolean;
+  moduleColor: string;
+  moduleLabel: string;
+  moduleCount: number;
+  canUpdateMatrix: boolean;
+  localChanges: ChangeMap;
+  divisionChanges: Map<string, string[] | null>;
+  token: ReturnType<typeof theme.useToken>['token'];
+  onToggleModule: (module: string) => void;
+  onTogglePermission: (roleId: string, permissionId: string, originalValue: boolean) => void;
+  onToggleDivisionRow: (row: PermissionRow) => void;
+  onSetDivisionScope: (
+    roleId: string,
+    permissionId: string,
+    original: string[] | null | undefined,
+    next: string[] | null,
+  ) => void;
+}
+
+/**
+ * Memoized matrix resource row: only re-renders when a toggle/scope change affects
+ * this row's own permissions across roles, keeping 180x13 matrix updates instantaneous.
+ */
+const MatrixResourceRow: React.FC<MatrixResourceRowProps> = memo(
+  ({
+    row,
+    roles,
+    divisions,
+    showModuleHeader,
+    isCollapsed,
+    isExpandedDivision,
+    moduleColor,
+    moduleLabel,
+    moduleCount,
+    canUpdateMatrix,
+    localChanges,
+    divisionChanges,
+    token,
+    onToggleModule,
+    onTogglePermission,
+    onToggleDivisionRow,
+    onSetDivisionScope,
+  }) => {
+    const { standardCells, extraEntries } = useMemo(() => splitRowPermissions(row), [row]);
+    const divisionPermissions = useMemo(() => {
+      if (!isExpandedDivision) return [];
+      const seen = new Set<string>();
+      const list: PermissionCell[] = [];
+      for (const cell of Object.values(row.permissions)) {
+        if (seen.has(cell.permissionId)) continue;
+        seen.add(cell.permissionId);
+        list.push(cell);
+      }
+      return list;
+    }, [isExpandedDivision, row.permissions]);
+
+    const permCount = Object.keys(row.permissions).length;
+
+    return (
+      <>
+        {showModuleHeader && (
+          <tr className="matrix-module-row">
+            <td
+              colSpan={roles.length + 1}
+              onClick={() => onToggleModule(row.module)}
+              style={{ cursor: 'pointer' }}
+            >
+              <Space size={8}>
+                <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+                  {isCollapsed
+                    ? <RightOutlined style={{ fontSize: 10, color: token.colorPrimary }} />
+                    : <DownOutlined style={{ fontSize: 10, color: token.colorPrimary }} />}
+                </span>
+                <span
+                  style={{
+                    display: 'inline-block',
+                    width: 10,
+                    height: 10,
+                    borderRadius: 3,
+                    background: moduleColor,
+                  }}
+                />
+                <span style={{ color: moduleColor }}>
+                  {moduleLabel}
+                </span>
+                <Badge
+                  count={moduleCount}
+                  style={{ backgroundColor: token.colorPrimary, fontSize: 11 }}
+                />
+              </Space>
+            </td>
+          </tr>
+        )}
+
+        {!isCollapsed && (
+          <tr>
+            {/* Sticky Left Resource Column */}
+            <td className="matrix-sticky-col">
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                <span>{row.resourceName}</span>
+                <Space size={4}>
+                  <Button
+                    size="small"
+                    type="text"
+                    title="Division Access — restrict which divisions each role may use this permission in"
+                    data-testid={`division-access-toggle-${row.module}-${row.resource}`}
+                    aria-label={`Division Access for ${row.resourceName}`}
+                    icon={
+                      <ApartmentOutlined
+                        style={{
+                          color: isExpandedDivision
+                            ? token.colorPrimary
+                            : token.colorTextTertiary,
+                        }}
+                      />
+                    }
+                    onClick={() => onToggleDivisionRow(row)}
+                  />
+                  <InfoCircleOutlined
+                    title={`Resource code: ${row.resource} (${permCount} controls)`}
+                    style={{ color: token.colorTextTertiary, fontSize: 12 }}
+                  />
+                </Space>
+              </div>
+            </td>
+
+            {/* Role Permission Matrix Cells */}
+            {roles.map(role => (
+              <td key={role.id} className="matrix-cell-td">
+                <div className="matrix-btn-group">
+                  {standardCells.map(({ action, perm }) => {
+                    const config = ACTION_CONFIG[action];
+
+                    if (!perm) {
+                      return (
+                        <span
+                          key={action}
+                          title={`${config.full} not configured for this resource`}
+                          style={{
+                            width: 27,
+                            height: 24,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: 11,
+                            color: token.colorTextQuaternary,
+                          }}
+                        >
+                          -
+                        </span>
+                      );
+                    }
+
+                    const originalVal = perm.roleGranted[role.id] || false;
+                    const changeKey = `${role.id}:${perm.permissionId}`;
+                    const hasPendingChange = localChanges.has(changeKey);
+                    const currentVal = hasPendingChange ? localChanges.get(changeKey)! : originalVal;
+
+                    return (
+                      <button
+                        key={action}
+                        type="button"
+                        disabled={!canUpdateMatrix}
+                        title={`${config.full}: ${currentVal ? 'GRANTED' : 'REVOKED'}\n${perm.permissionCode}\nRole: ${role.name}${hasPendingChange ? ' (Unsaved Change)' : ''}`}
+                        className={`matrix-act-btn ${
+                          currentVal ? config.classPrefix : 'ungranted'
+                        } ${hasPendingChange ? 'has-pending-change' : ''}`}
+                        onClick={() => onTogglePermission(role.id, perm.permissionId, originalVal)}
+                      >
+                        {config.label}
+                      </button>
+                    );
+                  })}
+
+                  {/* Extra & Workflow Actions (Approve, Post, Export, Print, Reverse, Restore, Deactivate, etc.) */}
+                  {extraEntries.map(([act, perm]) => {
+                    const config = resolveActionBadge(act, row.permissions);
+                    const originalVal = perm.roleGranted[role.id] || false;
+                    const changeKey = `${role.id}:${perm.permissionId}`;
+                    const hasPendingChange = localChanges.has(changeKey);
+                    const currentVal = hasPendingChange ? localChanges.get(changeKey)! : originalVal;
+
+                    return (
+                      <button
+                        key={act}
+                        type="button"
+                        disabled={!canUpdateMatrix}
+                        title={`${config.full}: ${currentVal ? 'GRANTED' : 'REVOKED'}\n${perm.permissionCode}\nRole: ${role.name}${hasPendingChange ? ' (Unsaved Change)' : ''}`}
+                        className={`matrix-act-btn ${
+                          currentVal ? config.classPrefix : 'ungranted'
+                        } ${hasPendingChange ? 'has-pending-change' : ''}`}
+                        onClick={() => onTogglePermission(role.id, perm.permissionId, originalVal)}
+                      >
+                        {config.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </td>
+            ))}
+          </tr>
+        )}
+
+        {/* Expandable Division Access panel */}
+        {!isCollapsed && isExpandedDivision && (
+          <tr
+            className="matrix-division-row"
+            data-testid={`division-access-row-${row.module}-${row.resource}`}
+          >
+            <td colSpan={roles.length + 1}>
+              <div
+                style={{
+                  padding: '10px 14px',
+                  background: token.colorFillAlter,
+                  borderTop: `1px dashed ${token.colorBorder}`,
+                  borderBottom: `1px dashed ${token.colorBorder}`,
+                }}
+              >
+                <Space direction="vertical" size={10} style={{ width: '100%' }}>
+                  <Space size={8} wrap>
+                    <ApartmentOutlined style={{ color: token.colorPrimary }} />
+                    <Text strong>Division Access</Text>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      Empty = no restriction for that grant (every division the user&apos;s own
+                      organization scope allows). Selecting divisions limits the grant to exactly
+                      those; a user always receives the intersection of their own scope and this
+                      setting.
+                    </Text>
+                  </Space>
+
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
+                      gap: 12,
+                    }}
+                  >
+                    {roles.map(role => (
+                      <div
+                        key={role.id}
+                        style={{
+                          border: `1px solid ${token.colorBorderSecondary}`,
+                          borderRadius: 10,
+                          padding: 10,
+                          background: token.colorBgContainer,
+                        }}
+                      >
+                        <Space size={6} style={{ marginBottom: 8 }} wrap>
+                          <Tag color={role.isSystemRole ? 'gold' : 'blue'} style={{ margin: 0 }}>
+                            {role.roleCode}
+                          </Tag>
+                          <Text style={{ fontSize: 12 }}>{role.name}</Text>
+                        </Space>
+
+                        <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                          {divisionPermissions.map(perm => {
+                            const original = perm.roleDivisionScopes?.[role.id] ?? null;
+                            const changeKey = `${role.id}:${perm.permissionId}`;
+                            const dirty = divisionChanges.has(changeKey);
+                            const current = dirty ? divisionChanges.get(changeKey)! : original;
+                            const originalGrant = perm.roleGranted[role.id] || false;
+                            const granted = localChanges.has(changeKey)
+                              ? localChanges.get(changeKey)!
+                              : originalGrant;
+
+                            return (
+                              <div
+                                key={perm.permissionId}
+                                style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+                              >
+                                <span
+                                  title={perm.permissionCode}
+                                  style={{
+                                    width: 132,
+                                    flexShrink: 0,
+                                    fontSize: 11,
+                                    color: granted ? token.colorText : token.colorTextTertiary,
+                                    textDecoration: granted ? 'none' : 'line-through',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                >
+                                  {perm.permissionCode}
+                                </span>
+                                <DivisionSelect
+                                  mode="multiple"
+                                  size="small"
+                                  style={{ flex: 1, minWidth: 0 }}
+                                  value={current}
+                                  divisions={divisions ?? null}
+                                  disabled={!granted || !canUpdateMatrix}
+                                  allowClear
+                                  placeholder="All divisions"
+                                  onChange={(v: any) =>
+                                    onSetDivisionScope(
+                                      role.id,
+                                      perm.permissionId,
+                                      original,
+                                      Array.isArray(v) && v.length > 0 ? (v as string[]) : null,
+                                    )
+                                  }
+                                />
+                                {dirty && (
+                                  <Tag color="orange" style={{ margin: 0 }}>
+                                    new
+                                  </Tag>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </Space>
+                      </div>
+                    ))}
+                  </div>
+                </Space>
+              </div>
+            </td>
+          </tr>
+        )}
+      </>
+    );
+  },
+  (prev, next) => {
+    if (
+      prev.row !== next.row ||
+      prev.roles !== next.roles ||
+      prev.divisions !== next.divisions ||
+      prev.showModuleHeader !== next.showModuleHeader ||
+      prev.isCollapsed !== next.isCollapsed ||
+      prev.isExpandedDivision !== next.isExpandedDivision ||
+      prev.moduleColor !== next.moduleColor ||
+      prev.moduleLabel !== next.moduleLabel ||
+      prev.moduleCount !== next.moduleCount ||
+      prev.canUpdateMatrix !== next.canUpdateMatrix ||
+      prev.token !== next.token
+    ) {
+      return false;
+    }
+
+    if (prev.localChanges !== next.localChanges) {
+      const cells = Object.values(next.row.permissions);
+      for (const cell of cells) {
+        for (const role of next.roles) {
+          const key = `${role.id}:${cell.permissionId}`;
+          if (prev.localChanges.get(key) !== next.localChanges.get(key)) {
+            return false;
+          }
+        }
+      }
+    }
+
+    if (
+      (prev.isExpandedDivision || next.isExpandedDivision) &&
+      prev.divisionChanges !== next.divisionChanges
+    ) {
+      const cells = Object.values(next.row.permissions);
+      for (const cell of cells) {
+        for (const role of next.roles) {
+          const key = `${role.id}:${cell.permissionId}`;
+          if (prev.divisionChanges.get(key) !== next.divisionChanges.get(key)) {
+            return false;
+          }
+        }
+      }
+    }
+
+    return true;
+  },
+);
+
+MatrixResourceRow.displayName = 'MatrixResourceRow';
 
 const PermissionMatrix: React.FC = () => {
   const app = AntApp.useApp();
   const message = app?.message || staticMessage;
+  const { token } = theme.useToken();
+  const { can } = usePermission();
+  const canUpdateMatrix = can('admin.matrix.update');
+  const canExportMatrix = can('admin.matrix.export');
   const [matrix, setMatrix] = useState<PermissionMatrixData | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -173,11 +692,11 @@ const PermissionMatrix: React.FC = () => {
   }, [localChanges, changeKey]);
 
   const togglePermission = useCallback((roleId: string, permissionId: string, originalValue: boolean) => {
-    const key = changeKey(roleId, permissionId);
-    const currentlyGranted = localChanges.has(key) ? localChanges.get(key)! : originalValue;
-    const nextVal = !currentlyGranted;
-
+    if (!canUpdateMatrix) return;
+    const key = `${roleId}:${permissionId}`;
     setLocalChanges(prev => {
+      const currentlyGranted = prev.has(key) ? prev.get(key)! : originalValue;
+      const nextVal = !currentlyGranted;
       const next = new Map(prev);
       if (nextVal === originalValue) {
         // Reverted back to initial state
@@ -187,7 +706,7 @@ const PermissionMatrix: React.FC = () => {
       }
       return next;
     });
-  }, [changeKey, localChanges]);
+  }, [canUpdateMatrix]);
 
   const hasChanges = localChanges.size > 0 || divisionChanges.size > 0;
 
@@ -200,16 +719,6 @@ const PermissionMatrix: React.FC = () => {
       return next;
     });
   }, []);
-
-  /** Pending-or-original division scope for one (role, permission) grant. */
-  const getDivisionScope = useCallback(
-    (roleId: string, permissionId: string, original: string[] | null | undefined): string[] | null => {
-      const key = changeKey(roleId, permissionId);
-      if (divisionChanges.has(key)) return divisionChanges.get(key)!;
-      return original ?? null;
-    },
-    [divisionChanges, changeKey],
-  );
 
   /** `null` = unrestricted; an emptied selection is stored as `null` (§27). */
   const setDivisionScope = useCallback(
@@ -346,10 +855,11 @@ const PermissionMatrix: React.FC = () => {
 
   // Bulk column actions: Toggle all permissions for an action in a role column
   const handleToggleColumnAction = useCallback((roleId: string, action: string, value: boolean) => {
-    if (!matrix) return;
+    if (!matrix || !canUpdateMatrix) return;
+    const targetRows = (search || filterModule) ? filteredRows : matrix.rows;
     setLocalChanges(prev => {
       const next = new Map(prev);
-      for (const row of matrix.rows) {
+      for (const row of targetRows) {
         const perm = resolveCellPermission(row, action);
         if (perm) {
           const original = perm.roleGranted[roleId] || false;
@@ -363,14 +873,15 @@ const PermissionMatrix: React.FC = () => {
       }
       return next;
     });
-  }, [matrix, changeKey]);
+  }, [matrix, canUpdateMatrix, search, filterModule, filteredRows, changeKey]);
 
   // Bulk Grant All in Column
   const handleGrantAllInRole = useCallback((roleId: string) => {
-    if (!matrix) return;
+    if (!matrix || !canUpdateMatrix) return;
+    const targetRows = (search || filterModule) ? filteredRows : matrix.rows;
     setLocalChanges(prev => {
       const next = new Map(prev);
-      for (const row of matrix.rows) {
+      for (const row of targetRows) {
         for (const cell of Object.values(row.permissions)) {
           const original = cell.roleGranted[roleId] || false;
           const key = changeKey(roleId, cell.permissionId);
@@ -383,14 +894,15 @@ const PermissionMatrix: React.FC = () => {
       }
       return next;
     });
-  }, [matrix, changeKey]);
+  }, [matrix, canUpdateMatrix, search, filterModule, filteredRows, changeKey]);
 
   // Bulk Revoke All in Column
   const handleRevokeAllInRole = useCallback((roleId: string) => {
-    if (!matrix) return;
+    if (!matrix || !canUpdateMatrix) return;
+    const targetRows = (search || filterModule) ? filteredRows : matrix.rows;
     setLocalChanges(prev => {
       const next = new Map(prev);
-      for (const row of matrix.rows) {
+      for (const row of targetRows) {
         for (const cell of Object.values(row.permissions)) {
           const original = cell.roleGranted[roleId] || false;
           const key = changeKey(roleId, cell.permissionId);
@@ -403,31 +915,7 @@ const PermissionMatrix: React.FC = () => {
       }
       return next;
     });
-  }, [matrix, changeKey]);
-
-  // Bulk Grant/Revoke all actions for a single resource row across a role
-  const handleToggleRowForRole = useCallback((row: PermissionRow, roleId: string, value: boolean) => {
-    setLocalChanges(prev => {
-      const next = new Map(prev);
-      for (const cell of Object.values(row.permissions)) {
-        const original = cell.roleGranted[roleId] || false;
-        const key = changeKey(roleId, cell.permissionId);
-        if (value === original) {
-          next.delete(key);
-        } else {
-          next.set(key, value);
-        }
-      }
-      return next;
-    });
-  }, [changeKey]);
-
-  // Discard all unsaved changes
-  const handleDiscardChanges = useCallback(() => {
-    setLocalChanges(new Map());
-    setDivisionChanges(new Map());
-    message.info('All unsaved changes have been discarded.');
-  }, [message]);
+  }, [matrix, canUpdateMatrix, search, filterModule, filteredRows, changeKey]);
 
   // Export Matrix to PDF
   const handleExportPdf = async () => {
@@ -512,19 +1000,12 @@ const PermissionMatrix: React.FC = () => {
     }
   };
 
-  // Resolves canonical CRUD permission or workflow action for a row
-  function resolveCellPermission(row: PermissionRow, action: string): PermissionCell | undefined {
-    if (row.permissions[action]) return row.permissions[action];
-    // Fallback aliases
-    if (action === 'DELETE' && row.permissions['DEACTIVATE']) return row.permissions['DEACTIVATE'];
-    if (action === 'DELETE' && row.permissions['DISCONTINUE']) return row.permissions['DISCONTINUE'];
-    if (action === 'UPDATE' && row.permissions['EDIT']) return row.permissions['EDIT'];
-    if (action === 'UPDATE' && row.permissions['MANAGE']) return row.permissions['MANAGE'];
-    if (action === 'CREATE' && row.permissions['SUBMIT']) return row.permissions['SUBMIT'];
-    return undefined;
-  }
-
-  const standardActions = ['VIEW', 'CREATE', 'UPDATE', 'DELETE'];
+  // Discard all unsaved changes
+  const handleDiscardChanges = useCallback(() => {
+    setLocalChanges(new Map());
+    setDivisionChanges(new Map());
+    message.info('All unsaved changes have been discarded.');
+  }, [message]);
 
   // Counts for 4 Crystal KPI Cards
   const totalMatrixPerms = useMemo(() => {
@@ -541,6 +1022,15 @@ const PermissionMatrix: React.FC = () => {
   const rolesCount = matrix?.roles?.length || 0;
   const protectedRowsCount = matrix?.rows?.length || 0;
   const pendingChangesCount = localChanges.size + divisionChanges.size;
+
+  // Count of rows per module within filtered rows (avoids O(N^2) filtering inside JSX loop)
+  const moduleCountsMap = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const r of filteredRows) {
+      map.set(r.module, (map.get(r.module) || 0) + 1);
+    }
+    return map;
+  }, [filteredRows]);
 
   const exportMenuItems: MenuProps['items'] = [
     {
@@ -560,40 +1050,44 @@ const PermissionMatrix: React.FC = () => {
   // Header Extra Actions
   const headerExtra = (
     <Space size={8} wrap>
-      <Popconfirm
-        title="Save all permission changes?"
-        description={`This will immediately apply ${localChanges.size} permission assignment update(s).`}
-        onConfirm={handleSave}
-        okButtonProps={{ loading: saving }}
-        okText="Save Now"
-        disabled={!hasChanges}
-      >
-        <Button
-          type="primary"
-          icon={<SaveOutlined />}
+      {canUpdateMatrix && (
+        <Popconfirm
+          title="Save all permission changes?"
+          description={`This will immediately apply ${pendingChangesCount} permission update(s).`}
+          onConfirm={handleSave}
+          okButtonProps={{ loading: saving }}
+          okText="Save Now"
           disabled={!hasChanges}
-          loading={saving}
-          style={{
-            background: hasChanges ? 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)' : undefined,
-            border: 'none',
-            boxShadow: hasChanges ? '0 4px 12px rgba(79, 70, 229, 0.4)' : undefined,
-          }}
         >
-          Save Changes {hasChanges && `(${localChanges.size})`}
-        </Button>
-      </Popconfirm>
+          <Button
+            type="primary"
+            icon={<SaveOutlined />}
+            disabled={!hasChanges}
+            loading={saving}
+            style={{
+              background: hasChanges ? 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)' : undefined,
+              border: 'none',
+              boxShadow: hasChanges ? '0 4px 12px rgba(79, 70, 229, 0.4)' : undefined,
+            }}
+          >
+            Save Changes {hasChanges && `(${pendingChangesCount})`}
+          </Button>
+        </Popconfirm>
+      )}
 
-      {hasChanges && (
+      {canUpdateMatrix && hasChanges && (
         <Button icon={<UndoOutlined />} onClick={handleDiscardChanges} danger>
-          Discard ({localChanges.size})
+          Discard ({pendingChangesCount})
         </Button>
       )}
 
-      <Dropdown menu={{ items: exportMenuItems }} placement="bottomRight">
-        <Button icon={<DownloadOutlined />} loading={exportLoading}>
-          Export Matrix
-        </Button>
-      </Dropdown>
+      {canExportMatrix && (
+        <Dropdown menu={{ items: exportMenuItems }} placement="bottomRight">
+          <Button icon={<DownloadOutlined />} loading={exportLoading}>
+            Export Matrix
+          </Button>
+        </Dropdown>
+      )}
 
       <Button
         icon={<ReloadOutlined />}
@@ -716,8 +1210,6 @@ const PermissionMatrix: React.FC = () => {
       <Card
         style={{
           borderRadius: 16,
-          border: '1px solid rgba(226, 232, 240, 0.8)',
-          boxShadow: '0 4px 20px -2px rgba(15, 23, 42, 0.05)',
         }}
         title={
           <Space>
@@ -769,11 +1261,11 @@ const PermissionMatrix: React.FC = () => {
                 <th className="matrix-corner-th">
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <Space size={6}>
-                      <ApartmentOutlined style={{ color: '#4f46e5' }} />
-                      <span style={{ fontWeight: 700, fontSize: 13, color: '#1e293b' }}>Module / Resource</span>
+                      <ApartmentOutlined style={{ color: token.colorPrimary }} />
+                      <span style={{ fontWeight: 700, fontSize: 13, color: token.colorTextHeading }}>Module / Resource</span>
                     </Space>
                     <Tooltip title="Fixed sticky column on scroll">
-                      <LockOutlined style={{ color: '#94a3b8', fontSize: 11 }} />
+                      <LockOutlined style={{ color: token.colorTextTertiary, fontSize: 11 }} />
                     </Tooltip>
                   </div>
                 </th>
@@ -790,52 +1282,63 @@ const PermissionMatrix: React.FC = () => {
                         >
                           {role.isSystemRole ? 'System' : 'Custom'}
                         </Tag>
-                        <Dropdown
-                          menu={{
-                            items: [
-                              {
-                                key: 'grant-all',
-                                label: 'Grant All Permissions in Column',
-                                icon: <CheckCircleOutlined style={{ color: '#16a34a' }} />,
-                                onClick: () => handleGrantAllInRole(role.id),
-                              },
-                              {
-                                key: 'revoke-all',
-                                label: 'Revoke All Permissions in Column',
-                                icon: <CloseCircleOutlined style={{ color: '#e11d48' }} />,
-                                onClick: () => handleRevokeAllInRole(role.id),
-                              },
-                            ],
-                          }}
-                          trigger={['click']}
-                        >
-                          <Button type="text" size="small" style={{ padding: '0 4px', height: 16, fontSize: 11 }}>
-                            ▾
-                          </Button>
-                        </Dropdown>
+                        {canUpdateMatrix && (
+                          <Dropdown
+                            menu={{
+                              items: [
+                                {
+                                  key: 'grant-all',
+                                  label: 'Grant All Permissions in Column',
+                                  icon: <CheckCircleOutlined style={{ color: '#16a34a' }} />,
+                                  onClick: () => handleGrantAllInRole(role.id),
+                                },
+                                {
+                                  key: 'revoke-all',
+                                  label: 'Revoke All Permissions in Column',
+                                  icon: <CloseCircleOutlined style={{ color: '#e11d48' }} />,
+                                  onClick: () => handleRevokeAllInRole(role.id),
+                                },
+                              ],
+                            }}
+                            trigger={['click']}
+                          >
+                            <Button type="text" size="small" style={{ padding: '0 4px', height: 16, fontSize: 11 }}>
+                              ▾
+                            </Button>
+                          </Dropdown>
+                        )}
                       </div>
 
                       {/* Quick action column batch toggles */}
-                      <div className="matrix-th-batch-actions">
-                        {standardActions.map(action => {
-                          const config = ACTION_CONFIG[action];
-                          return (
-                            <Tooltip key={action} title={`Toggle all ${config.full} for ${role.name}`} placement="top">
-                              <button
-                                className="matrix-th-act-toggle"
-                                onClick={() => {
-                                  // Check state of first row permission
-                                  const firstPerm = resolveCellPermission(matrix.rows[0], action);
-                                  const curVal = firstPerm ? isGranted(role.id, firstPerm.permissionId, firstPerm.roleGranted[role.id]) : false;
-                                  handleToggleColumnAction(role.id, action, !curVal);
-                                }}
-                              >
-                                {config.label}
-                              </button>
-                            </Tooltip>
-                          );
-                        })}
-                      </div>
+                      {canUpdateMatrix && (
+                        <div className="matrix-th-batch-actions">
+                          {STANDARD_ACTIONS.map(action => {
+                            const config = ACTION_CONFIG[action];
+                            return (
+                              <Tooltip key={action} title={`Toggle all ${config.full} for ${role.name}`} placement="top">
+                                <button
+                                  type="button"
+                                  className="matrix-th-act-toggle"
+                                  onClick={() => {
+                                    const sampleRows = filteredRows.length > 0 ? filteredRows : matrix.rows;
+                                    let refPerm: PermissionCell | undefined;
+                                    for (const r of sampleRows) {
+                                      refPerm = resolveCellPermission(r, action);
+                                      if (refPerm) break;
+                                    }
+                                    const curVal = refPerm
+                                      ? isGranted(role.id, refPerm.permissionId, refPerm.roleGranted[role.id])
+                                      : false;
+                                    handleToggleColumnAction(role.id, action, !curVal);
+                                  }}
+                                >
+                                  {config.label}
+                                </button>
+                              </Tooltip>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   </th>
                 ))}
@@ -851,309 +1354,27 @@ const PermissionMatrix: React.FC = () => {
                   const isCollapsed = collapsedModules.has(row.module) && !search;
                   if (isCollapsed && !showModuleHeader) return null;
 
-                  // Aliased actions (DELETE↔DEACTIVATE…) share one cell object;
-                  // list each permission exactly once for the Division panel.
-                  const divisionPermissions = (() => {
-                    const seen = new Set<string>();
-                    const list: PermissionCell[] = [];
-                    for (const cell of Object.values(row.permissions)) {
-                      if (seen.has(cell.permissionId)) continue;
-                      seen.add(cell.permissionId);
-                      list.push(cell);
-                    }
-                    return list;
-                  })();
-
                   return (
-                    <React.Fragment key={`${row.module}-${row.resource}`}>
-                      {showModuleHeader && (
-                        <tr className="matrix-module-row">
-                          <td
-                            colSpan={(matrix?.roles?.length || 0) + 1}
-                            onClick={() => toggleModule(row.module)}
-                            style={{ cursor: 'pointer' }}
-                          >
-                            <Space size={8}>
-                              <span style={{ display: 'inline-flex', alignItems: 'center' }}>
-                                {collapsedModules.has(row.module)
-                                  ? <RightOutlined style={{ fontSize: 10, color: '#6366f1' }} />
-                                  : <DownOutlined style={{ fontSize: 10, color: '#6366f1' }} />}
-                              </span>
-                              <span
-                                style={{
-                                  display: 'inline-block',
-                                  width: 10,
-                                  height: 10,
-                                  borderRadius: 3,
-                                  background: MODULE_COLORS[row.module] || '#6366f1',
-                                }}
-                              />
-                              <span style={{ color: MODULE_COLORS[row.module] || '#1e293b' }}>
-                                {matrix?.moduleLabels[row.module] || row.module}
-                              </span>
-                              <Badge
-                                count={filteredRows.filter(r => r.module === row.module).length}
-                                style={{ backgroundColor: '#6366f1', fontSize: 11 }}
-                              />
-                            </Space>
-                          </td>
-                        </tr>
-                      )}
-
-                      {!isCollapsed && (
-                        <tr>
-                          {/* Sticky Left Resource Column */}
-                          <td className="matrix-sticky-col">
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                              <span>{row.resourceName}</span>
-                              <Space size={4}>
-                                <Tooltip
-                                  title="Division Access — restrict which divisions each role may use this permission in (Prompt #16)"
-                                >
-                                  <Button
-                                    size="small"
-                                    type="text"
-                                    data-testid={`division-access-toggle-${row.module}-${row.resource}`}
-                                    aria-label={`Division Access for ${row.resourceName}`}
-                                    icon={
-                                      <ApartmentOutlined
-                                        style={{
-                                          color: expandedDivisionRows.has(`${row.module}:${row.resource}`)
-                                            ? '#4f46e5'
-                                            : '#94a3b8',
-                                        }}
-                                      />
-                                    }
-                                    onClick={() => toggleDivisionAccessRow(row)}
-                                  />
-                                </Tooltip>
-                                <Tooltip title={`Resource code: ${row.resource} (${Object.keys(row.permissions).length} controls)`}>
-                                  <InfoCircleOutlined style={{ color: '#94a3b8', fontSize: 12 }} />
-                                </Tooltip>
-                              </Space>
-                            </div>
-                          </td>
-
-                          {/* Role Permission Matrix Cells */}
-                          {matrix?.roles?.map(role => (
-                            <td key={role.id} className="matrix-cell-td">
-                              <div className="matrix-btn-group">
-                                {standardActions.map(action => {
-                                  const perm = resolveCellPermission(row, action);
-                                  const config = ACTION_CONFIG[action];
-
-                                  if (!perm) {
-                                    return (
-                                      <Tooltip key={action} title={`${config.full} not configured for this resource`}>
-                                        <span
-                                          style={{
-                                            width: 27,
-                                            height: 24,
-                                            display: 'inline-flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            fontSize: 11,
-                                            color: '#cbd5e1',
-                                          }}
-                                        >
-                                          -
-                                        </span>
-                                      </Tooltip>
-                                    );
-                                  }
-
-                                  const originalVal = perm.roleGranted[role.id] || false;
-                                  const currentVal = isGranted(role.id, perm.permissionId, originalVal);
-                                  const key = changeKey(role.id, perm.permissionId);
-                                  const hasPendingChange = localChanges.has(key);
-
-                                  return (
-                                    <Tooltip
-                                      key={action}
-                                      title={
-                                        <div>
-                                          <div style={{ fontWeight: 700 }}>
-                                            {config.full}: {currentVal ? 'GRANTED' : 'REVOKED'}
-                                          </div>
-                                          <div style={{ fontSize: 11, color: '#e2e8f0' }}>{perm.permissionCode}</div>
-                                          <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>
-                                            Role: {role.name} {hasPendingChange ? '(Unsaved Change)' : ''}
-                                          </div>
-                                        </div>
-                                      }
-                                      placement="top"
-                                    >
-                                      <button
-                                        type="button"
-                                        className={`matrix-act-btn ${
-                                          currentVal ? config.classPrefix : 'ungranted'
-                                        } ${hasPendingChange ? 'has-pending-change' : ''}`}
-                                        onClick={() => togglePermission(role.id, perm.permissionId, originalVal)}
-                                      >
-                                        {config.label}
-                                      </button>
-                                    </Tooltip>
-                                  );
-                                })}
-
-                                {/* Special Workflow Actions (Approve, Post, Submit) if present */}
-                                {Object.entries(row.permissions)
-                                  .filter(([act]) => !standardActions.includes(act) && !['DEACTIVATE', 'DISCONTINUE', 'EDIT', 'MANAGE'].includes(act))
-                                  .map(([act, perm]) => {
-                                    const config = ACTION_CONFIG[act] || {
-                                      label: act[0],
-                                      full: act,
-                                      color: '#7c3aed',
-                                      classPrefix: 'granted-special',
-                                    };
-                                    const originalVal = perm.roleGranted[role.id] || false;
-                                    const currentVal = isGranted(role.id, perm.permissionId, originalVal);
-                                    const key = changeKey(role.id, perm.permissionId);
-                                    const hasPendingChange = localChanges.has(key);
-
-                                    return (
-                                      <Tooltip
-                                        key={act}
-                                        title={`${config.full}: ${currentVal ? 'GRANTED' : 'REVOKED'} (${perm.permissionCode})`}
-                                      >
-                                        <button
-                                          type="button"
-                                          className={`matrix-act-btn ${
-                                            currentVal ? config.classPrefix : 'ungranted'
-                                          } ${hasPendingChange ? 'has-pending-change' : ''}`}
-                                          onClick={() => togglePermission(role.id, perm.permissionId, originalVal)}
-                                        >
-                                          {config.label}
-                                        </button>
-                                      </Tooltip>
-                                    );
-                                  })}
-                              </div>
-                            </td>
-                          ))}
-                        </tr>
-                      )}
-
-                      {/* Prompt #16 §24 — expandable Division Access panel */}
-                      {!isCollapsed && expandedDivisionRows.has(`${row.module}:${row.resource}`) && (
-                        <tr
-                          className="matrix-division-row"
-                          data-testid={`division-access-row-${row.module}-${row.resource}`}
-                        >
-                          <td colSpan={(matrix?.roles?.length || 0) + 1}>
-                            <div
-                              style={{
-                                padding: '10px 14px',
-                                background: 'rgba(79, 70, 229, 0.05)',
-                                borderTop: '1px dashed rgba(79, 70, 229, 0.3)',
-                                borderBottom: '1px dashed rgba(79, 70, 229, 0.3)',
-                              }}
-                            >
-                              <Space direction="vertical" size={10} style={{ width: '100%' }}>
-                                <Space size={8} wrap>
-                                  <ApartmentOutlined style={{ color: '#4f46e5' }} />
-                                  <Text strong>Division Access</Text>
-                                  <Text type="secondary" style={{ fontSize: 12 }}>
-                                    Empty = no restriction for that grant (every division the user&apos;s own
-                                    organization scope allows). Selecting divisions limits the grant to exactly
-                                    those; a user always receives the intersection of their own scope and this
-                                    setting.
-                                  </Text>
-                                </Space>
-
-                                <div
-                                  style={{
-                                    display: 'grid',
-                                    gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
-                                    gap: 12,
-                                  }}
-                                >
-                                  {matrix?.roles?.map(role => (
-                                    <div
-                                      key={role.id}
-                                      style={{
-                                        border: '1px solid rgba(226, 232, 240, 0.9)',
-                                        borderRadius: 10,
-                                        padding: 10,
-                                        background: 'rgba(255, 255, 255, 0.7)',
-                                      }}
-                                    >
-                                      <Space size={6} style={{ marginBottom: 8 }} wrap>
-                                        <Tag color={role.isSystemRole ? 'gold' : 'blue'} style={{ margin: 0 }}>
-                                          {role.roleCode}
-                                        </Tag>
-                                        <Text style={{ fontSize: 12 }}>{role.name}</Text>
-                                      </Space>
-
-                                      <Space direction="vertical" size={6} style={{ width: '100%' }}>
-                                        {divisionPermissions.map(perm => {
-                                          const original = perm.roleDivisionScopes?.[role.id] ?? null;
-                                          const current = getDivisionScope(role.id, perm.permissionId, original);
-                                          const key = changeKey(role.id, perm.permissionId);
-                                          const dirty = divisionChanges.has(key);
-                                          const granted = isGranted(
-                                            role.id,
-                                            perm.permissionId,
-                                            perm.roleGranted[role.id] || false,
-                                          );
-
-                                          return (
-                                            <div
-                                              key={perm.permissionId}
-                                              style={{ display: 'flex', alignItems: 'center', gap: 8 }}
-                                            >
-                                              <Tooltip title={perm.permissionCode}>
-                                                <span
-                                                  style={{
-                                                    width: 132,
-                                                    flexShrink: 0,
-                                                    fontSize: 11,
-                                                    color: granted ? '#334155' : '#94a3b8',
-                                                    textDecoration: granted ? 'none' : 'line-through',
-                                                    overflow: 'hidden',
-                                                    textOverflow: 'ellipsis',
-                                                    whiteSpace: 'nowrap',
-                                                  }}
-                                                >
-                                                  {perm.permissionCode}
-                                                </span>
-                                              </Tooltip>
-                                              <DivisionSelect
-                                                mode="multiple"
-                                                size="small"
-                                                style={{ flex: 1, minWidth: 0 }}
-                                                value={current}
-                                                divisions={matrix.divisions ?? null}
-                                                disabled={!granted}
-                                                allowClear
-                                                placeholder="All divisions"
-                                                onChange={(v: any) =>
-                                                  setDivisionScope(
-                                                    role.id,
-                                                    perm.permissionId,
-                                                    original,
-                                                    Array.isArray(v) && v.length > 0 ? (v as string[]) : null,
-                                                  )
-                                                }
-                                              />
-                                              {dirty && (
-                                                <Tag color="orange" style={{ margin: 0 }}>
-                                                  new
-                                                </Tag>
-                                              )}
-                                            </div>
-                                          );
-                                        })}
-                                      </Space>
-                                    </div>
-                                  ))}
-                                </div>
-                              </Space>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </React.Fragment>
+                    <MatrixResourceRow
+                      key={`${row.module}-${row.resource}`}
+                      row={row}
+                      roles={matrix?.roles || []}
+                      divisions={matrix?.divisions}
+                      showModuleHeader={showModuleHeader}
+                      isCollapsed={isCollapsed}
+                      isExpandedDivision={expandedDivisionRows.has(`${row.module}:${row.resource}`)}
+                      moduleColor={MODULE_COLORS[row.module] || token.colorTextHeading}
+                      moduleLabel={matrix?.moduleLabels[row.module] || row.module}
+                      moduleCount={moduleCountsMap.get(row.module) || 0}
+                      canUpdateMatrix={canUpdateMatrix}
+                      localChanges={localChanges}
+                      divisionChanges={divisionChanges}
+                      token={token}
+                      onToggleModule={toggleModule}
+                      onTogglePermission={togglePermission}
+                      onToggleDivisionRow={toggleDivisionAccessRow}
+                      onSetDivisionScope={setDivisionScope}
+                    />
                   );
                 });
               })()}
@@ -1169,9 +1390,9 @@ const PermissionMatrix: React.FC = () => {
       </Card>
 
       {/* Legend Information Toolbar */}
-      <div style={{ marginTop: 18, display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'center' }}>
-        {Object.entries(ACTION_CONFIG).map(([act, config]) => (
-          <Space key={act} size={6}>
+      <div style={{ marginTop: 18, display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'center' }}>
+        {LEGEND_ACTIONS.map(item => (
+          <Space key={item.key} size={6}>
             <span
               style={{
                 display: 'inline-flex',
@@ -1183,25 +1404,25 @@ const PermissionMatrix: React.FC = () => {
                 fontWeight: 700,
                 borderRadius: 4,
                 color: '#ffffff',
-                background: config.color,
+                background: item.color,
                 boxShadow: '0 2px 4px rgba(0, 0, 0, 0.15)',
               }}
             >
-              {config.label}
+              {item.label}
             </span>
-            <span style={{ fontSize: 12, color: 'var(--theme-text-muted, #64748b)', fontWeight: 500 }}>
-              = {config.full}
+            <span style={{ fontSize: 12, color: token.colorTextSecondary, fontWeight: 500 }}>
+              = {item.full}
             </span>
           </Space>
         ))}
         <Space size={6} style={{ marginLeft: 'auto' }}>
           <span className="matrix-act-btn ungranted" style={{ width: 22, height: 20, fontSize: 10 }}>-</span>
-          <span style={{ fontSize: 12, color: 'var(--theme-text-muted, #64748b)' }}>= Revoked / Inactive</span>
+          <span style={{ fontSize: 12, color: token.colorTextSecondary }}>= Revoked / Inactive</span>
         </Space>
       </div>
 
       {/* Floating Bottom Save Dock (Appears when user has unsaved changes) */}
-      {hasChanges && (
+      {canUpdateMatrix && hasChanges && (
         <div className="matrix-floating-save-dock" data-testid="matrix-floating-save-dock">
           <span className="matrix-save-dock-pulse" />
           <span className="matrix-save-dock-text">
@@ -1221,7 +1442,7 @@ const PermissionMatrix: React.FC = () => {
             type="text"
             icon={<UndoOutlined />}
             onClick={handleDiscardChanges}
-            style={{ color: '#cbd5e1' }}
+            style={{ color: token.colorTextSecondary }}
           >
             Discard
           </Button>

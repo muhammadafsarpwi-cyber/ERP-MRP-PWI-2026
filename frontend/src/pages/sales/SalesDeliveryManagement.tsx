@@ -25,6 +25,7 @@ import {
   fetchCachedCustomers,
 } from '../../services/lookupsCache';
 import { useHeaderActions } from '../../components/layout/headerActionsStore';
+import { usePermission } from '../../hooks/usePermission';
 import dayjs from 'dayjs';
 import isSameOrBefore from 'dayjs/plugin/isSameOrBefore';
 import isSameOrAfter from 'dayjs/plugin/isSameOrAfter';
@@ -956,6 +957,14 @@ const SalesDeliveryManagement: React.FC = () => {
   const { message, notification } = App.useApp();
   const { token } = theme.useToken();
   const location = useLocation();
+  const { can } = usePermission();
+  const canCreate = can('sales.deliveries.create');
+  const canUpdate = can('sales.deliveries.update');
+  const canConfirm = can('sales.deliveries.confirm');
+  const canDelete = can('sales.deliveries.delete');
+  const canExport = can('sales.deliveries.export');
+  const canPrint = can('sales.deliveries.print');
+  const canCreateInvoice = can('sales.invoices.create');
   const routeTabId = location.pathname || '/sales/deliveries';
 
   useEffect(() => {
@@ -1799,7 +1808,7 @@ const SalesDeliveryManagement: React.FC = () => {
     setHeaderActions([
       {
         key: 'new-delivery',
-        node: (
+        node: canCreate ? (
           <Button
             className="btn-new-invoice"
             icon={<PlusOutlined />}
@@ -1807,7 +1816,7 @@ const SalesDeliveryManagement: React.FC = () => {
           >
             + New Delivery
           </Button>
-        ),
+        ) : null,
       },
       {
         key: 'refresh',
@@ -1823,7 +1832,7 @@ const SalesDeliveryManagement: React.FC = () => {
       },
       {
         key: 'csv',
-        node: (
+        node: canExport ? (
           <Button
             className="btn-inv-white"
             icon={<FileExcelOutlined />}
@@ -1831,11 +1840,11 @@ const SalesDeliveryManagement: React.FC = () => {
           >
             CSV
           </Button>
-        ),
+        ) : null,
       },
       {
         key: 'print',
-        node: (
+        node: canPrint ? (
           <Button
             className="btn-inv-white"
             icon={<PrinterOutlined />}
@@ -1843,14 +1852,14 @@ const SalesDeliveryManagement: React.FC = () => {
           >
             Print
           </Button>
-        ),
+        ) : null,
       },
     ], routeTabId);
 
     return () => {
       clearHeaderActions(routeTabId);
     };
-  }, [routeTabId, handleCreate, handleExportCsv, handlePrint, fetchData]);
+  }, [routeTabId, canCreate, canExport, canPrint, handleCreate, handleExportCsv, handlePrint, fetchData]);
 
   const handleModalDivisionChange = (divisionId?: string) => {
     setModalDivisionId(divisionId);
@@ -3562,23 +3571,27 @@ const SalesDeliveryManagement: React.FC = () => {
                 <EyeOutlined />
               </button>
             </Tooltip>
-            <Tooltip title="Print Delivery Challan">
-              <button
-                className="inv-action-btn inv-btn-print"
-                onClick={() => requestActionConfirmation(record, 'print_challan')}
-              >
-                <PrinterOutlined />
-              </button>
-            </Tooltip>
-            <Tooltip title="Print Outward Gate Pass">
-              <button
-                className="inv-action-btn"
-                style={{ backgroundColor: '#b45309', color: '#fff' }}
-                onClick={() => requestActionConfirmation(record, 'gate_pass')}
-              >
-                <SafetyCertificateOutlined />
-              </button>
-            </Tooltip>
+            {canPrint && (
+              <Tooltip title="Print Delivery Challan">
+                <button
+                  className="inv-action-btn inv-btn-print"
+                  onClick={() => requestActionConfirmation(record, 'print_challan')}
+                >
+                  <PrinterOutlined />
+                </button>
+              </Tooltip>
+            )}
+            {canPrint && (
+              <Tooltip title="Print Outward Gate Pass">
+                <button
+                  className="inv-action-btn"
+                  style={{ backgroundColor: '#b45309', color: '#fff' }}
+                  onClick={() => requestActionConfirmation(record, 'gate_pass')}
+                >
+                  <SafetyCertificateOutlined />
+                </button>
+              </Tooltip>
+            )}
             <Tooltip title="Share Delivery / Gate Pass via WhatsApp">
               <button
                 className="inv-action-btn inv-btn-wa"
@@ -3631,16 +3644,18 @@ const SalesDeliveryManagement: React.FC = () => {
                 <WhatsAppOutlined />
               </button>
             </Tooltip>
-            <Tooltip title="Edit Delivery">
-              <button
-                className="inv-action-btn inv-btn-edit"
-                onClick={() => requestActionConfirmation(record, 'edit')}
-                disabled={s !== 'DRAFT'}
-              >
-                <EditOutlined />
-              </button>
-            </Tooltip>
-            {s === 'DRAFT' && (
+            {canUpdate && (
+              <Tooltip title="Edit Delivery">
+                <button
+                  className="inv-action-btn inv-btn-edit"
+                  onClick={() => requestActionConfirmation(record, 'edit')}
+                  disabled={s !== 'DRAFT'}
+                >
+                  <EditOutlined />
+                </button>
+              </Tooltip>
+            )}
+            {s === 'DRAFT' && canUpdate && (
               <Tooltip title="Ship Delivery">
                 <button
                   className="inv-action-btn inv-btn-pay"
@@ -3651,7 +3666,7 @@ const SalesDeliveryManagement: React.FC = () => {
                 </button>
               </Tooltip>
             )}
-            {s === 'SHIPPED' && (
+            {s === 'SHIPPED' && canUpdate && (
               <Tooltip title="Mark Delivered">
                 <button
                   className="inv-action-btn inv-btn-pay"
@@ -3662,7 +3677,7 @@ const SalesDeliveryManagement: React.FC = () => {
                 </button>
               </Tooltip>
             )}
-            {s === 'DELIVERED' && (
+            {s === 'DELIVERED' && canConfirm && (
               <Tooltip title="Confirm Delivery (Post Stock OUT)">
                 <button
                   className="inv-action-btn inv-btn-pay"
@@ -3689,7 +3704,7 @@ const SalesDeliveryManagement: React.FC = () => {
                     <CheckCircleOutlined />
                   </button>
                 </Tooltip>
-              ) : (
+              ) : canCreateInvoice ? (
                 <Tooltip title="Generate Sales Invoice">
                   <button
                     className="inv-action-btn"
@@ -3699,9 +3714,9 @@ const SalesDeliveryManagement: React.FC = () => {
                     <FileTextOutlined />
                   </button>
                 </Tooltip>
-              )
+              ) : null
             )}
-            {s !== 'CANCELLED' && s !== 'CONFIRMED' && (
+            {s !== 'CANCELLED' && s !== 'CONFIRMED' && (canUpdate || canDelete) && (
               <Tooltip title="Cancel Delivery">
                 <button
                   className="inv-action-btn inv-btn-cancel"
@@ -3711,7 +3726,7 @@ const SalesDeliveryManagement: React.FC = () => {
                 </button>
               </Tooltip>
             )}
-            {s === 'CANCELLED' && (
+            {s === 'CANCELLED' && canUpdate && (
               <Tooltip title="Restore Cancelled Delivery Back to Draft">
                 <button
                   className="inv-action-btn"
@@ -3734,7 +3749,7 @@ const SalesDeliveryManagement: React.FC = () => {
                 </button>
               </Tooltip>
             )}
-            {(s === 'DRAFT' || s === 'CANCELLED') && (
+            {(s === 'DRAFT' || s === 'CANCELLED') && canDelete && (
               <Tooltip title="Delete Delivery">
                 <button
                   className="inv-action-btn inv-btn-cancel"
@@ -4277,22 +4292,26 @@ const SalesDeliveryManagement: React.FC = () => {
 
             <TableColumnSelector {...selectorProps} size="small" />
 
-            <Button
-              icon={<FileExcelOutlined />}
-              onClick={handleExportCsv}
-              className="delivery-tool-action-btn"
-              title="Export to CSV"
-            >
-              CSV
-            </Button>
-            <Button
-              icon={<PrinterOutlined />}
-              onClick={handlePrint}
-              className="delivery-tool-action-btn"
-              title="Print Table View"
-            >
-              Print
-            </Button>
+            {canExport && (
+              <Button
+                icon={<FileExcelOutlined />}
+                onClick={handleExportCsv}
+                className="delivery-tool-action-btn"
+                title="Export to CSV"
+              >
+                CSV
+              </Button>
+            )}
+            {canPrint && (
+              <Button
+                icon={<PrinterOutlined />}
+                onClick={handlePrint}
+                className="delivery-tool-action-btn"
+                title="Print Table View"
+              >
+                Print
+              </Button>
+            )}
             <Button
               icon={<ReloadOutlined spin={loading} />}
               onClick={() => void fetchData({ forceRefresh: true })}
@@ -4635,21 +4654,23 @@ const SalesDeliveryManagement: React.FC = () => {
               >
                 Preview Gate Pass
               </Button>
-              <Button
-                key="preview-dc"
-                size="large"
-                icon={<PrinterOutlined />}
-                style={{
-                  backgroundColor: '#475569',
-                  borderColor: '#475569',
-                  color: '#ffffff',
-                  fontWeight: 600,
-                  borderRadius: 10,
-                }}
-                onClick={handleModalPrintChallan}
-              >
-                Print Delivery Challan
-              </Button>
+              {canPrint && (
+                <Button
+                  key="preview-dc"
+                  size="large"
+                  icon={<PrinterOutlined />}
+                  style={{
+                    backgroundColor: '#475569',
+                    borderColor: '#475569',
+                    color: '#ffffff',
+                    fontWeight: 600,
+                    borderRadius: 10,
+                  }}
+                  onClick={handleModalPrintChallan}
+                >
+                  Print Delivery Challan
+                </Button>
+              )}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <Button
@@ -5280,18 +5301,22 @@ const SalesDeliveryManagement: React.FC = () => {
         open={detailVisible}
         onCancel={() => setDetailVisible(false)}
         footer={[
-          <Button key="print" icon={<PrinterOutlined />} onClick={() => detailItem && requestActionConfirmation(detailItem, 'print_challan')}>
-            Print Delivery Challan
-          </Button>,
-          <Button
-            key="gatepass"
-            style={{ backgroundColor: '#b45309', borderColor: '#b45309', color: '#fff' }}
-            icon={<SafetyCertificateOutlined />}
-            onClick={() => detailItem && requestActionConfirmation(detailItem, 'gate_pass')}
-          >
-            Print Outward Gate Pass
-          </Button>,
-          detailItem && ['DRAFT', 'SHIPPED', 'DELIVERED'].includes((detailItem.status || '').toUpperCase()) && (
+          canPrint && (
+            <Button key="print" icon={<PrinterOutlined />} onClick={() => detailItem && requestActionConfirmation(detailItem, 'print_challan')}>
+              Print Delivery Challan
+            </Button>
+          ),
+          canPrint && (
+            <Button
+              key="gatepass"
+              style={{ backgroundColor: '#b45309', borderColor: '#b45309', color: '#fff' }}
+              icon={<SafetyCertificateOutlined />}
+              onClick={() => detailItem && requestActionConfirmation(detailItem, 'gate_pass')}
+            >
+              Print Outward Gate Pass
+            </Button>
+          ),
+          detailItem && canConfirm && ['DRAFT', 'SHIPPED', 'DELIVERED'].includes((detailItem.status || '').toUpperCase()) && (
             <Button
               key="confirm"
               type="primary"
@@ -5304,7 +5329,7 @@ const SalesDeliveryManagement: React.FC = () => {
               Post & Deduct Inventory
             </Button>
           ),
-          detailItem && ['CONFIRMED', 'DELIVERED', 'SHIPPED'].includes((detailItem.status || '').toUpperCase()) && (
+          detailItem && canCreateInvoice && ['CONFIRMED', 'DELIVERED', 'SHIPPED'].includes((detailItem.status || '').toUpperCase()) && (
             <Button
               key="invoice"
               type="primary"
@@ -5356,22 +5381,26 @@ const SalesDeliveryManagement: React.FC = () => {
 
                 {/* Quick Actions in Left Sidebar */}
                 <div className="doc-sidebar-actions">
-                  <Button
-                    type="primary"
-                    icon={<PrinterOutlined />}
-                    block
-                    onClick={() => requestActionConfirmation(detailItem, 'print_challan')}
-                  >
-                    Print Delivery Challan
-                  </Button>
-                  <Button
-                    icon={<SafetyCertificateOutlined />}
-                    block
-                    style={{ backgroundColor: '#b45309', borderColor: '#b45309', color: '#fff' }}
-                    onClick={() => requestActionConfirmation(detailItem, 'gate_pass')}
-                  >
-                    Print Outward Gate Pass
-                  </Button>
+                  {canPrint && (
+                    <Button
+                      type="primary"
+                      icon={<PrinterOutlined />}
+                      block
+                      onClick={() => requestActionConfirmation(detailItem, 'print_challan')}
+                    >
+                      Print Delivery Challan
+                    </Button>
+                  )}
+                  {canPrint && (
+                    <Button
+                      icon={<SafetyCertificateOutlined />}
+                      block
+                      style={{ backgroundColor: '#b45309', borderColor: '#b45309', color: '#fff' }}
+                      onClick={() => requestActionConfirmation(detailItem, 'gate_pass')}
+                    >
+                      Print Outward Gate Pass
+                    </Button>
+                  )}
                   {['CONFIRMED', 'DELIVERED', 'SHIPPED'].includes((detailItem.status || '').toUpperCase()) && (
                     (detailItem.isInvoiced || detailItem.invoicedInvoiceNo || detailItem.invoicedInvoice?.invoiceNo) ? (
                       <Button
@@ -5387,7 +5416,7 @@ const SalesDeliveryManagement: React.FC = () => {
                       >
                         Invoiced: {detailItem.invoicedInvoiceNo || detailItem.invoicedInvoice?.invoiceNo}
                       </Button>
-                    ) : (
+                    ) : canCreateInvoice ? (
                       <Button
                         type="primary"
                         icon={<FileTextOutlined />}
@@ -5397,7 +5426,7 @@ const SalesDeliveryManagement: React.FC = () => {
                       >
                         Generate Sales Invoice
                       </Button>
-                    )
+                    ) : null
                   )}
                 </div>
 

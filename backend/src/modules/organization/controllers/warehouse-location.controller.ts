@@ -13,7 +13,7 @@ export class WarehouseLocationController {
   constructor(private readonly locationService: WarehouseLocationService) {}
 
   @Post()
-  @RequirePermission('warehouse.create')
+  @RequirePermission('organization.warehouse_location.create')
   @ApiOperation({ summary: 'Create a new warehouse location' })
   @ApiResponse({ status: 201, description: 'Location created successfully' })
   @ApiResponse({ status: 409, description: 'Location code already exists' })
@@ -23,7 +23,7 @@ export class WarehouseLocationController {
   }
 
   @Get()
-  @RequirePermission('warehouse.view')
+  @RequirePermission('organization.warehouse_location.view')
   @ApiOperation({ summary: 'Get all warehouse locations' })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
@@ -46,7 +46,7 @@ export class WarehouseLocationController {
   }
 
   @Get('hierarchy/:warehouseId')
-  @RequirePermission('warehouse.view')
+  @RequirePermission('organization.warehouse_location.view')
   @ApiOperation({ summary: 'Get location hierarchy for a warehouse' })
   @ApiParam({ name: 'warehouseId', description: 'Warehouse ID' })
   async getHierarchy(@Param('warehouseId') warehouseId: string) {
@@ -55,7 +55,7 @@ export class WarehouseLocationController {
   }
 
   @Get(':id')
-  @RequirePermission('warehouse.view')
+  @RequirePermission('organization.warehouse_location.view')
   @ApiOperation({ summary: 'Get a location by ID' })
   @ApiParam({ name: 'id', description: 'Location ID' })
   @ApiResponse({ status: 200, description: 'Location found' })
@@ -66,7 +66,7 @@ export class WarehouseLocationController {
   }
 
   @Patch(':id')
-  @RequirePermission('warehouse.update')
+  @RequirePermission('organization.warehouse_location.update')
   @ApiOperation({ summary: 'Update a location' })
   @ApiParam({ name: 'id', description: 'Location ID' })
   @ApiResponse({ status: 200, description: 'Location updated successfully' })
@@ -77,7 +77,7 @@ export class WarehouseLocationController {
 
   @Patch(':id/activate')
   @HttpCode(HttpStatus.OK)
-  @RequirePermission('warehouse.activate')
+  @RequirePermission('organization.warehouse_location.activate')
   @ApiOperation({ summary: 'Activate a location' })
   @ApiParam({ name: 'id', description: 'Location ID' })
   @ApiResponse({ status: 200, description: 'Location activated successfully' })
@@ -88,7 +88,7 @@ export class WarehouseLocationController {
 
   @Patch(':id/deactivate')
   @HttpCode(HttpStatus.OK)
-  @RequirePermission('warehouse.deactivate')
+  @RequirePermission('organization.warehouse_location.deactivate')
   @ApiOperation({ summary: 'Deactivate a location' })
   @ApiParam({ name: 'id', description: 'Location ID' })
   @ApiResponse({ status: 200, description: 'Location deactivated successfully' })
@@ -99,7 +99,7 @@ export class WarehouseLocationController {
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @RequirePermission('warehouse.delete')
+  @RequirePermission('organization.warehouse_location.delete')
   @ApiOperation({ summary: 'Delete a location' })
   @ApiParam({ name: 'id', description: 'Location ID' })
   @ApiResponse({ status: 204, description: 'Location deleted successfully' })

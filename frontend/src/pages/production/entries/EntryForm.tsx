@@ -711,10 +711,22 @@ const EntryForm: React.FC<EntryFormProps> = ({
 
     // ── 2. Source Raw Material Warehouse ("IN") ─────────────────────
     const selectedItem = lookups.items.find((i) => i.id === itemId);
+    const selectedCodeUpper = (selectedItem?.itemCode || '').toUpperCase();
+    const isSpiralCoreItem = selectedCodeUpper.startsWith('WIP-CS');
+    const findFlatteningWipWh = () =>
+      warehouses.find((w) => w.warehouseCode === 'CCD-FT-022')
+      || warehouses.find((w) => w.warehouseCode === 'CCD-FT-001')
+      || warehouses.find((w) => label(w.name, w.warehouseCode).includes('flatten') && w.warehouseType === 'WORK_IN_PROGRESS')
+      || warehouses.find((w) => label(w.name, w.warehouseCode).includes('ft flattening') || label(w.name, w.warehouseCode).includes('ft production'));
+
     const inItem = selectedItem?.productionInItem || (selectedItem?.productionInItemId ? lookups.items.find((i) => i.id === selectedItem.productionInItemId) : null);
     let matchedRawWh: WarehouseLk | undefined;
 
-    if (inItem) {
+    if (isSpiralCoreItem) {
+      matchedRawWh = findFlatteningWipWh();
+    }
+
+    if (!matchedRawWh && inItem) {
       const inItemId = (inItem as any)?.id;
       const fullInItem = inItemId ? lookups.items.find((i) => i.id === inItemId) : null;
       const inItemDeptId = (inItem as any)?.departmentId || fullInItem?.departmentId;
@@ -732,13 +744,12 @@ const EntryForm: React.FC<EntryFormProps> = ({
       } else if (inDeptText.includes('plat') || inDeptText.includes('pl') || inItem.itemCode?.startsWith('WIP-PL')) {
         matchedRawWh = warehouses.find((w) => label(w.name, w.warehouseCode).includes('pl production') || w.warehouseCode === 'SPI-PL-004');
       } else if (
-        selectedItem?.itemCode === 'WIP-CS-006' ||
         inDeptText.includes('flatten') || inDeptText.includes('ft') ||
         inItem.itemCode?.startsWith('WIP-FT') ||
         inItem.itemCode?.startsWith('FLAT-STRIP') ||
         inItem.itemCode?.includes('STRIP')
       ) {
-        matchedRawWh = warehouses.find((w) => label(w.name, w.warehouseCode).includes('ft production') || w.warehouseCode === 'CCD-FT-001');
+        matchedRawWh = findFlatteningWipWh();
       }
     }
 
@@ -754,8 +765,12 @@ const EntryForm: React.FC<EntryFormProps> = ({
     }
 
     const rawCurrent = form.getFieldValue('rawMaterialWarehouseId') as string | undefined;
+    const rawCurrentObj = rawCurrent ? warehouses.find((w) => w.id === rawCurrent) : undefined;
     const genericRawId = warehouses.find((w) => w.warehouseType === 'RAW_MATERIAL')?.id;
-    const rawIsAuto = !rawCurrent || rawCurrent === autoWarehouseRef.current.raw || rawCurrent === genericRawId;
+    const spiralWronglyOnRaw =
+      isSpiralCoreItem &&
+      Boolean(rawCurrentObj && (rawCurrentObj.warehouseType === 'RAW_MATERIAL' || rawCurrentObj.warehouseCode === 'CCD-RM-011'));
+    const rawIsAuto = !rawCurrent || rawCurrent === autoWarehouseRef.current.raw || rawCurrent === genericRawId || spiralWronglyOnRaw;
     if (matchedRawWh && rawIsAuto && matchedRawWh.id !== rawCurrent) {
       form.setFieldValue('rawMaterialWarehouseId', matchedRawWh.id);
       autoWarehouseRef.current.raw = matchedRawWh.id;
@@ -2522,6 +2537,20 @@ const EntryForm: React.FC<EntryFormProps> = ({
       const itm = lookups.items.find((i) => i.id === payload.itemId);
       const rawWh = warehouses.find((w) => w.id === payload.rawMaterialWarehouseId);
       const recWh = warehouses.find((w) => w.id === payload.warehouseId);
+
+      // Guard: Spiral Core (WIP-CS-*) must consume from Flattening WIP Warehouse, never Raw Material Warehouse
+      const hasSpiralCoreOutput =
+        String(itm?.itemCode || '').toUpperCase().startsWith('WIP-CS') ||
+        itemLines.some((ln) => {
+          const lnItem = lookups.items.find((i) => i.id === ln?.itemId);
+          return String(lnItem?.itemCode || '').toUpperCase().startsWith('WIP-CS');
+        });
+      if (!isFullDowntime && hasSpiralCoreOutput && rawWh && (rawWh.warehouseType === 'RAW_MATERIAL' || rawWh.warehouseCode === 'CCD-RM-011')) {
+        message.error(
+          'Spiral Core (WIP-CS-*) entries must consume flattened strips from the Flattening WIP Warehouse (CCD-FT-022), not the Raw Material Warehouse.',
+        );
+        return;
+      }
       const shift = lookups.shifts.find((s) => s.id === payload.shiftId);
       const firstLine = itemLines.find((l) => !!l.itemId);
       const goodQty = firstLine?.actualQuantity ?? payload.actualQuantity;

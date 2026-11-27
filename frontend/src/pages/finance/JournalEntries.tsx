@@ -40,6 +40,7 @@ import apiService from '../../services/api';
 import { PageHeader, FinanceJournalLineEditor, TableColumnSelector, useColumnVisibility, type JournalLine } from '../../components/shared';
 import { formatPkr, downloadCsvFile } from '../../utils/financeHelpers';
 import { printFinanceVoucherDocument } from '../../utils/printTemplates';
+import { usePermission } from '../../hooks/usePermission';
 
 const { Text } = Typography;
 const { RangePicker } = DatePicker;
@@ -54,6 +55,13 @@ const VOUCHER_TAG_COLOR: Record<string, string> = {
 const JournalEntries: React.FC = () => {
   const { message } = App.useApp();
   const { token } = theme.useToken();
+  const { can } = usePermission();
+  const canCreate = can('finance.journal.create');
+  const canPost = can('finance.journal.post');
+  const canReverse = can('finance.journal.reverse');
+  const canDelete = can('finance.journal.delete');
+  const canExport = can('finance.journal.export');
+  const canPrint = can('finance.journal.print');
 
   const [data, setData] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
@@ -395,8 +403,10 @@ const JournalEntries: React.FC = () => {
       render: (_, r) => (
         <Space size={4}>
           <Button type="text" size="small" icon={<EyeOutlined />} title="View Details" onClick={() => setDetailVoucher(r)} />
-          <Button type="text" size="small" icon={<PrinterOutlined />} title="Print Formal Voucher" onClick={() => printFinanceVoucherDocument(r)} />
-          {r.status === 'DRAFT' && (
+          {canPrint && (
+            <Button type="text" size="small" icon={<PrinterOutlined />} title="Print Formal Voucher" onClick={() => printFinanceVoucherDocument(r)} />
+          )}
+          {canPost && r.status === 'DRAFT' && (
             <Button
               type="text"
               size="small"
@@ -406,7 +416,7 @@ const JournalEntries: React.FC = () => {
               onClick={() => handleAction(r.id, 'post')}
             />
           )}
-          {r.status === 'POSTED' && (
+          {canReverse && r.status === 'POSTED' && (
             <Popconfirm
               title="Create reversing voucher?"
               onConfirm={() => handleAction(r.id, 'reverse')}
@@ -415,7 +425,7 @@ const JournalEntries: React.FC = () => {
               <Button type="text" size="small" danger icon={<RollbackOutlined />} title="Reverse Voucher" />
             </Popconfirm>
           )}
-          {r.status === 'DRAFT' && (
+          {canDelete && r.status === 'DRAFT' && (
             <Popconfirm title="Delete draft voucher?" onConfirm={() => handleDelete(r.id)} okText="Delete">
               <Button type="text" size="small" danger icon={<DeleteOutlined />} title="Delete Draft" />
             </Popconfirm>
@@ -436,15 +446,21 @@ const JournalEntries: React.FC = () => {
         extra={
           <Space wrap>
             <TableColumnSelector {...selectorProps} />
-            <Button icon={<DownloadOutlined />} onClick={handleExportCsv}>
-              Export CSV
-            </Button>
-            <Button onClick={() => openNewVoucherModal('PAYMENT')}>+ Payment (PV)</Button>
-            <Button onClick={() => openNewVoucherModal('RECEIPT')}>+ Receipt (RV)</Button>
-            <Button onClick={() => openNewVoucherModal('CONTRA')}>+ Contra (CV)</Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => openNewVoucherModal('GENERAL')}>
-              New Voucher
-            </Button>
+            {canExport && (
+              <Button icon={<DownloadOutlined />} onClick={handleExportCsv}>
+                Export CSV
+              </Button>
+            )}
+            {canCreate && (
+              <>
+                <Button onClick={() => openNewVoucherModal('PAYMENT')}>+ Payment (PV)</Button>
+                <Button onClick={() => openNewVoucherModal('RECEIPT')}>+ Receipt (RV)</Button>
+                <Button onClick={() => openNewVoucherModal('CONTRA')}>+ Contra (CV)</Button>
+                <Button type="primary" icon={<PlusOutlined />} onClick={() => openNewVoucherModal('GENERAL')}>
+                  New Voucher
+                </Button>
+              </>
+            )}
           </Space>
         }
       />
@@ -726,10 +742,12 @@ const JournalEntries: React.FC = () => {
         extra={
           detailVoucher && (
             <Space>
-              <Button icon={<PrinterOutlined />} type="primary" onClick={() => printFinanceVoucherDocument(detailVoucher)}>
-                Print Voucher
-              </Button>
-              {detailVoucher.status === 'DRAFT' && (
+              {canPrint && (
+                <Button icon={<PrinterOutlined />} type="primary" onClick={() => printFinanceVoucherDocument(detailVoucher)}>
+                  Print Voucher
+                </Button>
+              )}
+              {canPost && detailVoucher.status === 'DRAFT' && (
                 <Button onClick={() => handleAction(detailVoucher.id, 'post')}>Post Now</Button>
               )}
             </Space>

@@ -292,7 +292,7 @@ export class MaintenanceJobCardController {
   }
 
   @Delete(':id/parts/:partId')
-  @RequirePermission('maintenance.job_card.update')
+  @RequirePermission('maintenance.job_card.update', 'maintenance.job_card.delete')
   @ApiOperation({ summary: 'Remove spare part from job card (reverses stock)' })
   @ApiParam({ name: 'id', type: String })
   @ApiParam({ name: 'partId', type: String })

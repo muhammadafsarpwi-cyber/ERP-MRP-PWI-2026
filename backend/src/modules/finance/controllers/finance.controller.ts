@@ -337,7 +337,7 @@ export class FinanceController {
   @Get('reports/cash-bank-book')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('finance.report.general_ledger')
+  @RequirePermission('finance.report.cash_bank_book')
   async cashBankBook(
     @Request() req: any,
     @Query('companyId') companyId?: string,

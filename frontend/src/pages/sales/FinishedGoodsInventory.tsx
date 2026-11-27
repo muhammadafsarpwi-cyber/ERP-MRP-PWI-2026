@@ -127,7 +127,10 @@ const FinishedGoodsInventory: React.FC = () => {
   const { token } = theme.useToken();
   const { message } = App.useApp();
   const { can } = usePermission();
-  const canPlanProduction = can('production.orders.create') || can('sales.orders.update');
+  const canPlanProduction = can('manufacturing.production.orders.create') || can('sales.orders.update');
+  const canUpdateHold = can('sales.finished_goods.update');
+  const canExport = can('sales.finished_goods.export');
+  const canPrint = can('sales.finished_goods.print');
 
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<FinishedGoodsItem[]>([]);
@@ -373,7 +376,7 @@ const FinishedGoodsInventory: React.FC = () => {
           </Button>
         ),
       },
-      {
+      ...(canExport ? [{
         key: 'csv',
         node: (
           <Button
@@ -384,8 +387,8 @@ const FinishedGoodsInventory: React.FC = () => {
             CSV Export
           </Button>
         ),
-      },
-      {
+      }] : []),
+      ...(canPrint ? [{
         key: 'print',
         node: (
           <Button
@@ -396,13 +399,13 @@ const FinishedGoodsInventory: React.FC = () => {
             Print Report
           </Button>
         ),
-      },
+      }] : []),
     ]);
 
     return () => {
       clearHeaderActions();
     };
-  }, [fetchData, handleExportCsv, handlePrint]);
+  }, [fetchData, handleExportCsv, handlePrint, canExport, canPrint]);
 
   // Packing Stage Hold Modal
   const [holdModalVisible, setHoldModalVisible] = useState(false);
@@ -1144,7 +1147,7 @@ const FinishedGoodsInventory: React.FC = () => {
                 </Button>
               </Tooltip>
             )}
-            {r.itemCode?.startsWith('SPI-FG-SPK') && (
+            {canUpdateHold && r.itemCode?.startsWith('SPI-FG-SPK') && (
               <Tooltip title={r.packingHold?.status && r.packingHold.status !== 'CLEAR' ? 'Packing Hold active: Click to view or release' : 'Set packing stage hold (e.g. Polybag Awaited)'}>
                 <Button
                   size="small"

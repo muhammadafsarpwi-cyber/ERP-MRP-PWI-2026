@@ -191,7 +191,7 @@ export class SalesDeliveryController {
   @Delete(':id')
   @UseGuards(PermissionGuard)
   @RequireOrgScope()
-  @RequirePermission('sales.deliveries.update')
+  @RequirePermission('sales.deliveries.delete')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Move a Draft gate pass (delivery) to the Recycle Bin (reversible)' })
   async remove(@Req() req: any, @Param('id') id: string) {

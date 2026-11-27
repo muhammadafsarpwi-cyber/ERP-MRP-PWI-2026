@@ -19,6 +19,7 @@ import { apiService } from '../../services/api';
 import { fetchNippleImportAlerts, type NippleImportAlert } from '../../services/nippleAlertsService';
 import { formatDecimal } from '../../utils/numberFormat';
 import { useNavigate } from 'react-router-dom';
+import { usePermission } from '../../hooks/usePermission';
 
 interface NotificationItem {
   id: string;
@@ -88,6 +89,8 @@ const NotificationBell: React.FC = () => {
   const mountedRef = useRef(true);
   const countReqRef = useRef(0);
   const navigate = useNavigate();
+  const { canAny } = usePermission();
+  const canViewNippleAlerts = canAny('inventory.nipple_demand.view', 'sales.analytics.view');
 
   const refresh = useCallback(async () => {
     const seq = ++countReqRef.current;
@@ -106,6 +109,7 @@ const NotificationBell: React.FC = () => {
   }, []);
 
   const refreshAlerts = useCallback(async () => {
+    if (!canViewNippleAlerts) return;
     try {
       const alerts = await fetchNippleImportAlerts();
       if (mountedRef.current) {
@@ -114,14 +118,14 @@ const NotificationBell: React.FC = () => {
     } catch {
       /* non-fatal */
     }
-  }, []);
+  }, [canViewNippleAlerts]);
 
   const loadList = useCallback(async () => {
     setLoading(true);
     try {
       const [res, alerts] = await Promise.all([
         apiService.get<ListResponse>('/notifications', { limit: 20 }, { silent: true, useEtag: true }),
-        fetchNippleImportAlerts(),
+        canViewNippleAlerts ? fetchNippleImportAlerts() : Promise.resolve([]),
       ]);
       if (mountedRef.current) {
         setItems(res.data ?? []);
@@ -132,7 +136,7 @@ const NotificationBell: React.FC = () => {
     } finally {
       if (mountedRef.current) setLoading(false);
     }
-  }, []);
+  }, [canViewNippleAlerts]);
 
   useEffect(() => {
     mountedRef.current = true;

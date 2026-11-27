@@ -35,7 +35,7 @@ export class ItemDocumentController {
 
   @Patch('documents/:id')
   @UseGuards(PermissionGuard)
-  @RequirePermission('item_document.update')
+  @RequirePermission('item.item_document.update')
   @ApiOperation({ summary: 'Update document' })
   @ApiParam({ name: 'id' })
   async update(@Param('id') id: string, @Body() dto: UpdateItemDocumentDto) {

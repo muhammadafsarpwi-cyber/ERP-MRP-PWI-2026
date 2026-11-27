@@ -487,12 +487,10 @@ const SalesOrderManagement: React.FC = () => {
   const canCreate = can('sales.orders.create');
   const canUpdate = can('sales.orders.update');
   const canApprove = can('sales.orders.approve');
-  const isAdmin = canAny(
-    'admin.users.view',
-    'admin.roles.view',
-    'admin.permissions.view',
-    'admin.recycle_bin.restore',
-  );
+  const canDelete = can('sales.orders.delete');
+  const canExport = can('sales.orders.export');
+  const canPrint = can('sales.orders.print');
+  const canRevertDelivery = can('sales.orders.revert_delivery');
 
   const [data, setData] = useState<SalesOrder[]>([]);
   const [loading, setLoading] = useState(false);
@@ -956,7 +954,7 @@ const SalesOrderManagement: React.FC = () => {
       },
       {
         key: 'csv',
-        node: (
+        node: canExport ? (
           <Button
             className="btn-inv-white"
             icon={<FileExcelOutlined />}
@@ -964,7 +962,7 @@ const SalesOrderManagement: React.FC = () => {
           >
             CSV
           </Button>
-        ),
+        ) : null,
       },
       {
         key: 'fg-inventory',
@@ -980,7 +978,7 @@ const SalesOrderManagement: React.FC = () => {
       },
       {
         key: 'print',
-        node: (
+        node: canPrint ? (
           <Button
             className="btn-inv-white"
             icon={<PrinterOutlined />}
@@ -988,14 +986,14 @@ const SalesOrderManagement: React.FC = () => {
           >
             Print
           </Button>
-        ),
+        ) : null,
       },
     ]);
 
     return () => {
       clearHeaderActions();
     };
-  }, [page, pageSize, canCreate, handleCreate, handleExportCsv, handlePrint, fetchData, navigate]);
+  }, [page, pageSize, canCreate, canExport, canPrint, handleCreate, handleExportCsv, handlePrint, fetchData, navigate]);
 
   const handleEdit = async (record: SalesOrder) => {
     let fullOrder = record;
@@ -2043,11 +2041,13 @@ const SalesOrderManagement: React.FC = () => {
                 <EyeOutlined />
               </button>
             </Tooltip>
-            <Tooltip title="Print Order">
-              <button className="inv-action-btn inv-btn-print" onClick={() => printSalesOrderDocument(record)}>
-                <PrinterOutlined />
-              </button>
-            </Tooltip>
+            {canPrint && (
+              <Tooltip title="Print Order">
+                <button className="inv-action-btn inv-btn-print" onClick={() => printSalesOrderDocument(record)}>
+                  <PrinterOutlined />
+                </button>
+              </Tooltip>
+            )}
             <Tooltip title="Share Sales Order / SOC via WhatsApp">
               <button
                 className="inv-action-btn inv-btn-wa"
@@ -2120,7 +2120,7 @@ const SalesOrderManagement: React.FC = () => {
                 </button>
               </Tooltip>
             )}
-            {isAdmin && ['delivered', 'shipped', 'closed'].includes(s) && (
+            {canRevertDelivery && ['delivered', 'shipped', 'closed'].includes(s) && (
               <Tooltip title="Revert to Processing (Admin Undo)">
                 <button
                   type="button"
@@ -3469,7 +3469,7 @@ const SalesOrderManagement: React.FC = () => {
               Plan Production
             </Button>
           ),
-          isAdmin && ['delivered', 'shipped', 'closed'].includes((detailItem?.status || '').toLowerCase()) && (
+          canRevertDelivery && ['delivered', 'shipped', 'closed'].includes((detailItem?.status || '').toLowerCase()) && (
             <Button
               key="revertDelivery"
               icon={<RollbackOutlined />}
@@ -3482,9 +3482,11 @@ const SalesOrderManagement: React.FC = () => {
               Revert to Processing
             </Button>
           ),
-          <Button key="print" icon={<PrinterOutlined />} type="default" onClick={() => detailItem && printSalesOrderDocument(detailItem)}>
-            Print SOC Document
-          </Button>,
+          canPrint && (
+            <Button key="print" icon={<PrinterOutlined />} type="default" onClick={() => detailItem && printSalesOrderDocument(detailItem)}>
+              Print SOC Document
+            </Button>
+          ),
           <Button key="close" onClick={() => setDetailVisible(false)}>
             Close
           </Button>,

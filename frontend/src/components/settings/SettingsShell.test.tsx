@@ -4,9 +4,11 @@ import '@testing-library/jest-dom';
 import { MemoryRouter } from 'react-router-dom';
 import SettingsShell from './SettingsShell';
 import {
+  SEEDED_SETTINGS_PERMISSIONS,
   SETTINGS_CATEGORIES,
   SETTINGS_NAV_ITEMS,
   SETTINGS_PERMISSIONS,
+  SETTINGS_VIEW_PERMISSIONS,
   canAccessSettingsItem,
   requiredSettingsPermissions,
 } from './settingsNavigationConfig';
@@ -42,7 +44,12 @@ beforeAll(() => {
  * settings area disappearing because of codes nobody can hold, so every test
  * here has to pass for a user who has none of them.
  */
-const REAL_USER_PERMISSIONS = ['company.view', 'inventory.view', 'sales.orders.view'];
+const REAL_USER_PERMISSIONS = [
+  'company.view',
+  'inventory.view',
+  'sales.orders.view',
+  ...SETTINGS_VIEW_PERMISSIONS,
+];
 
 /**
  * `usePermission` reads the persisted identity synchronously on first render,
@@ -121,9 +128,7 @@ describe('SettingsShell (Settings foundation)', () => {
     });
   });
 
-  it('4. shows every foundation category without any settings.* grant (PROMPT #01-FIX)', () => {
-    // A user holding none of the five settings codes — the real world until a
-    // seed migration lands — must still see the complete settings navigation.
+  it('4. shows all categories when settings.* grants are held and hides them when omitted', () => {
     renderShellAt('/settings', REAL_USER_PERMISSIONS);
 
     expect(renderedCategoryIds()).toEqual(SETTINGS_NAV_ITEMS.map((item) => item.id));
@@ -135,36 +140,31 @@ describe('SettingsShell (Settings foundation)', () => {
       screen.queryByText(/No settings categories are available for your role\./),
     ).not.toBeInTheDocument();
 
-    // The registry metadata itself is untouched — the future contract stands.
     for (const item of SETTINGS_NAV_ITEMS) {
       expect(item.viewPermissions.length).toBeGreaterThan(0);
     }
   });
 
-  it('5. gates a category only once its permission code is really seeded', () => {
+  it('5. gates every category with its seeded settings permission code', () => {
     const payment = SETTINGS_CATEGORIES.find((item) => item.id === 'payment-details')!;
-    const seeded = new Set([SETTINGS_PERMISSIONS.sensitive]);
+    const seeded = new Set([SETTINGS_PERMISSIONS.paymentDetails]);
 
-    // Today: no code is seeded, so nothing is enforced — even a `can` that
-    // always refuses still gets access (the existing authentication-only model).
-    expect(requiredSettingsPermissions(payment)).toEqual([]);
-    expect(canAccessSettingsItem(() => false, payment)).toBe(true);
-
-    // The day the code is seeded, the very same helpers start enforcing it,
-    // so the fallback can never silently become an "allow everything" bypass.
+    expect(requiredSettingsPermissions(payment)).toEqual([
+      SETTINGS_PERMISSIONS.paymentDetails,
+    ]);
+    expect(canAccessSettingsItem(() => false, payment)).toBe(false);
     expect(requiredSettingsPermissions(payment, seeded)).toEqual([
-      SETTINGS_PERMISSIONS.sensitive,
+      SETTINGS_PERMISSIONS.paymentDetails,
     ]);
     expect(canAccessSettingsItem(() => false, payment, seeded)).toBe(false);
     expect(canAccessSettingsItem(() => true, payment, seeded)).toBe(true);
 
-    // The fallback never applies outside the settings registry: a standard
-    // category is gated by its own declared code once that code is seeded.
     const invoice = SETTINGS_CATEGORIES.find((item) => item.id === 'invoice')!;
-    expect(invoice.viewPermissions).toEqual([SETTINGS_PERMISSIONS.view]);
+    expect(invoice.viewPermissions).toEqual([SETTINGS_PERMISSIONS.invoice]);
     expect(
-      canAccessSettingsItem(() => false, invoice, new Set([SETTINGS_PERMISSIONS.view])),
+      canAccessSettingsItem(() => false, invoice, new Set([SETTINGS_PERMISSIONS.invoice])),
     ).toBe(false);
+    expect(SEEDED_SETTINGS_PERMISSIONS.size).toBe(SETTINGS_NAV_ITEMS.length);
   });
 
   it('6. highlights Overview when the route is /settings', () => {

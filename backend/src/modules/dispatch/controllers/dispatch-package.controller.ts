@@ -35,7 +35,9 @@ export class DispatchPackageController {
   constructor(private readonly service: DispatchPackageService) {}
 
   @Post()
+  @UseGuards(PermissionGuard)
   @RequireOrgScope()
+  @RequirePermission('sales.dispatch_packages.create')
   @ApiOperation({ summary: 'Create a new open dispatch package' })
   async createPackage(@Req() req: any, @Body() dto: CreateDispatchPackageDto) {
     const companyId = req.erpUser?.defaultCompanyId || '00000000-0000-0000-0000-000000000001';
@@ -46,7 +48,9 @@ export class DispatchPackageController {
   }
 
   @Get()
+  @UseGuards(PermissionGuard)
   @RequireOrgScope()
+  @RequirePermission('sales.dispatch_packages.view')
   @ApiOperation({ summary: 'List dispatch packages' })
   async findAll(@Req() req: any, @Query() query: QueryDispatchPackageDto) {
     const companyId = req.erpUser?.defaultCompanyId || '00000000-0000-0000-0000-000000000001';
@@ -55,7 +59,9 @@ export class DispatchPackageController {
   }
 
   @Get('trace')
+  @UseGuards(PermissionGuard)
   @RequireOrgScope()
+  @RequirePermission('sales.dispatch_packages.view', 'manufacturing.units.view', 'manufacturing.traceability.view')
   @ApiOperation({ summary: 'Cross-entity traceability lookup' })
   async traceLookup(@Req() req: any, @Query('q') q: string) {
     const companyId = req.erpUser?.defaultCompanyId || '00000000-0000-0000-0000-000000000001';
@@ -64,7 +70,9 @@ export class DispatchPackageController {
   }
 
   @Get('gate-verify')
+  @UseGuards(PermissionGuard)
   @RequireOrgScope()
+  @RequirePermission('sales.dispatch_packages.view', 'sales.dispatch_packages.post')
   @ApiOperation({ summary: 'Scan package QR code at factory gate for instant verification' })
   async gateVerify(@Req() req: any, @Query('qr') qr: string) {
     const companyId = req.erpUser?.defaultCompanyId || '00000000-0000-0000-0000-000000000001';
@@ -73,7 +81,9 @@ export class DispatchPackageController {
   }
 
   @Get(':id')
+  @UseGuards(PermissionGuard)
   @RequireOrgScope()
+  @RequirePermission('sales.dispatch_packages.view')
   @ApiOperation({ summary: 'Get dispatch package details with packed units and audit trail' })
   async findOne(@Req() req: any, @Param('id') id: string) {
     const companyId = req.erpUser?.defaultCompanyId || '00000000-0000-0000-0000-000000000001';
@@ -83,7 +93,9 @@ export class DispatchPackageController {
 
   @Post(':id/scan-unit')
   @HttpCode(HttpStatus.OK)
+  @UseGuards(PermissionGuard)
   @RequireOrgScope()
+  @RequirePermission('sales.dispatch_packages.create', 'sales.dispatch_packages.update')
   @ApiOperation({ summary: 'Rapid mobile scan: Add a production unit to an open package' })
   async scanAndAddUnit(
     @Req() req: any,
@@ -105,7 +117,7 @@ export class DispatchPackageController {
   @HttpCode(HttpStatus.OK)
   @RequireOrgScope()
   @UseGuards(PermissionGuard)
-  @RequirePermission('dispatch.package.delete')
+  @RequirePermission('sales.dispatch_packages.delete')
   @ApiOperation({ summary: 'Move a dispatch package to the Recycle Bin (recoverable soft-delete)' })
   async removePackage(@Req() req: any, @Param('id') id: string) {
     const companyId = req.erpUser?.defaultCompanyId || '00000000-0000-0000-0000-000000000001';
@@ -119,7 +131,9 @@ export class DispatchPackageController {
   }
 
   @Delete(':id/units/:unitId')
+  @UseGuards(PermissionGuard)
   @RequireOrgScope()
+  @RequirePermission('sales.dispatch_packages.update', 'sales.dispatch_packages.delete')
   @ApiOperation({ summary: 'Remove a production unit from an open package before finalization' })
   async removeUnit(
     @Req() req: any,
@@ -136,7 +150,9 @@ export class DispatchPackageController {
 
   @Post(':id/finalize')
   @HttpCode(HttpStatus.OK)
+  @UseGuards(PermissionGuard)
   @RequireOrgScope()
+  @RequirePermission('sales.dispatch_packages.post', 'sales.dispatch_packages.update')
   @ApiOperation({ summary: 'Finalize and lock dispatch package' })
   async finalizePackage(
     @Req() req: any,
@@ -156,7 +172,9 @@ export class DispatchPackageController {
 
   @Post(':id/link-gate-pass')
   @HttpCode(HttpStatus.OK)
+  @UseGuards(PermissionGuard)
   @RequireOrgScope()
+  @RequirePermission('sales.dispatch_packages.update', 'sales.dispatch_packages.post')
   @ApiOperation({ summary: 'Link finalized package to an Outward Gate Pass / Sales Delivery' })
   async linkGatePass(
     @Req() req: any,
@@ -176,7 +194,9 @@ export class DispatchPackageController {
 
   @Post(':id/print')
   @HttpCode(HttpStatus.OK)
+  @UseGuards(PermissionGuard)
   @RequireOrgScope()
+  @RequirePermission('sales.dispatch_packages.print')
   @ApiOperation({ summary: 'Record package document/label print in audit trail' })
   async recordPrint(@Req() req: any, @Param('id') id: string) {
     const companyId = req.erpUser?.defaultCompanyId || '00000000-0000-0000-0000-000000000001';
@@ -188,7 +208,9 @@ export class DispatchPackageController {
 
   @Post(':id/gate-exit')
   @HttpCode(HttpStatus.OK)
+  @UseGuards(PermissionGuard)
   @RequireOrgScope()
+  @RequirePermission('sales.dispatch_packages.post')
   @ApiOperation({ summary: 'Authorize factory exit at gate' })
   async gateExit(
     @Req() req: any,
@@ -208,7 +230,9 @@ export class DispatchPackageController {
 
   @Post(':id/cancel')
   @HttpCode(HttpStatus.OK)
+  @UseGuards(PermissionGuard)
   @RequireOrgScope()
+  @RequirePermission('sales.dispatch_packages.update', 'sales.dispatch_packages.delete')
   @ApiOperation({ summary: 'Cancel an open or finalized package' })
   async cancelPackage(
     @Req() req: any,

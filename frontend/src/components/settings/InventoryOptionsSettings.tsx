@@ -28,7 +28,7 @@ const STORAGE_KEY = 'erp_inventory_options_v1';
 
 export const InventoryOptionsSettings: React.FC = () => {
   const { can } = usePermission();
-  const canEdit = can(SETTINGS_PERMISSIONS.edit);
+  const canEdit = can('settings.inventory.update');
 
   const [data, setData] = useState<InventoryOptionsData>(DEFAULT_INVENTORY_OPTIONS);
   const [initialData, setInitialData] = useState<InventoryOptionsData>(DEFAULT_INVENTORY_OPTIONS);
@@ -84,19 +84,19 @@ export const InventoryOptionsSettings: React.FC = () => {
     <div
       className="inventory-options-container"
       data-testid="inventory-options"
-      data-edit-permission={SETTINGS_PERMISSIONS.edit}
+      data-edit-permission="settings.inventory.update"
       id="inventory-options-section"
     >
       {/* Hidden test identifier for test backwards-compatibility */}
       <span
         data-testid="settings-placeholder-inventory"
         style={{ display: 'none' }}
-        data-edit-permission={SETTINGS_PERMISSIONS.edit}
+        data-edit-permission="settings.inventory.update"
       >
         <span data-testid="settings-placeholder-permission">
           {canEdit
-            ? `Your role includes “${SETTINGS_PERMISSIONS.edit}”.`
-            : `Read-only for your role: requires “${SETTINGS_PERMISSIONS.edit}”.`}
+            ? 'Your role includes “settings.inventory.update”.'
+            : 'Read-only for your role: requires “settings.inventory.update”.'}
         </span>
       </span>
 

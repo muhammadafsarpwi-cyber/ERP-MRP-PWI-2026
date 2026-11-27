@@ -155,7 +155,7 @@ export class StoreController {
   }
 
   @Put('material-requests/:id')
-  @RequirePermission('store.request.create')
+  @RequirePermission('store.request.update')
   async updateMaterialRequest(@Param('id') id: string, @Body() dto: UpdateMaterialRequestDto, @Req() req: any) {
     return this.storeService.updateMaterialRequest(id, dto, this.getUserId(req), this.getCompanyId(req), this.divisionScope(req));
   }
@@ -185,13 +185,13 @@ export class StoreController {
   }
 
   @Post('material-requests/:id/cancel')
-  @RequirePermission('store.request.create')
+  @RequirePermission('store.request.update', 'store.request.delete')
   async cancelMaterialRequest(@Param('id') id: string, @Req() req: any) {
     return this.storeService.cancelMaterialRequest(id, this.getUserId(req), this.getCompanyId(req), this.divisionScope(req));
   }
 
   @Delete('material-requests/:id')
-  @RequirePermission('store.request.create')
+  @RequirePermission('store.request.delete')
   async removeMaterialRequest(@Param('id') id: string, @Req() req: any) {
     return this.storeService.removeMaterialRequest(id, this.getUserId(req), this.getCompanyId(req), this.divisionScope(req));
   }
@@ -224,19 +224,21 @@ export class StoreController {
 
   // ==================== MATERIAL ISSUES ====================
 
-  @Get('issues/part-machine-history')
+  @Get(['issues/part-machine-history', 'issue-notes/part-machine-history'])
   @RequirePermission('store.issue.view')
   async getPartMachineHistory(
     @Req() req: any,
     @Query('machineId') machineId: string,
     @Query('itemId') itemId: string,
     @Query('asOfDate') asOfDate?: string,
+    @Query('excludeIssueId') excludeIssueId?: string,
   ) {
     return this.storeService.getPartMachineHistory(
       this.getCompanyId(req),
       machineId,
       itemId,
       asOfDate,
+      excludeIssueId,
     );
   }
 
@@ -273,7 +275,7 @@ export class StoreController {
   }
 
   @Put('material-issues/:id')
-  @RequirePermission('store.issue.create')
+  @RequirePermission('store.issue.update')
   async updateMaterialIssue(@Param('id') id: string, @Body() body: UpdateMaterialIssuelinesDto, @Req() req: any) {
     return this.storeService.updateMaterialIssue(id, body, this.getUserId(req), this.getCompanyId(req), this.divisionScope(req));
   }
@@ -291,7 +293,7 @@ export class StoreController {
   }
 
   @Delete('material-issues/:id')
-  @RequirePermission('store.issue.cancel')
+  @RequirePermission('store.issue.delete', 'store.issue.cancel')
   async removeMaterialIssue(@Param('id') id: string, @Req() req: any) {
     return this.storeService.removeMaterialIssue(id, this.getUserId(req), this.getCompanyId(req), this.divisionScope(req));
   }
@@ -317,7 +319,7 @@ export class StoreController {
   }
 
   @Put('material-returns/:id')
-  @RequirePermission('store.return.create')
+  @RequirePermission('store.return.update')
   async updateMaterialReturn(@Param('id') id: string, @Body() body: UpdateMaterialReturnLinesDto, @Req() req: any) {
     return this.storeService.updateMaterialReturn(id, body.lines, this.getUserId(req), this.getCompanyId(req), this.divisionScope(req));
   }
@@ -329,13 +331,13 @@ export class StoreController {
   }
 
   @Post('material-returns/:id/cancel')
-  @RequirePermission('store.return.create')
+  @RequirePermission('store.return.update', 'store.return.delete')
   async cancelMaterialReturn(@Param('id') id: string, @Req() req: any) {
     return this.storeService.cancelMaterialReturn(id, this.getUserId(req), this.getCompanyId(req), this.divisionScope(req));
   }
 
   @Delete('material-returns/:id')
-  @RequirePermission('store.return.create')
+  @RequirePermission('store.return.delete')
   async removeMaterialReturn(@Param('id') id: string, @Req() req: any) {
     return this.storeService.removeMaterialReturn(id, this.getUserId(req), this.getCompanyId(req), this.divisionScope(req));
   }
@@ -371,13 +373,13 @@ export class StoreController {
   }
 
   @Delete('lifecycle/ledger/:id')
-  @RequirePermission('store.item.view')
+  @RequirePermission('store.ledger.delete', 'store.item.delete')
   async deleteLedgerRow(@Req() req: any, @Param('id') id: string) {
     return this.storeMaterialTraceService.deleteLedgerRow(this.getCompanyId(req), id, this.divisionScope(req));
   }
 
   @Delete('lifecycle/ledger/item/:itemId/dummy')
-  @RequirePermission('store.item.view')
+  @RequirePermission('store.ledger.delete', 'store.item.delete')
   async deleteDummyLedgerRows(@Req() req: any, @Param('itemId') itemId: string) {
     return this.storeMaterialTraceService.deleteDummyLedgerRows(
       this.getCompanyId(req), itemId, this.divisionScope(req),

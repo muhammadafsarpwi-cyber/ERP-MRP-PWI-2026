@@ -13,50 +13,53 @@ import {
  * Sidebar entry is invisible to every role and the route is unreachable.
  */
 const SEEDED_VIEW_PERMISSIONS: string[] = [
-  // organization + admin — 20260818130000_users_roles_permissions.sql
+  // workspace
+  'workspace.dashboard.view', 'workspace.team_chat.view', 'workspace.reports.view', 'workspace.development.view',
+  // organization + admin
   'company.view', 'branch.view', 'division.view', 'section.view',
-  'department.view', 'warehouse.view',
-  'admin.users.view', 'admin.roles.view', 'admin.permissions.view',
-  // item / master data — 20260819100000_item_master.sql
-  'item.view', 'item_category.view', 'item_route_type.view', 'item_type.view', 'uom.view', 'uom_conversion.view',
-  // inventory — 20260819140000_inventory_management.sql + 20260911000000
+  'department.view', 'warehouse.view', 'organization.warehouse_location.view',
+  'admin.users.view', 'admin.roles.view', 'admin.permissions.view', 'admin.matrix.view', 'admin.recycle_bin.view',
+  // item / master data
+  'item.view', 'item_category.view', 'item_route_type.view', 'item_type.view', 'uom.view', 'uom_conversion.view', 'item_barcode.view',
+  // inventory
   'inventory.view', 'inventory.reports.view', 'inventory.policy.view',
-  'inventory.reservation.view', 'inventory.batch.view', 'inventory.adjustment.approve', 'inventory.transfer.approve',
-  'inventory.serial.view', 'inventory.opening_stock.create',
-  // procurement — 20260819160000_procurement.sql
+  'inventory.reservation.view', 'inventory.batch.view', 'inventory.adjustment.view', 'inventory.adjustment.approve',
+  'inventory.transfer.view', 'inventory.transfer.approve',
+  'inventory.serial.view', 'inventory.opening_stock.view', 'inventory.opening_stock.create',
+  'inventory.ledger.view', 'inventory.nipple_demand.view',
+  // procurement
   'procurement.supplier.view', 'procurement.requisition.view',
   'procurement.rfq.view', 'procurement.quotation.view',
   'procurement.order.view', 'procurement.receipt.view',
   'procurement.return.view', 'procurement.invoice.view',
-  // customers / CRM — 20260820100000_customers_crm.sql
-  'customer.customer.view',
-  // sales — 20260820120000_sales_module.sql
-  'sales.quotations.view', 'sales.orders.view', 'sales.deliveries.view',
-  'sales.invoices.view', 'sales.returns.view',
-  // manufacturing — BOM / routing / workflow / entries / machine / targets / receiving / returns
-  'manufacturing.bom.view',
-  'manufacturing.routing.view',
-  'manufacturing.production.entries.view',
-  'manufacturing.production.orders.view',
-  'manufacturing.production.entries.report',
-  'manufacturing.machine.view',
-  'manufacturing.machine_target.view',
-  'manufacturing.operation.view',
-  'manufacturing.tool_component.view',
-  'manufacturing.material_receiving.view',
-  'manufacturing.material_return.view',
+  // customers / CRM
+  'customer.customer.view', 'customer.analytics.view',
+  // sales
+  'sales.quotations.view', 'sales.orders.view', 'sales.order_command.view', 'sales.division_review.view',
+  'sales.deliveries.view', 'sales.dispatch_packages.view', 'sales.finished_goods.view',
+  'sales.invoices.view', 'sales.receipts.view', 'sales.returns.view', 'sales.analytics.view', 'sales.customers_ledger.view',
+  // manufacturing
+  'manufacturing.dashboard.view', 'manufacturing.open_stock.view',
+  'manufacturing.bom.view', 'manufacturing.routing.view',
+  'manufacturing.production.entries.view', 'manufacturing.packing.view',
+  'manufacturing.production.orders.view', 'manufacturing.units.view',
+  'manufacturing.production.entries.report', 'manufacturing.production_reports.view',
+  'manufacturing.inventory_report.view', 'manufacturing.item_wise_ledger.view',
+  'manufacturing.traceability.view', 'manufacturing.rework_return.view',
+  'manufacturing.component_change.view',
+  'manufacturing.machine.view', 'manufacturing.machine_target.view',
+  'manufacturing.operation.view', 'manufacturing.tool_component.view',
+  'manufacturing.material_receiving.view', 'manufacturing.material_return.view',
   'manufacturing.material_receiving.report',
-  // maintenance — 20260826100000_erp_00021_maintenance_module.sql
+  // maintenance
   'maintenance.job_card.view', 'maintenance.job_card.create',
   'maintenance.job_card.assign', 'maintenance.job_card.start',
   'maintenance.job_card.verify', 'maintenance.job_card.approve',
   'maintenance.job_card.reject', 'maintenance.job_card.close',
-  'maintenance.team.view',
-  'maintenance.category.view', 'maintenance.pm.view',
-  'maintenance.reports.view',
-  // store department — 20260912000000_erp_00052 + 20260916120000_erp_00055
+  'maintenance.team.view', 'maintenance.category.view', 'maintenance.pm.view', 'maintenance.reports.view',
+  // store department
   'store.view', 'store.create', 'store.update', 'store.delete',
-  'store.master.view', 'store.master.edit',
+  'store.master.view', 'store.master.edit', 'store.stock_balance.view',
   'store.item.view', 'store.item.create', 'store.item.update',
   'store.request.view', 'store.request.create', 'store.request.submit',
   'store.request.approve', 'store.request.reject', 'store.request.gm_approve',
@@ -65,28 +68,32 @@ const SEEDED_VIEW_PERMISSIONS: string[] = [
   'store.receive.view', 'store.receive.create', 'store.receive.post',
   'store.return.view', 'store.return.create', 'store.return.post',
   'store.transfer.view', 'store.adjustment.view',
-  'store.reports.view', 'store.report.view', 'store.ledger.view',
-  'store.settings.view', 'store.settings.edit',
+  'store.reports.view', 'store.ledger.view', 'store.settings.view', 'store.settings.edit',
   'store.eta.view', 'store.eta.update',
   'store.replenishment.view', 'store.replenishment.run',
   'store.replenishment.create', 'store.replenishment.override', 'store.replenishment.convert',
-  // finance, HR, QC, communication, notifications
-  'finance.account.view', 'finance.journal.view', 'finance.report.trial_balance',
-  'hr.employee.view', 'hr.attendance.view', 'hr.leave.view',
+  // finance, HR, QC, communication, notifications, AI, settings
+  'finance.account.view', 'finance.journal.view', 'finance.report.cash_bank_book',
+  'finance.report.trial_balance', 'finance.report.general_ledger', 'finance.report.pl',
+  'finance.report.balance_sheet', 'finance.report.ar', 'finance.report.ap',
+  'hr.employee.view', 'hr.employee_documents.view', 'hr.attendance.view', 'hr.leave.view', 'hr.advance.view', 'hr.payroll.view', 'hr.final_settlement.view',
   'hr.dashboard.view', 'hr.shift_roster.view', 'hr.live_map.view', 'hr.regularization.view', 'hr.overtime.view',
   'qc.inspection.view', 'qc.ncr.view', 'qc.capa.view',
-  'notifications.view', 'notifications.rules.view',
+  'notifications.view', 'notifications.rules.view', 'notifications.audit.view',
+  'communication.email_settings.view', 'communication.email_templates.view', 'communication.email_logs.view',
+  'communication.whatsapp_settings.view', 'communication.whatsapp_templates.view', 'communication.whatsapp_logs.view',
   'email.settings.manage', 'email.template.manage', 'email.log.view',
   'whatsapp.settings.manage', 'whatsapp.template.manage', 'whatsapp.log.view',
-  // visitor management (erp_00069 seeds)
   'visitor.entry.view', 'location.view',
-  // PROMPT #01-FIX — the settings.* codes are deliberately NOT listed here:
-  // this array is the canonical list of codes the RPC migrations actually seed,
-  // and `settings.view` / `settings.edit` / `settings.sensitive.manage` /
-  // `settings.organization.manage` / `settings.audit.view` do not exist in the
-  // backend catalog yet. Declaring them here would falsely claim they are
-  // granted to some role. The settings area falls back to authentication-only
-  // access instead (`SEEDED_SETTINGS_PERMISSIONS`).
+  'ai.assistant.view', 'ai.query', 'ai.settings.view',
+  'settings.overview.view', 'settings.appearance.view', 'settings.profile_branding.view',
+  'settings.invoice.view', 'settings.payment_details.view', 'settings.reminders_alerts.view',
+  'settings.whatsapp.view', 'settings.inventory.view', 'settings.document_options.view',
+  'settings.edit_lock.view', 'settings.late_fees.view', 'settings.loyalty.view',
+  'settings.document_numbering.view', 'settings.tax.view', 'settings.currency.view',
+  'settings.payment_terms.view', 'settings.organization.view', 'settings.print_templates.view',
+  'settings.email.view', 'settings.notifications.view', 'settings.security.view',
+  'settings.audit.view', 'settings.data_tools.view', 'settings.install_app.view',
 ];
 
 /** Every authenticated route registered in App.tsx / Production routers. */
@@ -100,14 +107,15 @@ const DISCOVERED_ROUTES: string[] = [
   '/reports',
   '/customers',
   '/customers/analytics',
+  '/sales/customers-ledger',
   '/sales/analytics',
   '/sales/finished-goods',
   '/sales/quotations', '/sales/orders', '/sales/order-command', '/sales/orders-division-review', '/sales/deliveries',
-  '/sales/invoices', '/sales/returns',
+  '/sales/invoices', '/sales/receipts', '/sales/returns',
   '/inventory', '/inventory/policies', '/inventory/batches',
   '/inventory/serial-numbers',
   '/inventory/adjustments', '/inventory/adjustments/pending-approval', '/inventory/transfers', '/inventory/transfers/pending-approval', '/inventory/reservations',
-  '/inventory/ledger', '/inventory/reports',
+  '/inventory/ledger', '/inventory/reports', '/inventory/nipple-demand',
   '/procurement/suppliers', '/procurement/requisitions', '/procurement/rfqs',
   '/procurement/quotations', '/procurement/orders', '/procurement/receipts',
   '/procurement/returns', '/procurement/invoices',
@@ -284,10 +292,10 @@ describe('navigationConfig canonical reconciliation', () => {
       expect(seeded.has('location.view')).toBe(true);
     });
 
-    it('keeps the pre-existing Warehouse Locations entry untouched', () => {
+    it('keeps the pre-existing Warehouse Locations entry mapped to organization.warehouse_location.view', () => {
       const warehouseLocations = findNavEntry('/organization/locations');
       expect(warehouseLocations?.label).toBe('Warehouse Locations');
-      expect(warehouseLocations?.permissions).toEqual(['warehouse.view']);
+      expect(warehouseLocations?.permissions).toEqual(['organization.warehouse_location.view']);
     });
 
     it('resolves both routes for the sidebar highlight', () => {

@@ -25,6 +25,7 @@ import type { SaveResultData, SaveResultPhase } from '../../../components/shared
 
 
 import { matchesTabRefresh, tabSessionCache, TAB_REFRESH_EVENT } from '../../../services/tabSessionCache';
+import { usePermission } from '../../../hooks/usePermission';
 import '../receiving/rawMaterialForms.css';
 
 const { Text, Title } = Typography;
@@ -197,6 +198,10 @@ const formatBytes = (b: number): string => {
 
 const RawMaterialReturn: React.FC = () => {
   const { message } = App.useApp();
+  const { can } = usePermission();
+  const canCreate = can('manufacturing.material_return.create');
+  const canUpdate = can('manufacturing.material_return.update');
+  const canDelete = can('manufacturing.material_return.delete');
   const [form] = Form.useForm();
   const cachedTab = useMemo(() => tabSessionCache.get<RawMaterialReturnTabCache>(RM_RETURN_TAB_ID), []);
 
@@ -1259,14 +1264,18 @@ const RawMaterialReturn: React.FC = () => {
               }}
             />
           </Tooltip>
-          <Tooltip title="Edit">
-            <Button size="small" type="text" icon={<EditOutlined />} onClick={() => openEdit(r)} />
-          </Tooltip>
-          <Popconfirm title="Delete this return? Reverses posted stock." onConfirm={() => handleDelete(r)} okText="Delete" okButtonProps={{ danger: true }}>
-            <Tooltip title="Delete">
-              <Button size="small" type="text" danger icon={<DeleteOutlined />} />
+          {canUpdate && (
+            <Tooltip title="Edit">
+              <Button size="small" type="text" icon={<EditOutlined />} onClick={() => openEdit(r)} />
             </Tooltip>
-          </Popconfirm>
+          )}
+          {canDelete && (
+            <Popconfirm title="Delete this return? Reverses posted stock." onConfirm={() => handleDelete(r)} okText="Delete" okButtonProps={{ danger: true }}>
+              <Tooltip title="Delete">
+                <Button size="small" type="text" danger icon={<DeleteOutlined />} />
+              </Tooltip>
+            </Popconfirm>
+          )}
         </Space>
       ),
     },
@@ -1361,14 +1370,16 @@ const RawMaterialReturn: React.FC = () => {
 
   const headerExtra = useMemo(() => (
     <Space wrap size={8}>
-      <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-        New Return
-      </Button>
+      {canCreate && (
+        <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
+          New Return
+        </Button>
+      )}
       <Button icon={<ReloadOutlined />} onClick={() => loadList(page)}>
         Refresh
       </Button>
     </Space>
-  ), [page, loadList, openCreate]);
+  ), [page, canCreate, loadList, openCreate]);
 
   return (
     <TabKeepAlive

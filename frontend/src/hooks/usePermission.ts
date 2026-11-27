@@ -195,44 +195,28 @@ export function usePermission() {
     };
   }, [refreshPermissions]);
 
-  const isSuperAdmin = useMemo(() => {
-    const email = (user?.email || stored?.email || '').toLowerCase().trim();
-    const role = (user?.role || stored?.role || '').toUpperCase();
-    return (
-      email === 'muhammadafsarpwi@gmail.com' ||
-      role === 'SYSTEM_ADMIN' ||
-      role === 'ADMIN' ||
-      role === 'EXECUTIVE_OWNER' ||
-      permissions.includes('*') ||
-      permissions.includes('ALL_ACCESS_GRANTED')
-    );
-  }, [user, stored, permissions]);
-
   const can = useCallback((permissionCode: string): boolean => {
-    if (isSuperAdmin) return true;
     return permissions.includes(permissionCode);
-  }, [permissions, isSuperAdmin]);
+  }, [permissions]);
 
   const canAny = useCallback((...permissionCodes: string[]): boolean => {
-    if (isSuperAdmin) return true;
-    return permissionCodes.some(code => permissions.includes(code));
-  }, [permissions, isSuperAdmin]);
+    return permissionCodes.some((code) => permissions.includes(code));
+  }, [permissions]);
 
   const canAll = useCallback((...permissionCodes: string[]): boolean => {
-    if (isSuperAdmin) return true;
-    return permissionCodes.every(code => permissions.includes(code));
-  }, [permissions, isSuperAdmin]);
+    return permissionCodes.every((code) => permissions.includes(code));
+  }, [permissions]);
 
   const canModule = useCallback((module: string, action: string): boolean => {
-    if (isSuperAdmin) return true;
-    return permissions.some(p => {
+    const targetAction = action.toLowerCase();
+    return permissions.some((p) => {
       const parts = p.split('.');
       if (parts.length >= 2) {
-        return parts[0] === module && parts[parts.length - 1] === action.toUpperCase();
+        return parts[0] === module && parts[parts.length - 1].toLowerCase() === targetAction;
       }
       return false;
     });
-  }, [permissions, isSuperAdmin]);
+  }, [permissions]);
 
   const divisionAccess = useMemo(
     () => normalizeDivisionAccess(user?.divisions),

@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Not } from 'typeorm';
+import { authLookupCache } from '../../../common/cache/auth-lookup-cache';
 import {
   Role,
   RoleStatus,
@@ -140,6 +141,7 @@ export class RoleService {
       }
     }
 
+    authLookupCache.invalidateAll();
     return this.findOne(id);
   }
 
@@ -206,6 +208,7 @@ export class RoleService {
       // Prompt #16 — drop the now-orphaned division restrictions with the grant.
       await this.roleDivisionScopeRepository.delete({ roleId: id, permissionId });
     }
+    authLookupCache.invalidateAll();
     return this.findOne(id);
   }
 

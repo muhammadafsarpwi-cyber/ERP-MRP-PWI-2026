@@ -33,6 +33,7 @@ import { useRawReceiptDraftStore } from '../../../store/rawReceiptDraftStore';
 import type { ReceiptDraft, OrgBundle } from '../../../store/rawReceiptDraftStore';
 import { matchesTabRefresh, tabSessionCache, TAB_REFRESH_EVENT } from '../../../services/tabSessionCache';
 import { useThemeStore } from '../../../theme/themeStore';
+import { usePermission } from '../../../hooks/usePermission';
 import {
   exportReceivingPdf,
   exportItemWiseReceivingPdf,
@@ -466,6 +467,12 @@ const DiagonalExpandIcon: React.FC<{ expanded?: boolean; size?: number; color?: 
 const RawMaterialReceiving: React.FC = () => {
   const { message } = AntApp.useApp();
   const { token } = theme.useToken();
+  const { can } = usePermission();
+  const canCreate = can('manufacturing.material_receiving.create');
+  const canUpdate = can('manufacturing.material_receiving.update');
+  const canDelete = can('manufacturing.material_receiving.delete');
+  const canExport = can('manufacturing.material_receiving.export');
+  const canPrint = can('manufacturing.material_receiving.print');
   const isDark = useThemeStore((state) => state.draft.mode === 'dark');
   const [form] = Form.useForm();
   const cachedTab = useMemo(() => tabSessionCache.get<RawMaterialReceivingTabCache>(RM_RECEIVING_TAB_ID), []);
@@ -2926,24 +2933,28 @@ const RawMaterialReceiving: React.FC = () => {
           <Tooltip title="View">
             <Button type="text" size="small" className="erp-action-btn act-view" icon={<EyeOutlined />} onClick={() => openDetail(r)} />
           </Tooltip>
-          <Tooltip title="Edit">
-            <Button type="text" size="small" className="erp-action-btn act-edit" icon={<EditOutlined />} onClick={() => openEdit(r)} />
-          </Tooltip>
+          {canUpdate && (
+            <Tooltip title="Edit">
+              <Button type="text" size="small" className="erp-action-btn act-edit" icon={<EditOutlined />} onClick={() => openEdit(r)} />
+            </Tooltip>
+          )}
           <Tooltip title="Share on WhatsApp">
             <Button type="text" size="small" className="erp-action-btn act-whatsapp" icon={<WhatsAppOutlined />} data-testid="rm-action-wa" onClick={() => handleRowWaShare(r)} />
           </Tooltip>
-          <Popconfirm
-            title="Delete this receipt?"
-            description="Posted stock for this receipt will be reversed. This cannot be undone."
-            onConfirm={() => handleDelete(r)}
-            okText="Delete"
-            okButtonProps={{ danger: true }}
-            cancelText="Cancel"
-          >
-            <Tooltip title="Delete">
-              <Button type="text" size="small" danger className="erp-action-btn act-delete" icon={<DeleteOutlined />} />
-            </Tooltip>
-          </Popconfirm>
+          {canDelete && (
+            <Popconfirm
+              title="Delete this receipt?"
+              description="Posted stock for this receipt will be reversed. This cannot be undone."
+              onConfirm={() => handleDelete(r)}
+              okText="Delete"
+              okButtonProps={{ danger: true }}
+              cancelText="Cancel"
+            >
+              <Tooltip title="Delete">
+                <Button type="text" size="small" danger className="erp-action-btn act-delete" icon={<DeleteOutlined />} />
+              </Tooltip>
+            </Popconfirm>
+          )}
         </Space>
       ),
     },
@@ -3473,10 +3484,12 @@ const RawMaterialReceiving: React.FC = () => {
   // Register the page title/subtitle + header actions into the shared ERP header.
   const headerExtra = useMemo(() => (
     <Space wrap size={8}>
-      <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>New Receipt (Gate Pass)</Button>
+      {canCreate && (
+        <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>New Receipt (Gate Pass)</Button>
+      )}
       <Button icon={<ReloadOutlined />} onClick={() => loadList(page)}>Refresh</Button>
     </Space>
-  ), [openCreate, loadList, page]);
+  ), [canCreate, openCreate, loadList, page]);
 
   const isEditing = editingId !== null;
 
@@ -3913,25 +3926,31 @@ const RawMaterialReceiving: React.FC = () => {
             {/* Smart Action Buttons (Export PDF, Excel, Print, WhatsApp, Columns) */}
             <Space wrap size={8} align="center">
               {/* PDF Dropdown */}
-              <Dropdown menu={{ items: pdfMenuItems }} placement="bottomRight">
-                <Button icon={<FilePdfOutlined style={{ color: '#ef4444' }} />}>
-                  Export PDF <DownOutlined style={{ fontSize: 10 }} />
-                </Button>
-              </Dropdown>
+              {canExport && (
+                <Dropdown menu={{ items: pdfMenuItems }} placement="bottomRight">
+                  <Button icon={<FilePdfOutlined style={{ color: '#ef4444' }} />}>
+                    Export PDF <DownOutlined style={{ fontSize: 10 }} />
+                  </Button>
+                </Dropdown>
+              )}
 
               {/* Excel Dropdown */}
-              <Dropdown menu={{ items: excelMenuItems }} placement="bottomRight">
-                <Button icon={<FileExcelOutlined style={{ color: '#10b981' }} />}>
-                  Export Excel <DownOutlined style={{ fontSize: 10 }} />
-                </Button>
-              </Dropdown>
+              {canExport && (
+                <Dropdown menu={{ items: excelMenuItems }} placement="bottomRight">
+                  <Button icon={<FileExcelOutlined style={{ color: '#10b981' }} />}>
+                    Export Excel <DownOutlined style={{ fontSize: 10 }} />
+                  </Button>
+                </Dropdown>
+              )}
 
               {/* Print */}
-              <Tooltip title={`Print ${viewMode === 'itemWise' ? 'Item-Wise Breakdown' : 'Gate Pass Table'}`}>
-                <Button icon={<PrinterOutlined />} onClick={handleSmartPrint}>
-                  Print
-                </Button>
-              </Tooltip>
+              {canPrint && (
+                <Tooltip title={`Print ${viewMode === 'itemWise' ? 'Item-Wise Breakdown' : 'Gate Pass Table'}`}>
+                  <Button icon={<PrinterOutlined />} onClick={handleSmartPrint}>
+                    Print
+                  </Button>
+                </Tooltip>
+              )}
 
               {/* WhatsApp */}
               <Button

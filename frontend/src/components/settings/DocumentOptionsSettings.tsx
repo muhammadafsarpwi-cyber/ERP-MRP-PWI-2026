@@ -47,7 +47,7 @@ const STORAGE_KEY = 'erp_document_options_v1';
 
 export const DocumentOptionsSettings: React.FC = () => {
   const { can } = usePermission();
-  const canEdit = can(SETTINGS_PERMISSIONS.edit);
+  const canEdit = can('settings.document_options.update');
 
   const [data, setData] = useState<DocumentOptionsData>(DEFAULT_DOCUMENT_OPTIONS);
   const [initialData, setInitialData] = useState<DocumentOptionsData>(DEFAULT_DOCUMENT_OPTIONS);
@@ -103,19 +103,19 @@ export const DocumentOptionsSettings: React.FC = () => {
     <div
       className="document-options-container"
       data-testid="document-options"
-      data-edit-permission={SETTINGS_PERMISSIONS.edit}
+      data-edit-permission="settings.document_options.update"
       id="document-options-section"
     >
       {/* Hidden test identifier for test backwards-compatibility */}
       <span
         data-testid="settings-placeholder-document-options"
         style={{ display: 'none' }}
-        data-edit-permission={SETTINGS_PERMISSIONS.edit}
+        data-edit-permission="settings.document_options.update"
       >
         <span data-testid="settings-placeholder-permission">
           {canEdit
-            ? `Your role includes “${SETTINGS_PERMISSIONS.edit}”.`
-            : `Read-only for your role: requires “${SETTINGS_PERMISSIONS.edit}”.`}
+            ? 'Your role includes “settings.document_options.update”.'
+            : 'Read-only for your role: requires “settings.document_options.update”.'}
         </span>
       </span>
 

@@ -16,8 +16,7 @@ import {
 import {
   SETTINGS_NAV_KEYS,
   SETTINGS_NAV_ITEMS,
-  SEEDED_SETTINGS_PERMISSIONS,
-  SETTINGS_PERMISSIONS,
+  SETTINGS_VIEW_PERMISSIONS,
 } from './settingsNavigationConfig';
 
 jest.mock('../../services/api');
@@ -70,13 +69,13 @@ describe('Sidebar — Company Settings pinned footer placement', () => {
     expect(keys).not.toContain('/settings');
   });
 
-  it('2. findNavEntry resolves Settings without permission gating', () => {
+  it('2. findNavEntry resolves Settings with full RBAC settings view permissions', () => {
     expect(settingsEntry).toBeDefined();
     expect(settingsEntry?.label).toBe('Settings');
     expect(settingsEntry?.icon).toBe(SettingOutlined);
     expect(settingsEntry?.color).toBe('neutral');
-    expect(settingsEntry?.permissions).toBeUndefined();
-    expect(findNavEntry('/settings')?.permissions ?? []).toHaveLength(0);
+    expect(settingsEntry?.permissions).toEqual(SETTINGS_VIEW_PERMISSIONS);
+    expect(findNavEntry('/settings')?.permissions).toEqual(SETTINGS_VIEW_PERMISSIONS);
   });
 
   it('3. navPathForKey resolves /settings correctly', () => {

@@ -21,6 +21,7 @@ import apiService from '../../../services/api';
 import { formatNumber, formatDecimal } from '../../../utils/numberFormat';
 import GlobalLoading from '../../../components/shared/GlobalLoading';
 import PageHeader from '../../../components/shared/PageHeader';
+import { usePermission } from '../../../hooks/usePermission';
 import { CANONICAL_STAGE_ITEMS } from './spokeStageItems';
 
 const { Text } = Typography;
@@ -86,6 +87,11 @@ const CORRECTIVE_ACTIONS: Record<string, string> = {
 const ProductionReworkReturn: React.FC = () => {
   const { token } = theme.useToken();
   const { message } = App.useApp();
+  const { can } = usePermission();
+  const canCreate = can('manufacturing.rework_return.create');
+  const canUpdate = can('manufacturing.rework_return.update');
+  const canApprove = can('manufacturing.rework_return.approve');
+  const canDelete = can('manufacturing.rework_return.delete');
 
   // State
   const [loading, setLoading] = useState(false);
@@ -694,11 +700,13 @@ const DEFAULT_UOMS = [
       <Button icon={<FileExcelOutlined />} onClick={handleExportCsv}>
         Export CSV
       </Button>
-      <Button type="primary" icon={<PlusOutlined />} onClick={() => handleOpenCreateModal()}>
-        New Production Return
-      </Button>
+      {canCreate && (
+        <Button type="primary" icon={<PlusOutlined />} onClick={() => handleOpenCreateModal()}>
+          New Production Return
+        </Button>
+      )}
     </Space>
-  ), [fetchData, handleExportCsv, divisions, departments]);
+  ), [fetchData, handleExportCsv, canCreate, divisions, departments]);
 
   // Submit Create
   const handleCreateSubmit = async () => {
@@ -1034,39 +1042,45 @@ const DEFAULT_UOMS = [
               View
             </Button>
           </Tooltip>
-          <Tooltip title="Edit Rework Return">
-            <Button
-              size="small"
-              icon={<EditOutlined />}
-              onClick={() => handleOpenEditModal(r)}
-            >
-              Edit
-            </Button>
-          </Tooltip>
-          <Tooltip title="Update Status / Rework Progress">
-            <Button
-              size="small"
-              type="primary"
-              icon={<ToolOutlined />}
-              onClick={() => handleOpenStatusModal(r)}
-            >
-              Status
-            </Button>
-          </Tooltip>
-          <Popconfirm
-            title="Delete Return Record"
-            description={`Are you sure you want to delete return ${r.returnNumber}?`}
-            onConfirm={() => handleDelete(r.id)}
-            okText="Yes, Delete"
-            cancelText="Cancel"
-            okButtonProps={{ danger: true }}
-          >
-            <Tooltip title="Delete Return">
-              <Button size="small" danger icon={<DeleteOutlined />}>
-                Delete
+          {canUpdate && (
+            <Tooltip title="Edit Rework Return">
+              <Button
+                size="small"
+                icon={<EditOutlined />}
+                onClick={() => handleOpenEditModal(r)}
+              >
+                Edit
               </Button>
             </Tooltip>
-          </Popconfirm>
+          )}
+          {(canUpdate || canApprove) && (
+            <Tooltip title="Update Status / Rework Progress">
+              <Button
+                size="small"
+                type="primary"
+                icon={<ToolOutlined />}
+                onClick={() => handleOpenStatusModal(r)}
+              >
+                Status
+              </Button>
+            </Tooltip>
+          )}
+          {canDelete && (
+            <Popconfirm
+              title="Delete Return Record"
+              description={`Are you sure you want to delete return ${r.returnNumber}?`}
+              onConfirm={() => handleDelete(r.id)}
+              okText="Yes, Delete"
+              cancelText="Cancel"
+              okButtonProps={{ danger: true }}
+            >
+              <Tooltip title="Delete Return">
+                <Button size="small" danger icon={<DeleteOutlined />}>
+                  Delete
+                </Button>
+              </Tooltip>
+            </Popconfirm>
+          )}
         </Space>
       ),
     },
