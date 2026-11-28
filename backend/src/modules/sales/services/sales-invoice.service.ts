@@ -8,6 +8,11 @@ import { CustomerLedgerService } from '../../customer/services/customer-ledger.s
 import { CustomerDocumentType } from '../../customer/entities/customer-ledger.entity';
 import { customerNameMatchKeys } from './customer-match.util';
 import { withTransaction } from '../../../common/transaction.util';
+import {
+  extractAuditActor,
+  isAdministratorRequest,
+  recordAdminOverrideAudit,
+} from '../../../common/utils/admin-override.util';
 import { CustomerReceiptService } from './customer-receipt.service';
 import {
   applyDivisionScopeFilter,
@@ -563,10 +568,29 @@ export class SalesInvoiceService implements OnModuleInit {
   async update(
     id: string, dto: any, userId?: string, companyId?: string,
     allowedDivisionIds?: DivisionAccess,
+    req?: any,
   ): Promise<SalesInvoice> {
     const invoice = await this.findOne(id, companyId, allowedDivisionIds);
-    if (invoice.status !== 'Pending') {
-      throw new BadRequestException('Can only update invoices in Pending status');
+    const statusUpper = String(invoice.status || 'Pending').toUpperCase();
+    const isDraftOrPending = statusUpper === 'PENDING' || statusUpper === 'DRAFT';
+    const isAdmin = req ? await isAdministratorRequest(req, this.repo.manager) : false;
+
+    if (!isDraftOrPending) {
+      if (!isAdmin) {
+        throw new BadRequestException('Can only update invoices in Pending status');
+      }
+      if (statusUpper === 'CANCELLED') {
+        throw new BadRequestException('Cancelled invoices cannot be edited.');
+      }
+    }
+
+    const nextTotal = Number(dto.totalAmount ?? invoice.totalAmount ?? 0);
+    const paidAmt = Number(invoice.paidAmount ?? 0);
+    const creditAmt = Number(invoice.creditNoteAmount ?? 0);
+    if (!isDraftOrPending && nextTotal < paidAmt - 0.01) {
+      throw new BadRequestException(
+        `Invoice total (${nextTotal}) cannot be reduced below already paid amount (${paidAmt}).`,
+      );
     }
 
     Object.assign(invoice, {
@@ -577,11 +601,24 @@ export class SalesInvoiceService implements OnModuleInit {
       subtotal: dto.subtotal ?? invoice.subtotal,
       discountAmount: dto.discountAmount ?? invoice.discountAmount,
       taxAmount: dto.taxAmount ?? invoice.taxAmount,
-      totalAmount: dto.totalAmount ?? invoice.totalAmount,
-      balance: dto.totalAmount ?? invoice.totalAmount,
+      totalAmount: nextTotal,
+      balance: Math.max(0, Math.round((nextTotal - paidAmt - creditAmt) * 100) / 100),
     });
 
-    return this.repo.save(invoice);
+    const saved = await this.repo.save(invoice);
+
+    if (!isDraftOrPending && isAdmin) {
+      await recordAdminOverrideAudit(this.repo.manager, {
+        actor: extractAuditActor(req),
+        targetType: 'SALES_INVOICE',
+        targetId: saved.id,
+        targetName: saved.invoiceNo,
+        previousStatus: invoice.status,
+        details: `Admin override edited sales invoice ${saved.invoiceNo} (Total: ${saved.totalAmount}, Balance: ${saved.balance})`,
+      });
+    }
+
+    return saved;
   }
 
   async recordPayment(

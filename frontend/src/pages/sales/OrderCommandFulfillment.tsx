@@ -46,6 +46,7 @@ import CardSelectDropdown from '../../components/dashboard/CardSelectDropdown';
 import {
   buildTopCustomersForCommand,
   computeOrderCommandKpis,
+  computePackCountForOrder,
   DEFAULT_ORDER_COMMAND_DATE_PRESET,
   findDefaultOrderCommandDivision,
   getOrderCommandDateBadge,
@@ -53,6 +54,8 @@ import {
   isOrderDateInRange,
   OrderCommandDatePreset,
   resolveOrderCommandDateRange,
+  resolveOrderUomCode,
+  resolvePackConfig,
   TopCommandCustomerCard,
 } from './orderCommandFilters.util';
 
@@ -62,6 +65,8 @@ export interface OrderCommandItem {
   itemCode: string;
   itemName: string;
   uomCode: string;
+  packagingSize?: number | null;
+  packagingUnit?: string | null;
   ordered: number;
   dispatched: number;
   pending: number;
@@ -126,6 +131,7 @@ export interface OrderCommandCustomerSummary {
   customerId: string;
   customerCode: string;
   customerName: string;
+  uomCode?: string;
   contactPerson: string | null;
   email: string | null;
   phone: string | null;
@@ -569,19 +575,28 @@ const OrderCommandFulfillment: React.FC = () => {
     [overview.divisions],
   );
 
-  const customerDropdownOptions = useMemo(
-    () =>
-      (overview.customers || []).map((c) => ({
+  const customerDropdownOptions = useMemo(() => {
+    const uomByCustomerId = new Map<string, string>();
+    for (const o of overview.orders || []) {
+      if (o.customerId && !uomByCustomerId.has(o.customerId)) {
+        uomByCustomerId.set(o.customerId, resolveOrderUomCode(o));
+      }
+    }
+    const activeDiv = (overview.divisions || []).find((d) => d.id === filterDivisionId);
+    const fallbackUom = resolveOrderUomCode(null, activeDiv);
+    return (overview.customers || []).map((c) => {
+      const custUom = c.uomCode || uomByCustomerId.get(c.customerId) || fallbackUom;
+      return {
         id: c.customerId,
         name: c.customerName,
         code: c.customerCode,
         subtext:
           c.openOrderCount > 0
-            ? `${c.openOrderCount} open SOC(s) · Pend: ${formatDecimal(c.totalPendingQty, 0)} GRS`
+            ? `${c.openOrderCount} open SOC(s) · Pend: ${formatDecimal(c.totalPendingQty, 0)} ${custUom}`
             : `${c.completedOrderCount} completed order(s)`,
-      })),
-    [overview.customers],
-  );
+      };
+    });
+  }, [overview.customers, overview.orders, overview.divisions, filterDivisionId]);
 
   const activeFilterChips = useMemo(() => {
     const chips: Array<{ key: 'division' | 'customer' | 'search' | 'readyOnly'; label: string; value: string }> = [];
@@ -826,85 +841,107 @@ const OrderCommandFulfillment: React.FC = () => {
         </div>
 
         {/* Line 2: Compact 5-Figure Fulfillment Pills + Ready Aging Badge */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', fontSize: 11 }}>
-            <span
-              style={{
-                padding: '1px 6px',
-                borderRadius: 4,
-                backgroundColor: token.colorFillAlter,
-                color: token.colorTextSecondary,
-                fontWeight: 600,
-              }}
-            >
-              Ord: <strong style={{ color: token.colorText }}>{formatDecimal(order.orderedQty, 0)}</strong>
-            </span>
-            <span
-              style={{
-                padding: '1px 6px',
-                borderRadius: 4,
-                backgroundColor: token.colorFillAlter,
-                color: token.colorTextSecondary,
-                fontWeight: 600,
-              }}
-            >
-              Disp: <strong style={{ color: '#0284c7' }}>{formatDecimal(order.dispatchedQty, 0)}</strong>
-            </span>
-            <span
-              style={{
-                padding: '1px 6px',
-                borderRadius: 4,
-                backgroundColor: order.pendingQty > 0 ? 'rgba(234, 88, 12, 0.10)' : token.colorFillAlter,
-                color: order.pendingQty > 0 ? '#ea580c' : token.colorTextTertiary,
-                fontWeight: 700,
-              }}
-            >
-              Pend: {formatDecimal(order.pendingQty, 0)}
-            </span>
-            <span
-              style={{
-                padding: '1px 6px',
-                borderRadius: 4,
-                backgroundColor: hasReady ? 'rgba(16, 185, 129, 0.15)' : token.colorFillAlter,
-                border: hasReady ? '1px solid rgba(16, 185, 129, 0.35)' : '1px solid transparent',
-                color: hasReady ? '#059669' : token.colorTextTertiary,
-                fontWeight: 700,
-              }}
-            >
-              Ready: {formatDecimal(order.readyPackedQty, 0)}
-            </span>
-            <span
-              style={{
-                padding: '1px 6px',
-                borderRadius: 4,
-                backgroundColor: token.colorFillAlter,
-                color: order.remainingToPackQty > 0 ? token.colorText : token.colorTextTertiary,
-                fontWeight: 600,
-              }}
-            >
-              To Pack: <strong>{formatDecimal(order.remainingToPackQty, 0)}</strong>
-            </span>
-          </div>
+        {(() => {
+          const ordPack = computePackCountForOrder(order.orderedQty, order);
+          const dispPack = computePackCountForOrder(order.dispatchedQty, order);
+          const pendPack = computePackCountForOrder(order.pendingQty, order);
+          const readyPack = computePackCountForOrder(order.readyPackedQty, order);
+          const toPackPack = computePackCountForOrder(order.remainingToPackQty, order);
+          const uom = ordPack.uomCode;
+          const packHint = (p: { packCount: number; packUnitLabel: string }) =>
+            p.packUnitLabel && p.packCount > 0 ? ` (${formatDecimal(p.packCount, 0)} ${p.packUnitLabel})` : '';
+          return (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', fontSize: 11 }}>
+                <Tooltip title={`Ordered: ${formatDecimal(order.orderedQty, 0)} ${uom}${packHint(ordPack)}`}>
+                  <span
+                    style={{
+                      padding: '1px 6px',
+                      borderRadius: 4,
+                      backgroundColor: token.colorFillAlter,
+                      color: token.colorTextSecondary,
+                      fontWeight: 600,
+                    }}
+                  >
+                    Ord: <strong style={{ color: token.colorText }}>{formatDecimal(order.orderedQty, 0)} {uom}</strong>
+                  </span>
+                </Tooltip>
+                <Tooltip title={`Dispatched: ${formatDecimal(order.dispatchedQty, 0)} ${uom}${packHint(dispPack)}`}>
+                  <span
+                    style={{
+                      padding: '1px 6px',
+                      borderRadius: 4,
+                      backgroundColor: token.colorFillAlter,
+                      color: token.colorTextSecondary,
+                      fontWeight: 600,
+                    }}
+                  >
+                    Disp: <strong style={{ color: '#0284c7' }}>{formatDecimal(order.dispatchedQty, 0)} {uom}</strong>
+                  </span>
+                </Tooltip>
+                <Tooltip title={`Pending: ${formatDecimal(order.pendingQty, 0)} ${uom}${packHint(pendPack)}`}>
+                  <span
+                    style={{
+                      padding: '1px 6px',
+                      borderRadius: 4,
+                      backgroundColor: order.pendingQty > 0 ? 'rgba(234, 88, 12, 0.10)' : token.colorFillAlter,
+                      color: order.pendingQty > 0 ? '#ea580c' : token.colorTextTertiary,
+                      fontWeight: 700,
+                    }}
+                  >
+                    Pend: {formatDecimal(order.pendingQty, 0)} {uom}
+                  </span>
+                </Tooltip>
+                <Tooltip title={`Ready Packed: ${formatDecimal(order.readyPackedQty, 0)} ${uom}${packHint(readyPack)}`}>
+                  <span
+                    style={{
+                      padding: '1px 6px',
+                      borderRadius: 4,
+                      backgroundColor: hasReady ? 'rgba(16, 185, 129, 0.15)' : token.colorFillAlter,
+                      border: hasReady ? '1px solid rgba(16, 185, 129, 0.35)' : '1px solid transparent',
+                      color: hasReady ? '#059669' : token.colorTextTertiary,
+                      fontWeight: 700,
+                    }}
+                  >
+                    Ready: {formatDecimal(order.readyPackedQty, 0)} {uom}
+                  </span>
+                </Tooltip>
+                <Tooltip title={`Remaining to Pack: ${formatDecimal(order.remainingToPackQty, 0)} ${uom}${packHint(toPackPack)}`}>
+                  <span
+                    style={{
+                      padding: '1px 6px',
+                      borderRadius: 4,
+                      backgroundColor: token.colorFillAlter,
+                      color: order.remainingToPackQty > 0 ? token.colorText : token.colorTextTertiary,
+                      fontWeight: 600,
+                    }}
+                  >
+                    To Pack: <strong>{formatDecimal(order.remainingToPackQty, 0)} {uom}</strong>
+                  </span>
+                </Tooltip>
+              </div>
 
-          {hasReady && order.readyAgeDays !== null && (
-            <Tooltip title={`Packed/allocated stock waiting ${order.readyAgeDays} day(s) for customer pickup`}>
-              <span
-                style={{
-                  fontSize: 10.5,
-                  fontWeight: 800,
-                  padding: '1px 7px',
-                  borderRadius: 10,
-                  backgroundColor: aging.bg,
-                  border: `1px solid ${aging.border}`,
-                  color: aging.color,
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                Ready {order.readyAgeDays}d
-              </span>
-            </Tooltip>
-          )}
-        </div>
+              {hasReady && order.readyAgeDays !== null && (
+                <Tooltip title={`Packed/allocated stock waiting ${order.readyAgeDays} day(s) for customer pickup`}>
+                  <span
+                    style={{
+                      fontSize: 10.5,
+                      fontWeight: 800,
+                      padding: '1px 7px',
+                      borderRadius: 10,
+                      backgroundColor: aging.bg,
+                      border: `1px solid ${aging.border}`,
+                      color: aging.color,
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    Ready {order.readyAgeDays}d
+                  </span>
+                </Tooltip>
+              )}
+            </div>
+          );
+        })()}
       </div>
     );
   };
@@ -962,7 +999,7 @@ const OrderCommandFulfillment: React.FC = () => {
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 11.5, color: token.colorTextSecondary }}>
             <span>
-              Qty: <strong style={{ color: token.colorText }}>{formatDecimal(isPrimaryOpen ? totals.pendingQty : totals.qty, 0)}</strong>
+              Qty: <strong style={{ color: token.colorText }}>{formatDecimal(isPrimaryOpen ? totals.pendingQty : totals.qty, 0)} {list[0] ? resolveOrderUomCode(list[0]) : periodKpiMetrics.primaryUom}</strong>
             </span>
             <span>
               PKR <strong style={{ color: token.colorText }}>{formatDecimal(totals.amount, 0)}</strong>
@@ -1538,24 +1575,24 @@ const OrderCommandFulfillment: React.FC = () => {
                         }}
                       >
                         <span style={{ fontWeight: 700, color: '#10b981' }}>
-                          {formatDecimal(cust.soldGrs, 0)} GRS sold
+                          {formatDecimal(cust.soldGrs, 0)} {cust.uomCode} sold
                         </span>
-                        {cust.cartons > 0 && (
+                        {cust.packUnitLabel && cust.packCount > 0 && (
                           <span style={{ color: token.colorTextSecondary }}>
-                            · {formatDecimal(cust.cartons, 0)} CTN
+                            · {formatDecimal(cust.packCount, 0)} {cust.packUnitLabel}
                           </span>
                         )}
                       </div>
 
                       <div style={{ fontSize: 10.5, fontWeight: 700, color: cust.pendingGrs > 0 ? '#ea580c' : token.colorTextTertiary }}>
-                        Pending: {formatDecimal(cust.pendingGrs, 0)} GRS
+                        Pending: {formatDecimal(cust.pendingGrs, 0)} {cust.uomCode}
                       </div>
                     </div>
                   </div>
 
                   <div style={{ flexShrink: 0, textAlign: 'center' }}>
                     <Tooltip
-                      title={`${cust.customerName}: ${cust.completionPct}% completion (${formatDecimal(cust.soldGrs, 0)} sold vs ${formatDecimal(cust.pendingGrs, 0)} pending)`}
+                      title={`${cust.customerName}: ${cust.completionPct}% completion (${formatDecimal(cust.soldGrs, 0)} ${cust.uomCode} sold vs ${formatDecimal(cust.pendingGrs, 0)} ${cust.uomCode} pending)`}
                     >
                       <Progress
                         type="circle"
@@ -1969,6 +2006,19 @@ const OrderCommandFulfillment: React.FC = () => {
                           {selectedOrder.items.map((it) => {
                             const { primary, secondary } = splitDoubleUnderscoreName(it.itemName);
                             const aging = getAgingPalette(it.readyAgeDays);
+                            const itemPackCfg = resolvePackConfig(
+                              it.uomCode || selectedOrder.uomCode,
+                              `${selectedOrder.divisionCode || ''} ${selectedOrder.divisionName || ''}`,
+                              it.packagingSize,
+                              it.packagingUnit,
+                            );
+                            const itemUom = itemPackCfg.uomCode;
+                            const formatSubPack = (qty: number) =>
+                              itemPackCfg.packUnitLabel && itemPackCfg.defaultPackSize > 0 && qty > 0
+                                ? `${formatDecimal(Math.round(qty / itemPackCfg.defaultPackSize), 0)} ${itemPackCfg.packUnitLabel}`
+                                : null;
+                            const ordSubPack = formatSubPack(it.ordered);
+                            const pendSubPack = formatSubPack(it.pending);
                             return (
                               <tr key={it.id} style={{ borderBottom: `1px solid ${token.colorBorderSecondary}` }}>
                                 <td style={{ padding: '8px 10px', verticalAlign: 'top' }}>
@@ -1996,17 +2046,27 @@ const OrderCommandFulfillment: React.FC = () => {
                                   )}
                                 </td>
                                 <td style={{ padding: '8px 8px', textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 600 }}>
-                                  {formatDecimal(it.ordered, 0)} {it.uomCode}
+                                  <div>{formatDecimal(it.ordered, 0)} {itemUom}</div>
+                                  {ordSubPack && (
+                                    <div style={{ fontSize: 10, fontWeight: 500, color: token.colorTextTertiary }}>
+                                      {ordSubPack}
+                                    </div>
+                                  )}
                                 </td>
                                 <td style={{ padding: '8px 8px', textAlign: 'right', whiteSpace: 'nowrap', color: '#0284c7', fontWeight: 600 }}>
-                                  {formatDecimal(it.dispatched, 0)}
+                                  {formatDecimal(it.dispatched, 0)} {itemUom}
                                 </td>
                                 <td style={{ padding: '8px 8px', textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 700, color: it.pending > 0 ? '#ea580c' : token.colorTextTertiary }}>
-                                  {formatDecimal(it.pending, 0)}
+                                  <div>{formatDecimal(it.pending, 0)} {itemUom}</div>
+                                  {pendSubPack && (
+                                    <div style={{ fontSize: 10, fontWeight: 500, color: token.colorTextTertiary }}>
+                                      {pendSubPack}
+                                    </div>
+                                  )}
                                 </td>
                                 <td style={{ padding: '8px 8px', textAlign: 'right', whiteSpace: 'nowrap' }}>
                                   <div style={{ fontWeight: 700, color: it.readyPacked > 0 ? '#059669' : token.colorTextTertiary }}>
-                                    {formatDecimal(it.readyPacked, 0)}
+                                    {formatDecimal(it.readyPacked, 0)} {itemUom}
                                   </div>
                                   {it.readyPacked > 0 && it.readyAgeDays !== null && (
                                     <Tooltip title={`Undispatched packed stock waiting ${it.readyAgeDays} day(s) for customer pickup`}>
@@ -2016,7 +2076,7 @@ const OrderCommandFulfillment: React.FC = () => {
                                     </Tooltip>
                                   )}
                                   {(it.pendingNippleQty || 0) > 0 && (
-                                    <Tooltip title={`${formatDecimal(it.pendingNippleQty || 0, 0)} ${it.uomCode} allocated to this SOC in WITHOUT_NIPPLE status — complete via + Add Nipple to move into Ready Packed FG`}>
+                                    <Tooltip title={`${formatDecimal(it.pendingNippleQty || 0, 0)} ${itemUom} allocated to this SOC in WITHOUT_NIPPLE status — complete via + Add Nipple to move into Ready Packed FG`}>
                                       <div style={{ fontSize: 10, fontWeight: 700, color: '#d97706' }}>
                                         +{formatDecimal(it.pendingNippleQty || 0, 0)} Pending Nipples
                                       </div>
@@ -2024,7 +2084,7 @@ const OrderCommandFulfillment: React.FC = () => {
                                   )}
                                 </td>
                                 <td style={{ padding: '8px 8px', textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 600 }}>
-                                  {formatDecimal(it.remainingToPack, 0)}
+                                  {formatDecimal(it.remainingToPack, 0)} {itemUom}
                                 </td>
                                 <td style={{ padding: '8px 8px', textAlign: 'right', whiteSpace: 'nowrap' }}>
                                   {it.unitPrice <= 0 ? (
@@ -2226,7 +2286,10 @@ const OrderCommandFulfillment: React.FC = () => {
                         Pending Order Qty
                       </div>
                       <div style={{ fontSize: 16, fontWeight: 800, color: '#ea580c' }}>
-                        {formatDecimal(selectedCustomer.totalPendingQty, 0)}
+                        {formatDecimal(selectedCustomer.totalPendingQty, 0)}{' '}
+                        <span style={{ fontSize: 11, fontWeight: 600, color: token.colorTextSecondary }}>
+                          {selectedCustomer.uomCode || (selectedCustomerOrders[0] ? resolveOrderUomCode(selectedCustomerOrders[0]) : periodKpiMetrics.primaryUom)}
+                        </span>
                       </div>
                     </div>
                     <div>
@@ -2234,7 +2297,10 @@ const OrderCommandFulfillment: React.FC = () => {
                         Ready Packed Stock
                       </div>
                       <div style={{ fontSize: 16, fontWeight: 800, color: '#059669' }}>
-                        {formatDecimal(selectedCustomer.totalReadyPackedQty, 0)}
+                        {formatDecimal(selectedCustomer.totalReadyPackedQty, 0)}{' '}
+                        <span style={{ fontSize: 11, fontWeight: 600, color: token.colorTextSecondary }}>
+                          {selectedCustomer.uomCode || (selectedCustomerOrders[0] ? resolveOrderUomCode(selectedCustomerOrders[0]) : periodKpiMetrics.primaryUom)}
+                        </span>
                       </div>
                     </div>
                     <div>
@@ -2310,10 +2376,10 @@ const OrderCommandFulfillment: React.FC = () => {
                               </Tag>
                             </td>
                             <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 700, color: co.pendingQty > 0 ? '#ea580c' : token.colorTextTertiary }}>
-                              {formatDecimal(co.pendingQty, 0)}
+                              {formatDecimal(co.pendingQty, 0)} {resolveOrderUomCode(co)}
                             </td>
                             <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 700, color: co.readyPackedQty > 0 ? '#059669' : token.colorTextTertiary }}>
-                              {formatDecimal(co.readyPackedQty, 0)}
+                              {formatDecimal(co.readyPackedQty, 0)} {resolveOrderUomCode(co)}
                               {co.readyPackedQty > 0 && co.readyAgeDays !== null ? ` (${co.readyAgeDays}d)` : ''}
                             </td>
                             <td style={{ padding: '7px 10px', textAlign: 'right', fontWeight: 700 }}>

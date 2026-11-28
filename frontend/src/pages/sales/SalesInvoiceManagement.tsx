@@ -138,7 +138,7 @@ const SalesInvoiceManagement: React.FC = () => {
   const { message } = App.useApp();
   const { token } = theme.useToken();
   const navigate = useNavigate();
-  const { can, canAny } = usePermission();
+  const { can, canAny, isAdmin } = usePermission();
   const canCreate = can('sales.invoices.create');
   const canUpdate = can('sales.invoices.update');
   const canPost = can('sales.invoices.post');
@@ -1403,12 +1403,12 @@ const SalesInvoiceManagement: React.FC = () => {
               </Tooltip>
             )}
             {canUpdate && (
-              <Tooltip title="Edit Invoice">
+              <Tooltip title={!canApprovePost && isAdmin ? 'Admin Override Edit' : 'Edit Invoice'}>
                 <button
                   type="button"
                   className="inv-action-btn inv-btn-edit"
                   onClick={() => requestActionConfirmation(record, 'edit')}
-                  disabled={!canApprovePost}
+                  disabled={!canApprovePost && !(isAdmin && lowerStatus !== 'cancelled')}
                 >
                   <EditOutlined />
                 </button>
@@ -1491,6 +1491,18 @@ const SalesInvoiceManagement: React.FC = () => {
             <FileTextOutlined style={{ color: token.colorPrimary }} />
             <span>{viewMode === 'edit' ? `Invoice #${editingItem?.invoiceNo}` : 'New Invoice'}</span>
           </div>
+
+          {viewMode === 'edit' &&
+            editingItem &&
+            !['pending', 'draft'].includes(String(editingItem.status || '').toLowerCase()) && (
+              <Alert
+                type="warning"
+                showIcon
+                style={{ marginBottom: 14 }}
+                message="Admin Override Mode"
+                description="Editing a confirmed document will recalculate invoice totals and receivable balances. Total amount cannot be reduced below already paid amount. This override is recorded in the audit log."
+              />
+            )}
 
           {/* 2-Column Responsive Field Grid */}
           <div className="create-inv-grid">

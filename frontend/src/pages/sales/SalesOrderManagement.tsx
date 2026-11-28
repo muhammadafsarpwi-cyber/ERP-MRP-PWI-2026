@@ -482,7 +482,7 @@ export function computeOrderChanges(
 
 const SalesOrderManagement: React.FC = () => {
   const { message } = App.useApp();
-  const { can, canAny } = usePermission();
+  const { can, canAny, isAdmin } = usePermission();
   const navigate = useNavigate();
   const canCreate = can('sales.orders.create');
   const canUpdate = can('sales.orders.update');
@@ -2088,11 +2088,11 @@ const SalesOrderManagement: React.FC = () => {
               </button>
             </Tooltip>
             {canUpdate && (
-              <Tooltip title="Edit Order">
+              <Tooltip title={s !== 'draft' && isAdmin ? 'Admin Override Edit' : 'Edit Order'}>
                 <button
                   className="inv-action-btn inv-btn-edit"
                   onClick={() => handleEdit(record)}
-                  disabled={s !== 'draft'}
+                  disabled={s !== 'draft' && !(isAdmin && s !== 'cancelled')}
                 >
                   <EditOutlined />
                 </button>
@@ -2850,6 +2850,15 @@ const SalesOrderManagement: React.FC = () => {
           </div>
         }
       >
+        {editingItem && String(editingItem.status || 'Draft').toUpperCase() !== 'DRAFT' && (
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginBottom: 14 }}
+            message="Admin Override Mode"
+            description="Editing a confirmed document will recalculate order totals and fulfillment balances. Items with already dispatched quantities cannot be removed or reduced below dispatched volume. This override is recorded in the audit log."
+          />
+        )}
         <Form form={form} layout="vertical">
           {/* Outer Bordered Container matching Daily Production Entry Wizard */}
           <div

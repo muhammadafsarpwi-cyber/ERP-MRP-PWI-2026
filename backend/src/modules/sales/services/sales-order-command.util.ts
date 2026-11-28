@@ -99,6 +99,8 @@ export interface OrderCommandItem {
   itemCode: string;
   itemName: string;
   uomCode: string;
+  packagingSize?: number | null;
+  packagingUnit?: string | null;
   ordered: number;
   dispatched: number;
   pending: number;
@@ -163,6 +165,7 @@ export interface OrderCommandCustomerSummary {
   customerId: string;
   customerCode: string;
   customerName: string;
+  uomCode?: string;
   contactPerson: string | null;
   email: string | null;
   phone: string | null;
@@ -674,7 +677,15 @@ export function buildOrderCommandOverview(params: {
         itemId: it.item_id,
         itemCode: it.item_code || 'ITEM',
         itemName: it.item_name || 'Item',
-        uomCode: it.uom_code || 'GRS',
+        uomCode:
+          it.uom_code ||
+          (String(h.division_code || '').toUpperCase().includes('CCD')
+            ? 'M'
+            : String(h.division_code || '').toUpperCase().includes('WRD')
+              ? 'KG'
+              : 'GRS'),
+        packagingSize: Number(it.packaging_size) > 0 ? Number(it.packaging_size) : null,
+        packagingUnit: it.packaging_unit || null,
         ordered,
         dispatched: round2(dispatched),
         pending,
@@ -712,7 +723,13 @@ export function buildOrderCommandOverview(params: {
     );
     const subtotal = round2(Number(h.order_subtotal) > 0 ? Number(h.order_subtotal) : orderSubtotal);
     const taxAmount = round2(Number(h.order_tax) > 0 ? Number(h.order_tax) : orderTaxSum);
-    const primaryUom = items[0]?.uomCode || 'GRS';
+    const primaryUom =
+      items[0]?.uomCode ||
+      (String(h.division_code || '').toUpperCase().includes('CCD')
+        ? 'M'
+        : String(h.division_code || '').toUpperCase().includes('WRD')
+          ? 'KG'
+          : 'GRS');
 
     const linkedDeliveries = Array.from((deliveriesByOrder.get(orderId) || new Map()).values()).sort((a, b) =>
       String(b.deliveryDate || '').localeCompare(String(a.deliveryDate || '')),
@@ -770,6 +787,7 @@ export function buildOrderCommandOverview(params: {
         customerId: custId,
         customerCode: h.customer_code || 'CUST',
         customerName: h.customer_name || 'Customer',
+        uomCode: primaryUom,
         contactPerson: h.contact_person || null,
         email: h.customer_email || null,
         phone: h.customer_phone || null,

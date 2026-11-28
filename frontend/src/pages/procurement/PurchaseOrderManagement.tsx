@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import {
-  Table, Button, Input, Select, DatePicker, App, Modal, Tooltip,
+  Alert, Table, Button, Input, Select, DatePicker, App, Modal, Tooltip,
   Row, Col, Form, InputNumber, Tag, Badge, Progress, Spin, Card, Space, Segmented, theme,
 } from 'antd';
 import {
@@ -353,7 +353,7 @@ export const PoFulfillmentLedger: React.FC<PoFulfillmentLedgerProps> = ({ poId, 
 
 const PurchaseOrderManagement: React.FC = () => {
   const { message } = App.useApp();
-  const { can } = usePermission();
+  const { can, isAdmin } = usePermission();
   const canCreate = can('procurement.order.create');
 
   // List view state
@@ -1746,10 +1746,20 @@ const PurchaseOrderManagement: React.FC = () => {
               }}
             />
           </Tooltip>
-          <Tooltip title="Edit PO">
+          <Tooltip
+            title={
+              String(record.status || 'DRAFT').toUpperCase() !== 'DRAFT' && isAdmin
+                ? 'Admin Override Edit'
+                : 'Edit PO'
+            }
+          >
             <Button
               className="btn-po-action-icon"
               icon={<EditOutlined />}
+              disabled={
+                String(record.status || 'DRAFT').toUpperCase() !== 'DRAFT' &&
+                !(isAdmin && String(record.status || 'DRAFT').toUpperCase() !== 'CANCELLED')
+              }
               onClick={() => handleOpenEditModal(record)}
             />
           </Tooltip>
@@ -2143,6 +2153,15 @@ const PurchaseOrderManagement: React.FC = () => {
         destroyOnHidden
       >
         <div className="po-modal-body">
+          {editingItem && String(editingItem.status || 'DRAFT').toUpperCase() !== 'DRAFT' && (
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginBottom: 14 }}
+              message="Admin Override Mode"
+              description="Editing a confirmed document will recalculate order totals and receiving balances. Line quantities cannot be reduced below already received quantities. This override is recorded in the audit log."
+            />
+          )}
           <Form form={form} layout="vertical">
             {/* Auto-load Reference Selector Card */}
             {!editingItem && (

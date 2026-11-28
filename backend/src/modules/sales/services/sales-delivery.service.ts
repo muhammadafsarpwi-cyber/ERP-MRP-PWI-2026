@@ -1,4 +1,9 @@
 import { Injectable, NotFoundException, BadRequestException, Logger, OnModuleInit, Optional } from '@nestjs/common';
+import {
+  extractAuditActor,
+  isAdministratorRequest,
+  recordAdminOverrideAudit,
+} from '../../../common/utils/admin-override.util';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import {
@@ -1101,10 +1106,20 @@ export class SalesDeliveryService implements OnModuleInit {
   async update(
     id: string, dto: any, userId?: string, companyId?: string,
     allowedDivisionIds?: DivisionAccess,
+    req?: any,
   ): Promise<SalesDelivery> {
     const delivery = await this.findOne(id, companyId, allowedDivisionIds);
-    if (delivery.status !== 'DRAFT') {
-      throw new BadRequestException('Can only update deliveries in DRAFT status');
+    const statusUpper = String(delivery.status || 'DRAFT').toUpperCase();
+    const isDraft = statusUpper === 'DRAFT';
+    const isAdmin = req ? await isAdministratorRequest(req, this.repo.manager) : false;
+
+    if (!isDraft) {
+      if (!isAdmin) {
+        throw new BadRequestException('Can only update deliveries in DRAFT status');
+      }
+      if (statusUpper === 'CANCELLED') {
+        throw new BadRequestException('Cancelled deliveries cannot be edited.');
+      }
     }
 
     const isUuid = (val?: string | null): boolean =>
@@ -1164,6 +1179,17 @@ export class SalesDeliveryService implements OnModuleInit {
       totalAmount,
       updatedBy: safeUserId,
     });
+
+    if (!isDraft && isAdmin) {
+      await recordAdminOverrideAudit(this.repo.manager, {
+        actor: extractAuditActor(req),
+        targetType: 'SALES_DELIVERY',
+        targetId: delivery.id,
+        targetName: delivery.deliveryNumber,
+        previousStatus: delivery.status,
+        details: `Admin override edited sales delivery ${delivery.deliveryNumber} (Total: ${totalAmount})`,
+      });
+    }
 
     return this.findOne(id, companyId, allowedDivisionIds);
   }

@@ -81,8 +81,8 @@ export class PurchaseOrderController {
   @RequirePermission('procurement.order.update')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Update purchase order' })
-  async update(@Param('id') id: string, @Body() dto: UpdatePurchaseOrderDto) {
-    const po = await this.service.update(id, dto);
+  async update(@Req() req: any, @Param('id') id: string, @Body() dto: UpdatePurchaseOrderDto) {
+    const po = await this.service.update(id, dto, req.user?.id, req);
     return { success: true, data: po, message: 'Purchase order updated successfully' };
   }
 

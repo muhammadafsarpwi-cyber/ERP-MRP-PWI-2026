@@ -820,4 +820,144 @@ describe('OrderCommandFulfillment', () => {
     fireEvent.click(screen.getByRole('button', { name: /Clear all/i }));
     expect(screen.queryByText(/DIV-001-SPI Spoke Division/)).not.toBeInTheDocument();
   });
+
+  it('renders dynamic M & Coils (250 M per Coil) for Control Cable Division with zero hardcoded GRS or CTN', async () => {
+    const ccdPayload = {
+      divisions: [{ id: DIV_CCD, divisionCode: 'DIV-002-CCD', name: 'Control Cable Division' }],
+      orders: [
+        {
+          id: 'so-ccd-1',
+          orderNumber: 'SOC-2026-09001',
+          customerId: 'cust-xinda',
+          customerCode: 'CUS-XIN-001',
+          customerName: 'Xinda Control Cable Pakistan (Pvt) Ltd',
+          customerPo: 'PO-XIN-1',
+          divisionId: DIV_CCD,
+          divisionCode: 'DIV-002-CCD',
+          divisionName: 'Control Cable Division',
+          orderDate: '2026-11-05',
+          orderAgeDays: 10,
+          deliveryDate: '2026-11-28',
+          currency: 'PKR',
+          status: 'Processing',
+          category: 'PENDING' as const,
+          paymentTerms: '30 Days',
+          orderedQty: 996750,
+          dispatchedQty: 271000,
+          pendingQty: 725750,
+          readyPackedQty: 50000,
+          readySinceDate: '2026-11-20',
+          readyAgeDays: 2,
+          remainingToPackQty: 675750,
+          subtotal: 9000000,
+          taxAmount: 1620000,
+          totalAmount: 10620000,
+          uomCode: 'M',
+          items: [
+            {
+              id: 'soi-ccd-1',
+              itemId: 'item-ccd-1',
+              itemCode: 'CCD-FG-001',
+              itemName: 'Outer Casing 5.0mm Black',
+              uomCode: 'M',
+              packagingSize: 250,
+              packagingUnit: 'COILS',
+              ordered: 996750,
+              dispatched: 271000,
+              pending: 725750,
+              readyPacked: 50000,
+              readySinceDate: '2026-11-20',
+              readyAgeDays: 2,
+              remainingToPack: 675750,
+              unitPrice: 9.03,
+              discountPercent: 0,
+              taxPercent: 18,
+              taxAmount: 1620000,
+              lineTotal: 10620000,
+            },
+          ],
+          linkedDeliveries: [
+            {
+              deliveryId: 'dn-ccd-1',
+              deliveryNumber: 'DN-2026-00901',
+              gatePassNumber: 'GP-19001',
+              deliveryDate: '2026-11-15',
+              status: 'DELIVERED',
+              carrier: null,
+              trackingNumber: null,
+              dispatchedQty: 271000,
+              totalAmount: 2900000,
+            },
+          ],
+        },
+      ],
+      customers: [
+        {
+          customerId: 'cust-xinda',
+          customerCode: 'CUS-XIN-001',
+          customerName: 'Xinda Control Cable Pakistan (Pvt) Ltd',
+          uomCode: 'M',
+          contactPerson: 'Mr. Chen',
+          email: null,
+          phone: null,
+          mobile: null,
+          paymentTerms: '30 Days',
+          creditDays: 30,
+          openOrderCount: 1,
+          completedOrderCount: 0,
+          cancelledOrderCount: 0,
+          totalOrderedQty: 996750,
+          totalDispatchedQty: 271000,
+          totalPendingQty: 725750,
+          totalReadyPackedQty: 50000,
+          oldestReadyAgeDays: 2,
+          totalRemainingToPackQty: 675750,
+          totalOpenValue: 10620000,
+          totalDispatchedValue: 2900000,
+          totalOrderValue: 10620000,
+        },
+      ],
+      generatedAt: '2026-11-22T12:00:00Z',
+    };
+
+    // Unit-level Top 5 Customers verification: 271,000 M / 250 M per Coil = 1,084 Coils
+    const topCcd = buildTopCustomersForCommand(ccdPayload.orders as any, {
+      preset: 'thisMonth',
+      dateFrom: '2026-11-01',
+      dateTo: '2026-11-30',
+      divisionId: DIV_CCD,
+    });
+    expect(topCcd).toHaveLength(1);
+    expect(topCcd[0]).toMatchObject({
+      customerName: 'Xinda Control Cable Pakistan (Pvt) Ltd',
+      soldGrs: 271000,
+      packCount: 1084,
+      uomCode: 'M',
+      packUnitLabel: 'Coils',
+      pendingGrs: 725750,
+    });
+
+    // Rendered UI verification: zero hardcoded GRS or CTN on Control Cable Division
+    (apiService.get as jest.Mock).mockResolvedValueOnce({
+      success: true,
+      data: ccdPayload,
+    });
+
+    const { container } = render(
+      <MemoryRouter initialEntries={['/sales/order-command']}>
+        <OrderCommandFulfillment />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('top-command-customer-card-1')).toBeInTheDocument();
+    });
+
+    const topCard = screen.getByTestId('top-command-customer-card-1');
+    expect(topCard).toHaveTextContent('271,000 M sold');
+    expect(topCard).toHaveTextContent('1,084 Coils');
+    expect(topCard).toHaveTextContent('Pending: 725,750 M');
+    expect(container.textContent).not.toMatch(/\bGRS\b/);
+    expect(container.textContent).not.toMatch(/\bCTN\b/);
+  });
 });

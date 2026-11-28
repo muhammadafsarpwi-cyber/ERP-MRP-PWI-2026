@@ -4,6 +4,8 @@ import {
   normalizeUrduDateText,
   canonicalizeDivisionCode,
   extractSpecificCustomer,
+  matchCustomersInQuery,
+  isCustomerStopPhrase,
 } from './nlQueryParser';
 import { detectExportCommand, buildAiReportWhatsAppText, extractStructuredTable } from './aiReportExporter';
 import {
@@ -820,6 +822,259 @@ describe('nlQueryParser — Date & Urdu/English Natural Language Resolution', ()
     expect(parseNaturalLanguageQuery('Which supplier delivered the most wire?', 'DIV-001-SPI', 'ALL').confidence).toBe('fallback');
     expect(parseNaturalLanguageQuery('Compare tool cost per gross across machines', 'DIV-001-SPI', 'ALL').confidence).toBe('fallback');
     expect(rmRecvIntent.confidence).toBe('high');
+  });
+
+  it('resolves leading customer names with punctuation ("Xinda Control Cable Pakistan (Pvt) Ltd.We need..."), ignores pronoun stop-phrases, and formats Control Cable dispatches in M & Coils', () => {
+    const prompt =
+      'Xinda Control Cable Pakistan (Pvt) Ltd.We need to determine the quantity of each item dispatched to this customer during this month.';
+
+    // 1. Pronoun stop-phrases are never accepted as customer names
+    expect(isCustomerStopPhrase('this customer')).toBe(true);
+    expect(isCustomerStopPhrase('this customer during')).toBe(true);
+    expect(isCustomerStopPhrase('that customer during this month')).toBe(true);
+    expect(
+      extractSpecificCustomer('We need to determine the quantity of each item dispatched to this customer during this month.'),
+    ).toBeUndefined();
+
+    // 2. Leading company name is extracted cleanly (even with no space after "Ltd.")
+    expect(extractSpecificCustomer(prompt)).toBe('Xinda Control Cable Pakistan (Pvt) Ltd');
+
+    // 3. Live Customer Master matching resolves against companyName / name / partial brand token
+    const liveCustomers = [
+      { id: 'c-xinda', name: 'Xinda Control Cable Pakistan (Pvt) Ltd', companyName: 'Xinda Control Cable Pakistan (Pvt) Ltd', code: 'CUS-XIN-001' },
+      { id: 'c-crown', name: 'CROWN FIT PAKISTAN', companyName: 'CROWN FIT PAKISTAN', code: 'CUS-CFP-001' },
+    ];
+    const matchedFull = matchCustomersInQuery(prompt, liveCustomers);
+    expect(matchedFull).toHaveLength(1);
+    expect(matchedFull[0].code).toBe('CUS-XIN-001');
+
+    const matchedPartial = matchCustomersInQuery('How much was dispatched to Xinda this month?', liveCustomers);
+    expect(matchedPartial).toHaveLength(1);
+    expect(matchedPartial[0].code).toBe('CUS-XIN-001');
+
+    // 4. Full intent parsing routes to customer dimension for this_month in Control Cable division
+    const intent = parseNaturalLanguageQuery(prompt, 'ALL', 'ALL');
+    expect(intent.dimension).toBe('customer');
+    expect(intent.period.type).toBe('this_month');
+    expect(intent.specificCustomer).toBe('Xinda Control Cable Pakistan (Pvt) Ltd');
+
+    // 5. Control Cable customer dispatch report formats quantities in M & Coils with Cumulative Dispatched & Remaining Balance
+    const thisMonthDate = dayjs().format('YYYY-MM-DD');
+    const ccdReport = buildCustomerSpecificDispatchReport({
+      intent,
+      division: {
+        id: 'd2000000-0000-0000-0000-000000000002',
+        code: 'DIV-002-CCD',
+        name: 'Control Cable Division',
+        uom: 'M',
+        color: '#8b5cf6',
+      },
+      isDark: false,
+      matchedCustomers: [{ id: 'c-xinda', name: 'Xinda Control Cable Pakistan (Pvt) Ltd', code: 'CUS-XIN-001' }],
+      rawOrders: [
+        {
+          id: 'so-xinda-1',
+          orderNumber: 'SOC-2026-09100',
+          orderDate: thisMonthDate,
+          status: 'PROCESSING',
+          customerId: 'c-xinda',
+          items: [
+            {
+              itemId: 'item-cc-1',
+              item: { itemCode: 'CCD-FG-001', name: 'Outer Casing 5.0mm Black', packagingSize: 100, uom: { code: 'M' } },
+              quantity: 5000,
+              shippedQuantity: 3500,
+            },
+          ],
+        },
+      ],
+      rawDeliveries: [
+        {
+          id: 'dn-xinda-1',
+          deliveryNumber: 'DN-2026-00410',
+          deliveryDate: thisMonthDate,
+          status: 'DELIVERED',
+          customerId: 'c-xinda',
+          salesOrderId: 'so-xinda-1',
+          salesOrder: { id: 'so-xinda-1', orderNumber: 'SOC-2026-09100' },
+          lines: [
+            {
+              itemId: 'item-cc-1',
+              item: { itemCode: 'CCD-FG-001', name: 'Outer Casing 5.0mm Black', packagingSize: 100, uom: { code: 'M' } },
+              quantity: 2000,
+              packageQuantity: 20,
+              packageUnit: 'COILS',
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(ccdReport.title).toContain('Xinda Control Cable Pakistan (Pvt) Ltd');
+    expect(ccdReport.tableData?.columns.map((c) => c.title)).toEqual([
+      'DATE / DOC #',
+      'ITEM CODE & NAME',
+      'ORDERED (M / COILS)',
+      'DISPATCHED (M / COILS)',
+      'PENDING BALANCE (M / COILS)',
+    ]);
+    expect(ccdReport.summaryText).toContain('2,000 M');
+    expect(ccdReport.summaryText).toContain('20 Coils');
+    expect(ccdReport.summaryText).toContain('Cumulative Dispatched');
+    expect(ccdReport.summaryText).toContain('3,500 M');
+    expect(ccdReport.summaryText).toContain('1,500 M');
+
+    const ccdRows = ccdReport.tableData?.rows || [];
+    expect(ccdRows[0]).toMatchObject({
+      itemCode: 'CCD-FG-001',
+      uomLabel: 'M',
+      packUnitLabel: 'Coils',
+      orderedGross: 5000,
+      orderedCartons: 50,
+      dispatchedGross: 2000,
+      dispatchedCartons: 20,
+      cumulativeDispatched: 3500,
+      pendingGross: 1500,
+      pendingCartons: 15,
+    });
+
+    // 6. Export structured table & WhatsApp text include formatted M / Coils & Cumulative Dispatched
+    const exportMsg = {
+      id: 'xinda-export',
+      text: ccdReport.summaryText,
+      reportTitle: ccdReport.title,
+      divisionScope: ccdReport.divisionScope,
+      periodLabel: ccdReport.periodLabel,
+      kpiCards: ccdReport.kpiCards,
+      tableData: ccdReport.tableData,
+    };
+    const structured = extractStructuredTable(exportMsg);
+    expect(structured.rows[0].cells[1]).toBe('CCD-FG-001 — Outer Casing 5.0mm Black');
+    expect(structured.rows[0].cells[2]).toBe('5,000 M (50 Coils)');
+    expect(structured.rows[0].cells[3]).toContain('2,000 M (20 Coils)');
+    expect(structured.rows[0].cells[3]).toContain('Cum: 3,500 M');
+    expect(structured.rows[0].cells[4]).toBe('1,500 M (15 Coils)');
+
+    const waText = buildAiReportWhatsAppText(exportMsg);
+    expect(waText).toContain('CCD-FG-001 — Outer Casing 5.0mm Black');
+    expect(waText).toContain('2,000 M (20 Coils)');
+    expect(waText).toContain('1,500 M (15 Coils)');
+  });
+
+  it('filters single wire-size Raw Material stock ("Raw Material 2.85 ka stock bata de") strictly to 2.85mm and fuzzy-matches typo customer ("Crwon Fit ka dispatch kitna howa this month")', () => {
+    // 1. Roman Urdu single wire-size raw material stock query
+    const rm285Intent = parseNaturalLanguageQuery('Raw Material 2.85 ka stock bata de', 'DIV-001-SPI', 'ALL');
+    expect(rm285Intent.dimension).toBe('raw_material_stock');
+    expect(rm285Intent.specificItem).toBe('2.85');
+
+    const spokeDiv = {
+      id: 'd1000000-0000-0000-0000-000000000001',
+      code: 'DIV-001-SPI',
+      name: 'Spoke Division',
+      uom: 'PCS',
+      color: '#06b6d4',
+    };
+
+    const rmStockReport = aggregateRawMaterialStock({
+      balances: [
+        {
+          item: { itemCode: 'RM-WIRE-012', name: 'Steel Wire Coil 3.45mm SR', itemType: 'RAW_MATERIAL' },
+          warehouse: { name: 'SPI Raw Material Store', divisionId: spokeDiv.id },
+          uom: { code: 'KG' },
+          onHand: 12400,
+          reserved: 400,
+          available: 12000,
+        },
+        {
+          item: { itemCode: 'RM-WIRE-013', name: 'Steel Wire Coil 2.85mm SR', itemType: 'RAW_MATERIAL' },
+          warehouse: { name: 'SPI Raw Material Store', divisionId: spokeDiv.id },
+          uom: { code: 'KG' },
+          onHand: 6850,
+          reserved: 350,
+          available: 6500,
+        },
+        {
+          item: { itemCode: 'RM-WIRE-014', name: 'Steel Wire Coil 3.14mm SR', itemType: 'RAW_MATERIAL' },
+          warehouse: { name: 'SPI Raw Material Store', divisionId: spokeDiv.id },
+          uom: { code: 'KG' },
+          onHand: 4200,
+          reserved: 0,
+          available: 4200,
+        },
+        {
+          item: { itemCode: 'RM-WIRE-015', name: 'Steel Wire Coil 12.85mm SR', itemType: 'RAW_MATERIAL' },
+          warehouse: { name: 'SPI Raw Material Store', divisionId: spokeDiv.id },
+          uom: { code: 'KG' },
+          onHand: 1000,
+          reserved: 0,
+          available: 1000,
+        },
+      ],
+      division: spokeDiv,
+      intent: rm285Intent,
+      isDark: false,
+    });
+
+    // Must return strictly ONLY RM-WIRE-013 (2.85mm) — NOT 3.45mm, NOT 3.14mm, NOT 12.85mm, and no redundant GRAND TOTAL row
+    const rows = rmStockReport.tableData?.rows || [];
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      itemCode: 'RM-WIRE-013',
+      itemName: 'Steel Wire Coil 2.85mm SR',
+      onHand: 6850,
+      reserved: 350,
+      available: 6500,
+    });
+    expect(rmStockReport.title).toContain('RM-WIRE-013');
+    expect(rmStockReport.summaryText).toContain('6,850 KG');
+    expect(rmStockReport.summaryText).toContain('6,500 KG');
+
+    // 2. Roman Urdu typo customer query ("Crwon Fit ka dispatch kitna howa this month")
+    const typoQuery = 'Crwon Fit ka dispatch kitna howa this month';
+    expect(extractSpecificCustomer(typoQuery)).toBe('Crwon Fit');
+
+    const typoIntent = parseNaturalLanguageQuery(typoQuery, 'DIV-001-SPI', 'ALL');
+    expect(typoIntent.dimension).toBe('customer');
+    expect(typoIntent.period.type).toBe('this_month');
+    expect(typoIntent.specificCustomer).toBe('Crwon Fit');
+
+    const customers = [
+      { id: 'c-crown', name: 'CROWN FIT PAKISTAN', companyName: 'CROWN FIT PAKISTAN', code: 'CUS-CFP-001' },
+      { id: 'c-xinda', name: 'Xinda Control Cable Pakistan (Pvt) Ltd', companyName: 'Xinda Control Cable Pakistan (Pvt) Ltd', code: 'CUS-XIN-001' },
+      { id: 'c-ali', name: 'ALI SHAH AUTOS', companyName: 'ALI SHAH AUTOS', code: 'CUS-ALI-002' },
+    ];
+    const fuzzyMatched = matchCustomersInQuery(typoQuery, customers);
+    expect(fuzzyMatched).toHaveLength(1);
+    expect(fuzzyMatched[0].code).toBe('CUS-CFP-001');
+
+    // 3. Single-customer report auto-resolves true Division badge (e.g. Xinda Control Cable -> DIV-002-CCD even when UI had Spoke Division selected)
+    const crossDivReport = buildCustomerSpecificDispatchReport({
+      intent: parseNaturalLanguageQuery('Xinda dispatch this month', 'DIV-001-SPI', 'ALL'),
+      division: spokeDiv,
+      isDark: false,
+      matchedCustomers: [{ id: 'c-xinda', name: 'Xinda Control Cable Pakistan (Pvt) Ltd', code: 'CUS-XIN-001' }],
+      rawOrders: [],
+      rawDeliveries: [
+        {
+          id: 'dn-x-1',
+          deliveryNumber: 'DN-2026-00999',
+          deliveryDate: dayjs().format('YYYY-MM-DD'),
+          status: 'DELIVERED',
+          customerId: 'c-xinda',
+          lines: [
+            {
+              itemId: 'i-cc-1',
+              item: { itemCode: 'CCD-FG-002', name: 'Control Cable 4.5mm', packagingSize: 100, uom: { code: 'M' } },
+              quantity: 1200,
+              packageQuantity: 12,
+              packageUnit: 'COILS',
+            },
+          ],
+        },
+      ],
+    });
+    expect(crossDivReport.divisionScope).toBe('DIV-002-CCD');
+    expect(crossDivReport.tableData?.columns[3].title).toBe('DISPATCHED (M / COILS)');
   });
 });
 

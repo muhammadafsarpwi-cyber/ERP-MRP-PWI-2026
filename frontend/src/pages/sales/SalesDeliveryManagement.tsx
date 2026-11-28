@@ -957,7 +957,7 @@ const SalesDeliveryManagement: React.FC = () => {
   const { message, notification } = App.useApp();
   const { token } = theme.useToken();
   const location = useLocation();
-  const { can } = usePermission();
+  const { can, isAdmin } = usePermission();
   const canCreate = can('sales.deliveries.create');
   const canUpdate = can('sales.deliveries.update');
   const canConfirm = can('sales.deliveries.confirm');
@@ -2608,8 +2608,8 @@ const SalesDeliveryManagement: React.FC = () => {
         setConfirmModal({
           visible: true,
           actionKey: 'edit',
-          title: 'Edit Delivery Note Draft',
-          actionBadge: 'MODIFY DRAFT',
+          title: String(record.status || 'DRAFT').toUpperCase() !== 'DRAFT' ? 'Admin Override Edit Delivery Note' : 'Edit Delivery Note Draft',
+          actionBadge: String(record.status || 'DRAFT').toUpperCase() !== 'DRAFT' ? 'ADMIN OVERRIDE' : 'MODIFY DRAFT',
           badgeBg: 'rgba(245, 158, 11, 0.15)',
           badgeColor: '#f59e0b',
           icon: <EditOutlined />,
@@ -3645,11 +3645,11 @@ const SalesDeliveryManagement: React.FC = () => {
               </button>
             </Tooltip>
             {canUpdate && (
-              <Tooltip title="Edit Delivery">
+              <Tooltip title={s !== 'DRAFT' && isAdmin ? 'Admin Override Edit' : 'Edit Delivery'}>
                 <button
                   className="inv-action-btn inv-btn-edit"
                   onClick={() => requestActionConfirmation(record, 'edit')}
-                  disabled={s !== 'DRAFT'}
+                  disabled={s !== 'DRAFT' && !(isAdmin && s !== 'CANCELLED')}
                 >
                   <EditOutlined />
                 </button>
@@ -4703,6 +4703,15 @@ const SalesDeliveryManagement: React.FC = () => {
           </div>
         }
       >
+        {editingItem && String(editingItem.status || 'DRAFT').toUpperCase() !== 'DRAFT' && (
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginBottom: 14 }}
+            message="Admin Override Mode"
+            description="Editing a confirmed document will recalculate delivery totals and fulfillment balances. This override is recorded in the audit log."
+          />
+        )}
         <Form form={form} layout="vertical">
           <Row gutter={16}>
             <Col span={8}>

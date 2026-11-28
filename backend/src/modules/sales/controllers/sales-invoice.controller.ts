@@ -74,7 +74,7 @@ export class SalesInvoiceController {
   async update(@Req() req: any, @Param('id') id: string, @Body() dto: Partial<CreateSalesInvoiceDto>) {
     const userId = req.user?.id;
     const companyId = req.erpUser?.defaultCompanyId;
-    const invoice = await this.service.update(id, dto, userId, companyId, this.divisionScope(req));
+    const invoice = await this.service.update(id, dto, userId, companyId, this.divisionScope(req), req);
     return { success: true, data: invoice, message: 'Sales invoice updated successfully' };
   }
 

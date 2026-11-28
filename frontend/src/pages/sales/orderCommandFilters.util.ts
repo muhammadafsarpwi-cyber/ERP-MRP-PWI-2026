@@ -71,6 +71,9 @@ export interface TopCommandCustomerCard {
   customerName: string;
   soldGrs: number;
   cartons: number;
+  packCount: number;
+  uomCode: string;
+  packUnitLabel: string;
   orderedGrs: number;
   pendingGrs: number;
   completionPct: number;
@@ -79,6 +82,98 @@ export interface TopCommandCustomerCard {
   color: string;
   accentBg: string;
   tag: string;
+}
+
+export interface OrderPackConfig {
+  uomCode: string;
+  packUnitLabel: string;
+  defaultPackSize: number;
+}
+
+export function resolveOrderUomCode(
+  order?: Pick<OrderCommandOrder, 'uomCode' | 'divisionCode' | 'divisionName' | 'items'> | null,
+  fallbackDivision?: { divisionCode?: string | null; name?: string | null } | null,
+): string {
+  const rawUom = String(order?.uomCode || order?.items?.[0]?.uomCode || '').trim().toUpperCase();
+  if (rawUom) {
+    if (['M', 'MTR', 'MTRS', 'METER', 'METERS'].includes(rawUom)) return 'M';
+    if (['GRS', 'GROSS'].includes(rawUom)) return 'GRS';
+    if (['KG', 'KGS', 'KILOGRAM', 'KILOGRAMS'].includes(rawUom)) return 'KG';
+    return rawUom;
+  }
+  const divHint = `${order?.divisionCode || fallbackDivision?.divisionCode || ''} ${order?.divisionName || fallbackDivision?.name || ''}`.toUpperCase();
+  if (divHint.includes('CCD') || divHint.includes('CONTROL CABLE')) return 'M';
+  if (divHint.includes('WRD') || divHint.includes('WIRE ROPE')) return 'KG';
+  return 'GRS';
+}
+
+export function resolvePackConfig(
+  uomCode?: string | null,
+  divisionHint?: string | null,
+  packagingSize?: number | null,
+  packagingUnit?: string | null,
+): OrderPackConfig {
+  const normUom = String(uomCode || '').trim().toUpperCase();
+  const divUp = String(divisionHint || '').toUpperCase();
+  const pkgUnitUp = String(packagingUnit || '').trim().toUpperCase();
+  const explicitSize = Number(packagingSize) > 0 ? Number(packagingSize) : 0;
+
+  if (['M', 'MTR', 'MTRS', 'METER', 'METERS'].includes(normUom) || (!normUom && (divUp.includes('CCD') || divUp.includes('CONTROL CABLE')))) {
+    return {
+      uomCode: 'M',
+      packUnitLabel: pkgUnitUp === 'COIL' || pkgUnitUp === 'COILS' || !pkgUnitUp ? 'Coils' : pkgUnitUp,
+      defaultPackSize: explicitSize || 250,
+    };
+  }
+  if (['KG', 'KGS', 'KILOGRAM', 'KILOGRAMS'].includes(normUom) || (!normUom && (divUp.includes('WRD') || divUp.includes('WIRE ROPE')))) {
+    return {
+      uomCode: 'KG',
+      packUnitLabel: pkgUnitUp && pkgUnitUp !== 'KG' ? pkgUnitUp : '',
+      defaultPackSize: explicitSize || 0,
+    };
+  }
+  if (['GRS', 'GROSS'].includes(normUom) || !normUom) {
+    return {
+      uomCode: 'GRS',
+      packUnitLabel: pkgUnitUp === 'CARTON' || pkgUnitUp === 'CARTONS' || !pkgUnitUp ? 'CTN' : pkgUnitUp,
+      defaultPackSize: explicitSize || 10,
+    };
+  }
+  return {
+    uomCode: normUom,
+    packUnitLabel: pkgUnitUp || '',
+    defaultPackSize: explicitSize || 0,
+  };
+}
+
+export function computePackCountForOrder(qty: number, order?: Pick<OrderCommandOrder, 'uomCode' | 'divisionCode' | 'divisionName' | 'items'> | null): {
+  packCount: number;
+  packUnitLabel: string;
+  uomCode: string;
+} {
+  const uomCode = resolveOrderUomCode(order);
+  const divHint = `${order?.divisionCode || ''} ${order?.divisionName || ''}`;
+  const items = Array.isArray(order?.items) ? order!.items : [];
+  const itemWithPkg = items.find((it) => Number(it.packagingSize) > 0);
+  const cfg = resolvePackConfig(uomCode, divHint, itemWithPkg?.packagingSize, itemWithPkg?.packagingUnit);
+  if (!cfg.packUnitLabel || cfg.defaultPackSize <= 0 || qty <= 0) {
+    return { packCount: 0, packUnitLabel: cfg.packUnitLabel, uomCode: cfg.uomCode };
+  }
+  // If order has multiple items with distinct packaging sizes, weight by ordered quantity
+  let weightedSize = cfg.defaultPackSize;
+  const sizedItems = items.filter((it) => Number(it.packagingSize) > 0 && Number(it.ordered) > 0);
+  if (sizedItems.length > 0) {
+    const totalOrd = sizedItems.reduce((s, it) => s + Number(it.ordered || 0), 0);
+    const totalPacks = sizedItems.reduce((s, it) => s + Number(it.ordered || 0) / Number(it.packagingSize), 0);
+    if (totalOrd > 0 && totalPacks > 0) {
+      weightedSize = totalOrd / totalPacks;
+    }
+  }
+  return {
+    packCount: Math.round(qty / weightedSize),
+    packUnitLabel: cfg.packUnitLabel,
+    uomCode: cfg.uomCode,
+  };
 }
 
 export interface ReconciledOrderCommandKpis {
@@ -476,7 +571,10 @@ export function buildTopCustomersForCommand(
       customerId: string;
       customerCode: string;
       customerName: string;
+      uomCode: string;
+      packUnitLabel: string;
       soldGrs: number;
+      packCount: number;
       orderedGrs: number;
       pendingGrs: number;
       deliveryIds: Set<string>;
@@ -489,13 +587,23 @@ export function buildTopCustomersForCommand(
     if (String(o.customerName || '').toUpperCase().includes('SAFETY STOCK')) continue;
 
     const custId = o.customerId || o.customerCode || o.customerName;
+    const orderUom = resolveOrderUomCode(o);
+    const orderPackCfg = resolvePackConfig(
+      orderUom,
+      `${o.divisionCode || ''} ${o.divisionName || ''}`,
+      o.items?.find((it) => Number(it.packagingSize) > 0)?.packagingSize,
+      o.items?.find((it) => it.packagingUnit)?.packagingUnit,
+    );
     let bucket = byCustomer.get(custId);
     if (!bucket) {
       bucket = {
         customerId: custId,
         customerCode: o.customerCode || 'CUST',
         customerName: String(o.customerName || 'Customer').trim(),
+        uomCode: orderPackCfg.uomCode,
+        packUnitLabel: orderPackCfg.packUnitLabel,
         soldGrs: 0,
+        packCount: 0,
         orderedGrs: 0,
         pendingGrs: 0,
         deliveryIds: new Set<string>(),
@@ -513,8 +621,9 @@ export function buildTopCustomersForCommand(
     }
 
     const linked = Array.isArray(o.linkedDeliveries) ? o.linkedDeliveries : [];
+    let orderSoldInPeriod = 0;
     if (isAllOpen) {
-      bucket.soldGrs += Number(o.dispatchedQty || 0);
+      orderSoldInPeriod = Number(o.dispatchedQty || 0);
       for (const ld of linked) {
         if (COMMITTED_DELIVERY_STATUSES.has(String(ld.status || '').toUpperCase())) {
           bucket.deliveryIds.add(ld.deliveryId);
@@ -526,12 +635,17 @@ export function buildTopCustomersForCommand(
         if (!isOrderDateInRange(ld.deliveryDate, dateFrom, dateTo)) continue;
         const qty = Number(ld.dispatchedQty || 0);
         if (qty > 0) {
-          bucket.soldGrs += qty;
+          orderSoldInPeriod += qty;
           bucket.deliveryIds.add(ld.deliveryId);
         }
       }
     } else if (inOrderPeriod && Number(o.dispatchedQty || 0) > 0) {
-      bucket.soldGrs += Number(o.dispatchedQty || 0);
+      orderSoldInPeriod = Number(o.dispatchedQty || 0);
+    }
+
+    if (orderSoldInPeriod > 0) {
+      bucket.soldGrs += orderSoldInPeriod;
+      bucket.packCount += computePackCountForOrder(orderSoldInPeriod, o).packCount;
     }
   }
 
@@ -557,13 +671,17 @@ export function buildTopCustomersForCommand(
     const completionPct =
       totalBasis > 0 ? Math.min(100, Math.max(0, Math.round((soldGrs / totalBasis) * 100))) : 0;
     const style = TOP_5_RANK_STYLES[idx] || TOP_5_RANK_STYLES[4];
+    const packCount = Math.round(c.packCount);
 
     return {
       customerId: c.customerId,
       customerCode: c.customerCode,
       customerName: c.customerName,
       soldGrs,
-      cartons: Math.round(soldGrs / 10),
+      cartons: packCount,
+      packCount,
+      uomCode: c.uomCode,
+      packUnitLabel: c.packUnitLabel,
       orderedGrs,
       pendingGrs,
       completionPct,

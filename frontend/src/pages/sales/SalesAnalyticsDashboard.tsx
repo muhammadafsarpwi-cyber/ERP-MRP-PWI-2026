@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Card, Row, Col, Table, Tabs, Select, DatePicker, Button,
   Tag, Progress, Space, Typography, App, Drawer, Descriptions,
@@ -12,7 +12,7 @@ import {
   UserOutlined, AppstoreOutlined, BuildOutlined, ArrowUpOutlined,
   AlertOutlined, SafetyCertificateOutlined,
   FileTextOutlined, SwapOutlined, TrophyOutlined, RightCircleOutlined,
-  RollbackOutlined,
+  RollbackOutlined, TableOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -22,6 +22,7 @@ import {
   NippleDemandStockBalanceCard,
   computeNippleDemandRows,
 } from '../../components/analytics/NippleDemandStockBalanceCard';
+import CustomerItemDispatchMatrix from './CustomerItemDispatchMatrix';
 import './SalesInvoiceManagement.css';
 
 const { Title, Text } = Typography;
@@ -352,9 +353,18 @@ const getStageMeta = (stage: string) => {
 export const SalesAnalyticsDashboard: React.FC = () => {
   const { message } = App.useApp();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const urlTab = searchParams.get('tab');
+  const urlDivisionId = searchParams.get('divisionId') || undefined;
 
   // Active Tab
-  const [activeTab, setActiveTab] = useState<string>('dashboard');
+  const [activeTab, setActiveTab] = useState<string>(urlTab || 'dashboard');
+
+  useEffect(() => {
+    if (urlTab) {
+      setActiveTab(urlTab);
+    }
+  }, [urlTab]);
 
   // Filters
   const [period, setPeriod] = useState<string>('this_week');
@@ -477,6 +487,9 @@ export const SalesAnalyticsDashboard: React.FC = () => {
   }, [period, dateRange, rankingMetric, outstandingOnly, message]);
 
   useEffect(() => {
+    if (activeTab === 'dispatch_matrix') {
+      return;
+    }
     if (activeTab === 'dashboard') {
       loadDashboardData();
     } else {
@@ -2489,6 +2502,15 @@ export const SalesAnalyticsDashboard: React.FC = () => {
                 </Row>
               </div>
             ),
+          },
+          {
+            key: 'dispatch_matrix',
+            label: (
+              <span>
+                <TableOutlined /> Customer × Item Dispatch Matrix
+              </span>
+            ),
+            children: <CustomerItemDispatchMatrix initialDivisionId={urlDivisionId} />,
           },
           {
             key: 'outstanding',

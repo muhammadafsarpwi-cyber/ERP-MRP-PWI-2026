@@ -27,7 +27,12 @@ import {
   AiColumn,
   KpiCardData,
 } from './types';
-import { canonicalizeDivisionCode, isGatePassWiseReceivingQuery } from './nlQueryParser';
+import {
+  canonicalizeDivisionCode,
+  isCustomerStopPhrase,
+  isGatePassWiseReceivingQuery,
+  matchCustomersInQuery,
+} from './nlQueryParser';
 
 /**
  * Enriches a raw ProductionEntry record with the exact authoritative ERP metrics
@@ -502,11 +507,19 @@ function normalizeItemToken(str: string): string {
 
 function matchesSpecificItem(itemCode: string, itemName: string, targetItem?: string): boolean {
   if (!targetItem) return true;
-  const normTarget = normalizeItemToken(targetItem);
+  const trimmedTarget = targetItem.trim();
+  // Wire diameter / decimal gauge precision match (e.g. "2.85" or "2.85mm" matches "2.85mm" / "2.85 mm" without matching "12.85mm")
+  const decimalMatch = trimmedTarget.match(/^(\d{1,2}\.\d{1,3})\s*(?:mm)?$/i);
+  if (decimalMatch) {
+    const escapedNum = decimalMatch[1].replace('.', '\\.');
+    const decRe = new RegExp(`(?<!\\d)${escapedNum}(?:\\s*mm)?(?!\\d)`, 'i');
+    return decRe.test(itemName) || decRe.test(itemCode);
+  }
+  const normTarget = normalizeItemToken(trimmedTarget);
   const normCode = normalizeItemToken(itemCode);
   const normName = normalizeItemToken(itemName);
   if (normCode.includes(normTarget) || normName.includes(normTarget)) return true;
-  const tokens = targetItem
+  const tokens = trimmedTarget
     .toUpperCase()
     .replace(/[*×xX]/g, 'X')
     .split(/[\s_-]+/)
@@ -4238,11 +4251,16 @@ export function aggregateRawMaterialStock(params: {
   }
 
   const map = new Map<string, RmStockBucket>();
+  const wantsAllStock = /\b(all\s+(?:raw\s+material|rm|stock|items)|complete\s+stock|full\s+stock)\b/i.test(
+    intent.rawQuery || '',
+  );
+  const activeItemFilter = !wantsAllStock ? intent.specificItem : undefined;
+
   balances.forEach((b: any) => {
     if (!isRmBalance(b) || !belongsToDivision(b)) return;
     const itemCode = String(b?.item?.itemCode || b?.itemCode || 'RM-ITEM').trim().toUpperCase();
     const itemName = String(b?.item?.name || b?.itemName || 'Raw Material').trim();
-    if (intent.specificItem && !matchesSpecificItem(itemCode, itemName, intent.specificItem)) return;
+    if (activeItemFilter && !matchesSpecificItem(itemCode, itemName, activeItemFilter)) return;
 
     const onHand = Number(b?.onHand ?? b?.on_hand ?? 0);
     const reserved = Number(b?.reserved ?? 0);
@@ -4288,8 +4306,10 @@ export function aggregateRawMaterialStock(params: {
   const totalReserved = Math.round(rows.reduce((s, r) => s + r.reserved, 0) * 100) / 100;
   const totalAvailable = Math.round(rows.reduce((s, r) => s + r.available, 0) * 100) / 100;
   const distinctItems = rows.length;
+  const isSingleItemFocus = Boolean(activeItemFilter) && distinctItems === 1;
+  const singleRow = isSingleItemFocus ? rows[0] : null;
 
-  if (rows.length > 0) {
+  if (rows.length > 0 && !isSingleItemFocus) {
     rows.push({
       id: 'rm-stock-grand-total',
       isGrandTotal: true,
@@ -4366,36 +4386,52 @@ export function aggregateRawMaterialStock(params: {
       'Available (KG)': r.available,
     }));
 
-  const summaryText =
-    distinctItems > 0
-      ? `**${division.name} — Current Raw Material Stock Balance (Item-Wise)**\n\n` +
-        `• **Distinct RM Items in Stock:** **${distinctItems}** items\n` +
-        `• **Total On-Hand Stock:** **${formatQty(totalOnHand)} KG**\n` +
-        `• **Total Reserved Stock:** **${formatQty(totalReserved)} KG**\n` +
-        `• **Total Available Balance:** **${formatQty(totalAvailable)} KG**`
-      : `**${division.name} — Current Raw Material Stock Balance (Item-Wise)**\n\n` +
-        `• No positive raw material stock balances were found for **${division.name}**.`;
+  const summaryText = singleRow
+    ? `**${singleRow.itemCode} — ${singleRow.itemName} (Current Raw Material Stock)**\n\n` +
+      `• **Warehouse:** **${singleRow.warehouse}**\n` +
+      `• **On-Hand Stock:** **${formatQty(singleRow.onHand)} ${singleRow.uom}**\n` +
+      `• **Reserved Stock:** **${formatQty(singleRow.reserved)} ${singleRow.uom}**\n` +
+      `• **Available Balance:** **${formatQty(singleRow.available)} ${singleRow.uom}**`
+    : distinctItems > 0
+    ? `**${division.name} — Current Raw Material Stock Balance${activeItemFilter ? ` (Filter: ${activeItemFilter})` : ' (Item-Wise)'}**\n\n` +
+      `• **Distinct RM Items in Stock:** **${distinctItems}** items\n` +
+      `• **Total On-Hand Stock:** **${formatQty(totalOnHand)} KG**\n` +
+      `• **Total Reserved Stock:** **${formatQty(totalReserved)} KG**\n` +
+      `• **Total Available Balance:** **${formatQty(totalAvailable)} KG**`
+    : `**${division.name} — Current Raw Material Stock Balance${activeItemFilter ? ` (Filter: ${activeItemFilter})` : ' (Item-Wise)'}**\n\n` +
+      `• No positive raw material stock balances were found${activeItemFilter ? ` matching **${activeItemFilter}**` : ''} for **${division.name}**.`;
 
   return {
-    title: `Current Raw Material Stock Balance (Item-Wise) — ${division.name}`,
+    title: singleRow
+      ? `Raw Material Stock Balance — ${singleRow.itemCode} (${singleRow.itemName})`
+      : `Current Raw Material Stock Balance${activeItemFilter ? ` (${activeItemFilter})` : ' (Item-Wise)'} — ${division.name}`,
     summaryText,
     divisionScope: division.code,
     departmentScope: 'ALL',
     periodLabel: 'Current Stock Balance',
     recordsCount: distinctItems,
-    kpiCards: [
-      { title: 'Distinct RM Items', value: distinctItems, subtitle: division.name, color: '#f97316' },
-      { title: 'Total On-Hand Stock', value: `${formatQty(totalOnHand)} KG`, subtitle: 'Physical inventory', color: '#3b82f6' },
-      { title: 'Reserved Stock', value: `${formatQty(totalReserved)} KG`, subtitle: 'Allocated to orders', color: '#f59e0b' },
-      { title: 'Available Balance', value: `${formatQty(totalAvailable)} KG`, subtitle: 'Ready for production', color: '#10b981' },
-    ],
+    kpiCards: singleRow
+      ? [
+          { title: 'Raw Material Item', value: singleRow.itemCode, subtitle: singleRow.itemName, color: '#f97316' },
+          { title: 'On-Hand Stock', value: `${formatQty(singleRow.onHand)} ${singleRow.uom}`, subtitle: singleRow.warehouse, color: '#3b82f6' },
+          { title: 'Reserved Stock', value: `${formatQty(singleRow.reserved)} ${singleRow.uom}`, subtitle: 'Allocated to orders', color: '#f59e0b' },
+          { title: 'Available Balance', value: `${formatQty(singleRow.available)} ${singleRow.uom}`, subtitle: 'Ready for production', color: '#10b981' },
+        ]
+      : [
+          { title: 'Distinct RM Items', value: distinctItems, subtitle: division.name, color: '#f97316' },
+          { title: 'Total On-Hand Stock', value: `${formatQty(totalOnHand)} KG`, subtitle: 'Physical inventory', color: '#3b82f6' },
+          { title: 'Reserved Stock', value: `${formatQty(totalReserved)} KG`, subtitle: 'Allocated to orders', color: '#f59e0b' },
+          { title: 'Available Balance', value: `${formatQty(totalAvailable)} KG`, subtitle: 'Ready for production', color: '#10b981' },
+        ],
     chartData:
       chartData.length > 0
         ? {
             type: 'bar',
             data: chartData,
             xKey: 'name',
-            title: `${division.name} — Raw Material On-Hand vs Available Balance (KG)`,
+            title: singleRow
+              ? `${singleRow.itemCode} (${singleRow.itemName}) — On-Hand vs Available Balance (${singleRow.uom})`
+              : `${division.name} — Raw Material On-Hand vs Available Balance (KG)`,
             dataKeys: [
               { key: 'On-Hand (KG)', color: '#3b82f6', name: 'On-Hand (KG)' },
               { key: 'Available (KG)', color: '#10b981', name: 'Available (KG)' },
@@ -4405,7 +4441,11 @@ export function aggregateRawMaterialStock(params: {
     tableData: { columns, rows },
     auditTrail: {
       dataSource: 'Live ERP Raw Material Inventory Balances (/inventory/balances)',
-      filters: [`Division: ${division.name} (${division.code})`, `Item Type: RAW_MATERIAL`],
+      filters: [
+        `Division: ${division.name} (${division.code})`,
+        `Item Type: RAW_MATERIAL`,
+        ...(activeItemFilter ? [`Item Filter: ${activeItemFilter}`] : []),
+      ],
       period: 'Current Stock Balance',
       timestamp: dayjs().format('YYYY-MM-DD HH:mm:ss'),
       recordsExamined: distinctItems,
@@ -4432,17 +4472,6 @@ async function handleRawMaterialStockReport(
 
   return aggregateRawMaterialStock({ balances, division, intent, isDark });
 }
-
-const GENERIC_CUSTOMER_STOP_WORDS = new Set([
-  'customer', 'customers', 'client', 'clients', 'dispatch', 'dispatches', 'dispatched',
-  'material', 'materials', 'order', 'orders', 'sales', 'month', 'this', 'last', 'report',
-  'volume', 'pending', 'balance', 'summary', 'top', 'show', 'how', 'much', 'was', 'for',
-  'the', 'all', 'autos', 'auto', 'motors', 'motor', 'pakistan', 'traders', 'trading',
-  'corporation', 'corp', 'pvt', 'ltd', 'limited', 'company', 'enterprises', 'enterprise',
-  'industries', 'industry', 'wire', 'spoke', 'cable', 'division', 'department', 'store',
-  'engineering', 'works', 'group', 'parts', 'international', 'impex', 'exports', 'imports',
-  'deliveries', 'delivery', 'delivered', 'shipped', 'invoice', 'invoices', 'today', 'year',
-]);
 
 function stripDeliveryLineMeta(desc: string): string {
   return String(desc || '')
@@ -4537,6 +4566,76 @@ export function buildCustomerSpecificDispatchReport(params: {
     );
   });
 
+  // Detect division-aware UOM: Control Cable (M / Coils) vs Spoke (Gross / CTN)
+  const detectLineUomKind = (ln: any): 'CCD' | 'SPD' | null => {
+    const uom = String(
+      ln?.uom?.code || ln?.uom?.name || ln?.uomCode || ln?.uom || ln?.unit || ln?.item?.uom?.code || ln?.item?.uomCode || '',
+    )
+      .trim()
+      .toUpperCase();
+    const packUnit = String(ln?.packageUnit || ln?.package_unit || ln?.item?.packageUnit || '')
+      .trim()
+      .toUpperCase();
+    const code = String(ln?.item?.itemCode || ln?.itemCode || ln?.item_code || '')
+      .trim()
+      .toUpperCase();
+    if (
+      ['M', 'MTR', 'MTRS', 'METER', 'METERS', 'COIL', 'COILS'].includes(uom) ||
+      ['COIL', 'COILS'].includes(packUnit) ||
+      /^(?:CCD-|FG-CC|CC-|CAB-)/.test(code)
+    ) {
+      return 'CCD';
+    }
+    if (
+      ['GRS', 'GROSS'].includes(uom) ||
+      ['CTN', 'CARTON', 'CARTONS'].includes(packUnit) ||
+      /^(?:SPI-|SPK-|FG-SP)/.test(code)
+    ) {
+      return 'SPD';
+    }
+    return null;
+  };
+
+  let hasControlCableLines = false;
+  let hasSpokeLines = false;
+  relevantOrders.forEach((order) => {
+    const items = Array.isArray(order?.items) ? order.items : Array.isArray(order?.orderItems) ? order.orderItems : [];
+    items.forEach((it: any) => {
+      const k = detectLineUomKind(it);
+      if (k === 'CCD') hasControlCableLines = true;
+      if (k === 'SPD') hasSpokeLines = true;
+    });
+  });
+  periodDeliveries.forEach((del) => {
+    const lines = Array.isArray(del?.lines) ? del.lines : Array.isArray(del?.items) ? del.items : [];
+    lines.forEach((ln: any) => {
+      const k = detectLineUomKind(ln);
+      if (k === 'CCD') hasControlCableLines = true;
+      if (k === 'SPD') hasSpokeLines = true;
+    });
+  });
+
+  const isControlCableMode =
+    hasControlCableLines ||
+    (!hasSpokeLines && canonicalizeDivisionCode(division.code, division.id) === 'DIV-CCD');
+
+  const uomLabel = isControlCableMode ? 'M' : 'Gross';
+  const uomHeaderLabel = isControlCableMode ? 'M' : 'GROSS';
+  const packUnitLabel = isControlCableMode ? 'Coils' : 'CTN';
+  const packUnitHeaderLabel = isControlCableMode ? 'COILS' : 'CTN';
+  const defaultPkgSize = isControlCableMode ? 100 : 10;
+
+  const calcPackCount = (qty: number, pkgSize: number, explicitPackQty?: any): number => {
+    const exp = Number(explicitPackQty);
+    if (isControlCableMode && Number.isFinite(exp) && exp > 0 && exp < qty) {
+      return Math.round(exp * 100) / 100;
+    }
+    if (isControlCableMode) {
+      return Math.round((qty / (pkgSize || defaultPkgSize)) * 100) / 100;
+    }
+    return Math.round(qty / (pkgSize || defaultPkgSize));
+  };
+
   interface SoLineInfo {
     key: string;
     orderId: string;
@@ -4572,7 +4671,9 @@ export function buildCustomerSpecificDispatchReport(params: {
       const itemId = String(it?.itemId || it?.item_id || it?.item?.id || '').trim().toLowerCase();
       const itemCode = String(it?.item?.itemCode || it?.itemCode || it?.item_code || `LINE-${idx + 1}`).trim().toUpperCase();
       const itemName = String(it?.item?.name || it?.itemName || stripDeliveryLineMeta(it?.description) || 'Product').trim();
-      const pkgSize = Number(it?.item?.packagingSize ?? it?.packageQuantity ?? it?.packagingSize ?? 10) || 10;
+      const pkgSize =
+        Number(it?.item?.packagingSize ?? it?.packagingSize ?? it?.coilLength ?? (!isControlCableMode ? it?.packageQuantity : undefined) ?? defaultPkgSize) ||
+        defaultPkgSize;
       const orderedGross = Math.round(Number(it?.quantity ?? it?.qty ?? 0) * 100) / 100;
       const shippedGross = Math.round(Number(it?.shippedQuantity ?? it?.shipped_quantity ?? it?.deliveredQuantity ?? 0) * 100) / 100;
       const pendingGross = Math.max(0, Math.round((orderedGross - shippedGross) * 100) / 100);
@@ -4608,10 +4709,14 @@ export function buildCustomerSpecificDispatchReport(params: {
     docBadge: 'DISPATCH' | 'PENDING SOC' | 'SOC' | 'TOTAL';
     itemCode: string;
     itemName: string;
+    uomLabel: string;
+    packUnitLabel: string;
     orderedGross: number;
     orderedCartons: number;
     dispatchedGross: number;
     dispatchedCartons: number;
+    cumulativeDispatched?: number;
+    cumulativeDispatchedCartons?: number;
     dispatchedNote?: string;
     pendingGross: number;
     pendingCartons: number;
@@ -4645,26 +4750,36 @@ export function buildCustomerSpecificDispatchReport(params: {
       const itemId = String(ln?.itemId || ln?.item_id || ln?.item?.id || '').trim().toLowerCase();
       const itemCode = String(ln?.item?.itemCode || ln?.itemCode || ln?.item_code || 'ITEM').trim().toUpperCase();
       const itemName = String(ln?.item?.name || ln?.itemName || stripDeliveryLineMeta(ln?.description) || 'Dispatched Material').trim();
-      const pkgSize = Number(ln?.item?.packagingSize ?? ln?.packageQuantity ?? ln?.packagingSize ?? 10) || 10;
-      const dispatchedGross = Math.round(Number(ln?.quantity ?? ln?.qty ?? 0) * 100) / 100;
-      const dispatchedCartons = Math.round(dispatchedGross / pkgSize);
-
-      periodDispatchedGrossTotal += dispatchedGross;
-      periodDispatchedCartonsTotal += dispatchedCartons;
-
       const matchedSoLine =
         (lineSoc && soLineByKey.get(`${lineSoc.toUpperCase()}::${itemCode}`)) ||
         (deliveryOrderId && itemId && soLineByOrderAndItemId.get(`${deliveryOrderId}::${itemId}`)) ||
         soLines.find((sl) => sl.itemCode === itemCode);
+
+      const pkgSize =
+        Number(
+          ln?.item?.packagingSize ??
+            ln?.packagingSize ??
+            ln?.coilLength ??
+            matchedSoLine?.pkgSize ??
+            (!isControlCableMode ? ln?.packageQuantity : undefined) ??
+            defaultPkgSize,
+        ) || defaultPkgSize;
+      const dispatchedGross = Math.round(Number(ln?.quantity ?? ln?.qty ?? 0) * 100) / 100;
+      const dispatchedCartons = calcPackCount(dispatchedGross, pkgSize, ln?.packageQuantity ?? ln?.coils);
+
+      periodDispatchedGrossTotal += dispatchedGross;
+      periodDispatchedCartonsTotal += dispatchedCartons;
 
       if (matchedSoLine) {
         representedSoKeys.add(matchedSoLine.key);
       }
 
       const orderedGross = matchedSoLine ? matchedSoLine.orderedGross : dispatchedGross;
-      const orderedCartons = Math.round(orderedGross / pkgSize);
+      const orderedCartons = calcPackCount(orderedGross, pkgSize);
+      const cumulativeDispatched = matchedSoLine ? matchedSoLine.shippedGross : dispatchedGross;
+      const cumulativeDispatchedCartons = calcPackCount(cumulativeDispatched, pkgSize);
       const pendingGross = matchedSoLine ? matchedSoLine.pendingGross : 0;
-      const pendingCartons = Math.round(pendingGross / pkgSize);
+      const pendingCartons = calcPackCount(pendingGross, pkgSize);
 
       breakdownRows.push({
         id: `del-${delivery.id || dIdx}-${lIdx}`,
@@ -4674,10 +4789,14 @@ export function buildCustomerSpecificDispatchReport(params: {
         docBadge: 'DISPATCH',
         itemCode,
         itemName,
+        uomLabel,
+        packUnitLabel,
         orderedGross,
         orderedCartons,
         dispatchedGross,
         dispatchedCartons,
+        cumulativeDispatched,
+        cumulativeDispatchedCartons,
         pendingGross,
         pendingCartons,
       });
@@ -4689,9 +4808,9 @@ export function buildCustomerSpecificDispatchReport(params: {
     if (representedSoKeys.has(sl.key)) return;
     if (sl.pendingGross <= 0 && !inRequestedPeriod(sl.orderDate)) return;
 
-    const orderedCartons = Math.round(sl.orderedGross / sl.pkgSize);
-    const shippedCartons = Math.round(sl.shippedGross / sl.pkgSize);
-    const pendingCartons = Math.round(sl.pendingGross / sl.pkgSize);
+    const orderedCartons = calcPackCount(sl.orderedGross, sl.pkgSize);
+    const shippedCartons = calcPackCount(sl.shippedGross, sl.pkgSize);
+    const pendingCartons = calcPackCount(sl.pendingGross, sl.pkgSize);
 
     breakdownRows.push({
       id: `soc-${sl.orderId || idx}-${sl.itemCode}-${idx}`,
@@ -4700,10 +4819,14 @@ export function buildCustomerSpecificDispatchReport(params: {
       docBadge: sl.pendingGross > 0 ? 'PENDING SOC' : 'SOC',
       itemCode: sl.itemCode,
       itemName: sl.itemName,
+      uomLabel,
+      packUnitLabel,
       orderedGross: sl.orderedGross,
       orderedCartons,
       dispatchedGross: sl.shippedGross,
       dispatchedCartons: shippedCartons,
+      cumulativeDispatched: sl.shippedGross,
+      cumulativeDispatchedCartons: shippedCartons,
       dispatchedNote: hasDateFilter && sl.shippedGross > 0 ? 'Prior' : undefined,
       pendingGross: sl.pendingGross,
       pendingCartons,
@@ -4712,12 +4835,16 @@ export function buildCustomerSpecificDispatchReport(params: {
 
   // Compute authoritative customer totals without double-counting SO lines
   const totalOpenOrderedGross = Math.round(soLines.reduce((s, l) => s + l.orderedGross, 0) * 100) / 100;
-  const totalOpenOrderedCartons = soLines.reduce((s, l) => s + Math.round(l.orderedGross / l.pkgSize), 0);
+  const totalOpenOrderedCartons =
+    Math.round(soLines.reduce((s, l) => s + calcPackCount(l.orderedGross, l.pkgSize), 0) * 100) / 100;
   const totalPendingGross = Math.round(soLines.reduce((s, l) => s + l.pendingGross, 0) * 100) / 100;
-  const totalPendingCartons = soLines.reduce((s, l) => s + Math.round(l.pendingGross / l.pkgSize), 0);
+  const totalPendingCartons =
+    Math.round(soLines.reduce((s, l) => s + calcPackCount(l.pendingGross, l.pkgSize), 0) * 100) / 100;
   const totalShippedAcrossOpenGross = Math.round(soLines.reduce((s, l) => s + l.shippedGross, 0) * 100) / 100;
+  const totalShippedAcrossOpenCartons =
+    Math.round(soLines.reduce((s, l) => s + calcPackCount(l.shippedGross, l.pkgSize), 0) * 100) / 100;
   const periodDispatchedGross = Math.round(periodDispatchedGrossTotal * 100) / 100;
-  const periodDispatchedCartons = periodDispatchedCartonsTotal;
+  const periodDispatchedCartons = Math.round(periodDispatchedCartonsTotal * 100) / 100;
 
   const fulfillmentPct =
     totalOpenOrderedGross > 0
@@ -4735,10 +4862,15 @@ export function buildCustomerSpecificDispatchReport(params: {
       docBadge: 'TOTAL',
       itemCode: `${breakdownRows.length} Items`,
       itemName: hasDateFilter ? `Dispatched in ${intent.period.label} & Open Pending Balance` : 'Total Ordered, Dispatched & Pending',
+      uomLabel,
+      packUnitLabel,
       orderedGross: totalOpenOrderedGross > 0 ? totalOpenOrderedGross : periodDispatchedGross,
       orderedCartons: totalOpenOrderedCartons > 0 ? totalOpenOrderedCartons : periodDispatchedCartons,
       dispatchedGross: periodDispatchedGross,
       dispatchedCartons: periodDispatchedCartons,
+      cumulativeDispatched: totalShippedAcrossOpenGross > 0 ? totalShippedAcrossOpenGross : periodDispatchedGross,
+      cumulativeDispatchedCartons:
+        totalShippedAcrossOpenCartons > 0 ? totalShippedAcrossOpenCartons : periodDispatchedCartons,
       pendingGross: totalPendingGross,
       pendingCartons: totalPendingCartons,
     });
@@ -4828,47 +4960,58 @@ export function buildCustomerSpecificDispatchReport(params: {
       },
     },
     {
-      title: 'ORDERED (GROSS / CTN)',
+      title: `ORDERED (${uomHeaderLabel} / ${packUnitHeaderLabel})`,
       dataIndex: 'orderedGross',
       key: 'orderedGross',
       render: (v: number, r: any) =>
         React.createElement(
           'span',
           { style: { fontWeight: r?.isGrandTotal ? 800 : 600, color: '#3b82f6' } },
-          `${formatQty(v)} Gross (${formatQty(r.orderedCartons)} CTN)`,
+          `${formatQty(v)} ${uomLabel} (${formatQty(r.orderedCartons)} ${packUnitLabel})`,
         ),
     },
     {
-      title: 'DISPATCHED (GROSS / CTN)',
+      title: `DISPATCHED (${uomHeaderLabel} / ${packUnitHeaderLabel})`,
       dataIndex: 'dispatchedGross',
       key: 'dispatchedGross',
       render: (v: number, r: any) =>
         React.createElement(
           'div',
-          null,
+          { style: { display: 'flex', flexDirection: 'column', gap: 2 } },
           React.createElement(
-            'span',
-            { style: { fontWeight: r?.isGrandTotal ? 800 : 700, color: v > 0 ? '#10b981' : undefined } },
-            `${formatQty(v)} Gross (${formatQty(r.dispatchedCartons)} CTN)`,
+            'div',
+            null,
+            React.createElement(
+              'span',
+              { style: { fontWeight: r?.isGrandTotal ? 800 : 700, color: v > 0 ? '#10b981' : undefined } },
+              `${formatQty(v)} ${uomLabel} (${formatQty(r.dispatchedCartons)} ${packUnitLabel})`,
+            ),
+            r?.dispatchedNote
+              ? React.createElement(
+                  Tag,
+                  { color: 'default', style: { marginLeft: 6, fontSize: 10, lineHeight: '16px', padding: '0 4px' } },
+                  r.dispatchedNote,
+                )
+              : null,
           ),
-          r?.dispatchedNote
+          r?.cumulativeDispatched && r.cumulativeDispatched > v + 0.001
             ? React.createElement(
-                Tag,
-                { color: 'default', style: { marginLeft: 6, fontSize: 10, lineHeight: '16px', padding: '0 4px' } },
-                r.dispatchedNote,
+                'span',
+                { style: { fontSize: 11, color: 'var(--theme-text-secondary, #64748b)' } },
+                `Cumulative: ${formatQty(r.cumulativeDispatched)} ${uomLabel} (${formatQty(r.cumulativeDispatchedCartons ?? 0)} ${packUnitLabel})`,
               )
             : null,
         ),
     },
     {
-      title: 'PENDING BALANCE (GROSS / CTN)',
+      title: `PENDING BALANCE (${uomHeaderLabel} / ${packUnitHeaderLabel})`,
       dataIndex: 'pendingGross',
       key: 'pendingGross',
       render: (v: number, r: any) =>
         React.createElement(
           'span',
           { style: { fontWeight: r?.isGrandTotal ? 800 : 700, color: v > 0 ? '#f59e0b' : '#10b981' } },
-          `${formatQty(v)} Gross (${formatQty(r.pendingCartons)} CTN)`,
+          `${formatQty(v)} ${uomLabel} (${formatQty(r.pendingCartons)} ${packUnitLabel})`,
         ),
     },
   ];
@@ -4883,9 +5026,14 @@ export function buildCustomerSpecificDispatchReport(params: {
   const summaryLines = [
     `**${customerHeadline} — Customer Dispatch & Pending Order Balance (${intent.period.label})**`,
     '',
-    `• **Dispatched in ${intent.period.label}:** **${formatQty(periodDispatchedGross)} Gross** (${formatQty(periodDispatchedCartons)} CTN across ${periodDeliveries.length} ${periodDeliveries.length === 1 ? 'delivery' : 'deliveries'}${deliveryNumbers.length > 0 ? `: \`${deliveryNumbers.join('`, `')}\`` : ''})`,
-    `• **Active / Referenced SOC Orders:** **${formatQty(totalOpenOrderedGross)} Gross** (${formatQty(totalOpenOrderedCartons)} CTN across ${relevantOrders.length} ${relevantOrders.length === 1 ? 'SOC' : 'SOCs'}${socNumbers.length > 0 ? `: \`${socNumbers.join('`, `')}\`` : ''})`,
-    `• **Remaining Pending Order Balance:** **${formatQty(totalPendingGross)} Gross** (${formatQty(totalPendingCartons)} CTN · Overall Fulfillment: **${fulfillmentPct}%**)`,
+    `• **Dispatched in ${intent.period.label}:** **${formatQty(periodDispatchedGross)} ${uomLabel}** (${formatQty(periodDispatchedCartons)} ${packUnitLabel} across ${periodDeliveries.length} ${periodDeliveries.length === 1 ? 'delivery' : 'deliveries'}${deliveryNumbers.length > 0 ? `: \`${deliveryNumbers.join('`, `')}\`` : ''})`,
+    `• **Active / Referenced SOC Orders:** **${formatQty(totalOpenOrderedGross)} ${uomLabel}** (${formatQty(totalOpenOrderedCartons)} ${packUnitLabel} across ${relevantOrders.length} ${relevantOrders.length === 1 ? 'SOC' : 'SOCs'}${socNumbers.length > 0 ? `: \`${socNumbers.join('`, `')}\`` : ''})`,
+    ...(totalShippedAcrossOpenGross > periodDispatchedGross + 0.001
+      ? [
+          `• **Cumulative Dispatched (All-Time on Referenced SOCs):** **${formatQty(totalShippedAcrossOpenGross)} ${uomLabel}** (${formatQty(totalShippedAcrossOpenCartons)} ${packUnitLabel})`,
+        ]
+      : []),
+    `• **Remaining Pending Order Balance:** **${formatQty(totalPendingGross)} ${uomLabel}** (${formatQty(totalPendingCartons)} ${packUnitLabel} · Overall Fulfillment: **${fulfillmentPct}%**)`,
   ];
 
   if (breakdownRows.length === 0) {
@@ -4894,10 +5042,22 @@ export function buildCustomerSpecificDispatchReport(params: {
     );
   }
 
+  // Auto-resolve the customer's actual registered Division badge from their orders/deliveries/items
+  const explicitRecDivCode =
+    relevantOrders.map((o) => String(o?.division?.code || o?.divisionCode || '').trim()).find(Boolean) ||
+    periodDeliveries.map((d) => String(d?.division?.code || d?.divisionCode || '').trim()).find(Boolean);
+  const resolvedCustomerDivisionScope = explicitRecDivCode
+    ? explicitRecDivCode
+    : hasControlCableLines && !hasSpokeLines
+    ? 'DIV-002-CCD'
+    : hasSpokeLines && !hasControlCableLines
+    ? 'DIV-001-SPI'
+    : division.code;
+
   return {
     title: `Customer Dispatch & Pending Order Balance — ${primaryCust.name} (${primaryCust.code})`,
     summaryText: summaryLines.join('\n'),
-    divisionScope: division.code,
+    divisionScope: resolvedCustomerDivisionScope,
     departmentScope: 'ALL',
     periodLabel: intent.period.label,
     recordsCount: breakdownRows.filter((r) => !r.isGrandTotal).length,
@@ -4910,20 +5070,20 @@ export function buildCustomerSpecificDispatchReport(params: {
       },
       {
         title: `Dispatched (${intent.period.label})`,
-        value: `${formatQty(periodDispatchedGross)} Gross`,
-        subtitle: `${formatQty(periodDispatchedCartons)} CTN · ${periodDeliveries.length} Deliveries`,
+        value: `${formatQty(periodDispatchedGross)} ${uomLabel}`,
+        subtitle: `${formatQty(periodDispatchedCartons)} ${packUnitLabel} · ${periodDeliveries.length} Deliveries`,
         color: '#10b981',
       },
       {
         title: 'Open SOC Ordered',
-        value: `${formatQty(totalOpenOrderedGross)} Gross`,
-        subtitle: `${formatQty(totalOpenOrderedCartons)} CTN · ${relevantOrders.length} SOCs`,
+        value: `${formatQty(totalOpenOrderedGross)} ${uomLabel}`,
+        subtitle: `${formatQty(totalOpenOrderedCartons)} ${packUnitLabel} · ${relevantOrders.length} SOCs`,
         color: '#6366f1',
       },
       {
         title: 'Pending Balance',
-        value: `${formatQty(totalPendingGross)} Gross`,
-        subtitle: `${formatQty(totalPendingCartons)} CTN (${fulfillmentPct}% Fulfilled)`,
+        value: `${formatQty(totalPendingGross)} ${uomLabel}`,
+        subtitle: `${formatQty(totalPendingCartons)} ${packUnitLabel} (${fulfillmentPct}% Fulfilled)`,
         color: '#f59e0b',
       },
     ],
@@ -4933,11 +5093,11 @@ export function buildCustomerSpecificDispatchReport(params: {
             type: 'bar',
             data: chartData,
             xKey: 'name',
-            title: `${primaryCust.name} (${primaryCust.code}) — Item-Wise Ordered vs Dispatched & Pending (Gross)`,
+            title: `${primaryCust.name} (${primaryCust.code}) — Item-Wise Ordered vs Dispatched & Pending (${uomLabel})`,
             dataKeys: [
-              { key: 'Ordered', color: '#3b82f6', name: 'Ordered (Gross)' },
-              { key: 'Dispatched', color: '#10b981', name: 'Dispatched (Gross)' },
-              { key: 'Pending', color: '#f59e0b', name: 'Pending Balance (Gross)' },
+              { key: 'Ordered', color: '#3b82f6', name: `Ordered (${uomLabel})` },
+              { key: 'Dispatched', color: '#10b981', name: `Dispatched (${uomLabel})` },
+              { key: 'Pending', color: '#f59e0b', name: `Pending Balance (${uomLabel})` },
             ],
           }
         : undefined,
@@ -5000,19 +5160,21 @@ async function handleCustomerDispatchReport(
   };
 
   // Build unified customer directory by ID and customerCode
-  const customerDirectory = new Map<string, { id: string; name: string; code: string }>();
+  const customerDirectory = new Map<string, { id: string; name: string; companyName?: string; code: string }>();
 
   const registerCustomer = (c: any) => {
     if (!c) return;
     const id = String(c.id || c.customerId || c.customer_id || '').trim();
     const code = resolveGenuineCustomerCode(c);
     const name = resolveGenuineCustomerName(c, code, id);
+    const companyName = String(c.companyName || c.company_name || '').trim() || undefined;
     if (!name || isInternalOrDemoCustomer(name, code)) return;
+    const entry = { id: id || code, name, companyName, code };
     if (id) {
-      customerDirectory.set(id, { id, name, code });
+      customerDirectory.set(id, entry);
     }
     if (code) {
-      customerDirectory.set(code.toLowerCase(), { id: id || code, name, code });
+      customerDirectory.set(code.toLowerCase(), entry);
     }
   };
 
@@ -5026,7 +5188,7 @@ async function handleCustomerDispatchReport(
   });
 
   // Deduplicate genuine registered customers for customer-specific query matching
-  const uniqueCustomersMap = new Map<string, { id: string; name: string; code: string }>();
+  const uniqueCustomersMap = new Map<string, { id: string; name: string; companyName?: string; code: string }>();
   customerDirectory.forEach((c) => {
     const key = (c.id || c.code || c.name).toLowerCase();
     if (!uniqueCustomersMap.has(key)) {
@@ -5035,36 +5197,33 @@ async function handleCustomerDispatchReport(
   });
   const allRegisteredCustomers = Array.from(uniqueCustomersMap.values());
 
-  // Check if the user asked about a specific customer (e.g. "Crown", "Crown Fit", "Ali Shah", "CUS-CFP-001")
-  const explicitCustomerTerm = (intent.specificCustomer || '').trim();
+  // Check if the user asked about a specific customer (e.g. "Xinda Control Cable Pakistan (Pvt) Ltd", "Crown", "CUS-CFP-001")
+  const rawExplicitTerm = (intent.specificCustomer || '').trim();
+  const explicitCustomerTerm = rawExplicitTerm && !isCustomerStopPhrase(rawExplicitTerm) ? rawExplicitTerm : '';
   const rawQueryLower = (intent.rawQuery || '').toLowerCase();
   const isGenericAllCustomersAsk =
     typeof intent.limit === 'number' ||
     /\b(all\s+customers?|customer[\s-]?wise|every\s+customer|top\s+\d*\s*customers?)\b/i.test(rawQueryLower);
 
-  let matchedCustomers: Array<{ id: string; name: string; code: string }> = [];
-  if (explicitCustomerTerm) {
-    const termLow = explicitCustomerTerm.toLowerCase();
-    const termTokens = termLow.split(/\s+/).filter((t) => t.length >= 2);
-    matchedCustomers = allRegisteredCustomers.filter((c) => {
-      const hay = `${c.name} ${c.code}`.toLowerCase();
-      if (hay.includes(termLow)) return true;
-      if (termTokens.length > 0 && termTokens.every((t) => hay.includes(t))) return true;
-      return false;
-    });
-  } else if (rawQueryLower && !isGenericAllCustomersAsk) {
-    matchedCustomers = allRegisteredCustomers.filter((c) => {
-      const codeLow = c.code.toLowerCase();
-      const nameLow = c.name.toLowerCase();
-      if (codeLow && codeLow.length >= 4 && rawQueryLower.includes(codeLow)) return true;
-      if (nameLow && rawQueryLower.includes(nameLow)) return true;
-      const distinctiveTokens = nameLow
-        .split(/[^a-z0-9]+/)
-        .filter((t) => t.length >= 4 && !GENERIC_CUSTOMER_STOP_WORDS.has(t));
-      if (distinctiveTokens.length === 0) return false;
-      const firstBrandToken = distinctiveTokens[0];
-      return new RegExp(`\\b${firstBrandToken.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(rawQueryLower);
-    });
+  // 1. Always match live Customer Master names/codes against the full prompt FIRST (handles punctuation like "(Pvt) Ltd.We need...")
+  let matchedCustomers: Array<{ id: string; name: string; companyName?: string; code: string }> = [];
+  if (!isGenericAllCustomersAsk && intent.rawQuery) {
+    matchedCustomers = matchCustomersInQuery(intent.rawQuery, allRegisteredCustomers);
+  }
+
+  // 2. Fallback: if full-prompt live match found nothing, try explicitCustomerTerm against Customer Master
+  if (matchedCustomers.length === 0 && explicitCustomerTerm) {
+    matchedCustomers = matchCustomersInQuery(explicitCustomerTerm, allRegisteredCustomers);
+    if (matchedCustomers.length === 0) {
+      const termLow = explicitCustomerTerm.toLowerCase();
+      const termTokens = termLow.split(/[^a-z0-9]+/).filter((t) => t.length >= 2);
+      matchedCustomers = allRegisteredCustomers.filter((c) => {
+        const hay = `${c.name} ${c.companyName || ''} ${c.code}`.toLowerCase();
+        if (hay.includes(termLow)) return true;
+        if (termTokens.length > 0 && termTokens.every((t) => hay.includes(t))) return true;
+        return false;
+      });
+    }
   }
 
   if (matchedCustomers.length > 0) {
@@ -5114,13 +5273,57 @@ async function handleCustomerDispatchReport(
     return s !== 'DRAFT' && s !== 'CANCELLED' && s !== 'VOID';
   };
 
-  const allValidOrders = rawOrders.filter((o) => isCommittedStatus(o?.status));
+  // Strict Division Scoping for All-Customers listing (prevent mixing Control Cable customers into Spoke Division, etc.)
+  const targetDivCanon = canonicalizeDivisionCode(division.code, division.id);
+  const targetDivIdLow = String(division.id || '').trim().toLowerCase();
+  const shouldScopeAllCustomersByDivision = targetDivCanon !== 'ALL' && targetDivCanon !== 'UNKNOWN';
+
+  const recordBelongsToSelectedDivision = (rec: any): boolean => {
+    if (!shouldScopeAllCustomersByDivision) return true;
+    const recDivId = String(rec?.divisionId || rec?.division_id || rec?.division?.id || '').trim().toLowerCase();
+    const recDivCode = String(rec?.division?.code || rec?.divisionCode || rec?.division_code || '').trim();
+    if (recDivId && targetDivIdLow && recDivId === targetDivIdLow) return true;
+    if (recDivCode || recDivId) {
+      const recCanon = canonicalizeDivisionCode(recDivCode, recDivId);
+      if (recCanon !== 'UNKNOWN') return recCanon === targetDivCanon;
+    }
+    // Fallback: inspect line items / UOM / customer name hints when header divisionId is absent
+    const lines = Array.isArray(rec?.lines)
+      ? rec.lines
+      : Array.isArray(rec?.items)
+      ? rec.items
+      : Array.isArray(rec?.orderItems)
+      ? rec.orderItems
+      : [];
+    let hasCcd = false;
+    let hasSpd = false;
+    lines.forEach((ln: any) => {
+      const uom = String(ln?.uom?.code || ln?.uomCode || ln?.uom || ln?.item?.uom?.code || '').trim().toUpperCase();
+      const packUnit = String(ln?.packageUnit || ln?.package_unit || '').trim().toUpperCase();
+      const code = String(ln?.item?.itemCode || ln?.itemCode || ln?.item_code || '').trim().toUpperCase();
+      const lineDiv = canonicalizeDivisionCode(ln?.item?.division?.code || ln?.divisionCode, ln?.item?.divisionId || ln?.divisionId);
+      if (lineDiv === 'DIV-CCD' || ['M', 'MTR', 'METER', 'METERS', 'COIL', 'COILS'].includes(uom) || ['COIL', 'COILS'].includes(packUnit) || /^(?:CCD-|FG-CC|CC-|CAB-)/.test(code)) {
+        hasCcd = true;
+      } else if (lineDiv === 'DIV-SPD' || ['GRS', 'GROSS'].includes(uom) || ['CTN', 'CARTON', 'CARTONS'].includes(packUnit) || /^(?:SPI-|SPK-|FG-SP)/.test(code)) {
+        hasSpd = true;
+      }
+    });
+    if (hasCcd && !hasSpd) return targetDivCanon === 'DIV-CCD';
+    if (hasSpd && !hasCcd) return targetDivCanon === 'DIV-SPD';
+    const custNameLow = String(rec?.customer?.name || rec?.customer?.companyName || rec?.customerName || '').toLowerCase();
+    if (custNameLow.includes('control cable')) return targetDivCanon === 'DIV-CCD';
+    return true;
+  };
+
+  const allValidOrders = rawOrders.filter((o) => isCommittedStatus(o?.status) && recordBelongsToSelectedDivision(o));
   const periodOrders = hasDateFilter
     ? allValidOrders.filter((o) => inRequestedPeriod(o?.orderDate || o?.order_date || o?.createdAt || o?.created_at))
     : allValidOrders;
   const ordersToProcess = periodOrders.length > 0 ? periodOrders : allValidOrders;
 
-  const allValidDeliveries = rawDeliveries.filter((d) => isCommittedStatus(d?.status));
+  const allValidDeliveries = rawDeliveries.filter(
+    (d) => isCommittedStatus(d?.status) && recordBelongsToSelectedDivision(d),
+  );
   const periodDeliveries = hasDateFilter
     ? allValidDeliveries.filter((d) =>
         inRequestedPeriod(d?.deliveryDate || d?.delivery_date || d?.dispatchDate || d?.createdAt || d?.created_at),

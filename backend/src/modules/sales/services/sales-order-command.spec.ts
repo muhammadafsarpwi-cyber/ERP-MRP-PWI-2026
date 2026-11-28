@@ -660,4 +660,68 @@ describe('buildOrderCommandOverview', () => {
     expect(item006.remainingToPack).toBe(2900);
     expect(so5831.pendingNippleQty).toBe(80);
   });
+
+  it('exposes packagingSize, packagingUnit, and M uomCode on Control Cable items and customer summaries', () => {
+    const overview = buildOrderCommandOverview({
+      todayIso: '2026-11-28',
+      divisions: [{ id: 'div-ccd', divisionCode: 'DIV-002-CCD', name: 'Control Cable Division' }],
+      orderRows: [
+        {
+          order_id: 'so-ccd-1',
+          order_number: 'SOC-2026-09111',
+          customer_id: 'cust-xinda',
+          customer_po: null,
+          division_id: 'div-ccd',
+          section_id: null,
+          order_date: '2026-11-05',
+          delivery_date: '2026-11-25',
+          currency: 'PKR',
+          order_subtotal: 500000,
+          order_discount: 0,
+          order_tax: 90000,
+          order_freight: 0,
+          order_total: 590000,
+          order_status: 'Processing',
+          order_notes: null,
+          order_created_at: '2026-11-05T08:00:00Z',
+          customer_code: 'CUS-XIN-001',
+          customer_name: 'Xinda Control Cable',
+          contact_person: null,
+          customer_email: null,
+          customer_phone: null,
+          customer_mobile: null,
+          credit_days: 30,
+          payment_terms: '30 Days',
+          division_code: 'DIV-002-CCD',
+          division_name: 'Control Cable Division',
+          order_item_id: 'soi-ccd-1',
+          line_number: 1,
+          item_id: 'item-ccd-1',
+          item_code: 'CCD-FG-001',
+          item_name: 'Outer Casing 5.0mm',
+          packaging_size: 250,
+          packaging_unit: 'COILS',
+          base_uom_code: 'M',
+          uom_code: 'M',
+          ordered_qty: 50000,
+          soi_shipped_qty: 25000,
+          unit_price: 10,
+          discount_percent: 0,
+          line_tax_amount: 90000,
+          line_total: 590000,
+        },
+      ],
+      deliveryRows: [],
+      packingRows: [],
+      packingLogRows: [],
+    });
+
+    expect(overview.orders[0].uomCode).toBe('M');
+    expect(overview.orders[0].items[0]).toMatchObject({
+      uomCode: 'M',
+      packagingSize: 250,
+      packagingUnit: 'COILS',
+    });
+    expect(overview.customers[0].uomCode).toBe('M');
+  });
 });

@@ -8,7 +8,7 @@ import {
   TrophyOutlined, ShoppingCartOutlined, RocketOutlined, BarChartOutlined,
   UserOutlined, TagOutlined, DollarOutlined, InboxOutlined,
   LeftOutlined, RightOutlined, RightCircleOutlined, ClockCircleOutlined, CheckCircleOutlined,
-  FileTextOutlined, ArrowLeftOutlined, FolderOpenOutlined, ContainerOutlined,
+  FileTextOutlined, ArrowLeftOutlined, FolderOpenOutlined, ContainerOutlined, TableOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import apiService from '../../services/api';
@@ -2680,6 +2680,17 @@ const CustomerAnalytics: React.FC = () => {
               </Option>
             </Select>
           </div>
+          <Button
+            icon={<TableOutlined />}
+            onClick={() =>
+              navigate(
+                `/sales/analytics?tab=dispatch_matrix${selectedDivisionId ? `&divisionId=${encodeURIComponent(selectedDivisionId)}` : ''}`,
+              )
+            }
+            style={{ fontWeight: 600 }}
+          >
+            Customer × Item Matrix
+          </Button>
           <Button
             icon={<ReloadOutlined spin={loading} />}
             onClick={handleManualRefresh}

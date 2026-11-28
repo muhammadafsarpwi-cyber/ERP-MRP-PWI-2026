@@ -84,7 +84,7 @@ export class SalesDeliveryController {
   async update(@Req() req: any, @Param('id') id: string, @Body() dto: Partial<CreateSalesDeliveryDto>) {
     const userId = req.user?.id;
     const companyId = req.erpUser?.defaultCompanyId;
-    const delivery = await this.service.update(id, dto, userId, companyId, this.divisionScope(req));
+    const delivery = await this.service.update(id, dto, userId, companyId, this.divisionScope(req), req);
     return { success: true, data: delivery, message: 'Sales delivery updated successfully' };
   }
 

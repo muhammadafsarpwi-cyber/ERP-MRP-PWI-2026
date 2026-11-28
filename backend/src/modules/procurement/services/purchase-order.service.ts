@@ -4,6 +4,11 @@ import { Repository, In } from 'typeorm';
 import { PurchaseOrder, PurchaseOrderLine, PurchaseOrderImportUpdate } from '../entities';
 import { CreatePurchaseOrderDto, UpdatePurchaseOrderDto, PurchaseOrderFilterDto, AddPoImportUpdateDto } from '../dto';
 import { Item, Uom } from '../../item/entities';
+import {
+  extractAuditActor,
+  isAdministratorRequest,
+  recordAdminOverrideAudit,
+} from '../../../common/utils/admin-override.util';
 
 @Injectable()
 export class PurchaseOrderService {
@@ -132,9 +137,21 @@ export class PurchaseOrderService {
     return this.findOne(saved.id);
   }
 
-  async update(id: string, dto: UpdatePurchaseOrderDto, userId?: string): Promise<PurchaseOrder> {
+  async update(id: string, dto: UpdatePurchaseOrderDto, userId?: string, req?: any): Promise<PurchaseOrder> {
     const po = await this.repo.findOne({ where: { id } });
     if (!po) throw new NotFoundException(`Purchase order with ID '${id}' not found`);
+
+    const statusUpper = String(po.status || 'DRAFT').toUpperCase();
+    const isDraft = statusUpper === 'DRAFT';
+    const isAdmin = req ? await isAdministratorRequest(req, this.repo.manager) : false;
+    if (!isDraft) {
+      if (!isAdmin) {
+        throw new BadRequestException('Can only update purchase orders in DRAFT status');
+      }
+      if (statusUpper === 'CANCELLED') {
+        throw new BadRequestException('Cancelled purchase orders cannot be edited.');
+      }
+    }
 
     if (dto.poCode && dto.poCode !== po.poCode) {
       const existing = await this.repo.findOne({
@@ -197,6 +214,12 @@ export class PurchaseOrderService {
         let line = (lineDto.id && existingMap.get(lineDto.id)) || existingByLineNum.get(lineDto.lineNumber || idx + 1);
 
         if (line) {
+          const receivedQty = Number((line as any).receivedQuantity || 0);
+          if (!isDraft && Number(lineDto.quantity || 0) < receivedQty - 0.001) {
+            throw new BadRequestException(
+              `Cannot reduce PO line quantity (${lineDto.quantity}) below already received quantity (${receivedQty}).`,
+            );
+          }
           line.itemId = lineDto.itemId;
           if (uomId) line.uomId = uomId;
           line.quantity = lineDto.quantity;
@@ -252,6 +275,18 @@ export class PurchaseOrderService {
     }
 
     await this.repo.save(po);
+
+    if (!isDraft && isAdmin) {
+      await recordAdminOverrideAudit(this.repo.manager, {
+        actor: extractAuditActor(req),
+        targetType: 'PURCHASE_ORDER',
+        targetId: po.id,
+        targetName: po.poCode,
+        previousStatus: po.status,
+        details: `Admin override edited purchase order ${po.poCode} (Total: ${po.totalAmount})`,
+      });
+    }
+
     return this.findOne(id);
   }
 

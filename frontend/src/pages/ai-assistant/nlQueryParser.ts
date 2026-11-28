@@ -91,28 +91,257 @@ export function extractSpecificItem(query: string): string | undefined {
     return sizeMatch[1].trim().toUpperCase();
   }
 
+  // 3. Wire diameter / decimal gauge size like "2.85", "2.85mm", "3.45 mm", "3.14", "1.20", "5.75"
+  //    Avoid matching dotted dates (05.11.2026) or currency/change-from numbers
+  const strippedCurrencyAndDates = q
+    .replace(/\b\d{1,2}\.\d{1,2}\.\d{2,4}\b/g, ' ')
+    .replace(/\b(?:rs\.?|pkr|usd|from|to)\s+\d+(?:\.\d+)?\b/gi, ' ');
+  const wireSizeMatch = strippedCurrencyAndDates.match(/(?<![\d.])(\d{1,2}\.\d{1,3})\s*(?:mm)?(?![\d.])/i);
+  if (wireSizeMatch) {
+    return wireSizeMatch[1];
+  }
+
   return undefined;
 }
 
 const NON_CUSTOMER_TARGETS = new Set([
   'customer', 'customers', 'client', 'clients', 'buyer', 'buyers', 'party', 'parties',
+  'this customer', 'that customer', 'same customer', 'the customer', 'a customer',
+  'this client', 'that client', 'same client', 'the client', 'a client',
+  'this party', 'that party', 'same party', 'the party',
+  'this buyer', 'that buyer', 'same buyer', 'the buyer',
   'all', 'all customers', 'all clients', 'all divisions', 'everyone', 'us', 'me', 'them',
   'spoke', 'spoke division', 'control cable', 'control cable division', 'main division',
   'nb division', 'wrd', 'wrd division', 'flattening', 'spiral', 'pvc', 'packing',
   'straightener', 'swagging', 'plating', 'warehouse', 'store', 'production', 'material',
-  'materials', 'dispatch', 'dispatches', 'order', 'orders', 'sales', 'month', 'week',
-  'year', 'today', 'yesterday',
+  'materials', 'dispatch', 'dispatches', 'dispatched', 'order', 'orders', 'sales',
+  'month', 'this month', 'last month', 'week', 'year', 'today', 'yesterday',
+  'during', 'each item', 'item', 'items', 'quantity', 'quantities',
 ]);
+
+const CUSTOMER_STOP_TOKENS = new Set([
+  'this', 'that', 'these', 'those', 'the', 'a', 'an', 'same', 'our', 'my', 'their', 'your', 'its',
+  'customer', 'customers', 'client', 'clients', 'buyer', 'buyers', 'party', 'parties',
+  'during', 'in', 'on', 'at', 'to', 'for', 'of', 'from', 'by', 'with', 'about', 'into',
+  'each', 'every', 'all', 'any', 'item', 'items', 'product', 'products', 'material', 'materials',
+  'quantity', 'quantities', 'qty', 'month', 'week', 'year', 'day', 'days', 'today', 'yesterday',
+  'current', 'last', 'previous', 'next', 'dispatched', 'delivered', 'shipped', 'ordered', 'sent',
+  'sold', 'invoiced', 'billed', 'supplied', 'pending', 'balance', 'report', 'summary', 'details',
+  'breakdown', 'determine', 'need', 'we', 'i', 'show', 'get', 'list', 'give', 'find', 'please',
+  // Roman Urdu stop words
+  'ka', 'ki', 'ke', 'ko', 'kitna', 'kitni', 'kitne', 'howa', 'hua', 'hui', 'hue',
+  'bata', 'batao', 'batado', 'de', 'do', 'hai', 'hain', 'tha', 'the', 'is', 'iss',
+  'ye', 'yeh', 'woh', 'bana', 'bani', 'bane', 'mahina', 'mahine', 'chahiye',
+]);
+
+const CUSTOMER_BRAND_STOP_WORDS = new Set([
+  'customer', 'customers', 'client', 'clients', 'dispatch', 'dispatches', 'dispatched',
+  'material', 'materials', 'order', 'orders', 'sales', 'month', 'this', 'last', 'report',
+  'volume', 'pending', 'balance', 'summary', 'top', 'show', 'how', 'much', 'was', 'for',
+  'the', 'all', 'autos', 'auto', 'motors', 'motor', 'pakistan', 'traders', 'trading',
+  'corporation', 'corp', 'pvt', 'ltd', 'limited', 'company', 'enterprises', 'enterprise',
+  'industries', 'industry', 'wire', 'spoke', 'cable', 'control', 'division', 'department',
+  'store', 'engineering', 'works', 'group', 'parts', 'international', 'impex', 'exports',
+  'imports', 'deliveries', 'delivery', 'delivered', 'shipped', 'invoice', 'invoices',
+  'today', 'year', 'during', 'that', 'same', 'each', 'item', 'items', 'quantity', 'determine',
+  'need', 'week', 'current', 'previous',
+  // Roman Urdu filler words
+  'ka', 'ki', 'ke', 'ko', 'kitna', 'kitni', 'kitne', 'howa', 'hua', 'hui', 'hue',
+  'bata', 'batao', 'batado', 'de', 'do', 'hai', 'hain', 'tha', 'the', 'is', 'iss',
+  'ye', 'yeh', 'woh', 'bana', 'bani', 'bane', 'mahina', 'mahine', 'chahiye',
+]);
+
+/** Optimal String Alignment (Damerau-Levenshtein) distance so adjacent transpositions like "crwon" <-> "crown" have distance 1. */
+function damerauLevenshtein(a: string, b: string): number {
+  const m = a.length;
+  const n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  const d: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  for (let i = 0; i <= m; i++) d[i][0] = i;
+  for (let j = 0; j <= n; j++) d[0][j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost);
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
+        d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+      }
+    }
+  }
+  return d[m][n];
+}
+
+function isFuzzyTokenMatch(queryWord: string, targetToken: string): boolean {
+  if (queryWord === targetToken) return true;
+  if (targetToken.length < 4 || queryWord.length < 4) return false;
+  if (Math.abs(queryWord.length - targetToken.length) > 2) return false;
+  const maxDist = targetToken.length >= 7 ? 2 : 1;
+  const dist = damerauLevenshtein(queryWord, targetToken);
+  if (dist > maxDist) return false;
+  // Require same starting character for short 4-char words to prevent false positives
+  if (targetToken.length === 4 && queryWord[0] !== targetToken[0]) return false;
+  return true;
+}
+
+export interface CustomerLookupCandidate {
+  id?: string;
+  name?: string;
+  companyName?: string;
+  code?: string;
+  customerCode?: string;
+}
+
+/** Normalize customer/query text for punctuation-insensitive matching (e.g. "(Pvt) Ltd.We" -> "pvt ltd we"). */
+export function normalizeCustomerSearchText(input: string): string {
+  return String(input || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Returns true if a captured phrase is purely pronouns/prepositions/time/ERP stop-words rather than a real customer name. */
+export function isCustomerStopPhrase(candidate: string): boolean {
+  const norm = normalizeCustomerSearchText(candidate);
+  if (!norm || norm.length < 2) return true;
+  if (NON_CUSTOMER_TARGETS.has(norm)) return true;
+  if (/^(?:top\s+\d+|\d+|gross|pcs|kg|mtr|ctn|cartons?|coils?)$/i.test(norm)) return true;
+  const tokens = norm.split(' ').filter(Boolean);
+  if (tokens.length === 0) return true;
+  return tokens.every((t) => CUSTOMER_STOP_TOKENS.has(t));
+}
+
+/**
+ * Matches a natural-language query directly against the live Customer Master directory
+ * (`customerCode`, `companyName`, `name`, and distinctive normalized brand tokens)
+ * so punctuation like "Xinda Control Cable Pakistan (Pvt) Ltd.We need..." always resolves cleanly.
+ */
+export function matchCustomersInQuery<T extends CustomerLookupCandidate>(
+  rawQuery: string,
+  customers: T[],
+): T[] {
+  const normQuery = normalizeCustomerSearchText(rawQuery);
+  if (!normQuery || !Array.isArray(customers) || customers.length === 0) return [];
+
+  const queryWordSet = new Set(normQuery.split(' ').filter(Boolean));
+  const paddedQuery = ` ${normQuery} `;
+
+  const scored: Array<{ customer: T; score: number }> = [];
+
+  for (const c of customers) {
+    const code = String(c.code || c.customerCode || '').trim();
+    const normCode = normalizeCustomerSearchText(code);
+    const names = Array.from(
+      new Set(
+        [c.name, c.companyName]
+          .map((n) => String(n || '').trim())
+          .filter(Boolean),
+      ),
+    );
+
+    let bestScore = 0;
+
+    // Tier 1: Exact customer code match (e.g. CUS-XIN-001)
+    if (normCode && normCode.length >= 4 && paddedQuery.includes(` ${normCode} `)) {
+      bestScore = Math.max(bestScore, 1000 + normCode.length);
+    }
+
+    for (const nm of names) {
+      const normName = normalizeCustomerSearchText(nm);
+      if (!normName || normName.length < 2) continue;
+
+      // Tier 2: Full normalized company/customer name appears inside normalized query
+      if (paddedQuery.includes(` ${normName} `)) {
+        bestScore = Math.max(bestScore, 500 + normName.length);
+        continue;
+      }
+
+      // Tier 3: Distinctive brand tokens (excluding legal/generic suffixes like pvt, ltd, pakistan, cable, control)
+      const allTokens = normName.split(' ').filter((t) => t.length >= 2);
+      const distinctiveTokens = allTokens.filter(
+        (t) => t.length >= 3 && !CUSTOMER_BRAND_STOP_WORDS.has(t),
+      );
+      if (distinctiveTokens.length === 0) continue;
+
+      const matchedDistinctive = distinctiveTokens.filter((t) => queryWordSet.has(t));
+      if (matchedDistinctive.length === distinctiveTokens.length) {
+        bestScore = Math.max(bestScore, 200 + matchedDistinctive.join(' ').length);
+      } else if (
+        distinctiveTokens[0].length >= 4 &&
+        queryWordSet.has(distinctiveTokens[0])
+      ) {
+        // Primary brand token (e.g. "xinda" from "Xinda Control Cable Pakistan (Pvt) Ltd",
+        // or "crown" from "Crown Fit Pakistan")
+        bestScore = Math.max(bestScore, 100 + distinctiveTokens[0].length);
+      } else {
+        // Tier 4: Fuzzy / Damerau-Levenshtein typo-tolerant matching (e.g. "Crwon Fit" -> "CROWN FIT PAKISTAN")
+        const candidateQueryWords = Array.from(queryWordSet).filter(
+          (w) => w.length >= 3 && !CUSTOMER_BRAND_STOP_WORDS.has(w) && !CUSTOMER_STOP_TOKENS.has(w),
+        );
+        if (candidateQueryWords.length > 0) {
+          let fuzzyMatches = 0;
+          let primaryMatched = false;
+          distinctiveTokens.forEach((dt, idx) => {
+            const matched = candidateQueryWords.some((qw) => isFuzzyTokenMatch(qw, dt));
+            if (matched) {
+              fuzzyMatches += 1;
+              if (idx === 0) primaryMatched = true;
+            }
+          });
+          if (primaryMatched && fuzzyMatches > 0) {
+            const allMatchedBonus = fuzzyMatches === distinctiveTokens.length ? 40 : 0;
+            bestScore = Math.max(bestScore, 60 + fuzzyMatches * 25 + allMatchedBonus);
+          }
+        }
+      }
+    }
+
+    if (bestScore > 0) {
+      scored.push({ customer: c, score: bestScore });
+    }
+  }
+
+  if (scored.length === 0) return [];
+
+  scored.sort((a, b) => b.score - a.score);
+  const topScore = scored[0].score;
+  // If we have a strong exact/full-name/code match (score >= 500), prefer only those exact matches
+  if (topScore >= 500) {
+    return scored.filter((s) => s.score >= 500).map((s) => s.customer);
+  }
+  // If we matched all distinctive tokens (score >= 200), prefer those over partial/fuzzy matches
+  if (topScore >= 200) {
+    return scored.filter((s) => s.score >= 200).map((s) => s.customer);
+  }
+  // If we have an exact primary brand token match (score >= 100) or top fuzzy score, keep only top tier
+  if (topScore >= 100) {
+    return scored.filter((s) => s.score >= topScore - 10).map((s) => s.customer);
+  }
+  return scored.filter((s) => s.score >= topScore - 10).map((s) => s.customer);
+}
 
 /**
  * Extracts a specific Customer Name or Customer Code mentioned in a natural-language query,
  * e.g. "How much material was dispatched to Crown this month?" -> "Crown",
  *      "Show pending orders for Ali Shah Autos" -> "Ali Shah Autos",
- *      "CUS-CFP-001 dispatch summary" -> "CUS-CFP-001".
+ *      "CUS-CFP-001 dispatch summary" -> "CUS-CFP-001",
+ *      "Xinda Control Cable Pakistan (Pvt) Ltd.We need to determine..." -> "Xinda Control Cable Pakistan (Pvt) Ltd".
  */
-export function extractSpecificCustomer(rawQuery: string): string | undefined {
+export function extractSpecificCustomer(
+  rawQuery: string,
+  knownCustomers?: CustomerLookupCandidate[],
+): string | undefined {
   const cleaned = rawQuery.replace(/^[🎤\s]+/, '').trim();
   if (!cleaned) return undefined;
+
+  // 0. Match against live Customer Master directory first when supplied
+  if (knownCustomers && knownCustomers.length > 0) {
+    const matched = matchCustomersInQuery(cleaned, knownCustomers);
+    if (matched.length > 0) {
+      return String(matched[0].name || matched[0].companyName || matched[0].code || matched[0].customerCode || '').trim() || undefined;
+    }
+  }
 
   // 1. Explicit customer code like CUS-CFP-001
   const codeMatch = cleaned.match(/\b(CUS-[A-Z0-9-]+)\b/i);
@@ -120,21 +349,37 @@ export function extractSpecificCustomer(rawQuery: string): string | undefined {
     return codeMatch[1].toUpperCase();
   }
 
-  // 2. Natural-language dispatch / delivery / order phrases naming a customer
+  // 2. Leading company/customer name at the start of the prompt (before ".", ":", "—", or clause verb),
+  //    e.g. "Xinda Control Cable Pakistan (Pvt) Ltd.We need to determine..."
+  const leadingCompanyMatch = cleaned.match(
+    /^\s*([A-Za-z0-9][A-Za-z0-9\s&().,'-]{2,80}?(?:\(\s*Pvt\.?\s*\)\s*Ltd\.?|Pvt\.?\s*Ltd\.?|Limited|Ltd\.?|Autos?|Motors?|Industries|Traders|Enterprises?|Engineering|Corporation|Corp\.?|Impex|Works|Group))(?=\s*[.,;:—–\n]|\s+(?:we|i|please|show|need|want|how|what|dispatch|deliver|order|pending|sales)\b|$)/i,
+  );
+  if (leadingCompanyMatch && leadingCompanyMatch[1]) {
+    const leadCandidate = leadingCompanyMatch[1].replace(/[.,;:]+$/g, '').trim();
+    const startsWithVerb = /^(?:show|get|find|list|how|what|which|give|please|tell|need|we|i|check|display|compare|total|top|all|dispatch|dispatched|delivered|shipped|pending|sales)\b/i.test(
+      leadCandidate,
+    );
+    if (!startsWithVerb && !isCustomerStopPhrase(leadCandidate)) {
+      return leadCandidate;
+    }
+  }
+
+  // 3. Natural-language dispatch / delivery / order phrases naming a customer (English & Roman Urdu)
   const patterns = [
-    /\b(?:dispatched|delivered|shipped|sent|sold|invoiced|billed|supplied)\s+to\s+([A-Za-z0-9][A-Za-z0-9\s&.'-]{1,60})/i,
-    /\b(?:dispatch(?:es)?|deliver(?:y|ies)|pending\s+orders?|pending\s+balance|sales\s+orders?|orders?|invoices?)\s+(?:for|of|to)\s+(?:customer\s+)?([A-Za-z0-9][A-Za-z0-9\s&.'-]{1,60})/i,
-    /\b(?:customer|client|buyer|party)\s+(?:named\s+|called\s+)?([A-Za-z0-9][A-Za-z0-9\s&.'-]{1,60})/i,
+    /\b(?:dispatched|delivered|shipped|sent|sold|invoiced|billed|supplied)\s+to\s+([A-Za-z0-9][A-Za-z0-9\s&().,'-]{1,60})/i,
+    /\b(?:dispatch(?:es)?|deliver(?:y|ies)|pending\s+orders?|pending\s+balance|sales\s+orders?|orders?|invoices?)\s+(?:for|of|to)\s+(?:customer\s+)?([A-Za-z0-9][A-Za-z0-9\s&().,'-]{1,60})/i,
+    /\b(?:customer|client|buyer|party)\s+(?:named\s+|called\s+)?([A-Za-z0-9][A-Za-z0-9\s&().,'-]{1,60})/i,
+    /^\s*([A-Za-z0-9][A-Za-z0-9\s&().,'-]{1,50}?)\s+(?:ka|ki|ke|ko)\s+(?:dispatch(?:es|ed)?|deliver(?:y|ies|ed)?|orders?|sales|pending|balance|kitna|kitni|material)\b/i,
   ];
 
   const stripTrailingSuffix = (raw: string): string =>
     raw
       .replace(/[?!.,;:]+$/g, '')
       .replace(
-        /\s+\b(?:this\s+month|last\s+month|previous\s+month|current\s+month|this\s+week|last\s+week|this\s+year|last\s+year|last\s+\d+\s+(?:days?|months?)|today|yesterday|in\s+(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)|on\s+\d.*|from\s+\d.*|so\s+far|right\s+now|please|report|summary|details|breakdown|status|balance|pending|orders?|dispatches?|volume|by\s+sales.*)\b.*$/i,
+        /\s+\b(?:during|this\s+month|last\s+month|previous\s+month|current\s+month|this\s+week|last\s+week|this\s+year|last\s+year|last\s+\d+\s+(?:days?|months?)|today|yesterday|in\s+(?:this|last|jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)|on\s+\d.*|from\s+\d.*|so\s+far|right\s+now|please|report|summary|details|breakdown|status|balance|pending|orders?|dispatches?|volume|by\s+sales.*)\b.*$/i,
         '',
       )
-      .replace(/^(?:the|our|my)\s+/i, '')
+      .replace(/^(?:the|our|my|this|that|same)\s+/i, '')
       .trim();
 
   for (const re of patterns) {
@@ -142,9 +387,7 @@ export function extractSpecificCustomer(rawQuery: string): string | undefined {
     if (!m || !m[1]) continue;
     const candidate = stripTrailingSuffix(m[1]);
     if (!candidate || candidate.length < 2) continue;
-    const low = candidate.toLowerCase();
-    if (NON_CUSTOMER_TARGETS.has(low)) continue;
-    if (/^(?:top\s+\d+|\d+|gross|pcs|kg|mtr|ctn|cartons?)$/i.test(low)) continue;
+    if (isCustomerStopPhrase(candidate)) continue;
     return candidate;
   }
 

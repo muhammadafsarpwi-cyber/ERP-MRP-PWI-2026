@@ -185,6 +185,35 @@ export function extractStructuredTable(msg: ExportableAiMessage): {
         return `${formatQty(r.processScrapPcs)} PCS (${formatQty(r.processScrapKg)} KG)`;
       }
 
+      // Customer Specific Dispatch & Pending Breakdown composite columns (Spoke Gross/CTN & Control Cable M/Coils)
+      if (r.docBadge !== undefined && r.orderedGross !== undefined) {
+        const uom = String(r.uomLabel || 'Gross');
+        const packUnit = String(r.packUnitLabel || 'CTN');
+        if (key === 'docNumber') {
+          if (isGrandTotal) return 'GRAND TOTAL';
+          const refPart = r.linkedSoc && r.linkedSoc !== r.docNumber ? ` (Ref: ${r.linkedSoc})` : '';
+          return `${r.docDate || ''} | ${r.docNumber || ''} [${r.docBadge}]${refPart}`.trim();
+        }
+        if (key === 'itemCode') {
+          return r.itemName ? `${r.itemCode} — ${r.itemName}` : String(r.itemCode || '');
+        }
+        if (key === 'orderedGross') {
+          return `${formatQty(r.orderedGross)} ${uom} (${formatQty(r.orderedCartons ?? 0)} ${packUnit})`;
+        }
+        if (key === 'dispatchedGross') {
+          const base = `${formatQty(r.dispatchedGross)} ${uom} (${formatQty(r.dispatchedCartons ?? 0)} ${packUnit})`;
+          const cum =
+            r.cumulativeDispatched && r.cumulativeDispatched > Number(r.dispatchedGross || 0) + 0.001
+              ? ` | Cum: ${formatQty(r.cumulativeDispatched)} ${uom}`
+              : '';
+          const note = r.dispatchedNote ? ` [${r.dispatchedNote}]` : '';
+          return `${base}${cum}${note}`;
+        }
+        if (key === 'pendingGross') {
+          return `${formatQty(r.pendingGross)} ${uom} (${formatQty(r.pendingCartons ?? 0)} ${packUnit})`;
+        }
+      }
+
       if (typeof rawVal === 'number') {
         return formatQty(rawVal);
       }

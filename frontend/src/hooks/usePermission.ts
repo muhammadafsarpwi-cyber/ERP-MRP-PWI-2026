@@ -280,9 +280,42 @@ export function usePermission() {
     [permissions, divisionAccess],
   );
 
+  const isAdmin = useMemo(() => {
+    if (!user) return false;
+    const roleNames: string[] = [];
+    const collect = (r: any) => {
+      if (!r) return;
+      if (typeof r === 'string') roleNames.push(r);
+      else if (Array.isArray(r)) r.forEach(collect);
+      else if (typeof r === 'object') {
+        if (r.name) roleNames.push(String(r.name));
+        if (r.code) roleNames.push(String(r.code));
+        if (r.role?.name) roleNames.push(String(r.role.name));
+        if (r.role?.code) roleNames.push(String(r.role.code));
+      }
+    };
+    collect(user.role);
+    collect(user.roles);
+    collect(user.userRoles);
+    if (
+      roleNames.some((r) => {
+        const low = r.trim().toLowerCase();
+        return low === 'administrator' || low === 'super admin' || low === 'superadmin' || low === 'admin';
+      })
+    ) {
+      return true;
+    }
+    return (
+      permissions.includes('admin.roles.manage') ||
+      permissions.includes('admin.permissions.manage') ||
+      permissions.includes('settings.roles.manage')
+    );
+  }, [user, permissions]);
+
   return useMemo(() => ({
     user,
     permissions,
+    isAdmin,
     can,
     canAny,
     canAll,
@@ -304,6 +337,7 @@ export function usePermission() {
   }), [
     user,
     permissions,
+    isAdmin,
     can,
     canAny,
     canAll,

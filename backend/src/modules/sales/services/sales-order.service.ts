@@ -1,4 +1,9 @@
 import { Injectable, NotFoundException, BadRequestException, ConflictException, Logger, Inject, forwardRef, OnModuleInit } from '@nestjs/common';
+import {
+  extractAuditActor,
+  isAdministratorRequest,
+  recordAdminOverrideAudit,
+} from '../../../common/utils/admin-override.util';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import {
@@ -804,10 +809,20 @@ export class SalesOrderService implements OnModuleInit {
   async update(
     id: string, dto: any, userId?: string, companyId?: string,
     allowedDivisionIds?: DivisionAccess,
+    req?: any,
   ): Promise<SalesOrder> {
     const order = await this.findOne(id, companyId, allowedDivisionIds);
-    if (order.status !== 'Draft') {
-      throw new BadRequestException('Can only update orders in Draft status');
+    const statusUpper = String(order.status || 'Draft').toUpperCase();
+    const isDraft = statusUpper === 'DRAFT';
+    const isAdmin = req ? await isAdministratorRequest(req, this.repo.manager) : false;
+
+    if (!isDraft) {
+      if (!isAdmin) {
+        throw new BadRequestException('Can only update orders in Draft status');
+      }
+      if (statusUpper === 'CANCELLED') {
+        throw new BadRequestException('Cancelled orders cannot be edited.');
+      }
     }
 
     // PROMPT #27 — a client-supplied `divisionId` in the body must not be able
@@ -876,11 +891,64 @@ export class SalesOrderService implements OnModuleInit {
         (it: any) => it && it.itemId && String(it.itemId).trim() !== '',
       );
 
+      // For Admin Override Edit on non-draft orders, preserve & validate shipped quantities
+      const shippedByItemId = new Map<string, number>();
+      if (!isDraft) {
+        const existingItems = await this.itemRepo.find({ where: { salesOrderId: order.id } });
+        for (const ex of existingItems) {
+          if (!ex.itemId) continue;
+          const prev = shippedByItemId.get(ex.itemId) || 0;
+          shippedByItemId.set(ex.itemId, prev + Number(ex.shippedQuantity || 0));
+        }
+        // Reconcile actual delivered quantities from committed deliveries linked to this SOC
+        try {
+          const delRows = await this.repo.manager.query(
+            `SELECT dl.item_id, COALESCE(SUM(dl.quantity), 0) AS delivered_qty
+             FROM erp_sales.sales_delivery_lines dl
+             JOIN erp_sales.sales_deliveries d ON d.id = dl.delivery_id
+             WHERE (d.sales_order_id = $1 OR dl.description ILIKE $2)
+               AND UPPER(COALESCE(d.status, 'DRAFT')) NOT IN ('DRAFT', 'CANCELLED', 'VOID')
+               AND dl.item_id IS NOT NULL
+             GROUP BY dl.item_id`,
+            [order.id, `%[SOC: ${order.orderNumber}]%`],
+          );
+          for (const row of delRows || []) {
+            const dItemId = String(row.item_id || '');
+            const dQty = Number(row.delivered_qty || 0);
+            if (dItemId && dQty > (shippedByItemId.get(dItemId) || 0)) {
+              shippedByItemId.set(dItemId, dQty);
+            }
+          }
+        } catch {
+          // Fallback to existing item shippedQuantity if query unavailable in unit tests
+        }
+
+        const newQtyByItemId = new Map<string, number>();
+        for (const it of validItems) {
+          newQtyByItemId.set(it.itemId, (newQtyByItemId.get(it.itemId) || 0) + Number(it.quantity || 0));
+        }
+        for (const [exItemId, shippedQty] of shippedByItemId.entries()) {
+          if (shippedQty <= 0) continue;
+          const nextQty = newQtyByItemId.get(exItemId) || 0;
+          if (nextQty <= 0) {
+            throw new BadRequestException(
+              `Cannot remove item that already has dispatched quantity (${shippedQty}).`,
+            );
+          }
+          if (nextQty < shippedQty - 0.001) {
+            throw new BadRequestException(
+              `Cannot reduce item quantity (${nextQty}) below already dispatched quantity (${shippedQty}).`,
+            );
+          }
+        }
+      }
+
       await this.itemRepo.delete({ salesOrderId: order.id });
       if (validItems.length > 0) {
         let subtotal = 0;
         let lineTaxTotal = 0;
         let lineNumber = 1;
+        const remainingShippedToAssign = new Map(shippedByItemId);
         for (const itemDto of validItems) {
           let uomId = itemDto.uomId;
           if (!uomId) {
@@ -900,12 +968,16 @@ export class SalesOrderService implements OnModuleInit {
             itemDto.lineTotal !== undefined && itemDto.lineTotal !== null
               ? Math.round(Number(itemDto.lineTotal) * 100) / 100
               : Math.round((roundedBase + itemTax) * 100) / 100;
+          const availShipped = remainingShippedToAssign.get(itemDto.itemId) || 0;
+          const assignedShipped = Math.min(Number(itemDto.quantity || 0), availShipped);
+          remainingShippedToAssign.set(itemDto.itemId, Math.max(0, availShipped - assignedShipped));
           const item = this.itemRepo.create({
             salesOrderId: order.id,
             lineNumber: lineNumber++,
             itemId: itemDto.itemId,
             description: itemDto.description || null,
             quantity: itemDto.quantity,
+            shippedQuantity: assignedShipped,
             uomId: uomId || 'b932052f-141f-4d78-9baf-7025e5302442',
             unitPrice: itemDto.unitPrice,
             discountPercent: itemDto.discountPercent || 0,
@@ -954,6 +1026,18 @@ export class SalesOrderService implements OnModuleInit {
       }
       throw err;
     }
+
+    if (!isDraft && isAdmin) {
+      await recordAdminOverrideAudit(this.repo.manager, {
+        actor: extractAuditActor(req),
+        targetType: 'SALES_ORDER',
+        targetId: order.id,
+        targetName: order.orderNumber,
+        previousStatus: order.status,
+        details: `Admin override edited sales order ${order.orderNumber} (Total: ${order.totalAmount}, Items: ${Array.isArray(dto.items) ? dto.items.length : 'unchanged'})`,
+      });
+    }
+
     return this.findOne(order.id, companyId, allowedDivisionIds);
   }
 
